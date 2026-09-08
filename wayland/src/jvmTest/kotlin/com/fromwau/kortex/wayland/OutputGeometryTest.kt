@@ -14,11 +14,13 @@ import kotlin.test.fail
  * Verifies `OutputListener` reads `wl_output`'s geometry, current mode, name and scale, and publishes
  * them only once `done` arrives.
  *
- * The first leg checks every real monitor against `hyprctl monitors -j`. It cannot exercise the
- * current-mode-flag filter though: Hyprland (`src/protocols/core/Output.cpp` in v0.56.2, the version
- * installed here) always sends exactly one `mode` event, always flagged current, so no monitor on this
- * machine can ever emit a non-current one to filter out. The second leg drives the listener directly
- * with a fabricated event sequence to cover that branch.
+ * The first leg cross-checks every real monitor against `hyprctl monitors -j`. Against an unrotated
+ * monitor at the origin with an integer scale, its `x`, `y`, `transform` and `scale` assertions expect
+ * exactly [OutputListener]'s own defaults, so on this machine only `width`, `height` and `name` can
+ * tell a wired field from an unwired one. It cannot reach the current-mode-flag filter at all, because
+ * Hyprland (`src/protocols/core/Output.cpp` in v0.56.2, installed here) sends one `mode` event and
+ * always flags it current. The second leg drives the listener with a fabricated sequence in which no
+ * value can be mistaken for a default, and is what pins every field's wiring.
  */
 class OutputGeometryTest {
     @Test
