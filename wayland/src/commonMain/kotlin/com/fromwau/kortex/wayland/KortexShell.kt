@@ -88,7 +88,7 @@ public class KortexShell private constructor(
 
     private fun addBarOrError(global: WaylandGlobal): EmptyResult<KortexError> {
         val output = display.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
-        // A wl_output proxy with no listener crashes on its first event; reuse WlOutput's no-op one.
+        // A wl_output proxy with no listener crashes on its first event.
         OutputListener().install(output)
         return KortexBar.create(
             display,

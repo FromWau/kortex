@@ -44,7 +44,6 @@ public class KortexBar private constructor(
     private val scene: KortexScene,
     private val clock: FrameClock,
     private val dispatcher: ExecutorCoroutineDispatcher,
-    private val outputs: WlOutput.Handle,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
 ) : AutoCloseable {
@@ -63,7 +62,7 @@ public class KortexBar private constructor(
     // Frames a resize replaced while the compositor still held them; reaped once release() clears busy.
     private val retiring = mutableListOf<Frame>()
 
-    // A test cannot make a real compositor send wl_output.scale; this stands in for it.
+    // A test cannot make a real compositor send wl_surface.preferred_buffer_scale; this stands in for it.
     internal var scaleOverride: Int? = null
 
     /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
@@ -158,9 +157,9 @@ public class KortexBar private constructor(
         resizeTo(newWidth, newHeight)
     }
 
-    /** Acts on a later `wl_output.scale`, coalesced to whatever scale is current by the time this runs. */
+    /** Acts on a later `wl_surface.preferred_buffer_scale`, coalesced to the scale current when this runs. */
     private fun maybeRescale() {
-        val newScale = scaleOverride ?: outputs.scale
+        val newScale = scaleOverride ?: layer.preferredBufferScale
         if (newScale == bufferScale) return
         bufferScale = newScale
         cursorTheme.rescale(bufferScale)
@@ -264,9 +263,6 @@ public class KortexBar private constructor(
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
         ): Result<KortexBar, KortexError> {
-            // Kept for the bar's lifetime so a later wl_output.scale can be re-read, not just the first.
-            val outputs = WlOutput.bind(display)
-            val bufferScale = outputs.scale
             val shm = Shm.bind(display).getOrElse { return Err(it) }
             val heightPx = height.toLogicalPx()
             val layer = LayerSurface.create(
@@ -276,6 +272,8 @@ public class KortexBar private constructor(
                 // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
                 return Err(display.protocolError() ?: KortexError.SurfaceNotConfigured)
             }
+            // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
+            val bufferScale = layer.preferredBufferScale
             // Pending state only; it is committed together with the first attach() below.
             layer.setBufferScale(bufferScale)
 
@@ -324,7 +322,7 @@ public class KortexBar private constructor(
                 platform = hostPlatform,
             )
             bar = KortexBar(
-                display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher, outputs,
+                display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
                 cursorTheme, cursorSurface,
             )
             val seat = Seat.bind(display).getOrElse { return Err(it) }

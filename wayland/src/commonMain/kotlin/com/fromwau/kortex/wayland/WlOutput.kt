@@ -5,43 +5,8 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 
-/** Binds every `wl_output` global to read the compositor-reported scale factor. */
-public object WlOutput {
-    /** The scale factor to render at, read once. See [Handle.scale] for the fallback rule. */
-    public fun detectScale(display: WaylandDisplay): Int = bind(display).scale
-
-    /**
-     * Binds every `wl_output` global and keeps its listener installed, unlike [detectScale], so
-     * [Handle.scale] can be re-read after startup to observe a later `wl_output.scale` event.
-     */
-    internal fun bind(display: WaylandDisplay): Handle {
-        val outputs = display.globals.filter { it.interfaceName == "wl_output" }
-        val listeners = outputs.map { global ->
-            val listener = OutputListener()
-            listener.install(display.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT))
-            listener
-        }
-        if (listeners.isNotEmpty()) display.roundtrip()
-        return Handle(listeners)
-    }
-
-    /**
-     * The live scale factor across every bound output.
-     *
-     * Falls back to 1 when the compositor advertises no output or when outputs disagree; picking the
-     * output a surface is actually on needs `wl_surface.enter`, which is not implemented here.
-     */
-    internal class Handle(private val listeners: List<OutputListener>) {
-        val scale: Int get() = listeners.map { it.scale }.distinct().singleOrNull() ?: DEFAULT_SCALE
-    }
-
-    private const val DEFAULT_SCALE = 1
-}
-
+/** Fills the listener struct without reading anything; kortex binds a `wl_output` only to aim a surface at it. */
 internal class OutputListener {
-    @Volatile var scale: Int = 1
-        private set
-
     fun onGeometry(
         data: MemorySegment,
         proxy: MemorySegment,
@@ -59,9 +24,7 @@ internal class OutputListener {
 
     fun onDone(data: MemorySegment, proxy: MemorySegment) = Unit
 
-    fun onScale(data: MemorySegment, proxy: MemorySegment, factor: Int) {
-        scale = factor
-    }
+    fun onScale(data: MemorySegment, proxy: MemorySegment, factor: Int) = Unit
 
     fun onName(data: MemorySegment, proxy: MemorySegment, name: MemorySegment) = Unit
 

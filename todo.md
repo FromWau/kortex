@@ -11,7 +11,7 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] Frame pacing off `wl_surface.frame` — idle costs nothing (`FrameClock`, `IdleFrameTest`)
 - [x] Keyboard through xkbcommon: layout-aware keysyms, modifier state (`KeyboardInput`, `Xkb`)
 - [x] Text input via `TextField` with an IME session (`KortexTextInput`)
-- [x] HiDPI: `wl_output.scale` detection, physical-pixel rendering, logical↔buffer pointer translation
+- [x] HiDPI: per-surface scale detection, physical-pixel rendering, logical↔buffer pointer translation
 - [x] Cursor shapes from `Modifier.pointerHoverIcon` (`WlCursorTheme`)
 - [x] Configurable layer, anchor, exclusive zone, keyboard mode (`Layer`, `Anchor`, `KeyboardInteractivity`)
 
@@ -34,8 +34,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       2 → 3, `wl_compositor` 6 → 7. Listener arrays grew with them — `wl_pointer` 5 → 12 slots,
       `wl_output` 4 → 6, `wl_keyboard` 5 → 6, `wl_seat` 1 → 2 — because libwayland indexes a listener
       array by event opcode and calls straight through an empty slot. (`ProtocolVersionTest`)
-- [ ] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6), replacing
-      `WlOutput.Handle`'s guess across all outputs. Fixes mixed-DPI. (`SurfaceScaleTest`)
+- [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
+      and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
+      `get_layer_surface` with the event, so the first frame already has it. (`SurfaceScaleTest`)
 - [ ] **3. Output geometry** — `mode` width/height, `name`, `description`, published on `done`.
       (`OutputGeometryTest`)
 - [ ] **4. Key repeat** from `wl_keyboard.repeat_info`. (`KeyRepeatTest`)
@@ -86,7 +87,7 @@ items from Foundations that the presets depend on.
 - [ ] **Key repeat.** `KeyboardInput` maps state to KeyDown/KeyUp only; there is no `repeat_info`
       handling. The seat pin that blocked it is gone as of protocol task 1. → protocol task 4.
 - [ ] **Per-surface density override.** The reference takes `density = Density(2f)` and reads
-      `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the compositor's `wl_output.scale`; the unused
+      `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the surface's `preferred_buffer_scale`; the unused
       `scale` parameter on `KortexBar.create` was removed as dead, so this would reintroduce it deliberately.
 - [ ] **`exclusiveZone = -1`.** Passes through today but is neither documented nor tested. → protocol task 6.
 - [ ] **`set_exclusive_edge`.** In the table (v5), never sent. → protocol task 6.

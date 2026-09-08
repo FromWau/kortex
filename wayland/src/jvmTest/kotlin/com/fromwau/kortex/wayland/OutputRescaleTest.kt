@@ -14,9 +14,9 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * A client cannot make a real compositor send `wl_output.scale`, so this drives [KortexBar.scaleOverride]
- * instead. It proves the reaction is right — rebuilt buffers, `scene.size`, `scene.density` — but not
- * that a real event reaches that seam.
+ * A client cannot make a real compositor send `wl_surface.preferred_buffer_scale`, so this drives
+ * [KortexBar.scaleOverride] instead. It proves the reaction is right — rebuilt buffers, `scene.size`,
+ * `scene.density` — but not that a real event reaches that seam.
  */
 class OutputRescaleTest {
     @Test

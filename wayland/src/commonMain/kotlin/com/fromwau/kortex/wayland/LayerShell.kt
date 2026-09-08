@@ -86,12 +86,21 @@ public class LayerSurface internal constructor(
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
     private val state: ConfigureState,
+    private val surfaceListener: WlSurfaceListener,
 ) : AutoCloseable {
 
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
     public val logicalWidth: Int get() = state.width
     public val logicalHeight: Int get() = state.height
     public val closed: Boolean get() = state.closed
+
+    /**
+     * The buffer scale the compositor wants for this surface, from `wl_surface.preferred_buffer_scale`.
+     *
+     * It reflects the output this surface is actually on, so two surfaces on a mixed-DPI setup report
+     * different scales. Reads 1 until the compositor says otherwise, as the protocol prescribes.
+     */
+    public val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
 
     /** Blocks until the compositor has configured this surface, acknowledging the serial it sent. */
     public fun waitForConfigure(): Boolean {
@@ -175,6 +184,9 @@ public class LayerSurface internal constructor(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
                 LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),
             )
+            // Before get_layer_surface below: the compositor answers that with preferred_buffer_scale.
+            val surfaceListener = WlSurfaceListener()
+            surfaceListener.install(surface)
 
             val layerSurface = LibWayland.marshal(
                 shell, LayerShellProtocol.GET_LAYER_SURFACE, LayerShellProtocol.layerSurfaceInterface,
@@ -209,7 +221,7 @@ public class LayerSurface internal constructor(
                 args = listOf(WlArg.Num(keyboard.ordinal)),
             )
 
-            val result = LayerSurface(display, surface, layerSurface, state)
+            val result = LayerSurface(display, surface, layerSurface, state, surfaceListener)
             result.commit()
             return Ok(result)
         }
@@ -254,5 +266,61 @@ internal class ConfigureState(private val layerSurface: MemorySegment) {
         if (!resized) return false
         resized = false
         return true
+    }
+}
+
+/**
+ * Tracks the `wl_surface` events for one surface.
+ *
+ * Only `preferred_buffer_scale` carries state. The other three exist because libwayland dispatches by
+ * indexing the listener struct with the event's opcode and calls straight through an empty slot.
+ */
+internal class WlSurfaceListener {
+    @Volatile var preferredBufferScale: Int = DEFAULT_SCALE
+        private set
+
+    fun onEnter(data: MemorySegment, proxy: MemorySegment, output: MemorySegment) = Unit
+
+    fun onLeave(data: MemorySegment, proxy: MemorySegment, output: MemorySegment) = Unit
+
+    fun onPreferredBufferScale(data: MemorySegment, proxy: MemorySegment, factor: Int) {
+        preferredBufferScale = factor
+    }
+
+    fun onPreferredBufferTransform(data: MemorySegment, proxy: MemorySegment, transform: Int) = Unit
+
+    fun install(surface: MemorySegment) {
+        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(this, "onEnter", ENTER_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(this, "onLeave", LEAVE_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, PREFERRED_BUFFER_SCALE,
+            LibWayland.upcall(this, "onPreferredBufferScale", PREFERRED_BUFFER_SCALE_DESCRIPTOR),
+        )
+        listener.setAtIndex(
+            ADDRESS, PREFERRED_BUFFER_TRANSFORM,
+            LibWayland.upcall(this, "onPreferredBufferTransform", PREFERRED_BUFFER_TRANSFORM_DESCRIPTOR),
+        )
+        check(LibWayland.proxyAddListener(surface, listener, MemorySegment.NULL) == 0) {
+            "wl_proxy_add_listener rejected the surface listener"
+        }
+    }
+
+    companion object {
+        // wl_surface v6 declares exactly these four events; every slot must be filled, because
+        // libwayland indexes the struct and calls straight through it.
+        private const val EVENT_COUNT = 4L
+        private const val ENTER = 0L
+        private const val LEAVE = 1L
+        private const val PREFERRED_BUFFER_SCALE = 2L
+        private const val PREFERRED_BUFFER_TRANSFORM = 3L
+
+        /** The protocol's own starting value: a surface renders at scale 1 until the compositor says otherwise. */
+        private const val DEFAULT_SCALE = 1
+
+        private val ENTER_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+        private val LEAVE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+        private val PREFERRED_BUFFER_SCALE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+        private val PREFERRED_BUFFER_TRANSFORM_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
     }
 }
