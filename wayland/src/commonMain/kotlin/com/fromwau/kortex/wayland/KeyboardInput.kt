@@ -20,6 +20,10 @@ internal class KeyboardInput(
 ) {
     private var state: MemorySegment = MemorySegment.NULL
 
+    /** The bound `wl_keyboard`, kept only so a test can read the version it negotiated. */
+    var keyboardProxy: MemorySegment = MemorySegment.NULL
+        private set
+
     /** Whether a keymap has arrived; until it does there is no way to interpret a keycode. */
     val hasKeymap: Boolean get() = !state.equals(MemorySegment.NULL)
     private var shift = false
@@ -91,6 +95,8 @@ internal class KeyboardInput(
         meta = active and MOD_LOGO != 0
     }
 
+    fun onRepeatInfo(data: MemorySegment, proxy: MemorySegment, rate: Int, delay: Int) = Unit
+
     /**
      * Maps an X11 keysym onto Compose's [Key].
      *
@@ -117,12 +123,14 @@ internal class KeyboardInput(
     private fun Int.uppercaseVirtualKey(): Long = Character.toUpperCase(this).toLong()
 
     fun install(keyboard: MemorySegment) {
+        keyboardProxy = keyboard
         val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
         listener.setAtIndex(ADDRESS, KEYMAP, LibWayland.upcall(this, "onKeymap", KEYMAP_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(this, "onEnter", ENTER_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(this, "onLeave", LEAVE_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, KEY, LibWayland.upcall(this, "onKey", KEY_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, MODIFIERS, LibWayland.upcall(this, "onModifiers", MODIFIERS_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, REPEAT_INFO, LibWayland.upcall(this, "onRepeatInfo", REPEAT_INFO_DESCRIPTOR))
         check(LibWayland.proxyAddListener(keyboard, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the keyboard listener"
         }
@@ -153,12 +161,15 @@ internal class KeyboardInput(
         const val XK_DELETE = 0xFFFF
         const val XK_SPACE = 0x020
 
-        const val EVENT_COUNT = 5L
+        // wl_keyboard v11 declares exactly these six events; every slot must be filled, because
+        // libwayland indexes the struct and calls straight through it.
+        const val EVENT_COUNT = 6L
         const val KEYMAP = 0L
         const val ENTER = 1L
         const val LEAVE = 2L
         const val KEY = 3L
         const val MODIFIERS = 4L
+        const val REPEAT_INFO = 5L
 
         val KEYMAP_DESCRIPTOR: FunctionDescriptor =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)
@@ -170,6 +181,7 @@ internal class KeyboardInput(
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
         val MODIFIERS_DESCRIPTOR: FunctionDescriptor =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
-
+        val REPEAT_INFO_DESCRIPTOR: FunctionDescriptor =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
     }
 }

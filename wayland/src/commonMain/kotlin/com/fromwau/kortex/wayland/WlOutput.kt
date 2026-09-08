@@ -63,25 +63,33 @@ internal class OutputListener {
         scale = factor
     }
 
+    fun onName(data: MemorySegment, proxy: MemorySegment, name: MemorySegment) = Unit
+
+    fun onDescription(data: MemorySegment, proxy: MemorySegment, description: MemorySegment) = Unit
+
     fun install(output: MemorySegment) {
         val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
         listener.setAtIndex(ADDRESS, GEOMETRY, LibWayland.upcall(this, "onGeometry", GEOMETRY_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, MODE, LibWayland.upcall(this, "onMode", MODE_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, DONE, LibWayland.upcall(this, "onDone", DONE_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, SCALE, LibWayland.upcall(this, "onScale", SCALE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, NAME, LibWayland.upcall(this, "onName", NAME_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, DESCRIPTION, LibWayland.upcall(this, "onDescription", DESCRIPTION_DESCRIPTOR))
         check(LibWayland.proxyAddListener(output, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the output listener"
         }
     }
 
     companion object {
-        // wl_output v2 declares exactly these four events; every slot must be filled, because
+        // wl_output v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
-        private const val EVENT_COUNT = 4L
+        private const val EVENT_COUNT = 6L
         private const val GEOMETRY = 0L
         private const val MODE = 1L
         private const val DONE = 2L
         private const val SCALE = 3L
+        private const val NAME = 4L
+        private const val DESCRIPTION = 5L
 
         private val GEOMETRY_DESCRIPTOR = FunctionDescriptor.ofVoid(
             ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS, ADDRESS, JAVA_INT,
@@ -90,5 +98,7 @@ internal class OutputListener {
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
         private val DONE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)
         private val SCALE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+        private val NAME_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+        private val DESCRIPTION_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
     }
 }

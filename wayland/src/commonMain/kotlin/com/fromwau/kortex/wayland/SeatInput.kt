@@ -32,7 +32,11 @@ internal class PointerInput(
 ) {
     private var position = Offset.Zero
     private var buttons = PointerButtons()
-    private var pointerProxy = MemorySegment.NULL
+
+    /** The bound `wl_pointer`; not private because a test asserts the version it negotiated. */
+    var pointerProxy: MemorySegment = MemorySegment.NULL
+        private set
+
     private var enterSerial = 0
     private var shownCursor: KortexCursor? = null
 
@@ -78,6 +82,20 @@ internal class PointerInput(
         )
     }
 
+    fun onFrame(data: MemorySegment, proxy: MemorySegment) = Unit
+
+    fun onAxisSource(data: MemorySegment, proxy: MemorySegment, axisSource: Int) = Unit
+
+    fun onAxisStop(data: MemorySegment, proxy: MemorySegment, time: Int, axis: Int) = Unit
+
+    fun onAxisDiscrete(data: MemorySegment, proxy: MemorySegment, axis: Int, discrete: Int) = Unit
+
+    fun onAxisValue120(data: MemorySegment, proxy: MemorySegment, axis: Int, value120: Int) = Unit
+
+    fun onAxisRelativeDirection(data: MemorySegment, proxy: MemorySegment, axis: Int, direction: Int) = Unit
+
+    fun onWarp(data: MemorySegment, proxy: MemorySegment, x: Int, y: Int) = Unit
+
     private fun toScenePixels(x: Int, y: Int) = Offset(fixedToFloat(x) * scale, fixedToFloat(y) * scale)
 
     private fun buttonsWith(button: PointerButton, pressed: Boolean) = PointerButtons(
@@ -101,6 +119,16 @@ internal class PointerInput(
         listener.setAtIndex(ADDRESS, MOTION, LibWayland.upcall(this, "onMotion", MOTION_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, BUTTON, LibWayland.upcall(this, "onButton", BUTTON_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, AXIS, LibWayland.upcall(this, "onAxis", AXIS_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, FRAME, LibWayland.upcall(this, "onFrame", FRAME_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, AXIS_SOURCE, LibWayland.upcall(this, "onAxisSource", AXIS_SOURCE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, AXIS_STOP, LibWayland.upcall(this, "onAxisStop", AXIS_STOP_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, AXIS_DISCRETE, LibWayland.upcall(this, "onAxisDiscrete", AXIS_DISCRETE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, AXIS_VALUE120, LibWayland.upcall(this, "onAxisValue120", AXIS_VALUE120_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, AXIS_RELATIVE_DIRECTION,
+            LibWayland.upcall(this, "onAxisRelativeDirection", AXIS_RELATIVE_DIRECTION_DESCRIPTOR),
+        )
+        listener.setAtIndex(ADDRESS, WARP, LibWayland.upcall(this, "onWarp", WARP_DESCRIPTOR))
         check(LibWayland.proxyAddListener(pointer, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the pointer listener"
         }
@@ -141,14 +169,21 @@ internal class PointerInput(
         private const val BTN_RIGHT = 0x111
         private const val BTN_MIDDLE = 0x112
 
-        // wl_pointer v1 declares exactly these five events; every slot must be filled, because
+        // wl_pointer v11 declares exactly these twelve events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
-        private const val EVENT_COUNT = 5L
+        private const val EVENT_COUNT = 12L
         private const val ENTER = 0L
         private const val LEAVE = 1L
         private const val MOTION = 2L
         private const val BUTTON = 3L
         private const val AXIS = 4L
+        private const val FRAME = 5L
+        private const val AXIS_SOURCE = 6L
+        private const val AXIS_STOP = 7L
+        private const val AXIS_DISCRETE = 8L
+        private const val AXIS_VALUE120 = 9L
+        private const val AXIS_RELATIVE_DIRECTION = 10L
+        private const val WARP = 11L
 
         private val ENTER_DESCRIPTOR =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT)
@@ -159,6 +194,14 @@ internal class PointerInput(
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
         private val AXIS_DESCRIPTOR =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)
+        private val FRAME_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)
+        private val AXIS_SOURCE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+        private val AXIS_STOP_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
+        private val AXIS_DISCRETE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
+        private val AXIS_VALUE120_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
+        private val AXIS_RELATIVE_DIRECTION_DESCRIPTOR =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
+        private val WARP_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
     }
 }
 
@@ -201,14 +244,7 @@ internal class Seat private constructor(
     companion object {
         fun bind(display: WaylandDisplay): Result<Seat, KortexError> =
             display.require("wl_seat", LibWayland.seatInterface, WlVersion.SEAT).map { seat ->
-                val capabilities = SeatCapabilities()
-                val listener = LibWayland.arena.allocate(ADDRESS.byteSize())
-                listener.setAtIndex(
-                    ADDRESS, 0L, LibWayland.upcall(capabilities, "onCapabilities", CAPABILITIES_DESCRIPTOR),
-                )
-                check(LibWayland.proxyAddListener(seat, listener, MemorySegment.NULL) == 0) {
-                    "wl_proxy_add_listener rejected the seat listener"
-                }
+                val capabilities = SeatCapabilities().also { it.install(seat) }
                 display.roundtrip()
                 Seat(seat, capabilities)
             }
@@ -216,7 +252,6 @@ internal class Seat private constructor(
         private const val WL_SEAT_GET_POINTER = 0
         private const val CAPABILITY_POINTER = 1
         private const val CAPABILITY_KEYBOARD = 2
-        private val CAPABILITIES_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
         private const val WL_SEAT_GET_KEYBOARD = 1
     }
 }
@@ -226,5 +261,27 @@ internal class SeatCapabilities {
 
     fun onCapabilities(data: MemorySegment, proxy: MemorySegment, capabilities: Int) {
         value = capabilities
+    }
+
+    fun onName(data: MemorySegment, proxy: MemorySegment, name: MemorySegment) = Unit
+
+    fun install(seat: MemorySegment) {
+        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, CAPABILITIES, LibWayland.upcall(this, "onCapabilities", CAPABILITIES_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, NAME, LibWayland.upcall(this, "onName", NAME_DESCRIPTOR))
+        check(LibWayland.proxyAddListener(seat, listener, MemorySegment.NULL) == 0) {
+            "wl_proxy_add_listener rejected the seat listener"
+        }
+    }
+
+    private companion object {
+        // wl_seat v11 declares exactly these two events; every slot must be filled, because
+        // libwayland indexes the struct and calls straight through it.
+        const val EVENT_COUNT = 2L
+        const val CAPABILITIES = 0L
+        const val NAME = 1L
+
+        val CAPABILITIES_DESCRIPTOR: FunctionDescriptor = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+        val NAME_DESCRIPTOR: FunctionDescriptor = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
     }
 }

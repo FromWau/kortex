@@ -30,23 +30,22 @@ internal data class WlMessage(
 internal data class ProtocolError(val code: Int, val iface: MemorySegment, val id: Int)
 
 /**
- * The version each global is bound at.
+ * The newest version each global is bound at; `wl_registry_bind` clamps each to what the compositor offers.
  *
- * Bind the newest the protocol defines, except where kortex installs a listener: libwayland indexes
- * the listener struct positionally and calls straight through the empty slots a newer version adds.
+ * Every listener kortex installs implements its interface's full event set at these versions, because
+ * libwayland indexes the listener struct positionally and calls straight through an empty slot.
  */
 internal object WlVersion {
     /** wl_surface's `set_buffer_scale` arrives at v3 and `damage_buffer` at v4; both are sent here. */
-    const val COMPOSITOR = 6
-    const val SHM = 2
+    const val COMPOSITOR = 7
+    const val SHM = 3
     const val LAYER_SHELL = 5
     const val VIRTUAL_POINTER = 2
 
-    /** Pinned: wl_pointer and wl_keyboard inherit it, and all three listeners implement only v1's events. */
-    const val SEAT = 1
+    /** wl_pointer and wl_keyboard inherit it, so their listeners grow with it. */
+    const val SEAT = 11
 
-    /** Pinned: the listener implements geometry/mode/done/scale; v4 adds `name`/`description`. */
-    const val OUTPUT = 2
+    const val OUTPUT = 4
 }
 
 /**

@@ -40,7 +40,9 @@ internal object VirtualPointerProtocol {
 
     const val MOTION_ABSOLUTE = 1
     const val BUTTON = 2
+    const val AXIS = 3
     const val FRAME = 4
+    const val AXIS_SOURCE = 5
     const val POINTER_DESTROY = 8
 
     const val CREATE_VIRTUAL_POINTER = 0
@@ -71,6 +73,19 @@ internal class VirtualPointer internal constructor(private val pointer: MemorySe
             pointer, VirtualPointerProtocol.BUTTON,
             args = listOf(WlArg.Num(timeMillis), WlArg.Num(code), WlArg.Num(if (pressed) 1 else 0)),
         )
+    }
+
+    /** Scrolls [axis] (`wl_pointer.axis`: 0 vertical, 1 horizontal) by [value], a `wl_fixed_t`. */
+    fun axis(axis: Int, value: Int, timeMillis: Int = 0) {
+        LibWayland.marshal(
+            pointer, VirtualPointerProtocol.AXIS,
+            args = listOf(WlArg.Num(timeMillis), WlArg.Num(axis), WlArg.Num(value)),
+        )
+    }
+
+    /** Attributes the [axis] events in this group to [source], a `wl_pointer.axis_source` such as 0 for a wheel. */
+    fun axisSource(source: Int) {
+        LibWayland.marshal(pointer, VirtualPointerProtocol.AXIS_SOURCE, args = listOf(WlArg.Num(source)))
     }
 
     /** Commits every request sent since the last [frame] as one logical event group. */
