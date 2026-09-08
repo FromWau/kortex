@@ -25,16 +25,36 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] **Multi-monitor.** `KortexShell` runs one bar per `wl_output` and tracks hotplug. The reference lists
       single-monitor-only as a known limitation.
 
+## Protocol versions — branch `wayland-protocols`
+
+Every global is bound at the newest version its interface declares; `wl_registry_bind` clamps to what
+the compositor offers. No legacy paths, no version-conditional branches, no migration shims.
+
+- [x] **1. Newest bind version, full listener arrays.** `wl_seat` 1 → 11, `wl_output` 2 → 4, `wl_shm`
+      2 → 3, `wl_compositor` 6 → 7. Listener arrays grew with them — `wl_pointer` 5 → 12 slots,
+      `wl_output` 4 → 6, `wl_keyboard` 5 → 6, `wl_seat` 1 → 2 — because libwayland indexes a listener
+      array by event opcode and calls straight through an empty slot. (`ProtocolVersionTest`)
+- [ ] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6), replacing
+      `WlOutput.Handle`'s guess across all outputs. Fixes mixed-DPI. (`SurfaceScaleTest`)
+- [ ] **3. Output geometry** — `mode` width/height, `name`, `description`, published on `done`.
+      (`OutputGeometryTest`)
+- [ ] **4. Key repeat** from `wl_keyboard.repeat_info`. (`KeyRepeatTest`)
+- [ ] **5. Explicit width and `set_margin`.** (`LayerGeometryTest`)
+- [ ] **6. `exclusiveZone = -1` and `set_exclusive_edge`.** (`ExclusiveZoneTest`)
+
+Follow-up branch, once these land: the surface presets below, opening with the two architecture
+items from Foundations that the presets depend on.
+
 ## Foundations — everything below depends on these
 
 - [ ] **Explicit width.** `LayerSurface.create` takes `height` only and hardcodes width to
       `SPAN_ANCHORED_AXIS` (`LayerShell.kt:169`). A 280×80 centred OSD is unexpressible. Blocks OSD, both
-      menus, and custom surfaces.
+      menus, and custom surfaces. → protocol task 5.
 - [ ] **Margins.** `set_margin` is declared in the interface table (`LayerShell.kt:34`) but never sent —
       there is no `SET_MARGIN` opcode constant and no call site. Needs the constant, a `Margins` type, and
-      a parameter on `create`.
+      a parameter on `create`. → protocol task 5.
 - [ ] **Output geometry.** `OutputListener.onMode` discards width/height (`WlOutput.kt`). Needed to centre
-      an OSD and to flip a context menu near a screen edge.
+      an OSD and to flip a context menu near a screen edge. → protocol task 3.
 - [ ] **A surface handle.** `runBar` blocks and hands the composition nothing. The reference's
       `WaylandBridge` exposes `state`, `actualWidth/Height`, `close()`, `awaitClose()`, plus a
       `LocalWaylandBridge` composition local so content can dismiss itself. An OSD that disappears after
@@ -64,13 +84,12 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
       `.Crosshair`, `.Text` and `.Hand` are public constants, so the rest need a caller-supplied cursor
       path through `KortexPlatform`.
 - [ ] **Key repeat.** `KeyboardInput` maps state to KeyDown/KeyUp only; there is no `repeat_info`
-      handling. `wl_keyboard.repeat_info` arrives at v4 and `WlVersion.SEAT` is pinned at 1, so this means
-      unpinning the seat and filling the extra listener slots.
+      handling. The seat pin that blocked it is gone as of protocol task 1. → protocol task 4.
 - [ ] **Per-surface density override.** The reference takes `density = Density(2f)` and reads
       `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the compositor's `wl_output.scale`; the unused
       `scale` parameter on `KortexBar.create` was removed as dead, so this would reintroduce it deliberately.
-- [ ] **`exclusiveZone = -1`.** Passes through today but is neither documented nor tested.
-- [ ] **`set_exclusive_edge`.** In the table (v5), never sent.
+- [ ] **`exclusiveZone = -1`.** Passes through today but is neither documented nor tested. → protocol task 6.
+- [ ] **`set_exclusive_edge`.** In the table (v5), never sent. → protocol task 6.
 
 ## Deliberately not doing
 
