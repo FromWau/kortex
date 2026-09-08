@@ -48,7 +48,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       the protocol's wire order reach `set_size`/`set_margin`; leaving width 0 without both horizontal
       edges anchored returns `KortexError.UnspannableWidth` instead of taking the connection down.
       (`LayerGeometryTest`)
-- [ ] **6. `exclusiveZone = -1` and `set_exclusive_edge`.** (`ExclusiveZoneTest`)
+- [x] **6. `exclusiveZone = -1` and `set_exclusive_edge`.** `set_exclusive_edge` (opcode 9, since v5) now
+      reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
+      instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
 Follow-up branch, once these land: the surface presets below, opening with the two architecture
 items from Foundations that the presets depend on.

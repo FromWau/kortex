@@ -98,6 +98,7 @@ internal object LayerShellProtocol {
     const val SET_KEYBOARD_INTERACTIVITY = 4
     const val ACK_CONFIGURE = 6
     const val LAYER_SURFACE_DESTROY = 7
+    const val SET_EXCLUSIVE_EDGE = 9
 }
 
 /**
@@ -190,7 +191,16 @@ public class LayerSurface internal constructor(
          *   pin both TOP and BOTTOM.
          * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
          *   to pin both LEFT and RIGHT.
+         * @param exclusiveZone reserves this many logical pixels of screen space, meaningful only when
+         *   [anchor] pins one edge (or an edge plus both edges perpendicular to it) — anything else is
+         *   treated as zero. Zero asks to be moved clear of surfaces that do reserve space. `-1` asks not
+         *   to be moved at all and to extend all the way to the anchored edges instead, the wallpaper and
+         *   lock-screen case.
          * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
+         * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
+         *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
+         *   Sent only when non-null — the compositor raises `invalid_exclusive_edge` for an edge [anchor]
+         *   does not pin.
          * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges
          *   anchored, rather than sending a request the compositor answers by dropping the connection.
          */
@@ -205,6 +215,7 @@ public class LayerSurface internal constructor(
             margins: Margins = Margins.None,
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,
+            exclusiveEdge: Int? = null,
         ): Result<LayerSurface, KortexError> {
             // Omitting a dimension asks the compositor to pick it, which the protocol allows only when
             // both of that axis's edges are anchored; anything else it answers by dropping the connection.
@@ -257,6 +268,11 @@ public class LayerSurface internal constructor(
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE, args = listOf(WlArg.Num(exclusiveZone)),
             )
+            if (exclusiveEdge != null) {
+                LibWayland.marshal(
+                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(exclusiveEdge)),
+                )
+            }
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_MARGIN,
                 args = listOf(
