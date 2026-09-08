@@ -5,8 +5,38 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 
-/** Fills the listener struct without reading anything; kortex binds a `wl_output` only to aim a surface at it. */
+/** An output's identity and placement: name, description, position, current mode size and scale. */
+internal data class OutputGeometry(
+    val name: String,
+    val description: String,
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+    val scale: Int,
+)
+
+/**
+ * Reads a `wl_output`'s geometry, current mode, name, description and scale, so a caller can centre a
+ * surface on an output and identify which output it is.
+ *
+ * Every wl_output event is double-buffered: the compositor may re-send any of them independently, and
+ * the set is only coherent once `done` arrives. Events accumulate into pending fields here and
+ * [geometry] is replaced atomically on `done`, so a reader never observes half an update.
+ */
 internal class OutputListener {
+    @Volatile
+    var geometry: OutputGeometry? = null
+        private set
+
+    private var pendingX = 0
+    private var pendingY = 0
+    private var pendingName = ""
+    private var pendingDescription = ""
+    private var pendingWidth = 0
+    private var pendingHeight = 0
+    private var pendingScale = DEFAULT_SCALE
+
     fun onGeometry(
         data: MemorySegment,
         proxy: MemorySegment,
@@ -18,17 +48,42 @@ internal class OutputListener {
         make: MemorySegment,
         model: MemorySegment,
         transform: Int,
-    ) = Unit
+    ) {
+        pendingX = x
+        pendingY = y
+    }
 
-    fun onMode(data: MemorySegment, proxy: MemorySegment, flags: Int, width: Int, height: Int, refresh: Int) = Unit
+    fun onMode(data: MemorySegment, proxy: MemorySegment, flags: Int, width: Int, height: Int, refresh: Int) {
+        // A compositor sends every supported mode; only the one flagged current is the active one.
+        if (flags and MODE_CURRENT == 0) return
+        pendingWidth = width
+        pendingHeight = height
+    }
 
-    fun onDone(data: MemorySegment, proxy: MemorySegment) = Unit
+    fun onDone(data: MemorySegment, proxy: MemorySegment) {
+        geometry = OutputGeometry(
+            name = pendingName,
+            description = pendingDescription,
+            x = pendingX,
+            y = pendingY,
+            width = pendingWidth,
+            height = pendingHeight,
+            scale = pendingScale,
+        )
+    }
 
-    fun onScale(data: MemorySegment, proxy: MemorySegment, factor: Int) = Unit
+    fun onScale(data: MemorySegment, proxy: MemorySegment, factor: Int) {
+        pendingScale = factor
+    }
 
-    fun onName(data: MemorySegment, proxy: MemorySegment, name: MemorySegment) = Unit
+    fun onName(data: MemorySegment, proxy: MemorySegment, name: MemorySegment) {
+        // The char* arrives with zero length because C says nothing about its extent.
+        pendingName = name.reinterpret(Long.MAX_VALUE).getString(0)
+    }
 
-    fun onDescription(data: MemorySegment, proxy: MemorySegment, description: MemorySegment) = Unit
+    fun onDescription(data: MemorySegment, proxy: MemorySegment, description: MemorySegment) {
+        pendingDescription = description.reinterpret(Long.MAX_VALUE).getString(0)
+    }
 
     fun install(output: MemorySegment) {
         val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
@@ -63,5 +118,10 @@ internal class OutputListener {
         private val SCALE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
         private val NAME_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
         private val DESCRIPTION_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+
+        private const val MODE_CURRENT = 0x1
+
+        // wl_output.xml: "the client should assume a scale of 1" if the event is never sent.
+        private const val DEFAULT_SCALE = 1
     }
 }
