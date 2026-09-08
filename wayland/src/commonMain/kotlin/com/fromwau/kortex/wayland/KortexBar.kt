@@ -56,6 +56,10 @@ public class KortexBar private constructor(
     @Volatile
     private var pointerInput: PointerInput? = null
 
+    // Set once by create() after the seat is bound; null when the seat announced no keyboard.
+    @Volatile
+    private var keyboardInput: KeyboardInput? = null
+
     private var logicalWidth: Int = layer.logicalWidth
     private var logicalHeight: Int = layer.logicalHeight
 
@@ -141,6 +145,7 @@ public class KortexBar private constructor(
     }
 
     private fun reconcile() {
+        keyboardInput?.checkRepeat()
         reapRetiredFrames()
         maybeResize()
         maybeRescale()
@@ -327,7 +332,9 @@ public class KortexBar private constructor(
             )
             val seat = Seat.bind(display).getOrElse { return Err(it) }
             bar.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
-            if (keyboard != KeyboardInteractivity.None) seat.attachKeyboard(scene, { open.get() })
+            if (keyboard != KeyboardInteractivity.None) {
+                bar.keyboardInput = seat.attachKeyboard(scene, { open.get() })
+            }
             if (!seat.hasPointer) {
                 // A dead connection surfaces first as a seat with no devices; prefer the real cause.
                 val missingPointer = KortexError.MissingSeatDevice(SeatDevice.Pointer)

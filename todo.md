@@ -40,7 +40,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
 - [x] **3. Output geometry** — position, transform, `mode` width/height (current-flagged only), `name`,
       `description` and `scale`, accumulated into pending fields and published atomically on `done`, and
       reachable per bar through `KortexShell`. (`OutputGeometryTest`)
-- [ ] **4. Key repeat** from `wl_keyboard.repeat_info`. (`KeyRepeatTest`)
+- [x] **4. Key repeat** from `wl_keyboard.repeat_info`. `KeyboardInput` tracks the held key and its
+      due time, delivered through `KortexBar`'s existing tick (`reconcile`, on the loop thread) rather
+      than a timer thread, so a repeat travels the same `KortexTextInput` path a real press does.
+      (`KeyRepeatTest`)
 - [ ] **5. Explicit width and `set_margin`.** (`LayerGeometryTest`)
 - [ ] **6. `exclusiveZone = -1` and `set_exclusive_edge`.** (`ExclusiveZoneTest`)
 

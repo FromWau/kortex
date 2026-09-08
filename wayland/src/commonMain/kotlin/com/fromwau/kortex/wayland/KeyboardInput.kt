@@ -31,6 +31,15 @@ internal class KeyboardInput(
     private var alt = false
     private var meta = false
 
+    private var repeatRate = 0
+    private var repeatDelayMillis = 0
+
+    /** The key currently held, i.e. the most recent press not yet released; null when nothing repeats. */
+    private var repeatingKey: Int? = null
+
+    /** When the next repeat is due, in [System.nanoTime] units; meaningless while [repeatingKey] is null. */
+    private var nextRepeatAtNanos: Long = 0L
+
     fun onKeymap(data: MemorySegment, proxy: MemorySegment, format: Int, fd: Int, size: Int) {
         try {
             if (format != XKB_V1_FORMAT) return
@@ -53,11 +62,33 @@ internal class KeyboardInput(
     // often enough that the compositor hands the keyboard straight back to this surface.
     fun onLeave(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment) {
         scene.windowFocused = false
+        repeatingKey = null
     }
 
     fun onKey(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, key: Int, keyState: Int) {
         if (state.equals(MemorySegment.NULL)) return
-        val type = if (keyState == KEY_PRESSED) KeyEventType.KeyDown else KeyEventType.KeyUp
+        if (keyState == KEY_PRESSED) {
+            // A second key going down replaces whichever key was repeating; only the most recent one does.
+            repeatingKey = key
+            nextRepeatAtNanos = System.nanoTime() + repeatDelayMillis * NANOS_PER_MILLI
+            deliverKey(key, KeyEventType.KeyDown)
+        } else {
+            if (key == repeatingKey) repeatingKey = null
+            deliverKey(key, KeyEventType.KeyUp)
+        }
+    }
+
+    /** Delivers a due repeat for the held key; call every loop tick. Never touches libwayland itself. */
+    internal fun checkRepeat(nowNanos: Long = System.nanoTime()) {
+        val key = repeatingKey ?: return
+        // rate == 0 means the compositor asked for no repeat at all; it must never reach the division.
+        if (repeatRate == 0 || nowNanos < nextRepeatAtNanos) return
+        nextRepeatAtNanos += NANOS_PER_SECOND / repeatRate
+        deliverKey(key, KeyEventType.KeyDown)
+    }
+
+    /** Translates [key] through xkbcommon and delivers it as [type], the same path a real press takes. */
+    private fun deliverKey(key: Int, type: KeyEventType) {
         val sym = Xkb.keysym(state, key)
         // Control characters come back from xkb as codepoints below space; a text field must not insert
         // them, and Compose distinguishes them by Key rather than by codepoint.
@@ -95,7 +126,10 @@ internal class KeyboardInput(
         meta = active and MOD_LOGO != 0
     }
 
-    fun onRepeatInfo(data: MemorySegment, proxy: MemorySegment, rate: Int, delay: Int) = Unit
+    fun onRepeatInfo(data: MemorySegment, proxy: MemorySegment, rate: Int, delay: Int) {
+        repeatRate = rate
+        repeatDelayMillis = delay
+    }
 
     /**
      * Maps an X11 keysym onto Compose's [Key].
@@ -140,6 +174,8 @@ internal class KeyboardInput(
         const val KEY_PRESSED = 1
         const val XKB_V1_FORMAT = 1
         const val FIRST_PRINTABLE = 0x20
+        const val NANOS_PER_MILLI = 1_000_000L
+        const val NANOS_PER_SECOND = 1_000_000_000L
 
         // Order of xkb_state's default modifier mask, as sent in wl_keyboard.modifiers.
         const val MOD_SHIFT = 1 shl 0
