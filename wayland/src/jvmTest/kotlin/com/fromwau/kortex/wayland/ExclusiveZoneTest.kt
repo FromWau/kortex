@@ -93,13 +93,15 @@ class ExclusiveZoneTest {
             ).getOrElse { error -> fail("corner surface creation failed: $error") }
 
             corner.use {
-                assertTrue(corner.waitForConfigure(), "corner surface never configured")
-                wayland.roundtrip()
-
+                val configured = corner.waitForConfigure()
+                // A rejected edge kills the connection, so the surface just never configures. Reading the
+                // error first turns that opaque timeout into the violation that caused it.
                 assertNull(
                     display.protocolError(),
                     "an exclusiveEdge the surface is actually anchored to must not raise invalid_exclusive_edge",
                 )
+                assertTrue(configured, "corner surface never configured")
+                wayland.roundtrip()
 
                 val cornerGeometry = assertNotNull(
                     Screen.geometry(CORNER_NAMESPACE), "hyprctl layers does not report $CORNER_NAMESPACE",
