@@ -31,6 +31,9 @@ public class KortexShell private constructor(
     /** The bars currently live, one per connected output; exposed so a caller or test can inspect them. */
     public val activeBars: List<KortexBar> get() = bars.values.map { it.bar }
 
+    /** Each active bar's published output geometry, parallel to [activeBars]; null until its first `done`. */
+    internal val activeGeometries: List<OutputGeometry?> get() = bars.values.map { it.listener.geometry }
+
     init {
         display.onGlobalAdded = { global -> if (global.interfaceName == WL_OUTPUT) pendingAdds += global }
         display.onGlobalRemoved = { global -> if (global.interfaceName == WL_OUTPUT) pendingRemoves += global.name }
@@ -89,7 +92,8 @@ public class KortexShell private constructor(
     private fun addBarOrError(global: WaylandGlobal): EmptyResult<KortexError> {
         val output = display.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
         // A wl_output proxy with no listener crashes on its first event.
-        OutputListener().install(output)
+        val listener = OutputListener()
+        listener.install(output)
         return KortexBar.create(
             display,
             namespace = "$namespace-${global.name}",
@@ -99,7 +103,7 @@ public class KortexShell private constructor(
             output = output,
         ).map { bar ->
             bar.setContent(content)
-            bars[global.name] = ShellBar(output, bar)
+            bars[global.name] = ShellBar(output, listener, bar)
         }
     }
 
@@ -115,7 +119,7 @@ public class KortexShell private constructor(
         bars.keys.toList().forEach(::removeBar)
     }
 
-    private class ShellBar(val output: MemorySegment, val bar: KortexBar)
+    private class ShellBar(val output: MemorySegment, val listener: OutputListener, val bar: KortexBar)
 
     public companion object {
         /** Namespace, height, platform and keyboard are shared by every bar the shell creates. */

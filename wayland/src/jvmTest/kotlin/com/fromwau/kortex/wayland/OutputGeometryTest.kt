@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -51,8 +52,34 @@ class OutputGeometryTest {
                 assertEquals(expected.y, geometry.y, "${geometry.name}: y position mismatch")
                 assertEquals(expected.width, geometry.width, "${geometry.name}: mode width mismatch")
                 assertEquals(expected.height, geometry.height, "${geometry.name}: mode height mismatch")
+                assertEquals(expected.transform, geometry.transform, "${geometry.name}: transform mismatch")
                 // wl_output.scale is an integer and Hyprland ceil-rounds a fractional monitor scale.
                 assertEquals(ceil(expected.scale).toInt(), geometry.scale, "${geometry.name}: scale mismatch")
+            }
+        }
+    }
+
+    @Test
+    fun `a bar's published geometry is reachable through the shell that owns it`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val shell = KortexShell.create(wayland, namespace = SHELL_NAMESPACE) { }
+                .getOrElse { error -> fail("shell creation failed: $error") }
+
+            shell.use {
+                val geometries = shell.activeGeometries
+                assertTrue(geometries.isNotEmpty(), "shell has no bars to read geometry through")
+
+                geometries.forEach { geometry ->
+                    val published = assertNotNull(geometry, "a live bar's output geometry never reached the shell")
+                    val expected = assertNotNull(
+                        monitorInfo(published.name),
+                        "hyprctl monitors -j reported nothing named ${published.name}",
+                    )
+                    assertEquals(expected.width, published.width, "${published.name}: mode width mismatch")
+                    assertEquals(expected.height, published.height, "${published.name}: mode height mismatch")
+                }
             }
         }
     }
@@ -65,7 +92,9 @@ class OutputGeometryTest {
     fun `only the mode flagged current survives, and nothing publishes before done`() {
         val listener = OutputListener()
 
-        listener.onGeometry(NONE, NONE, X, Y, 0, 0, 0, LibWayland.cString("make"), LibWayland.cString("model"), 0)
+        listener.onGeometry(
+            NONE, NONE, X, Y, 0, 0, 0, LibWayland.cString("make"), LibWayland.cString("model"), TRANSFORM,
+        )
         listener.onMode(NONE, NONE, flags = NOT_CURRENT, width = 640, height = 480, refresh = 0)
         listener.onMode(NONE, NONE, flags = CURRENT, width = 1920, height = 1080, refresh = 60_000)
         listener.onMode(NONE, NONE, flags = NOT_CURRENT, width = 111, height = 222, refresh = 0)
@@ -82,12 +111,20 @@ class OutputGeometryTest {
         assertEquals(DESCRIPTION, geometry.description)
         assertEquals(X, geometry.x)
         assertEquals(Y, geometry.y)
+        assertEquals(TRANSFORM, geometry.transform)
         assertEquals(SCALE, geometry.scale)
         assertEquals(1920, geometry.width, "took a mode other than the one flagged current")
         assertEquals(1080, geometry.height, "took a mode other than the one flagged current")
     }
 
-    private data class MonitorInfo(val x: Int, val y: Int, val width: Int, val height: Int, val scale: Float)
+    private data class MonitorInfo(
+        val x: Int,
+        val y: Int,
+        val width: Int,
+        val height: Int,
+        val scale: Float,
+        val transform: Int,
+    )
 
     /** [name] is `wl_output.name`, the same string hyprctl's own "name" field reports for a monitor. */
     private fun monitorInfo(name: String): MonitorInfo? {
@@ -99,8 +136,9 @@ class OutputGeometryTest {
         val y = intField("y") ?: return null
         val width = intField("width") ?: return null
         val height = intField("height") ?: return null
+        val transform = intField("transform") ?: return null
         val scale = Regex("\"scale\": ([0-9.]+)").find(json, at)?.groupValues?.get(1)?.toFloatOrNull() ?: return null
-        return MonitorInfo(x, y, width, height, scale)
+        return MonitorInfo(x, y, width, height, scale, transform)
     }
 
     private companion object {
@@ -110,8 +148,10 @@ class OutputGeometryTest {
         const val X = 7
         const val Y = 13
         const val SCALE = 2
+        const val TRANSFORM = 3
         const val NAME = "SYNTH-1"
         const val DESCRIPTION = "Synthetic output for the current-mode-flag test"
+        const val SHELL_NAMESPACE = "kortex-geometry-test"
         val NONE: MemorySegment = MemorySegment.NULL
     }
 }

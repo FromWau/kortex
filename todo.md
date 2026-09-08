@@ -37,8 +37,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
 - [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
       and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
       `get_layer_surface` with the event, so the first frame already has it. (`SurfaceScaleTest`)
-- [x] **3. Output geometry** — `mode` width/height (current-flagged only), `name`, `description` and
-      `scale`, accumulated into pending fields and published atomically on `done`. (`OutputGeometryTest`)
+- [x] **3. Output geometry** — position, transform, `mode` width/height (current-flagged only), `name`,
+      `description` and `scale`, accumulated into pending fields and published atomically on `done`, and
+      reachable per bar through `KortexShell`. (`OutputGeometryTest`)
 - [ ] **4. Key repeat** from `wl_keyboard.repeat_info`. (`KeyRepeatTest`)
 - [ ] **5. Explicit width and `set_margin`.** (`LayerGeometryTest`)
 - [ ] **6. `exclusiveZone = -1` and `set_exclusive_edge`.** (`ExclusiveZoneTest`)
@@ -54,9 +55,10 @@ items from Foundations that the presets depend on.
 - [ ] **Margins.** `set_margin` is declared in the interface table (`LayerShell.kt:34`) but never sent —
       there is no `SET_MARGIN` opcode constant and no call site. Needs the constant, a `Margins` type, and
       a parameter on `create`. → protocol task 5.
-- [ ] **Output geometry.** Read as of protocol task 3 — `OutputListener` now publishes mode size, name,
-      description and scale on `done` (`WlOutput.kt`), internal and unconsumed so far. Still needed: a
-      preset that reads `OutputGeometry` to centre an OSD or flip a context menu near a screen edge.
+- [ ] **Output geometry.** Read as of protocol task 3 — `OutputListener` now publishes position,
+      transform, mode size, name, description and scale on `done` (`WlOutput.kt`), reachable per bar
+      through `KortexShell.activeGeometries` (internal). Still needed: a preset that reads
+      `OutputGeometry` to centre an OSD or flip a context menu near a screen edge.
 - [ ] **A surface handle.** `runBar` blocks and hands the composition nothing. The reference's
       `WaylandBridge` exposes `state`, `actualWidth/Height`, `close()`, `awaitClose()`, plus a
       `LocalWaylandBridge` composition local so content can dismiss itself. An OSD that disappears after

@@ -5,20 +5,21 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 
-/** An output's identity and placement: name, description, position, current mode size and scale. */
+/** An output's identity and placement: name, description, position, transform, current mode size and scale. */
 internal data class OutputGeometry(
     val name: String,
     val description: String,
     val x: Int,
     val y: Int,
+    val transform: Int,
     val width: Int,
     val height: Int,
     val scale: Int,
 )
 
 /**
- * Reads a `wl_output`'s geometry, current mode, name, description and scale, so a caller can centre a
- * surface on an output and identify which output it is.
+ * Reads a `wl_output`'s geometry (position and transform), current mode, name, description and scale,
+ * so a caller can centre a surface on an output and identify which output it is.
  *
  * Every wl_output event is double-buffered: the compositor may re-send any of them independently, and
  * the set is only coherent once `done` arrives. Events accumulate into pending fields here and
@@ -31,6 +32,7 @@ internal class OutputListener {
 
     private var pendingX = 0
     private var pendingY = 0
+    private var pendingTransform = 0
     private var pendingName = ""
     private var pendingDescription = ""
     private var pendingWidth = 0
@@ -51,6 +53,7 @@ internal class OutputListener {
     ) {
         pendingX = x
         pendingY = y
+        pendingTransform = transform
     }
 
     fun onMode(data: MemorySegment, proxy: MemorySegment, flags: Int, width: Int, height: Int, refresh: Int) {
@@ -66,6 +69,7 @@ internal class OutputListener {
             description = pendingDescription,
             x = pendingX,
             y = pendingY,
+            transform = pendingTransform,
             width = pendingWidth,
             height = pendingHeight,
             scale = pendingScale,
