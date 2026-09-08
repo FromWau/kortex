@@ -18,16 +18,12 @@ import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.roundToInt
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
-
-// The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
-private fun Dp.toLogicalPx(): Int = value.roundToInt()
 
 /**
  * A Compose composition rendered onto a `zwlr_layer_shell_v1` surface.
@@ -262,11 +258,11 @@ public class KortexBar private constructor(
             namespace: String = "kortex",
             height: Dp = 32.dp,
             width: Dp = 0.dp,
+            margins: Margins = Margins.None,
             platform: KortexPlatform = KortexPlatform.None,
             // Set once and never changed: Hyprland does not return the keyboard to the focused window
             // when a layer surface drops its interactivity (hyprwm/Hyprland#8293).
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-            margins: Margins = Margins.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
         ): Result<KortexBar, KortexError> {

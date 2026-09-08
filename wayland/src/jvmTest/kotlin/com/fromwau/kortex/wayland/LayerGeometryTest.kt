@@ -96,7 +96,7 @@ class LayerGeometryTest {
     }
 
     @Test
-    fun `width left at 0 with only one horizontal edge anchored is rejected before any request is sent`() {
+    fun `width left at 0 without both horizontal edges anchored is rejected before any request is sent`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
@@ -105,8 +105,8 @@ class LayerGeometryTest {
             )
 
             when (result) {
-                is Ok -> fail("a one-edge-anchored, 0-width surface must be rejected, not created: ${result.value}")
-                is Err -> assertEquals(KortexError.UnspannableWidth(Anchor.TOP), result.error)
+                is Ok -> fail("a 0-width surface without both horizontal edges anchored must be rejected: ${result.value}")
+                is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, Anchor.TOP), result.error)
             }
 
             // The rejection must happen before any request reaches the compositor, leaving the
@@ -114,6 +114,66 @@ class LayerGeometryTest {
             val sanity = LayerSurface.create(wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT)
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+        }
+    }
+
+    @Test
+    fun `height left at 0 without both vertical edges anchored is rejected before any request is sent`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            // Anchored LEFT and RIGHT, so the horizontal axis is spannable and only height can be rejected.
+            val horizontal = Anchor.LEFT or Anchor.RIGHT
+            val result = LayerSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = 0, anchor = horizontal,
+            )
+
+            when (result) {
+                is Ok -> fail("a 0-height surface without both vertical edges anchored must be rejected: ${result.value}")
+                is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Vertical, horizontal), result.error)
+            }
+
+            val sanity = LayerSurface.create(wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT)
+                .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
+            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+        }
+    }
+
+    @Test
+    fun `anchoring all four edges lets both axes be left at 0`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val monitor = bindFirstOutput(wayland)
+
+            val bar = LayerSurface.create(
+                wayland,
+                namespace = SPANNING_NAMESPACE,
+                height = 0,
+                width = 0,
+                anchor = Anchor.TOP or Anchor.BOTTOM or Anchor.LEFT or Anchor.RIGHT,
+                exclusiveZone = 0,
+                output = monitor.proxy,
+            ).getOrElse { error -> fail("a fully anchored surface must be allowed to omit both axes: $error") }
+
+            bar.use {
+                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                wayland.roundtrip()
+
+                val geometry = assertNotNull(
+                    Screen.geometry(SPANNING_NAMESPACE), "hyprctl layers does not report $SPANNING_NAMESPACE",
+                )
+                // An exclusive zone of 0 asks to be moved clear of surfaces that do reserve space, so the
+                // assigned size is whatever the compositor has left, not necessarily the whole output.
+                assertTrue(
+                    geometry.logicalWidth in 1..(monitor.geometry.width / monitor.geometry.scale),
+                    "omitting width left the compositor no size to assign: ${geometry.logicalWidth}",
+                )
+                assertTrue(
+                    geometry.logicalHeight in 1..(monitor.geometry.height / monitor.geometry.scale),
+                    "omitting height left the compositor no size to assign: ${geometry.logicalHeight}",
+                )
+            }
         }
     }
 
@@ -136,6 +196,7 @@ class LayerGeometryTest {
         const val NAMESPACE = "kortex-layer-geometry"
         const val DEFAULT_NAMESPACE = "kortex-layer-geometry-default"
         const val REJECTED_NAMESPACE = "kortex-layer-geometry-rejected"
+        const val SPANNING_NAMESPACE = "kortex-layer-geometry-spanning"
         const val HEIGHT = 96
         const val WIDTH = 240
         const val MARGIN_RIGHT = 24

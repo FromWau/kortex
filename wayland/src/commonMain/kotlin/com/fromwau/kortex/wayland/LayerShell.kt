@@ -23,11 +23,14 @@ public object Anchor {
     public const val RIGHT: Int = 8
 }
 
+/** One of a surface's two axes, each spanned by pinning both of its [Anchor] edges. */
+public enum class Axis { Horizontal, Vertical }
+
 public enum class KeyboardInteractivity { None, Exclusive, OnDemand }
 
 /**
  * Insets from the anchor point, in `set_margin`'s wire order (top, right, bottom, left) — not the CSS
- * order a reader may assume. A margin on an edge [Anchor] does not pin has no effect.
+ * order a reader may assume. A margin on an edge that [Anchor] does not pin has no effect.
  */
 public data class Margins(
     public val top: Dp = 0.dp,
@@ -40,7 +43,8 @@ public data class Margins(
     }
 }
 
-private fun Dp.toLogicalPx(): Int = value.roundToInt()
+// The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
+internal fun Dp.toLogicalPx(): Int = value.roundToInt()
 
 /** The `zwlr_layer_shell_v1` tables, from `wayland-scanner private-code wlr-layer-shell-unstable-v1.xml`. */
 internal object LayerShellProtocol {
@@ -182,12 +186,13 @@ public class LayerSurface internal constructor(
         /**
          * Creates a layer surface and drives it to its first configure.
          *
-         * @param height logical (surface-local) pixels; the surface spans whichever axis [anchor] pins
-         *   both edges of.
-         * @param width logical (surface-local) pixels, like [height]; 0 (the default) means "compositor
-         *   decides" and requires [anchor] to pin both LEFT and RIGHT, or this returns
-         *   [KortexError.UnspannableWidth] rather than send a request the compositor would reject.
+         * @param height logical (surface-local) pixels; 0 means "you choose" and requires [anchor] to
+         *   pin both TOP and BOTTOM.
+         * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
+         *   to pin both LEFT and RIGHT.
          * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
+         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges
+         *   anchored, rather than sending a request the compositor answers by dropping the connection.
          */
         public fun create(
             display: WaylandDisplay,
@@ -201,10 +206,13 @@ public class LayerSurface internal constructor(
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,
         ): Result<LayerSurface, KortexError> {
-            val spansHorizontally = anchor and (Anchor.LEFT or Anchor.RIGHT) == (Anchor.LEFT or Anchor.RIGHT)
-            if (width == SPAN_ANCHORED_AXIS && !spansHorizontally) {
-                // The compositor treats this combination as a protocol error and drops the connection.
-                return Err(KortexError.UnspannableWidth(anchor))
+            // Omitting a dimension asks the compositor to pick it, which the protocol allows only when
+            // both of that axis's edges are anchored; anything else it answers by dropping the connection.
+            if (width == SPAN_ANCHORED_AXIS && anchor and HORIZONTAL_EDGES != HORIZONTAL_EDGES) {
+                return Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
+            }
+            if (height == SPAN_ANCHORED_AXIS && anchor and VERTICAL_EDGES != VERTICAL_EDGES) {
+                return Err(KortexError.UnspannableAxis(Axis.Vertical, anchor))
             }
 
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
@@ -276,6 +284,8 @@ public class LayerSurface internal constructor(
         private const val WL_SURFACE_DAMAGE_BUFFER = 9
         private const val MAX_SPINS = 32
         private const val SPAN_ANCHORED_AXIS = 0
+        private val HORIZONTAL_EDGES = Anchor.LEFT or Anchor.RIGHT
+        private val VERTICAL_EDGES = Anchor.TOP or Anchor.BOTTOM
 
         private val CONFIGURE_DESCRIPTOR =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)

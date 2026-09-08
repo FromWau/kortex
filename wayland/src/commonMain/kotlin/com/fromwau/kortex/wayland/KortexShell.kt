@@ -18,9 +18,9 @@ public class KortexShell private constructor(
     private val namespace: String,
     private val height: Dp,
     private val width: Dp,
+    private val margins: Margins,
     private val platform: KortexPlatform,
     private val keyboard: KeyboardInteractivity,
-    private val margins: Margins,
     private val content: @Composable () -> Unit,
 ) : AutoCloseable {
 
@@ -101,9 +101,9 @@ public class KortexShell private constructor(
             namespace = "$namespace-${global.name}",
             height = height,
             width = width,
+            margins = margins,
             platform = platform,
             keyboard = keyboard,
-            margins = margins,
             output = output,
         ).map { bar ->
             bar.setContent(content)
@@ -126,18 +126,18 @@ public class KortexShell private constructor(
     private class ShellBar(val output: MemorySegment, val listener: OutputListener, val bar: KortexBar)
 
     public companion object {
-        /** Namespace, height, width, platform, keyboard and margins are shared by every bar the shell creates. */
+        /** Namespace, height, width, margins, platform and keyboard are shared by every bar the shell creates. */
         public fun create(
             display: WaylandDisplay,
             namespace: String = "kortex",
             height: Dp = 32.dp,
             width: Dp = 0.dp,
+            margins: Margins = Margins.None,
             platform: KortexPlatform = KortexPlatform.None,
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-            margins: Margins = Margins.None,
             content: @Composable () -> Unit,
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, namespace, height, width, platform, keyboard, margins, content)
+            val shell = KortexShell(display, namespace, height, width, margins, platform, keyboard, content)
             for (global in display.globals.filter { it.interfaceName == WL_OUTPUT }) {
                 shell.addBarOrError(global).getOrElse {
                     shell.close()
