@@ -44,7 +44,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       due time, delivered through `KortexBar`'s existing tick (`reconcile`, on the loop thread) rather
       than a timer thread, so a repeat travels the same `KortexTextInput` path a real press does.
       (`KeyRepeatTest`)
-- [ ] **5. Explicit width and `set_margin`.** (`LayerGeometryTest`)
+- [x] **5. Explicit width and `set_margin`.** `width` and a `Margins(top, right, bottom, left)` type in
+      the protocol's wire order reach `set_size`/`set_margin`; leaving width 0 without both horizontal
+      edges anchored returns `KortexError.UnspannableWidth` instead of taking the connection down.
+      (`LayerGeometryTest`)
 - [ ] **6. `exclusiveZone = -1` and `set_exclusive_edge`.** (`ExclusiveZoneTest`)
 
 Follow-up branch, once these land: the surface presets below, opening with the two architecture

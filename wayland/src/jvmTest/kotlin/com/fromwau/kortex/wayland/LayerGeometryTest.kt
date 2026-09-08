@@ -1,0 +1,151 @@
+package com.fromwau.kortex.wayland
+
+import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.getOrElse
+import java.lang.foreign.MemorySegment
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+import kotlin.test.fail
+
+/**
+ * Pins `set_size`'s explicit width and `set_margin`, whose wire order (top, right, bottom, left) is
+ * not the CSS order a reader might assume.
+ *
+ * The surface is anchored to BOTTOM and RIGHT only — one edge per axis, the exact combination the
+ * protocol treats as an error for an axis left at 0 — and its expected placement is computed from the
+ * output's own `wl_output` geometry, not from a hardcoded screen size, so the assertion holds regardless
+ * of what monitor the test runs against. BOTTOM+RIGHT (rather than the more obvious TOP+LEFT) sidesteps
+ * a real hazard on a live desktop: a compositor reserves space for other exclusive-zone surfaces
+ * (a real top bar, say), which shifts where a TOP-anchored surface with margin 0 actually lands, even
+ * though nothing in this task changed that.
+ */
+class LayerGeometryTest {
+    @Test
+    fun `an explicitly sized, margined, corner-anchored surface lands exactly on the anchor plus margin`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val monitor = bindFirstOutput(wayland)
+
+            val bar = LayerSurface.create(
+                wayland,
+                namespace = NAMESPACE,
+                height = HEIGHT,
+                width = WIDTH,
+                anchor = Anchor.BOTTOM or Anchor.RIGHT,
+                exclusiveZone = 0,
+                margins = Margins(
+                    top = IGNORED_MARGIN.dp, right = MARGIN_RIGHT.dp,
+                    bottom = MARGIN_BOTTOM.dp, left = IGNORED_MARGIN.dp,
+                ),
+                output = monitor.proxy,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+
+            bar.use {
+                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                wayland.roundtrip()
+
+                val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers does not report $NAMESPACE")
+
+                val monitorLogicalWidth = monitor.geometry.width / monitor.geometry.scale
+                val monitorLogicalHeight = monitor.geometry.height / monitor.geometry.scale
+                val expectedX = monitor.geometry.x + monitorLogicalWidth - WIDTH - MARGIN_RIGHT
+                val expectedY = monitor.geometry.y + monitorLogicalHeight - HEIGHT - MARGIN_BOTTOM
+
+                assertEquals(
+                    expectedX, geometry.x, "x: explicit width and/or the right margin never reached the compositor",
+                )
+                assertEquals(expectedY, geometry.y, "y: the bottom margin never reached the compositor")
+                assertEquals(WIDTH, geometry.logicalWidth, "explicit width did not reach the compositor")
+                assertEquals(HEIGHT, geometry.logicalHeight, "height regressed")
+            }
+        }
+    }
+
+    @Test
+    fun `a bar left at its default width still spans the output`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val monitor = bindFirstOutput(wayland)
+
+            val bar = LayerSurface.create(
+                wayland, namespace = DEFAULT_NAMESPACE, height = DEFAULT_HEIGHT, output = monitor.proxy,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+
+            bar.use {
+                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                wayland.roundtrip()
+
+                val geometry = assertNotNull(
+                    Screen.geometry(DEFAULT_NAMESPACE), "hyprctl layers does not report $DEFAULT_NAMESPACE",
+                )
+                val monitorLogicalWidth = monitor.geometry.width / monitor.geometry.scale
+
+                assertEquals(monitor.geometry.x, geometry.x, "default bar is not flush with the output's left edge")
+                assertEquals(
+                    monitorLogicalWidth, geometry.logicalWidth,
+                    "leaving width at 0 no longer spans the output",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `width left at 0 with only one horizontal edge anchored is rejected before any request is sent`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val result = LayerSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, anchor = Anchor.TOP,
+            )
+
+            when (result) {
+                is Ok -> fail("a one-edge-anchored, 0-width surface must be rejected, not created: ${result.value}")
+                is Err -> assertEquals(KortexError.UnspannableWidth(Anchor.TOP), result.error)
+            }
+
+            // The rejection must happen before any request reaches the compositor, leaving the
+            // connection itself unharmed; prove it by using it normally right after.
+            val sanity = LayerSurface.create(wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT)
+                .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
+            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+        }
+    }
+
+    private class BoundOutput(val proxy: MemorySegment, val geometry: OutputGeometry)
+
+    private fun bindFirstOutput(wayland: WaylandDisplay): BoundOutput {
+        val global = wayland.globals.firstOrNull { it.interfaceName == WL_OUTPUT }
+            ?: fail("no wl_output advertised to anchor the probe against")
+        val proxy = wayland.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
+        // A wl_output proxy with no listener crashes on its first event.
+        val listener = OutputListener()
+        listener.install(proxy)
+        wayland.roundtrip()
+        val geometry = assertNotNull(listener.geometry, "output ${global.name} never published geometry")
+        return BoundOutput(proxy, geometry)
+    }
+
+    private companion object {
+        const val WL_OUTPUT = "wl_output"
+        const val NAMESPACE = "kortex-layer-geometry"
+        const val DEFAULT_NAMESPACE = "kortex-layer-geometry-default"
+        const val REJECTED_NAMESPACE = "kortex-layer-geometry-rejected"
+        const val HEIGHT = 96
+        const val WIDTH = 240
+        const val MARGIN_RIGHT = 24
+        const val MARGIN_BOTTOM = 18
+
+        // Distinct from MARGIN_RIGHT/MARGIN_BOTTOM: a set_margin wire-order mixup that sent this value
+        // where the right or bottom margin belongs would otherwise go unnoticed, since top/left aren't
+        // anchored here and their own margins must have no effect at all.
+        const val IGNORED_MARGIN = 41
+
+        const val DEFAULT_HEIGHT = 32
+    }
+}

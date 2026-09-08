@@ -32,6 +32,9 @@ public sealed interface KortexError : IError {
         public val objectId: Int,
     ) : KortexError
 
+    /** Width was left 0 ("compositor decides") while [anchor] pins only one of LEFT/RIGHT; the protocol forbids it. */
+    public data class UnspannableWidth(public val anchor: Int) : KortexError
+
     /** Allocating a shared-memory buffer failed at [step]. */
     public data class ShmAllocationFailed(public val step: ShmStep) : KortexError
 }

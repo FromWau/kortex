@@ -1,5 +1,7 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
@@ -8,6 +10,7 @@ import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
+import kotlin.math.roundToInt
 
 /** Which layer a surface sits in. Other windows tile around anything below `Overlay`. */
 public enum class Layer { Background, Bottom, Top, Overlay }
@@ -21,6 +24,23 @@ public object Anchor {
 }
 
 public enum class KeyboardInteractivity { None, Exclusive, OnDemand }
+
+/**
+ * Insets from the anchor point, in `set_margin`'s wire order (top, right, bottom, left) — not the CSS
+ * order a reader may assume. A margin on an edge [Anchor] does not pin has no effect.
+ */
+public data class Margins(
+    public val top: Dp = 0.dp,
+    public val right: Dp = 0.dp,
+    public val bottom: Dp = 0.dp,
+    public val left: Dp = 0.dp,
+) {
+    public companion object {
+        public val None: Margins = Margins()
+    }
+}
+
+private fun Dp.toLogicalPx(): Int = value.roundToInt()
 
 /** The `zwlr_layer_shell_v1` tables, from `wayland-scanner private-code wlr-layer-shell-unstable-v1.xml`. */
 internal object LayerShellProtocol {
@@ -70,6 +90,7 @@ internal object LayerShellProtocol {
     const val SET_SIZE = 0
     const val SET_ANCHOR = 1
     const val SET_EXCLUSIVE_ZONE = 2
+    const val SET_MARGIN = 3
     const val SET_KEYBOARD_INTERACTIVITY = 4
     const val ACK_CONFIGURE = 6
     const val LAYER_SURFACE_DESTROY = 7
@@ -163,17 +184,29 @@ public class LayerSurface internal constructor(
          *
          * @param height logical (surface-local) pixels; the surface spans whichever axis [anchor] pins
          *   both edges of.
+         * @param width logical (surface-local) pixels, like [height]; 0 (the default) means "compositor
+         *   decides" and requires [anchor] to pin both LEFT and RIGHT, or this returns
+         *   [KortexError.UnspannableWidth] rather than send a request the compositor would reject.
+         * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
          */
         public fun create(
             display: WaylandDisplay,
             namespace: String,
             height: Int,
+            width: Int = SPAN_ANCHORED_AXIS,
             layer: Layer = Layer.Top,
             anchor: Int = Anchor.TOP or Anchor.LEFT or Anchor.RIGHT,
             exclusiveZone: Int = height,
+            margins: Margins = Margins.None,
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,
         ): Result<LayerSurface, KortexError> {
+            val spansHorizontally = anchor and (Anchor.LEFT or Anchor.RIGHT) == (Anchor.LEFT or Anchor.RIGHT)
+            if (width == SPAN_ANCHORED_AXIS && !spansHorizontally) {
+                // The compositor treats this combination as a protocol error and drops the connection.
+                return Err(KortexError.UnspannableWidth(anchor))
+            }
+
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
             val shell = display
@@ -211,10 +244,19 @@ public class LayerSurface internal constructor(
             LibWayland.marshal(layerSurface, LayerShellProtocol.SET_ANCHOR, args = listOf(WlArg.Num(anchor)))
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_SIZE,
-                args = listOf(WlArg.Num(SPAN_ANCHORED_AXIS), WlArg.Num(height)),
+                args = listOf(WlArg.Num(width), WlArg.Num(height)),
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE, args = listOf(WlArg.Num(exclusiveZone)),
+            )
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_MARGIN,
+                args = listOf(
+                    WlArg.Num(margins.top.toLogicalPx()),
+                    WlArg.Num(margins.right.toLogicalPx()),
+                    WlArg.Num(margins.bottom.toLogicalPx()),
+                    WlArg.Num(margins.left.toLogicalPx()),
+                ),
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_KEYBOARD_INTERACTIVITY,

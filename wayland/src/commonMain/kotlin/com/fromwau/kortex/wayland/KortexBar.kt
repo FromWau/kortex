@@ -261,17 +261,21 @@ public class KortexBar private constructor(
             display: WaylandDisplay,
             namespace: String = "kortex",
             height: Dp = 32.dp,
+            width: Dp = 0.dp,
             platform: KortexPlatform = KortexPlatform.None,
             // Set once and never changed: Hyprland does not return the keyboard to the focused window
             // when a layer surface drops its interactivity (hyprwm/Hyprland#8293).
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
+            margins: Margins = Margins.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
         ): Result<KortexBar, KortexError> {
             val shm = Shm.bind(display).getOrElse { return Err(it) }
             val heightPx = height.toLogicalPx()
+            val widthPx = width.toLogicalPx()
             val layer = LayerSurface.create(
-                display, namespace = namespace, height = heightPx, keyboard = keyboard, output = output,
+                display, namespace = namespace, height = heightPx, width = widthPx, margins = margins,
+                keyboard = keyboard, output = output,
             ).getOrElse { return Err(it) }
             if (!layer.waitForConfigure()) {
                 // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
