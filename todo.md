@@ -124,6 +124,23 @@ are done.
       to span an axis it has no anchor for gets `KortexError.UnspannableAxis`. `runBar` is the one
       published statement of the default bar's shape. (`SurfaceConfigTest`)
 
+## Next branch — raising a surface while the host runs
+
+- [ ] **A surface can only be placed when `runSurfaces` is called.** It takes its specs up front and then
+      blocks, and `KortexShell`'s placement is private, so nothing can raise a surface in response to an
+      event. `osd`, `appMenu` and `contextMenu` are the presets this makes unreachable: a context menu is
+      built from the position of a click that has not happened yet, and an OSD that content dismisses
+      cannot come back. Their KDoc says so.
+      The hard part is not the shell method — it is who holds the shell, since `runSurfaces` blocks for the
+      lifetime of the host. Whatever that handle turns out to be, it must reach the loop thread the way
+      `KortexSurfaceHandle.close()` already does, because only that thread may call libwayland.
+- [ ] **A surface cannot be aimed at a chosen output.** `OutputTarget` offers `EveryOutput` and
+      `CompositorChoice` only, and `KortexSurface.create`'s `output` is internal. A context menu belongs on
+      the output the click happened on, so this and the item above are the same feature.
+- [ ] **A `CompositorChoice` surface is never replaced** once the output it was placed on goes away, while
+      `EveryOutput` surfaces return on replug. Documented on `OutputTarget.CompositorChoice`; recreating it
+      is a design change that belongs with the item above.
+
 ## Polish
 
 - [ ] **Cursor shapes.** kortex maps 4 (`Default`, `Crosshair`, `Text`, `Hand`); the reference names 10 —
