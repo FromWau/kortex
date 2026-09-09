@@ -7,7 +7,14 @@ public sealed interface OutputTarget {
     /** One surface per connected `wl_output`, following outputs as they come and go. */
     public data object EveryOutput : OutputTarget
 
-    /** A single surface that names no output, leaving the compositor to place it. */
+    /**
+     * A single surface that names no output, leaving the compositor to place it.
+     *
+     * It is created once and never replaced: should the output the compositor put it on go away, the
+     * surface goes with it and nothing brings it back, where an [EveryOutput] surface reappears when
+     * an output is plugged in again. A host that needs one on screen after a monitor change has to ask
+     * for it again.
+     */
     public data object CompositorChoice : OutputTarget
 }
 

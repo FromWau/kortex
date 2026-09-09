@@ -73,15 +73,15 @@ are done.
 - [x] **Several independent surfaces on one connection.** `runSurfaces(vararg SurfaceSpec)` is the general
       entry point and `runBar` is one spec over it. A `SurfaceSpec` pairs a `SurfaceConfig` with an
       `OutputTarget` — `EveryOutput` for one surface per `wl_output`, following hotplug, `CompositorChoice`
-      for a single surface that names no output — and the content to draw on it. `KortexShell` tracks
-      outputs and surfaces separately, so a dock, an OSD and a menu run side by side on one connection,
-      and `activeSurfaces` hands out each surface already paired with the spec it came from and its
-      output's geometry rather than a second list parallel by naming convention. `runSurfaces`,
-      `runBar` and `KortexShell.create` are how a host opens a surface; `KortexSurface.create` is
-      internal, since filling its `wl_output` needs a proxy only this module can bind. The shell's loop
-      ends when no surface is left and none can return, so a host whose content closed itself stops
-      instead of spinning on an empty screen, while an `EveryOutput` spec with no output waits for one.
-      (`MultiSurfaceTest`)
+      for a single surface that names no output, created once and not put back should the compositor close
+      it — and the content to draw on it. `KortexShell` tracks outputs and surfaces separately, so a
+      dock, an OSD and a menu run side by side on one connection, and `activeSurfaces` hands out each
+      surface already paired with the spec it came from and its output's geometry rather than a second
+      list parallel by naming convention. `runSurfaces`, `runBar` and `KortexShell.create` are how a
+      host opens a surface; `KortexSurface.create` is internal, since filling its `wl_output` needs a
+      proxy only this module can bind. The shell's loop ends when no surface is left and none can
+      return, so a host whose content closed itself stops instead of spinning on an empty screen, while
+      an `EveryOutput` spec with no output waits for one. (`MultiSurfaceTest`)
 
 ## Surface presets
 

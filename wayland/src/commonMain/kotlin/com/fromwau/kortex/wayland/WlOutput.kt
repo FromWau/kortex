@@ -14,8 +14,11 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  * @property y the output's position in the compositor's global logical space.
  * @property transform `wl_output.transform`'s wire value: 0 is unrotated, and higher values are the
  *   rotations and flips the protocol enumerates from there.
- * @property width the current mode's width in physical (buffer) pixels; divide by [scale] for the
- *   logical size a `configure` reports, such as [SurfaceConfig.contextMenu]'s `outputSize`.
+ * @property width the current mode's width in physical (buffer) pixels. Dividing by [scale] gives the
+ *   logical size a `configure` reports — such as [SurfaceConfig.contextMenu]'s `outputSize` — but only
+ *   exactly at an integer [scale]. kortex binds no `wp_fractional_scale_v1`, so a fractionally scaled
+ *   output's logical size cannot be obtained through this type at all: at 1.5, [scale] reads 2 and the
+ *   division comes out a quarter short.
  * @property height the current mode's height in physical (buffer) pixels, like [width].
  * @property scale `wl_output.scale`, an integer that overstates a fractional compositor scale (Hyprland
  *   ceil-rounds it).

@@ -6,8 +6,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
 /**
- * Which layer a surface sits in, numbered as `zwlr_layer_shell_v1.layer` numbers them. Other windows
- * tile around anything below `Overlay`.
+ * Which layer a surface sits in, numbered as `zwlr_layer_shell_v1.layer` numbers them. Purely a
+ * z-depth: whether other windows tile around a surface is [ExclusiveZone]'s to say, at any layer.
  */
 public enum class Layer(internal val wireValue: Int) {
     Background(0),
