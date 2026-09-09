@@ -1,5 +1,7 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import kotlin.math.abs
@@ -11,9 +13,9 @@ import kotlin.test.fail
 
 /**
  * Pins that [SurfaceConfig.panel], [SurfaceConfig.dock], [SurfaceConfig.desktopBackground],
- * [SurfaceConfig.lockScreen], [SurfaceConfig.osd] and [SurfaceConfig.appMenu] assemble the layer,
- * anchor and exclusive zone each promises, and that reaches the compositor rather than being dropped
- * or replaced by a default on the way through.
+ * [SurfaceConfig.lockScreen], [SurfaceConfig.osd], [SurfaceConfig.appMenu] and
+ * [SurfaceConfig.contextMenu] assemble the layer, anchor and exclusive zone each promises, and that
+ * reaches the compositor rather than being dropped or replaced by a default on the way through.
  */
 class SurfacePresetTest {
     @Test
@@ -224,6 +226,61 @@ class SurfacePresetTest {
         }
     }
 
+    @Test
+    fun `contextMenu sits at the output point it was given, across a panel's reserved space`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val output = bindFirstOutput(wayland)
+            val before = monitor(output.geometry.name)
+            // A reservation of this test's own, so the assertion below does not rest on whatever the
+            // surrounding desktop happens to reserve.
+            val panelConfig = SurfaceConfig.panel(edge = Edge.Left, thickness = MENU_PANEL_THICKNESS.dp)
+                .copy(namespace = MENU_PANEL_NAMESPACE)
+            val panel = KortexSurface.create(wayland, panelConfig, output = output.proxy)
+                .getOrElse { error -> fail("panel creation failed: $error") }
+
+            panel.use {
+                wayland.roundtrip()
+                awaitReserved(output.geometry.name) { it.usableX - before.usableX == MENU_PANEL_THICKNESS }
+
+                val outputSize = IntSize(
+                    output.geometry.width / output.geometry.scale,
+                    output.geometry.height / output.geometry.scale,
+                )
+                val config = SurfaceConfig
+                    .contextMenu(
+                        at = IntOffset(MENU_X, MENU_Y),
+                        menuSize = IntSize(MENU_WIDTH, MENU_HEIGHT),
+                        outputSize = outputSize,
+                    )
+                    .copy(namespace = MENU_NAMESPACE)
+
+                val menu = KortexSurface.create(wayland, config, output = output.proxy)
+                    .getOrElse { error -> fail("contextMenu creation failed: $error") }
+
+                menu.use {
+                    wayland.roundtrip()
+
+                    val geometry = assertNotNull(
+                        Screen.geometry(MENU_NAMESPACE), "hyprctl layers does not report $MENU_NAMESPACE",
+                    )
+                    assertEquals(Layer.Overlay, geometry.layer, "contextMenu did not land above every other layer")
+                    assertEquals(
+                        output.geometry.x + MENU_X, geometry.x,
+                        "contextMenu is not at the x it was given, in output coordinates",
+                    )
+                    assertEquals(
+                        output.geometry.y + MENU_Y, geometry.y,
+                        "contextMenu is not at the y it was given, in output coordinates",
+                    )
+                    assertEquals(MENU_WIDTH, geometry.logicalWidth, "contextMenu is not its own requested width")
+                    assertEquals(MENU_HEIGHT, geometry.logicalHeight, "contextMenu is not its own requested height")
+                }
+            }
+        }
+    }
+
     private fun assertCentredInUsableArea(before: Monitor, width: Int, height: Int, geometry: LayerGeometry) {
         val expectedX = before.usableX + (before.usableWidth - width) / 2
         val expectedY = before.usableY + (before.usableHeight - height) / 2
@@ -258,6 +315,8 @@ class SurfacePresetTest {
         const val LOCK_NAMESPACE = "kortex-preset-lock"
         const val OSD_NAMESPACE = "kortex-preset-osd"
         const val APP_MENU_NAMESPACE = "kortex-preset-app-menu"
+        const val MENU_NAMESPACE = "kortex-preset-context-menu"
+        const val MENU_PANEL_NAMESPACE = "kortex-preset-context-menu-panel"
 
         // Distinct from each other and from the sizes other tests use, so a preset reaching the wrong
         // field shows up as a wrong number rather than an accidental match.
@@ -267,6 +326,13 @@ class SurfacePresetTest {
         const val OSD_HEIGHT = 47
         const val APP_MENU_WIDTH = 311
         const val APP_MENU_HEIGHT = 199
+        const val MENU_WIDTH = 181
+        const val MENU_HEIGHT = 127
+        const val MENU_PANEL_THICKNESS = 53
+
+        // Far enough from every edge that the menu keeps its top-left corner at the point and no axis flips.
+        const val MENU_X = 613
+        const val MENU_Y = 409
 
         const val SETTLE_TIMEOUT_MILLIS = 2000L
         const val POLL_INTERVAL_MILLIS = 100L

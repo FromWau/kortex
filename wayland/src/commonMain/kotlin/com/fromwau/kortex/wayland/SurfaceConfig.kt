@@ -206,6 +206,9 @@ public data class SurfaceConfig(
          * A pure function of its three inputs: nothing here reads a compositor, so a caller supplies
          * both sizes in the logical (surface-local) space `configure` and [OutputGeometry] report.
          *
+         * [ExclusiveZone.Overlap] is what makes [at] and [outputSize] output coordinates: yielding would
+         * measure them from whatever the surfaces that reserve space happen to leave over instead.
+         *
          * A [menuSize] wider or taller than [outputSize] still flips on that axis, coming to rest against
          * the far edge rather than clamping to [outputSize] or overflowing past the edge nearest [at].
          */
@@ -234,7 +237,7 @@ public data class SurfaceConfig(
                 width = menuSize.width.dp,
                 height = menuSize.height.dp,
                 margins = margins,
-                exclusiveZone = ExclusiveZone.Yield,
+                exclusiveZone = ExclusiveZone.Overlap,
             )
         }
     }

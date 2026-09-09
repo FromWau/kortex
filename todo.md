@@ -104,7 +104,12 @@ are done.
       independently per axis. A pure function of its three inputs, so the flip logic needs no compositor
       to test. A menu wider or taller than `outputSize` still flips on that axis: the anchored corner
       sits at `at` and the excess runs off the opposite edge, so the answer stays one consistent corner
-      rather than a special case. (`MenuAnchorTest`)
+      rather than a special case. It carries `ExclusiveZone.Overlap`, which is what makes `at` and
+      `outputSize` output coordinates: a yielding menu is anchored and margined inside whatever the
+      surfaces that reserve space leave over, so a bar's zone displaces it by that bar's thickness.
+      A corner anchor is two perpendicular edges, so `Overlap` has edges to extend to and the explicit
+      size survives — the restriction that forces `osd` onto `Yield` does not reach here.
+      (`MenuAnchorTest` for the flip, `SurfacePresetTest` for the coordinate space)
 - [x] `SurfaceConfig.lockScreen()` — `Layer.Overlay` with `KeyboardInteractivity.Exclusive`, anchored to
       all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no `ext-session-lock-v1`.
       (`SurfacePresetTest`)
