@@ -71,7 +71,8 @@ public class KortexBar private constructor(
         override val size: IntSize get() = sizeState.value
 
         override fun close() {
-            // Compose can call this from the frame thread; every libwayland call must run on the loop thread.
+            // markClosed() itself needs no thread confinement, but the hop keeps this on setCursor's
+            // pattern and stays correct if closing ever grows a real libwayland call.
             queue += { layer.markClosed() }
         }
     }

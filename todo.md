@@ -63,10 +63,14 @@ presets depend on.
       size, name, description and scale on `done` (`WlOutput.kt`), reachable per bar through
       `KortexShell.activeGeometries` (internal). Still needed: a preset that reads `OutputGeometry` to
       flip a context menu near a screen edge.
-- [ ] **A surface handle.** `runBar` blocks and hands the composition nothing. The reference's
-      `WaylandBridge` exposes `state`, `actualWidth/Height`, `close()`, `awaitClose()`, plus a
-      `LocalWaylandBridge` composition local so content can dismiss itself. An OSD that disappears after
-      2 s and a menu that closes on click both need this.
+- [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
+      composition local, provided by `KortexBar.setContent` around the caller's content; `compose` still
+      knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state so a
+      configure recomposes a reader. `close()` posts onto the bar's queue and sets the same flag a real
+      `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceBars` reaps a self-close through the
+      one existing teardown path. No `awaitClose()` — the blocking entry point is already the host's
+      wait, and a second way to wait for the same event would be an abstraction with one caller.
+      (`SurfaceHandleTest`)
 - [ ] **Several independent surfaces on one connection.** `KortexShell` runs the *same* content once per
       output; it cannot host a dock plus an OSD plus a menu at once. Likely a generalisation of
       `KortexShell.serviceBars` from "bars per output" to "surfaces".
