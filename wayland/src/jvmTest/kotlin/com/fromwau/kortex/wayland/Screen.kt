@@ -34,7 +34,7 @@ internal object Screen {
                 val entry = entries.firstOrNull { it.namespace == namespace } ?: continue
                 return LayerGeometry(
                     monitor = monitor,
-                    layer = Layer.entries[level.toInt()],
+                    layer = Layer.entries.first { it.value == level.toInt() },
                     x = entry.x,
                     y = entry.y,
                     logicalWidth = entry.w,

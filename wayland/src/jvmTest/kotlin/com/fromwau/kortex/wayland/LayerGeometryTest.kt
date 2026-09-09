@@ -16,9 +16,9 @@ import kotlin.test.fail
  * not the CSS order a reader might assume.
  *
  * Placement is computed from the output's own `wl_output` geometry rather than a hardcoded screen
- * size, so it holds on whichever monitor the test runs against. The anchor is BOTTOM+RIGHT rather than
- * the more obvious TOP+LEFT because a desktop's own top bar reserves an exclusive zone, which shifts
- * anything anchored to TOP.
+ * size, so it holds on whichever monitor the test runs against. The anchor is Bottom+Right rather than
+ * the more obvious Top+Left because a desktop's own top bar reserves an exclusive zone, which shifts
+ * anything anchored to Top.
  */
 class LayerGeometryTest {
     @Test
@@ -33,8 +33,8 @@ class LayerGeometryTest {
                 namespace = NAMESPACE,
                 height = HEIGHT,
                 width = WIDTH,
-                anchor = Anchor.BOTTOM or Anchor.RIGHT,
-                exclusiveZone = 0,
+                anchor = setOf(Edge.Bottom, Edge.Right),
+                exclusiveZone = ExclusiveZone.Yield,
                 margins = Margins(
                     top = IGNORED_MARGIN.dp, right = MARGIN_RIGHT.dp,
                     bottom = MARGIN_BOTTOM.dp, left = IGNORED_MARGIN.dp,
@@ -74,7 +74,7 @@ class LayerGeometryTest {
                 wayland,
                 namespace = DEFAULT_NAMESPACE,
                 height = DEFAULT_HEIGHT,
-                exclusiveZone = DEFAULT_HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(DEFAULT_HEIGHT.dp),
                 output = monitor.proxy,
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
@@ -102,20 +102,21 @@ class LayerGeometryTest {
 
         display.use { wayland ->
             val result = LayerSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, anchor = Anchor.TOP,
-                exclusiveZone = HEIGHT,
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, anchor = setOf(Edge.Top),
+                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
 
             when (result) {
                 is Ok ->
                     fail("a 0-width surface without both horizontal edges anchored must be rejected: ${result.value}")
-                is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, Anchor.TOP), result.error)
+                is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, setOf(Edge.Top)), result.error)
             }
 
             // The rejection must happen before any request reaches the compositor, leaving the
             // connection itself unharmed; prove it by using it normally right after.
             val sanity = LayerSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, exclusiveZone = HEIGHT,
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
@@ -127,11 +128,11 @@ class LayerGeometryTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            // Anchored LEFT and RIGHT, so the horizontal axis is spannable and only height can be rejected.
-            val horizontal = Anchor.LEFT or Anchor.RIGHT
+            // Anchored Left and Right, so the horizontal axis is spannable and only height can be rejected.
+            val horizontal = setOf(Edge.Left, Edge.Right)
             val result = LayerSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = 0, anchor = horizontal,
-                exclusiveZone = 0,
+                exclusiveZone = ExclusiveZone.Yield,
             )
 
             when (result) {
@@ -141,7 +142,8 @@ class LayerGeometryTest {
             }
 
             val sanity = LayerSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, exclusiveZone = HEIGHT,
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
@@ -159,16 +161,17 @@ class LayerGeometryTest {
                 namespace = RESIZED_NAMESPACE,
                 height = HEIGHT,
                 width = WIDTH,
-                anchor = Anchor.TOP,
-                exclusiveZone = 0,
+                anchor = setOf(Edge.Top),
+                exclusiveZone = ExclusiveZone.Yield,
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
                 assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
 
                 when (val result = bar.setSize(SPAN_ANCHORED_AXIS, HEIGHT)) {
-                    is Ok -> fail("a 0 width on a surface anchored to TOP alone must be rejected")
-                    is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, Anchor.TOP), result.error)
+                    is Ok -> fail("a 0 width on a surface anchored to Top alone must be rejected")
+                    is Err ->
+                        assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, setOf(Edge.Top)), result.error)
                 }
 
                 // A rejected request must not have reached the wire at all, so committing after it is
@@ -192,8 +195,8 @@ class LayerGeometryTest {
                 namespace = SPANNING_NAMESPACE,
                 height = 0,
                 width = 0,
-                anchor = Anchor.TOP or Anchor.BOTTOM or Anchor.LEFT or Anchor.RIGHT,
-                exclusiveZone = 0,
+                anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+                exclusiveZone = ExclusiveZone.Yield,
                 output = monitor.proxy,
             ).getOrElse { error -> fail("a fully anchored surface must be allowed to omit both axes: $error") }
 

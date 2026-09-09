@@ -12,16 +12,16 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import kotlin.math.roundToInt
 
-/** Edges a layer surface is anchored to. Anchoring both edges of an axis spans that axis. */
-public object Anchor {
-    public const val TOP: Int = 1
-    public const val BOTTOM: Int = 2
-    public const val LEFT: Int = 4
-    public const val RIGHT: Int = 8
-}
-
 // The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
 internal fun Dp.toLogicalPx(): Int = value.roundToInt()
+
+internal fun Set<Edge>.toBits(): Int = fold(0) { bits, edge -> bits or edge.bit }
+
+internal fun ExclusiveZone.toWireValue(): Int = when (this) {
+    is ExclusiveZone.Reserve -> amount.toLogicalPx()
+    ExclusiveZone.Yield -> 0
+    ExclusiveZone.Overlap -> -1
+}
 
 /** The `zwlr_layer_shell_v1` tables, from `wayland-scanner private-code wlr-layer-shell-unstable-v1.xml`. */
 internal object LayerShellProtocol {
@@ -88,7 +88,7 @@ public class LayerSurface internal constructor(
     private val display: WaylandDisplay,
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
-    private val anchor: Int,
+    private val anchor: Set<Edge>,
     private val state: ConfigureState,
     private val surfaceListener: WlSurfaceListener,
 ) : AutoCloseable {
@@ -171,23 +171,19 @@ public class LayerSurface internal constructor(
          * Creates a layer surface and drives it to its first configure.
          *
          * @param height logical (surface-local) pixels; 0 means "you choose" and requires [anchor] to
-         *   pin both TOP and BOTTOM.
+         *   pin both [Edge.Top] and [Edge.Bottom].
          * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
-         *   to pin both LEFT and RIGHT.
-         * @param exclusiveZone reserves this many logical pixels of screen space, measured inward from
-         *   the anchored edge — a top or bottom bar reserves its [height], a side dock its [width] — which
-         *   is why it has no default. It is meaningful only when [anchor] pins one edge (or an edge plus
-         *   both edges perpendicular to it), or when [exclusiveEdge] names the edge for a corner anchor;
-         *   anything else is treated as zero. Zero asks to be moved clear of surfaces that do reserve
-         *   space. `-1` asks not to be moved at all and to extend all the way to the anchored edges
-         *   instead, the wallpaper and lock-screen case.
+         *   to pin both [Edge.Left] and [Edge.Right].
+         * @param exclusiveZone how much screen space this surface reserves, measured inward from the
+         *   anchored edge; a top or bottom bar reserves its [height], a side dock its [width], which is
+         *   why it has no default.
          * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
-         *   Sent only when non-null, and only once it names a single edge [anchor] pins.
+         *   Sent only when non-null.
          * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored
          *   — a request the compositor answers by dropping the connection — or
-         *   [KortexError.InvalidExclusiveEdge] when [exclusiveEdge] is not a single edge [anchor] pins.
+         *   [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge].
          */
         public fun create(
             display: WaylandDisplay,
@@ -195,15 +191,15 @@ public class LayerSurface internal constructor(
             height: Int,
             width: Int = SPAN_ANCHORED_AXIS,
             layer: Layer = Layer.Top,
-            anchor: Int = Anchor.TOP or Anchor.LEFT or Anchor.RIGHT,
-            exclusiveZone: Int,
+            anchor: Set<Edge> = setOf(Edge.Top, Edge.Left, Edge.Right),
+            exclusiveZone: ExclusiveZone,
             margins: Margins = Margins.None,
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,
-            exclusiveEdge: Int? = null,
+            exclusiveEdge: Edge? = null,
         ): Result<LayerSurface, KortexError> {
             unspannableAxis(width, height, anchor)?.let { return Err(it) }
-            if (exclusiveEdge != null && (exclusiveEdge.countOneBits() != 1 || anchor and exclusiveEdge == 0)) {
+            if (exclusiveEdge != null && exclusiveEdge !in anchor) {
                 return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
             }
 
@@ -228,7 +224,7 @@ public class LayerSurface internal constructor(
                     WlArg.Ptr(MemorySegment.NULL),
                     WlArg.Ptr(surface),
                     WlArg.Ptr(output),
-                    WlArg.Num(layer.ordinal),
+                    WlArg.Num(layer.value),
                     WlArg.Ptr(LibWayland.cString(namespace)),
                 ),
             )
@@ -241,17 +237,18 @@ public class LayerSurface internal constructor(
                 "wl_proxy_add_listener rejected the layer surface listener"
             }
 
-            LibWayland.marshal(layerSurface, LayerShellProtocol.SET_ANCHOR, args = listOf(WlArg.Num(anchor)))
+            LibWayland.marshal(layerSurface, LayerShellProtocol.SET_ANCHOR, args = listOf(WlArg.Num(anchor.toBits())))
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_SIZE,
                 args = listOf(WlArg.Num(width), WlArg.Num(height)),
             )
             LibWayland.marshal(
-                layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE, args = listOf(WlArg.Num(exclusiveZone)),
+                layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
+                args = listOf(WlArg.Num(exclusiveZone.toWireValue())),
             )
             if (exclusiveEdge != null) {
                 LibWayland.marshal(
-                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(exclusiveEdge)),
+                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(exclusiveEdge.bit)),
                 )
             }
             LibWayland.marshal(
@@ -265,7 +262,7 @@ public class LayerSurface internal constructor(
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_KEYBOARD_INTERACTIVITY,
-                args = listOf(WlArg.Num(keyboard.ordinal)),
+                args = listOf(WlArg.Num(keyboard.value)),
             )
 
             val result = LayerSurface(display, surface, layerSurface, anchor, state, surfaceListener)
@@ -279,11 +276,15 @@ public class LayerSurface internal constructor(
          * Omitting a dimension asks the compositor to pick it, which the protocol allows only when both
          * of that axis's edges are anchored; anything else it answers by dropping the connection.
          */
-        private fun unspannableAxis(width: Int, height: Int, anchor: Int): KortexError.UnspannableAxis? = when {
-            width == SPAN_ANCHORED_AXIS && anchor and HORIZONTAL_EDGES != HORIZONTAL_EDGES ->
+        private fun unspannableAxis(
+            width: Int,
+            height: Int,
+            anchor: Set<Edge>,
+        ): KortexError.UnspannableAxis? = when {
+            width == SPAN_ANCHORED_AXIS && !anchor.containsAll(HORIZONTAL_EDGES) ->
                 KortexError.UnspannableAxis(Axis.Horizontal, anchor)
 
-            height == SPAN_ANCHORED_AXIS && anchor and VERTICAL_EDGES != VERTICAL_EDGES ->
+            height == SPAN_ANCHORED_AXIS && !anchor.containsAll(VERTICAL_EDGES) ->
                 KortexError.UnspannableAxis(Axis.Vertical, anchor)
 
             else -> null
@@ -297,8 +298,8 @@ public class LayerSurface internal constructor(
         private const val WL_SURFACE_DAMAGE_BUFFER = 9
         private const val MAX_SPINS = 32
         private const val SPAN_ANCHORED_AXIS = 0
-        private val HORIZONTAL_EDGES = Anchor.LEFT or Anchor.RIGHT
-        private val VERTICAL_EDGES = Anchor.TOP or Anchor.BOTTOM
+        private val HORIZONTAL_EDGES = setOf(Edge.Left, Edge.Right)
+        private val VERTICAL_EDGES = setOf(Edge.Top, Edge.Bottom)
 
         private val CONFIGURE_DESCRIPTOR =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)

@@ -30,7 +30,7 @@ internal data class LayerEntry(
     val h: Int,
 )
 
-/** One monitor's report from `hyprctl layers -j`: its surfaces, keyed by `Layer` ordinal as a string. */
+/** One monitor's report from `hyprctl layers -j`: its surfaces, keyed by [Layer]'s wire value as a string. */
 @Serializable
 internal data class MonitorLayers(val levels: Map<String, List<LayerEntry>>)
 

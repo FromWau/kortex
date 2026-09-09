@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -38,7 +39,8 @@ class FirstPixelsTest {
         display.use {
             val shm = Shm.bind(display).getOrElse { error -> fail("shm bind failed: $error") }
             val bar = LayerSurface.create(
-                display, namespace = NAMESPACE, height = BAR_HEIGHT, exclusiveZone = BAR_HEIGHT,
+                display, namespace = NAMESPACE, height = BAR_HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
             )
                 .getOrElse { error -> fail("layer surface creation failed: $error") }
 
