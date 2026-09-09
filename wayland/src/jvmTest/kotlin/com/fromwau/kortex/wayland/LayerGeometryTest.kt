@@ -4,7 +4,6 @@ import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
-import java.lang.foreign.MemorySegment
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -177,22 +176,7 @@ class LayerGeometryTest {
         }
     }
 
-    private class BoundOutput(val proxy: MemorySegment, val geometry: OutputGeometry)
-
-    private fun bindFirstOutput(wayland: WaylandDisplay): BoundOutput {
-        val global = wayland.globals.firstOrNull { it.interfaceName == WL_OUTPUT }
-            ?: fail("no wl_output advertised to anchor the probe against")
-        val proxy = wayland.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
-        // A wl_output proxy with no listener crashes on its first event.
-        val listener = OutputListener()
-        listener.install(proxy)
-        wayland.roundtrip()
-        val geometry = assertNotNull(listener.geometry, "output ${global.name} never published geometry")
-        return BoundOutput(proxy, geometry)
-    }
-
     private companion object {
-        const val WL_OUTPUT = "wl_output"
         const val NAMESPACE = "kortex-layer-geometry"
         const val DEFAULT_NAMESPACE = "kortex-layer-geometry-default"
         const val REJECTED_NAMESPACE = "kortex-layer-geometry-rejected"

@@ -1,7 +1,6 @@
 package com.fromwau.kortex.wayland
 
 import com.fromwau.kern.result.getOrElse
-import java.lang.foreign.MemorySegment
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -146,22 +145,7 @@ class ExclusiveZoneTest {
         }
     }
 
-    private class BoundOutput(val proxy: MemorySegment, val geometry: OutputGeometry)
-
-    private fun bindFirstOutput(wayland: WaylandDisplay): BoundOutput {
-        val global = wayland.globals.firstOrNull { it.interfaceName == WL_OUTPUT }
-            ?: fail("no wl_output advertised to anchor the probe against")
-        val proxy = wayland.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
-        // A wl_output proxy with no listener crashes on its first event.
-        val listener = OutputListener()
-        listener.install(proxy)
-        wayland.roundtrip()
-        val geometry = assertNotNull(listener.geometry, "output ${global.name} never published geometry")
-        return BoundOutput(proxy, geometry)
-    }
-
     private companion object {
-        const val WL_OUTPUT = "wl_output"
         const val PANEL_NAMESPACE = "kortex-exclusive-zone-panel"
         const val BACKGROUND_NAMESPACE = "kortex-exclusive-zone-background"
         const val CORNER_NAMESPACE = "kortex-exclusive-zone-corner"
