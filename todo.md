@@ -68,6 +68,10 @@ the presets depend on.
 - [ ] **Several independent surfaces on one connection.** `KortexShell` runs the *same* content once per
       output; it cannot host a dock plus an OSD plus a menu at once. Likely a generalisation of
       `KortexShell.serviceBars` from "bars per output" to "surfaces".
+      Fold in while reshaping: `activeBars` and `activeGeometries` are two separately materialised
+      lists, parallel by naming convention only. Nothing ties their indices, so a caller zipping them
+      across a hotplug gets misaligned data. Pairing a bar with its output geometry is exactly what a
+      preset wants, so hang the geometry off the bar instead of exposing a second list.
 
 ## Surface presets
 
@@ -92,6 +96,17 @@ the presets depend on.
 - [ ] **Per-surface density override.** The reference takes `density = Density(2f)` and reads
       `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the surface's `preferred_buffer_scale`; the unused
       `scale` parameter on `KortexBar.create` was removed as dead, so this would reintroduce it deliberately.
+
+## Housekeeping
+
+- [ ] **Split `LayerShell.kt`** (394 lines, the largest file here). It holds three concerns: the public
+      config vocabulary (`Layer`, `Anchor`, `Axis`, `KeyboardInteractivity`, `Margins`), the
+      `zwlr_layer_shell_v1` tables, and `LayerSurface` with its listeners. `WlSurfaceListener` is the
+      odd one out — `wl_surface` is a core interface, not part of this wlroots extension.
+- [ ] **A screenshot pixel reads one channel step off**, roughly 1 run in 18 (`0xFF818080` where
+      `0xFF808080` is expected). Predates this branch, and has now been seen in both `KortexShellTest`
+      and `KortexBarTest`, so it is compositing or capture timing rather than anything test-specific.
+      `Screen.settledPixel` already samples until two reads agree, which is evidently not enough.
 
 ## Deliberately not doing
 

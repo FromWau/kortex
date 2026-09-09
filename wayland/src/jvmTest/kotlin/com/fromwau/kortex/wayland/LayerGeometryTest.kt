@@ -14,13 +14,10 @@ import kotlin.test.fail
  * Pins `set_size`'s explicit width and `set_margin`, whose wire order (top, right, bottom, left) is
  * not the CSS order a reader might assume.
  *
- * The surface is anchored to BOTTOM and RIGHT only — one edge per axis, the exact combination the
- * protocol treats as an error for an axis left at 0 — and its expected placement is computed from the
- * output's own `wl_output` geometry, not from a hardcoded screen size, so the assertion holds regardless
- * of what monitor the test runs against. BOTTOM+RIGHT (rather than the more obvious TOP+LEFT) sidesteps
- * a real hazard on a live desktop: a compositor reserves space for other exclusive-zone surfaces
- * (a real top bar, say), which shifts where a TOP-anchored surface with margin 0 actually lands, even
- * though nothing in this task changed that.
+ * Placement is computed from the output's own `wl_output` geometry rather than a hardcoded screen
+ * size, so it holds on whichever monitor the test runs against. The anchor is BOTTOM+RIGHT rather than
+ * the more obvious TOP+LEFT because a desktop's own top bar reserves an exclusive zone, which shifts
+ * anything anchored to TOP.
  */
 class LayerGeometryTest {
     @Test

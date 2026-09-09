@@ -15,8 +15,8 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * A bar takes its scale from its own surface, so it must match the monitor that surface landed on
- * rather than a guess across every output.
+ * A bar's scale must match the monitor its own surface landed on, which is what makes a mixed-DPI
+ * setup render correctly.
  *
  * Hyprland answers `get_layer_surface` with `preferred_buffer_scale`, so the value is in before the
  * first configure; nothing here has to wait for a rescale.
