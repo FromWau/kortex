@@ -103,6 +103,26 @@ class KeyRepeatTest {
         }
     }
 
+    @Test
+    fun `a modifier held down neither repeats itself nor displaces the key that does`() {
+        withKeyboardSession { keyboard, scene, surface, typed ->
+            keyboard.onRepeatInfo(NULL, NULL, RATE, DELAY_MILLIS)
+            keyboard.onKey(NULL, NULL, 1, 0, KEY_A, PRESSED)
+            keyboard.onKey(NULL, NULL, 2, 0, KEY_LEFTSHIFT, PRESSED)
+            render(scene, surface)
+            val beforeRepeat = typed.get()
+
+            keyboard.checkRepeat(nowNanos = System.nanoTime() + FAR_FUTURE_NANOS)
+            render(scene, surface)
+
+            // Shift produces no character, so a repeating Shift shows up as A's repeat going missing.
+            assertEquals(
+                beforeRepeat + "a", typed.get(),
+                "holding Shift either repeated Shift itself or cancelled A's repeat",
+            )
+        }
+    }
+
     private fun render(scene: KortexScene, surface: Surface) {
         scene.render(surface.canvas.asComposeCanvas(), System.nanoTime())
     }
@@ -187,6 +207,7 @@ class KeyRepeatTest {
         // linux/input-event-codes.h
         const val KEY_A = 30
         const val KEY_S = 31
+        const val KEY_LEFTSHIFT = 42
 
         const val NANOS_PER_MILLI = 1_000_000L
         const val NANOS_PER_SECOND = 1_000_000_000L

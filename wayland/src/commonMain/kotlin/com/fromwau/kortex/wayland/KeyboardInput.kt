@@ -34,7 +34,7 @@ internal class KeyboardInput(
     private var repeatRate = 0
     private var repeatDelayMillis = 0
 
-    /** The key currently held, i.e. the most recent press not yet released; null when nothing repeats. */
+    /** The most recent press of a key xkb marks repeatable, not yet released; null when nothing repeats. */
     private var repeatingKey: Int? = null
 
     /** When the next repeat is due, in [System.nanoTime] units; meaningless while [repeatingKey] is null. */
@@ -68,9 +68,12 @@ internal class KeyboardInput(
     fun onKey(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, key: Int, keyState: Int) {
         if (state.equals(MemorySegment.NULL)) return
         if (keyState == KEY_PRESSED) {
-            // A second key going down replaces whichever key was repeating; only the most recent one does.
-            repeatingKey = key
-            nextRepeatAtNanos = System.nanoTime() + repeatDelayMillis * NANOS_PER_MILLI
+            // A second repeatable key going down replaces whichever key was repeating; only the most
+            // recent one does. A modifier neither repeats nor displaces the key that does.
+            if (Xkb.keyRepeats(state, key)) {
+                repeatingKey = key
+                nextRepeatAtNanos = System.nanoTime() + repeatDelayMillis * NANOS_PER_MILLI
+            }
             deliverKey(key, KeyEventType.KeyDown)
         } else {
             if (key == repeatingKey) repeatingKey = null

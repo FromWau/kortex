@@ -32,6 +32,9 @@ internal object Xkb {
         "xkb_state_update_mask",
         FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT),
     )
+    private val stateGetKeymap = downcall("xkb_state_get_keymap", FunctionDescriptor.of(ADDRESS, ADDRESS))
+    private val keymapKeyRepeats =
+        downcall("xkb_keymap_key_repeats", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
 
     private val context: MemorySegment by lazy { contextNew.invoke(0) as MemorySegment }
 
@@ -52,6 +55,13 @@ internal object Xkb {
     /** The character this key produces right now, or 0 for keys that produce none. */
     fun codePoint(state: MemorySegment, waylandKey: Int): Int =
         keyGetUtf32.invoke(state, waylandKey + EVDEV_OFFSET) as Int
+
+    /** Whether the layout marks this key as one that repeats while held; modifiers and locks do not. */
+    fun keyRepeats(state: MemorySegment, waylandKey: Int): Boolean {
+        // Borrowed, not owned: xkb_state_get_keymap takes no reference and the state outlives the call.
+        val keymap = stateGetKeymap.invoke(state) as MemorySegment
+        return keymapKeyRepeats.invoke(keymap, waylandKey + EVDEV_OFFSET) as Int != 0
+    }
 
     fun updateMask(state: MemorySegment, depressed: Int, latched: Int, locked: Int, group: Int) {
         stateUpdateMask.invoke(state, depressed, latched, locked, 0, 0, group)
