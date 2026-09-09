@@ -57,7 +57,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
 Next: the polish and housekeeping items below; the surface presets and the Foundations they depended on
 are done.
 
-## Foundations — everything below depends on these
+## Foundations
 
 - [x] **Output geometry.** `OutputListener` publishes position, transform, mode size, name, description
       and scale on `done` (`WlOutput.kt`), reachable through `KortexShell.activeSurfaces` and
@@ -102,8 +102,9 @@ are done.
 - [x] `SurfaceConfig.contextMenu(at, menuSize, outputSize)` — places a menu so its default corner
       (`MenuAnchor.TopLeft`) sits at `at`, flipping to whichever corner keeps it inside `outputSize`,
       independently per axis. A pure function of its three inputs, so the flip logic needs no compositor
-      to test. A menu wider or taller than `outputSize` still flips on that axis, coming to rest against
-      the far edge rather than clamping or overflowing the edge nearest `at`. (`MenuAnchorTest`)
+      to test. A menu wider or taller than `outputSize` still flips on that axis: the anchored corner
+      sits at `at` and the excess runs off the opposite edge, so the answer stays one consistent corner
+      rather than a special case. (`MenuAnchorTest`)
 - [x] `SurfaceConfig.lockScreen()` — `Layer.Overlay` with `KeyboardInteractivity.Exclusive`, anchored to
       all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no `ext-session-lock-v1`.
       (`SurfacePresetTest`)
