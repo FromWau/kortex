@@ -13,7 +13,8 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] Text input via `TextField` with an IME session (`KortexTextInput`)
 - [x] HiDPI: per-surface scale detection, physical-pixel rendering, logical↔buffer pointer translation
 - [x] Cursor shapes from `Modifier.pointerHoverIcon` (`WlCursorTheme`)
-- [x] Configurable layer, anchor, exclusive zone, keyboard mode (`Layer`, `Anchor`, `KeyboardInteractivity`)
+- [x] Configurable layer, anchor, exclusive zone, keyboard mode (`Layer`, `Edge`, `ExclusiveZone`,
+      `KeyboardInteractivity`), gathered into `SurfaceConfig`
 
 ## Ahead of the reference
 
@@ -101,10 +102,10 @@ presets depend on.
 
 ## Housekeeping
 
-- [ ] **Split `LayerShell.kt`** (415 lines, the largest file here). It holds three concerns: the public
-      config vocabulary (`Layer`, `Anchor`, `Axis`, `KeyboardInteractivity`, `Margins`), the
-      `zwlr_layer_shell_v1` tables, and `LayerSurface` with its listeners. `WlSurfaceListener` is the
-      odd one out — `wl_surface` is a core interface, not part of this wlroots extension.
+- [ ] **Move `WlSurfaceListener` out of `LayerShell.kt`.** The config vocabulary has moved to
+      `SurfaceConfig.kt`, leaving the `zwlr_layer_shell_v1` tables and `LayerSurface`.
+      `WlSurfaceListener` is still the odd one out: `wl_surface` is a core interface, not part of this
+      wlroots extension.
 - [ ] **A screenshot pixel reads one channel step off**, roughly 1 run in 18 (`0xFF818080` where
       `0xFF808080` is expected). Not introduced by the protocol work, and seen in both `KortexShellTest` and
       `KortexBarTest`, so it is compositing or capture timing rather than anything test-specific.
