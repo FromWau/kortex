@@ -71,7 +71,11 @@ class LayerGeometryTest {
             val monitor = bindFirstOutput(wayland)
 
             val bar = LayerSurface.create(
-                wayland, namespace = DEFAULT_NAMESPACE, height = DEFAULT_HEIGHT, output = monitor.proxy,
+                wayland,
+                namespace = DEFAULT_NAMESPACE,
+                height = DEFAULT_HEIGHT,
+                exclusiveZone = DEFAULT_HEIGHT,
+                output = monitor.proxy,
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
@@ -99,6 +103,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             val result = LayerSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, anchor = Anchor.TOP,
+                exclusiveZone = HEIGHT,
             )
 
             when (result) {
@@ -108,7 +113,9 @@ class LayerGeometryTest {
 
             // The rejection must happen before any request reaches the compositor, leaving the
             // connection itself unharmed; prove it by using it normally right after.
-            val sanity = LayerSurface.create(wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT)
+            val sanity = LayerSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, exclusiveZone = HEIGHT,
+            )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
         }
@@ -123,6 +130,7 @@ class LayerGeometryTest {
             val horizontal = Anchor.LEFT or Anchor.RIGHT
             val result = LayerSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = 0, anchor = horizontal,
+                exclusiveZone = 0,
             )
 
             when (result) {
@@ -130,7 +138,9 @@ class LayerGeometryTest {
                 is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Vertical, horizontal), result.error)
             }
 
-            val sanity = LayerSurface.create(wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT)
+            val sanity = LayerSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, exclusiveZone = HEIGHT,
+            )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
         }

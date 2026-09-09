@@ -198,11 +198,13 @@ public class LayerSurface internal constructor(
          *   pin both TOP and BOTTOM.
          * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
          *   to pin both LEFT and RIGHT.
-         * @param exclusiveZone reserves this many logical pixels of screen space, meaningful only when
-         *   [anchor] pins one edge (or an edge plus both edges perpendicular to it) — anything else is
-         *   treated as zero. Zero asks to be moved clear of surfaces that do reserve space. `-1` asks not
-         *   to be moved at all and to extend all the way to the anchored edges instead, the wallpaper and
-         *   lock-screen case.
+         * @param exclusiveZone reserves this many logical pixels of screen space, measured inward from
+         *   the anchored edge — a top or bottom bar reserves its [height], a side dock its [width] — which
+         *   is why it has no default. It is meaningful only when [anchor] pins one edge (or an edge plus
+         *   both edges perpendicular to it), or when [exclusiveEdge] names the edge for a corner anchor;
+         *   anything else is treated as zero. Zero asks to be moved clear of surfaces that do reserve
+         *   space. `-1` asks not to be moved at all and to extend all the way to the anchored edges
+         *   instead, the wallpaper and lock-screen case.
          * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
@@ -218,7 +220,7 @@ public class LayerSurface internal constructor(
             width: Int = SPAN_ANCHORED_AXIS,
             layer: Layer = Layer.Top,
             anchor: Int = Anchor.TOP or Anchor.LEFT or Anchor.RIGHT,
-            exclusiveZone: Int = height,
+            exclusiveZone: Int,
             margins: Margins = Margins.None,
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,

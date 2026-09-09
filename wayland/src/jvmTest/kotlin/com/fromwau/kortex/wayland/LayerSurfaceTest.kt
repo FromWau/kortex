@@ -11,7 +11,7 @@ class LayerSurfaceTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = LayerSurface.create(it, namespace = NAMESPACE, height = BAR_HEIGHT)
+            val bar = LayerSurface.create(it, namespace = NAMESPACE, height = BAR_HEIGHT, exclusiveZone = BAR_HEIGHT)
                 .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {

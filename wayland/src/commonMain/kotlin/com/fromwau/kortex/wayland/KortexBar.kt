@@ -279,8 +279,8 @@ public class KortexBar private constructor(
             val heightPx = height.toLogicalPx()
             val widthPx = width.toLogicalPx()
             val layer = LayerSurface.create(
-                display, namespace = namespace, height = heightPx, width = widthPx, margins = margins,
-                keyboard = keyboard, output = output,
+                display, namespace = namespace, height = heightPx, width = widthPx,
+                exclusiveZone = heightPx, margins = margins, keyboard = keyboard, output = output,
             ).getOrElse { return Err(it) }
             if (!layer.waitForConfigure()) {
                 // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
