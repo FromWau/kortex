@@ -87,7 +87,7 @@ class SurfaceScaleTest {
     private fun assertRendersAtItsMonitorScale(bar: KortexBar, namespace: String) {
         val geometry = assertNotNull(Screen.geometry(namespace), "hyprctl layers did not report $namespace")
         val monitor = assertNotNull(monitorOf(namespace), "hyprctl layers put $namespace on no monitor")
-        val reported = assertNotNull(scaleOf(monitor), "hyprctl monitors reported no scale for $monitor")
+        val reported = assertNotNull(Hyprctl.monitors().firstOrNull { it.name == monitor }?.scale, "hyprctl monitors reported no scale for $monitor")
         // wl_surface's scale is an integer and Hyprland rounds a fraction up, so the buffer never
         // holds fewer pixels than the output asks for.
         val scale = ceil(reported).toInt()
@@ -113,14 +113,6 @@ class SurfaceScaleTest {
         val at = json.indexOf("\"namespace\": \"$namespace\"")
         if (at < 0) return null
         return MONITOR_KEY.findAll(json).lastOrNull { it.range.first < at }?.groupValues?.get(1)
-    }
-
-    /** The compositor's own scale for [monitor], which may be fractional. */
-    private fun scaleOf(monitor: String): Float? {
-        val json = Hyprctl.run("monitors", "-j")
-        val at = json.indexOf("\"name\": \"$monitor\"")
-        if (at < 0) return null
-        return Regex("\"scale\": ([0-9.]+)").find(json, at)?.groupValues?.get(1)?.toFloatOrNull()
     }
 
     private companion object {

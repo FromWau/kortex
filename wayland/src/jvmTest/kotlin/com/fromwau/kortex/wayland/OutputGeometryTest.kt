@@ -47,7 +47,7 @@ class OutputGeometryTest {
                     "output ${global.name} never published geometry after done",
                 )
                 val expected = assertNotNull(
-                    monitorInfo(geometry.name),
+                    Hyprctl.monitors().firstOrNull { it.name == geometry.name },
                     "hyprctl monitors -j reported nothing named ${geometry.name}",
                 )
                 assertEquals(expected.x, geometry.x, "${geometry.name}: x position mismatch")
@@ -76,7 +76,7 @@ class OutputGeometryTest {
                 geometries.forEach { geometry ->
                     val published = assertNotNull(geometry, "a live bar's output geometry never reached the shell")
                     val expected = assertNotNull(
-                        monitorInfo(published.name),
+                        Hyprctl.monitors().firstOrNull { it.name == published.name },
                         "hyprctl monitors -j reported nothing named ${published.name}",
                     )
                     assertEquals(expected.width, published.width, "${published.name}: mode width mismatch")
@@ -117,30 +117,6 @@ class OutputGeometryTest {
         assertEquals(SCALE, geometry.scale)
         assertEquals(1920, geometry.width, "took a mode other than the one flagged current")
         assertEquals(1080, geometry.height, "took a mode other than the one flagged current")
-    }
-
-    private data class MonitorInfo(
-        val x: Int,
-        val y: Int,
-        val width: Int,
-        val height: Int,
-        val scale: Float,
-        val transform: Int,
-    )
-
-    /** [name] is `wl_output.name`, the same string hyprctl's own "name" field reports for a monitor. */
-    private fun monitorInfo(name: String): MonitorInfo? {
-        val json = Hyprctl.run("monitors", "-j")
-        val at = json.indexOf("\"name\": \"$name\"")
-        if (at < 0) return null
-        fun intField(key: String) = Regex("\"$key\": (-?\\d+)").find(json, at)?.groupValues?.get(1)?.toIntOrNull()
-        val x = intField("x") ?: return null
-        val y = intField("y") ?: return null
-        val width = intField("width") ?: return null
-        val height = intField("height") ?: return null
-        val transform = intField("transform") ?: return null
-        val scale = Regex("\"scale\": ([0-9.]+)").find(json, at)?.groupValues?.get(1)?.toFloatOrNull() ?: return null
-        return MonitorInfo(x, y, width, height, scale, transform)
     }
 
     private companion object {

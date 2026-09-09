@@ -18,7 +18,6 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -117,7 +116,7 @@ class ProtocolVersionTest {
         display.use { wayland ->
             val manager = VirtualPointerManager.bind(wayland)
                 .getOrElse { error -> fail("virtual pointer manager bind failed: $error") }
-            val monitor = assertNotNull(primaryMonitorExtent(), "hyprctl monitors reported no usable monitor")
+            val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no monitor")
             val offBarX = monitor.logicalWidth / 2
             val offBarY = monitor.logicalHeight / 2
             val scrolled = AtomicReference(Offset.Zero)
@@ -192,18 +191,6 @@ class ProtocolVersionTest {
                 onInvalidate = {},
             ).use(block)
         }
-    }
-
-    /** The first monitor's logical (post-scale) size, the same space [Screen.geometry] reports in. */
-    private data class MonitorExtent(val logicalWidth: Int, val logicalHeight: Int)
-
-    private fun primaryMonitorExtent(): MonitorExtent? {
-        val json = ProcessBuilder("hyprctl", "monitors", "-j").redirectErrorStream(true)
-            .start().inputStream.bufferedReader().readText()
-        val width = Regex("\"width\": (\\d+)").find(json)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-        val height = Regex("\"height\": (\\d+)").find(json)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-        val scale = Regex("\"scale\": ([0-9.]+)").find(json)?.groupValues?.get(1)?.toFloatOrNull() ?: 1f
-        return MonitorExtent((width / scale).roundToInt(), (height / scale).roundToInt())
     }
 
     /** One global kortex binds, with the version it asks for. */

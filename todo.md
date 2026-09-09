@@ -45,24 +45,18 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       than a timer thread, so a repeat travels the same `KortexTextInput` path a real press does.
       (`KeyRepeatTest`)
 - [x] **5. Explicit width and `set_margin`.** `width` and a `Margins(top, right, bottom, left)` type in
-      the protocol's wire order reach `set_size`/`set_margin`; leaving width 0 without both horizontal
-      edges anchored returns `KortexError.UnspannableWidth` instead of taking the connection down.
-      (`LayerGeometryTest`)
+      the protocol's wire order reach `set_size`/`set_margin`. Omitting either dimension without both of
+      that axis's edges anchored returns `KortexError.UnspannableAxis` instead of taking the connection
+      down. (`LayerGeometryTest`)
 - [x] **6. `exclusiveZone = -1` and `set_exclusive_edge`.** `set_exclusive_edge` (opcode 9, since v5) now
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Follow-up branch, once these land: the surface presets below, opening with the two architecture
-items from Foundations that the presets depend on.
+Next branch: the surface presets below, opening with the two architecture items from Foundations that
+the presets depend on.
 
 ## Foundations — everything below depends on these
 
-- [ ] **Explicit width.** `LayerSurface.create` takes `height` only and hardcodes width to
-      `SPAN_ANCHORED_AXIS` (`LayerShell.kt:169`). A 280×80 centred OSD is unexpressible. Blocks OSD, both
-      menus, and custom surfaces. → protocol task 5.
-- [ ] **Margins.** `set_margin` is declared in the interface table (`LayerShell.kt:34`) but never sent —
-      there is no `SET_MARGIN` opcode constant and no call site. Needs the constant, a `Margins` type, and
-      a parameter on `create`. → protocol task 5.
 - [ ] **Output geometry.** Read as of protocol task 3 — `OutputListener` now publishes position,
       transform, mode size, name, description and scale on `done` (`WlOutput.kt`), reachable per bar
       through `KortexShell.activeGeometries` (internal). Still needed: a preset that reads
@@ -95,13 +89,9 @@ items from Foundations that the presets depend on.
       missing `move`, `wait`, and the four resize shapes. Blocked by Compose: only `PointerIcon.Default`,
       `.Crosshair`, `.Text` and `.Hand` are public constants, so the rest need a caller-supplied cursor
       path through `KortexPlatform`.
-- [ ] **Key repeat.** `KeyboardInput` maps state to KeyDown/KeyUp only; there is no `repeat_info`
-      handling. The seat pin that blocked it is gone as of protocol task 1. → protocol task 4.
 - [ ] **Per-surface density override.** The reference takes `density = Density(2f)` and reads
       `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the surface's `preferred_buffer_scale`; the unused
       `scale` parameter on `KortexBar.create` was removed as dead, so this would reintroduce it deliberately.
-- [ ] **`exclusiveZone = -1`.** Passes through today but is neither documented nor tested. → protocol task 6.
-- [ ] **`set_exclusive_edge`.** In the table (v5), never sent. → protocol task 6.
 
 ## Deliberately not doing
 
