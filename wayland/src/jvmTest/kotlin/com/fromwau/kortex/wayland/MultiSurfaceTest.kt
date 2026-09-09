@@ -225,13 +225,7 @@ class MultiSurfaceTest {
         const val PANEL_PIXEL = 0xFF808080.toInt()
         const val OSD_PIXEL = 0xFF2060C0.toInt()
 
-        val PANEL_CONFIG = SurfaceConfig(
-            namespace = PANEL_NAMESPACE,
-            layer = Layer.Top,
-            anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-            height = PANEL_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(PANEL_HEIGHT.dp),
-        )
+        val PANEL_CONFIG = SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE)
 
         // Anchored to nothing, which is how the compositor is asked to centre it, so it must yield:
         // Overlap extends a surface to its anchored edges and this one has none. Yielding centres it

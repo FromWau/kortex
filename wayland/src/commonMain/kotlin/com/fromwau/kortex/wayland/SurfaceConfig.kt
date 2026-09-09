@@ -110,7 +110,8 @@ public data class SurfaceConfig(
          * to it — a top bar anchors Top, Left and Right, for example.
          *
          * @param thickness how far the surface extends from [edge]; also exactly how much screen space
-         *   it reserves, with no way to reserve a different amount.
+         *   it reserves, with no way to reserve a different amount. It must round to at least one
+         *   logical pixel, as [ExclusiveZone.Reserve] does.
          * @param length how far the surface runs along [edge]; 0 (the default) spans the whole edge.
          */
         public fun panel(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig {
