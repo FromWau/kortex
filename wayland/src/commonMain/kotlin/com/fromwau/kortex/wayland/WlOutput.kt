@@ -5,16 +5,30 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 
-/** An output's identity and placement: name, description, position, transform, current mode size and scale. */
-internal data class OutputGeometry(
-    val name: String,
-    val description: String,
-    val x: Int,
-    val y: Int,
-    val transform: Int,
-    val width: Int,
-    val height: Int,
-    val scale: Int,
+/**
+ * An output's identity and placement, as `wl_output` publishes it once per `done`.
+ *
+ * @property name the compositor's short identifier for the output, e.g. what `hyprctl monitors` calls it.
+ * @property description a human-readable label for the output.
+ * @property x the output's position in the compositor's global logical space.
+ * @property y the output's position in the compositor's global logical space.
+ * @property transform `wl_output.transform`'s wire value: 0 is unrotated, and higher values are the
+ *   rotations and flips the protocol enumerates from there.
+ * @property width the current mode's width in physical (buffer) pixels; divide by [scale] for the
+ *   logical size a `configure` reports, such as [SurfaceConfig.contextMenu]'s `outputSize`.
+ * @property height the current mode's height in physical (buffer) pixels, like [width].
+ * @property scale `wl_output.scale`, an integer that overstates a fractional compositor scale (Hyprland
+ *   ceil-rounds it).
+ */
+public data class OutputGeometry(
+    public val name: String,
+    public val description: String,
+    public val x: Int,
+    public val y: Int,
+    public val transform: Int,
+    public val width: Int,
+    public val height: Int,
+    public val scale: Int,
 )
 
 /**

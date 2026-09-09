@@ -22,7 +22,7 @@ public class ActiveSurface internal constructor(
     internal val output: ShellOutput?,
 ) {
     /** What the output published about itself; null before its first `done`, and with no output at all. */
-    internal val geometry: OutputGeometry? get() = output?.listener?.geometry
+    public val geometry: OutputGeometry? get() = output?.listener?.geometry
 }
 
 /**
