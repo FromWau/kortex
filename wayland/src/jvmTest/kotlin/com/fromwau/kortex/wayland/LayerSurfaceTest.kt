@@ -2,6 +2,8 @@ package com.fromwau.kortex.wayland
 
 import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -26,6 +28,25 @@ class LayerSurfaceTest {
                     .start().inputStream.bufferedReader().readText()
                 println("HYPRCTL-MATCH " + layers.lines().count { line -> NAMESPACE in line })
                 assertTrue(NAMESPACE in layers, "hyprctl layers does not list $NAMESPACE")
+            }
+        }
+    }
+
+    @Test
+    fun `a layer surface created at a given Layer is reported at that layer's level`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            val layer = Layer.Overlay
+            val overlay = LayerSurface.create(
+                it, namespace = NAMESPACE, height = BAR_HEIGHT, exclusiveZone = 0, layer = layer,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+
+            overlay.use {
+                assertTrue(overlay.waitForConfigure(), "compositor never configured the layer surface")
+
+                val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
+                assertEquals(layer, geometry.layer, "$NAMESPACE landed at the wrong layer level")
             }
         }
     }

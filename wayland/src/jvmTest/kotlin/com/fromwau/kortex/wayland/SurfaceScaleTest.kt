@@ -92,7 +92,7 @@ class SurfaceScaleTest {
 
     private fun assertRendersAtItsMonitorScale(bar: KortexBar, namespace: String) {
         val geometry = assertNotNull(Screen.geometry(namespace), "hyprctl layers did not report $namespace")
-        val monitor = assertNotNull(monitorOf(namespace), "hyprctl layers put $namespace on no monitor")
+        val monitor = geometry.monitor
         val reported = assertNotNull(
             Hyprctl.monitors().firstOrNull { it.name == monitor }?.scale,
             "hyprctl monitors reported no scale for $monitor",
@@ -116,21 +116,10 @@ class SurfaceScaleTest {
         )
     }
 
-    /** Which monitor Hyprland put the layer named [namespace] on; its `layers -j` is keyed by monitor. */
-    private fun monitorOf(namespace: String): String? {
-        val json = Hyprctl.run("layers", "-j")
-        val at = json.indexOf("\"namespace\": \"$namespace\"")
-        if (at < 0) return null
-        return MONITOR_KEY.findAll(json).lastOrNull { it.range.first < at }?.groupValues?.get(1)
-    }
-
     private companion object {
         const val NAMESPACE = "kortex"
         const val WL_OUTPUT = "wl_output"
         const val BAR_HEIGHT = 32
         const val PUMP_MILLIS = 1500L
-
-        /** Only a monitor's own key opens a `levels` object; every layer below it is nested deeper. */
-        val MONITOR_KEY = Regex("\"([^\"]+)\": \\{\\s*\"levels\"")
     }
 }

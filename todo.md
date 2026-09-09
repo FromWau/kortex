@@ -61,7 +61,7 @@ presets depend on.
 - [ ] **Output geometry.** The read side is done: `OutputListener` publishes position, transform, mode
       size, name, description and scale on `done` (`WlOutput.kt`), reachable per bar through
       `KortexShell.activeGeometries` (internal). Still needed: a preset that reads `OutputGeometry` to
-      centre an OSD or flip a context menu near a screen edge.
+      flip a context menu near a screen edge.
 - [ ] **A surface handle.** `runBar` blocks and hands the composition nothing. The reference's
       `WaylandBridge` exposes `state`, `actualWidth/Height`, `close()`, `awaitClose()`, plus a
       `LocalWaylandBridge` composition local so content can dismiss itself. An OSD that disappears after
@@ -80,7 +80,8 @@ presets depend on.
       `ContentPosition`.
 - [ ] `Dock` — as Panel but `OnDemand` keyboard and an exclusive zone.
 - [ ] `DesktopBackground` — `Layer.Background`, anchored to all four edges, no exclusive zone.
-- [ ] `Osd` — floating, centred, no exclusive zone. Needs explicit width + output geometry + handle.
+- [ ] `Osd` — floating, centred by anchoring to nothing, no exclusive zone. Needs an explicit size and a
+      handle.
 - [ ] `AppMenu` — floating panel with a dismissable handle.
 - [ ] `ContextMenu` — positions at the cursor and flips its anchor near screen edges (`MenuAnchor`
       TOP_LEFT/TOP_RIGHT/BOTTOM_LEFT/BOTTOM_RIGHT).

@@ -20,6 +20,14 @@ internal data class Monitor(
     val logicalHeight: Int get() = (height / scale).roundToInt()
 }
 
+/** One surface entry nested under a monitor's `levels` in `hyprctl layers -j`. */
+@Serializable
+internal data class LayerEntry(val namespace: String, val x: Int, val y: Int, val w: Int, val h: Int)
+
+/** One monitor's report from `hyprctl layers -j`: its surfaces, keyed by `Layer` ordinal as a string. */
+@Serializable
+internal data class MonitorLayers(val levels: Map<String, List<LayerEntry>>)
+
 /**
  * Drives the compositor from a test.
  *
@@ -45,6 +53,9 @@ internal object Hyprctl {
     fun monitors(): List<Monitor> = JSON.decodeFromString(run("monitors", "-j"))
 
     fun monitorNames(): Set<String> = monitors().mapTo(mutableSetOf(), Monitor::name)
+
+    /** Every monitor's layer-shell surfaces, keyed by monitor name. */
+    fun layers(): Map<String, MonitorLayers> = JSON.decodeFromString(run("layers", "-j"))
 
     fun run(vararg args: String): String {
         val process = ProcessBuilder("hyprctl", *args).redirectErrorStream(true).start()
