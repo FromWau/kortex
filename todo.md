@@ -87,8 +87,11 @@ presets depend on.
 - [ ] `Dock` — as Panel but `OnDemand` keyboard and an exclusive zone.
 - [ ] `DesktopBackground` — `Layer.Background`, anchored to all four edges, no exclusive zone.
 - [ ] `Osd` — floating, centred by anchoring to nothing, no exclusive zone. Needs an explicit size and a
-      handle. Keep `ExclusiveZone.Yield`: Hyprland 0.56.2 does not render an unanchored surface that asks
-      for `Overlap`, so ignoring other surfaces' zones is only available to an anchored one.
+      handle. Anchoring to nothing forces `ExclusiveZone.Yield`, because `Overlap` extends a surface to
+      its anchored edges and one with no anchor has nothing to extend to: Hyprland lists such a surface
+      in `hyprctl layers` and draws nothing. The cost is that a yielding OSD is centred in the *usable*
+      area, so any other surface's exclusive zone pushes it off true centre. A preset that must sit dead
+      centre has to anchor and place itself with margins, which also lets it `Overlap`.
 - [ ] `AppMenu` — floating panel with a dismissable handle.
 - [ ] `ContextMenu` — positions at the cursor and flips its anchor near screen edges (`MenuAnchor`
       TOP_LEFT/TOP_RIGHT/BOTTOM_LEFT/BOTTOM_RIGHT).

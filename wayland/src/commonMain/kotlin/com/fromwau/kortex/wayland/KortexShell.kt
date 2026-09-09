@@ -170,7 +170,7 @@ public class KortexShell private constructor(
 
     public companion object {
         /**
-         * Creates every surface [specs] asks for, on the outputs connected now.
+         * Creates every surface [specs] asks for, in the order given, on the outputs connected now.
          *
          * A per-output surface takes the output's registry name as a namespace suffix, so one spec's
          * surfaces stay distinguishable to the compositor and to whoever reads its layer list.

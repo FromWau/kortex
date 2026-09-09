@@ -25,7 +25,7 @@ import com.fromwau.kortex.compose.KortexPlatform
  * spec with no output to place on keeps waiting for one. Everything it opens — the connection, the
  * surfaces, the buffers — is closed before it returns, however it returns.
  *
- * @param specs what to put on screen, and where.
+ * @param specs what to put on screen and where, created in the order given.
  * @param platform host hooks the compositions drive, e.g. the cursor shape a hover asks for.
  */
 public fun runSurfaces(

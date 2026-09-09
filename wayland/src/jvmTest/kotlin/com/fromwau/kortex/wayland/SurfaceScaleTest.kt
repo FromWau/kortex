@@ -100,7 +100,6 @@ class SurfaceScaleTest {
         // wl_surface's scale is an integer and Hyprland rounds a fraction up, so the buffer never
         // holds fewer pixels than the output asks for.
         val scale = ceil(reported).toInt()
-        println("BAR $namespace ${bar.bufferSize} at $geometry on $monitor scale $reported")
 
         assertEquals(
             scale, bar.currentBufferScale,

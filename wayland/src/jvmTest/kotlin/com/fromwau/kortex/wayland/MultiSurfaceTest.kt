@@ -114,6 +114,7 @@ class MultiSurfaceTest {
                 awaitPanel(shell)
                 awaitOsd(shell)
                 val before = shell.activeSurfaces.size
+                val panelsBefore = panelNamespaces().size
 
                 var pending: String? = null
                 try {
@@ -122,9 +123,9 @@ class MultiSurfaceTest {
                     val grew = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before + 1 }
                     assertTrue(grew, "the per-output spec did not follow the new output")
 
-                    val panels = awaitPanelCount(PANELS_PER_OUTPUT_AFTER_HOTPLUG)
+                    val panels = awaitPanelCount(panelsBefore + 1)
                     assertEquals(
-                        PANELS_PER_OUTPUT_AFTER_HOTPLUG, panels.size,
+                        panelsBefore + 1, panels.size,
                         "expected one panel namespace per output, got $panels",
                     )
                     assertEquals(1, osdCount(), "the compositor-placed spec was placed a second time")
@@ -214,8 +215,6 @@ class MultiSurfaceTest {
         const val OSD_WIDTH = 320
         const val OSD_HEIGHT = 136
 
-        const val PANELS_PER_OUTPUT_AFTER_HOTPLUG = 2
-
         const val PUMP_TIMEOUT_MILLIS = 4000L
         const val HYPRCTL_SETTLE_MILLIS = 2000L
         const val HYPRCTL_POLL_MILLIS = 100L
@@ -234,8 +233,9 @@ class MultiSurfaceTest {
             exclusiveZone = ExclusiveZone.Reserve(PANEL_HEIGHT.dp),
         )
 
-        // Anchored to nothing, which is how the compositor is asked to centre it, and reserving nothing,
-        // so it floats over the panel's zone without holding one of its own.
+        // Anchored to nothing, which is how the compositor is asked to centre it, so it must yield:
+        // Overlap extends a surface to its anchored edges and this one has none. Yielding centres it
+        // inside what the panel's zone leaves rather than across it.
         val OSD_CONFIG = SurfaceConfig(
             namespace = OSD_NAMESPACE,
             layer = Layer.Overlay,
