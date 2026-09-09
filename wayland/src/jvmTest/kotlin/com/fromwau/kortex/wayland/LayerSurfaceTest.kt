@@ -36,7 +36,11 @@ class LayerSurfaceTest {
         display.use {
             val layer = Layer.Overlay
             val overlay = LayerSurface.create(
-                it, namespace = NAMESPACE, height = BAR_HEIGHT, exclusiveZone = 0, layer = layer,
+                it,
+                namespace = NAMESPACE,
+                height = BAR_HEIGHT,
+                exclusiveZone = 0,
+                layer = layer,
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             overlay.use {

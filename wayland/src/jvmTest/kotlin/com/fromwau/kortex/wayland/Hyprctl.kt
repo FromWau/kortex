@@ -22,7 +22,13 @@ internal data class Monitor(
 
 /** One surface entry nested under a monitor's `levels` in `hyprctl layers -j`. */
 @Serializable
-internal data class LayerEntry(val namespace: String, val x: Int, val y: Int, val w: Int, val h: Int)
+internal data class LayerEntry(
+    val namespace: String,
+    val x: Int,
+    val y: Int,
+    val w: Int,
+    val h: Int,
+)
 
 /** One monitor's report from `hyprctl layers -j`: its surfaces, keyed by `Layer` ordinal as a string. */
 @Serializable
