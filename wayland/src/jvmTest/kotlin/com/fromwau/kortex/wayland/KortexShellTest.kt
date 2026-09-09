@@ -91,10 +91,7 @@ class KortexShellTest {
      * reported under two monitors, and that must count as one namespace, not two.
      */
     private fun kortexLayerNamespaces(): Set<String> =
-        Hyprctl.layers().values
-            .flatMap { it.levels.values.flatten() }
-            .map { it.namespace }
-            .filterTo(mutableSetOf()) { it.startsWith("$NAMESPACE-") }
+        Hyprctl.namespaces().filterTo(mutableSetOf()) { it.startsWith("$NAMESPACE-") }
 
     private companion object {
         const val NAMESPACE = "kortex"

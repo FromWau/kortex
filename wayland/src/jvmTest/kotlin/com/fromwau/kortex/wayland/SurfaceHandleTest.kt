@@ -125,10 +125,7 @@ class SurfaceHandleTest {
 
     /** [KortexShell] suffixes the configured namespace with the output's id, unlike a bare [KortexSurface]. */
     private fun kortexNamespace(): String? =
-        Hyprctl.layers().values
-            .flatMap { it.levels.values.flatten() }
-            .map { it.namespace }
-            .firstOrNull { it.startsWith("$NAMESPACE-") }
+        Hyprctl.namespaces().firstOrNull { it.startsWith("$NAMESPACE-") }
 
     private companion object {
         const val NAMESPACE = "kortex"

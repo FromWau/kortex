@@ -32,7 +32,7 @@ class SurfaceConfigTest {
                 exclusiveZone = ExclusiveZone.Reserve(DOCK_HEIGHT.dp),
             )
             val dock = KortexSurface.create(wayland, config, output = monitor.proxy)
-                .getOrElse { error -> fail("bar creation failed: $error") }
+                .getOrElse { error -> fail("dock creation failed: $error") }
 
             dock.use {
                 wayland.roundtrip()

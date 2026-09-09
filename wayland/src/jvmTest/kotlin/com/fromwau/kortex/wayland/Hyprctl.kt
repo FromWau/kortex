@@ -76,6 +76,12 @@ internal object Hyprctl {
     /** Every monitor's layer-shell surfaces, keyed by monitor name. */
     fun layers(): Map<String, MonitorLayers> = JSON.decodeFromString(run("layers", "-j"))
 
+    /** Every mapped surface's namespace, across every monitor and level. */
+    fun namespaces(): List<String> = layers()
+        .values
+        .flatMap { it.levels.values.flatten() }
+        .map { it.namespace }
+
     fun run(vararg args: String): String {
         val process = ProcessBuilder("hyprctl", *args).redirectErrorStream(true).start()
         val output = process.inputStream.bufferedReader().readText()

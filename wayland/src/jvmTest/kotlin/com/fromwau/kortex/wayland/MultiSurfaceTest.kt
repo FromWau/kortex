@@ -194,16 +194,11 @@ class MultiSurfaceTest {
     private fun monitor(name: String): Monitor =
         assertNotNull(Hyprctl.monitors().firstOrNull { it.name == name }, "hyprctl lost monitor $name")
 
-    private fun namespaces(): List<String> = Hyprctl.layers()
-        .values
-        .flatMap { it.levels.values.flatten() }
-        .map { it.namespace }
-
     /** Distinct, because a namespace mid-hotplug can transiently be reported under two monitors. */
     private fun panelNamespaces(): Set<String> =
-        namespaces().filterTo(mutableSetOf()) { it.startsWith("$PANEL_NAMESPACE-") }
+        Hyprctl.namespaces().filterTo(mutableSetOf()) { it.startsWith("$PANEL_NAMESPACE-") }
 
-    private fun osdCount(): Int = namespaces().count { it == OSD_NAMESPACE }
+    private fun osdCount(): Int = Hyprctl.namespaces().count { it == OSD_NAMESPACE }
 
     private companion object {
         const val PANEL_NAMESPACE = "kortex-multi-panel"

@@ -23,7 +23,6 @@ class LayerSurfaceTest {
                 assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
                 assertTrue(!bar.closed, "compositor closed the layer surface")
 
-                println("CONFIGURE ${bar.logicalWidth}x${bar.logicalHeight}")
                 assertTrue(bar.logicalWidth > 0, "configure carried a zero width")
                 assertTrue(bar.logicalHeight > 0, "configure carried a zero height")
 
