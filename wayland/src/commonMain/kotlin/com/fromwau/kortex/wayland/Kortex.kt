@@ -9,6 +9,37 @@ import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexPlatform
 
 /**
+ * Runs every surface in [specs] on one connection, each where its [SurfaceSpec.target] says.
+ *
+ * ```kotlin
+ * fun main() {
+ *     runSurfaces(
+ *         SurfaceSpec(panelConfig) { Panel() },
+ *         SurfaceSpec(osdConfig, OutputTarget.CompositorChoice) { Osd() },
+ *     ).onError { error("kortex: $it") }
+ * }
+ * ```
+ *
+ * Blocks until the compositor goes away, or until no surface is left and none can return: content that
+ * closes its own surface ends the run once the last one is gone, while an [OutputTarget.EveryOutput]
+ * spec with no output to place on keeps waiting for one. Everything it opens — the connection, the
+ * surfaces, the buffers — is closed before it returns, however it returns.
+ *
+ * @param specs what to put on screen, and where.
+ * @param platform host hooks the compositions drive, e.g. the cursor shape a hover asks for.
+ */
+public fun runSurfaces(
+    vararg specs: SurfaceSpec,
+    platform: KortexPlatform = KortexPlatform.None,
+): EmptyResult<KortexError> =
+    WaylandDisplay.connect().flatMap { display ->
+        display.use {
+            KortexShell.create(display, *specs, platform = platform)
+                .map { shell -> shell.use { it.runEventLoop() } }
+        }
+    }
+
+/**
  * Runs [content] as a bar on every connected output, until the compositor goes away.
  *
  * ```kotlin
@@ -19,8 +50,9 @@ import com.fromwau.kortex.compose.KortexPlatform
  * ```
  *
  * Blocks for the lifetime of the bar. Outputs may come and go while it runs; a bar appears and
- * disappears with each. Everything it opens — the connection, the surfaces, the buffers — is closed
- * before it returns, however it returns.
+ * disappears with each. It also returns once content has closed the last bar while an output is still
+ * connected, since nothing would put another one there. Everything it opens — the connection, the
+ * surfaces, the buffers — is closed before it returns, however it returns.
  *
  * @param namespace what the compositor calls these surfaces, e.g. in `hyprctl layers`.
  * @param height how tall the bar is; the anchored axis spans the output.
@@ -47,10 +79,8 @@ public fun runBar(
         exclusiveZone = ExclusiveZone.Reserve(height),
         keyboard = keyboard,
     )
-    return WaylandDisplay.connect().flatMap { display ->
-        display.use {
-            KortexShell.create(display, config, platform, content)
-                .map { shell -> shell.use { it.runEventLoop() } }
-        }
-    }
+    return runSurfaces(
+        SurfaceSpec(config = config, target = OutputTarget.EveryOutput, content = content),
+        platform = platform,
+    )
 }

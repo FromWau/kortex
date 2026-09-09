@@ -23,8 +23,8 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
       flags have no kortex equivalent and should not get one.
 - [x] **No Swing EDT requirement.** kortex runs its own frame dispatcher; the reference mandates
       `SwingUtilities.invokeLater` + `Dispatchers.Swing` or it renders blank frames.
-- [x] **Multi-monitor.** `KortexShell` runs one bar per `wl_output` and tracks hotplug. The reference lists
-      single-monitor-only as a known limitation.
+- [x] **Multi-monitor.** `KortexShell` puts a per-output spec on every `wl_output` and tracks hotplug. The
+      reference lists single-monitor-only as a known limitation.
 
 ## Protocol versions
 
@@ -41,7 +41,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       ordering, since `maybeRescale` runs on every loop tick. (`SurfaceScaleTest`)
 - [x] **3. Output geometry** — position, transform, `mode` width/height (current-flagged only), `name`,
       `description` and `scale`, accumulated into pending fields and published atomically on `done`, and
-      reachable per bar through `KortexShell`. (`OutputGeometryTest`)
+      reachable per surface through `KortexShell`. (`OutputGeometryTest`)
 - [x] **4. Key repeat** from `wl_keyboard.repeat_info`. `KeyboardInput` tracks the held key and its
       due time, delivered through `KortexSurface`'s existing tick (`reconcile`, on the loop thread) rather
       than a timer thread, so a repeat travels the same `KortexTextInput` path a real press does.
@@ -60,24 +60,25 @@ presets depend on.
 ## Foundations — everything below depends on these
 
 - [ ] **Output geometry.** The read side is done: `OutputListener` publishes position, transform, mode
-      size, name, description and scale on `done` (`WlOutput.kt`), reachable per bar through
-      `KortexShell.activeGeometries` (internal). Still needed: a preset that reads `OutputGeometry` to
-      flip a context menu near a screen edge.
+      size, name, description and scale on `done` (`WlOutput.kt`), reachable through
+      `KortexShell.activeSurfaces`, where every entry carries its own output's geometry (internal).
+      Still needed: a preset that reads `OutputGeometry` to flip a context menu near a screen edge.
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
-      composition local, provided by `KortexSurface.setContent` around the caller's content; `compose` still
-      knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state so a
-      configure recomposes a reader. `close()` posts onto the bar's queue and sets the same flag a real
-      `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceBars` reaps a self-close through the
-      one existing teardown path. No `awaitClose()` — the blocking entry point is already the host's
-      wait, and a second way to wait for the same event would be an abstraction with one caller.
-      (`SurfaceHandleTest`)
-- [ ] **Several independent surfaces on one connection.** `KortexShell` runs the *same* content once per
-      output; it cannot host a dock plus an OSD plus a menu at once. Likely a generalisation of
-      `KortexShell.serviceBars` from "bars per output" to "surfaces".
-      Fold in while reshaping: `activeSurfaces` and `activeGeometries` are two separately materialised
-      lists, parallel by naming convention only. Nothing ties their indices, so a caller zipping them
-      across a hotplug gets misaligned data. Pairing a bar with its output geometry is exactly what a
-      preset wants, so hang the geometry off the bar instead of exposing a second list.
+      composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
+      still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state
+      so a configure recomposes a reader. `close()` posts onto the surface's queue and sets the same flag
+      a real `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceSurfaces` reaps a self-close
+      through the one existing teardown path. No `awaitClose()` — the blocking entry point is already the
+      host's wait, and it returns once content has closed the last surface. (`SurfaceHandleTest`)
+- [x] **Several independent surfaces on one connection.** `runSurfaces(vararg SurfaceSpec)` is the general
+      entry point and `runBar` is one spec over it. A `SurfaceSpec` pairs a `SurfaceConfig` with an
+      `OutputTarget` — `EveryOutput` for one surface per `wl_output`, following hotplug, `CompositorChoice`
+      for a single surface that names no output — and the content to draw on it. `KortexShell` tracks
+      outputs and surfaces separately, so a dock, an OSD and a menu run side by side on one connection,
+      and `activeSurfaces` hands out each surface already paired with its output's geometry rather than a
+      second list parallel by naming convention. Its loop ends when no surface is left and none can
+      return, so a host whose content closed itself stops instead of spinning on an empty screen, while an
+      `EveryOutput` spec with no output waits for one. (`MultiSurfaceTest`)
 
 ## Surface presets
 
@@ -86,7 +87,8 @@ presets depend on.
 - [ ] `Dock` — as Panel but `OnDemand` keyboard and an exclusive zone.
 - [ ] `DesktopBackground` — `Layer.Background`, anchored to all four edges, no exclusive zone.
 - [ ] `Osd` — floating, centred by anchoring to nothing, no exclusive zone. Needs an explicit size and a
-      handle.
+      handle. Keep `ExclusiveZone.Yield`: Hyprland 0.56.2 does not render an unanchored surface that asks
+      for `Overlap`, so ignoring other surfaces' zones is only available to an anchored one.
 - [ ] `AppMenu` — floating panel with a dismissable handle.
 - [ ] `ContextMenu` — positions at the cursor and flips its anchor near screen edges (`MenuAnchor`
       TOP_LEFT/TOP_RIGHT/BOTTOM_LEFT/BOTTOM_RIGHT).

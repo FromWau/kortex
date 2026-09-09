@@ -14,11 +14,24 @@ internal data class Monitor(
     val height: Int,
     val scale: Float,
     val transform: Int,
+    val reserved: List<Int>,
 ) {
     /** Mode size over scale, the logical space both `hyprctl layers` and `configure` report in. */
     val logicalWidth: Int get() = (width / scale).roundToInt()
     val logicalHeight: Int get() = (height / scale).roundToInt()
+
+    /** What the exclusive zones held here leave over: the box the compositor arranges everything else in. */
+    val usableX: Int get() = x + reserved[LEFT]
+    val usableY: Int get() = y + reserved[TOP]
+    val usableWidth: Int get() = logicalWidth - reserved[LEFT] - reserved[RIGHT]
+    val usableHeight: Int get() = logicalHeight - reserved[TOP] - reserved[BOTTOM]
 }
+
+// hyprctl reports `reserved` in this order, which is neither CSS's nor set_margin's.
+private const val LEFT = 0
+private const val TOP = 1
+private const val RIGHT = 2
+private const val BOTTOM = 3
 
 /** One surface entry nested under a monitor's `levels` in `hyprctl layers -j`. */
 @Serializable
