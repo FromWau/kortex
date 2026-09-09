@@ -21,7 +21,6 @@ class ReconfigureResizeTest {
     @Test
     fun `a later configure with a different size resizes the buffers and the surface`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        val scale = WlOutput.detectScale(display)
 
         display.use {
             val bar = KortexBar.create(display, namespace = NAMESPACE, height = INITIAL_HEIGHT.dp)
@@ -30,12 +29,15 @@ class ReconfigureResizeTest {
             bar.use {
                 bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
                 bar.pump(timeoutMillis = PUMP_MILLIS)
+
+                val scale = bar.currentBufferScale
                 assertEquals(
                     INITIAL_HEIGHT * scale, bar.bufferSize.height,
                     "the bar did not start at the size its own construction should have produced",
                 )
 
                 bar.requestSize(SPAN_ANCHORED_AXIS.dp, RESIZED_HEIGHT.dp)
+                    .getOrElse { error -> fail("the resize was rejected before it reached the compositor: $error") }
                 val resized = bar.pump(timeoutMillis = PUMP_MILLIS) { bar.bufferSize.height == RESIZED_HEIGHT * scale }
                 assertTrue(
                     resized, "a later configure never resized the buffers; bar.height stayed ${bar.bufferSize.height}",

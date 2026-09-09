@@ -20,12 +20,25 @@ internal class KeyboardInput(
 ) {
     private var state: MemorySegment = MemorySegment.NULL
 
+    /** The bound `wl_keyboard`, kept only so a test can read the version it negotiated. */
+    var keyboardProxy: MemorySegment = MemorySegment.NULL
+        private set
+
     /** Whether a keymap has arrived; until it does there is no way to interpret a keycode. */
     val hasKeymap: Boolean get() = !state.equals(MemorySegment.NULL)
     private var shift = false
     private var ctrl = false
     private var alt = false
     private var meta = false
+
+    private var repeatRate = 0
+    private var repeatDelayMillis = 0
+
+    /** The most recent press of a key xkb marks repeatable, not yet released; null when nothing repeats. */
+    private var repeatingKey: Int? = null
+
+    /** When the next repeat is due, in [System.nanoTime] units; meaningless while [repeatingKey] is null. */
+    private var nextRepeatAtNanos: Long = 0L
 
     fun onKeymap(data: MemorySegment, proxy: MemorySegment, format: Int, fd: Int, size: Int) {
         try {
@@ -49,11 +62,36 @@ internal class KeyboardInput(
     // often enough that the compositor hands the keyboard straight back to this surface.
     fun onLeave(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment) {
         scene.windowFocused = false
+        repeatingKey = null
     }
 
     fun onKey(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, key: Int, keyState: Int) {
         if (state.equals(MemorySegment.NULL)) return
-        val type = if (keyState == KEY_PRESSED) KeyEventType.KeyDown else KeyEventType.KeyUp
+        if (keyState == KEY_PRESSED) {
+            // A second repeatable key going down replaces whichever key was repeating; only the most
+            // recent one does. A modifier neither repeats nor displaces the key that does.
+            if (Xkb.keyRepeats(state, key)) {
+                repeatingKey = key
+                nextRepeatAtNanos = System.nanoTime() + repeatDelayMillis * NANOS_PER_MILLI
+            }
+            deliverKey(key, KeyEventType.KeyDown)
+        } else {
+            if (key == repeatingKey) repeatingKey = null
+            deliverKey(key, KeyEventType.KeyUp)
+        }
+    }
+
+    /** Delivers a due repeat for the held key; call every loop tick. Never touches libwayland itself. */
+    internal fun checkRepeat(nowNanos: Long = System.nanoTime()) {
+        val key = repeatingKey ?: return
+        // rate == 0 means the compositor asked for no repeat at all; it must never reach the division.
+        if (repeatRate == 0 || nowNanos < nextRepeatAtNanos) return
+        nextRepeatAtNanos += NANOS_PER_SECOND / repeatRate
+        deliverKey(key, KeyEventType.KeyDown)
+    }
+
+    /** Translates [key] through xkbcommon and delivers it as [type], the same path a real press takes. */
+    private fun deliverKey(key: Int, type: KeyEventType) {
         val sym = Xkb.keysym(state, key)
         // Control characters come back from xkb as codepoints below space; a text field must not insert
         // them, and Compose distinguishes them by Key rather than by codepoint.
@@ -91,6 +129,11 @@ internal class KeyboardInput(
         meta = active and MOD_LOGO != 0
     }
 
+    fun onRepeatInfo(data: MemorySegment, proxy: MemorySegment, rate: Int, delay: Int) {
+        repeatRate = rate
+        repeatDelayMillis = delay
+    }
+
     /**
      * Maps an X11 keysym onto Compose's [Key].
      *
@@ -117,12 +160,14 @@ internal class KeyboardInput(
     private fun Int.uppercaseVirtualKey(): Long = Character.toUpperCase(this).toLong()
 
     fun install(keyboard: MemorySegment) {
+        keyboardProxy = keyboard
         val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
         listener.setAtIndex(ADDRESS, KEYMAP, LibWayland.upcall(this, "onKeymap", KEYMAP_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(this, "onEnter", ENTER_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(this, "onLeave", LEAVE_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, KEY, LibWayland.upcall(this, "onKey", KEY_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, MODIFIERS, LibWayland.upcall(this, "onModifiers", MODIFIERS_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, REPEAT_INFO, LibWayland.upcall(this, "onRepeatInfo", REPEAT_INFO_DESCRIPTOR))
         check(LibWayland.proxyAddListener(keyboard, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the keyboard listener"
         }
@@ -132,6 +177,8 @@ internal class KeyboardInput(
         const val KEY_PRESSED = 1
         const val XKB_V1_FORMAT = 1
         const val FIRST_PRINTABLE = 0x20
+        const val NANOS_PER_MILLI = 1_000_000L
+        const val NANOS_PER_SECOND = 1_000_000_000L
 
         // Order of xkb_state's default modifier mask, as sent in wl_keyboard.modifiers.
         const val MOD_SHIFT = 1 shl 0
@@ -153,12 +200,15 @@ internal class KeyboardInput(
         const val XK_DELETE = 0xFFFF
         const val XK_SPACE = 0x020
 
-        const val EVENT_COUNT = 5L
+        // wl_keyboard v11 declares exactly these six events; every slot must be filled, because
+        // libwayland indexes the struct and calls straight through it.
+        const val EVENT_COUNT = 6L
         const val KEYMAP = 0L
         const val ENTER = 1L
         const val LEAVE = 2L
         const val KEY = 3L
         const val MODIFIERS = 4L
+        const val REPEAT_INFO = 5L
 
         val KEYMAP_DESCRIPTOR: FunctionDescriptor =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)
@@ -170,6 +220,7 @@ internal class KeyboardInput(
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
         val MODIFIERS_DESCRIPTOR: FunctionDescriptor =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
-
+        val REPEAT_INFO_DESCRIPTOR: FunctionDescriptor =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT)
     }
 }

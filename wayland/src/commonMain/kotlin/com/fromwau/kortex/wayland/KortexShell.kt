@@ -17,6 +17,8 @@ public class KortexShell private constructor(
     private val display: WaylandDisplay,
     private val namespace: String,
     private val height: Dp,
+    private val width: Dp,
+    private val margins: Margins,
     private val platform: KortexPlatform,
     private val keyboard: KeyboardInteractivity,
     private val content: @Composable () -> Unit,
@@ -30,6 +32,9 @@ public class KortexShell private constructor(
 
     /** The bars currently live, one per connected output; exposed so a caller or test can inspect them. */
     public val activeBars: List<KortexBar> get() = bars.values.map { it.bar }
+
+    /** Each active bar's published output geometry, parallel to [activeBars]; null until its first `done`. */
+    internal val activeGeometries: List<OutputGeometry?> get() = bars.values.map { it.listener.geometry }
 
     init {
         display.onGlobalAdded = { global -> if (global.interfaceName == WL_OUTPUT) pendingAdds += global }
@@ -88,18 +93,21 @@ public class KortexShell private constructor(
 
     private fun addBarOrError(global: WaylandGlobal): EmptyResult<KortexError> {
         val output = display.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
-        // A wl_output proxy with no listener crashes on its first event; reuse WlOutput's no-op one.
-        OutputListener().install(output)
+        // A wl_output proxy with no listener crashes on its first event.
+        val listener = OutputListener()
+        listener.install(output)
         return KortexBar.create(
             display,
             namespace = "$namespace-${global.name}",
             height = height,
+            width = width,
+            margins = margins,
             platform = platform,
             keyboard = keyboard,
             output = output,
         ).map { bar ->
             bar.setContent(content)
-            bars[global.name] = ShellBar(output, bar)
+            bars[global.name] = ShellBar(output, listener, bar)
         }
     }
 
@@ -115,19 +123,21 @@ public class KortexShell private constructor(
         bars.keys.toList().forEach(::removeBar)
     }
 
-    private class ShellBar(val output: MemorySegment, val bar: KortexBar)
+    private class ShellBar(val output: MemorySegment, val listener: OutputListener, val bar: KortexBar)
 
     public companion object {
-        /** Namespace, height, platform and keyboard are shared by every bar the shell creates. */
+        /** Namespace, height, width, margins, platform and keyboard are shared by every bar the shell creates. */
         public fun create(
             display: WaylandDisplay,
             namespace: String = "kortex",
             height: Dp = 32.dp,
+            width: Dp = 0.dp,
+            margins: Margins = Margins.None,
             platform: KortexPlatform = KortexPlatform.None,
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             content: @Composable () -> Unit,
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, namespace, height, platform, keyboard, content)
+            val shell = KortexShell(display, namespace, height, width, margins, platform, keyboard, content)
             for (global in display.globals.filter { it.interfaceName == WL_OUTPUT }) {
                 shell.addBarOrError(global).getOrElse {
                     shell.close()

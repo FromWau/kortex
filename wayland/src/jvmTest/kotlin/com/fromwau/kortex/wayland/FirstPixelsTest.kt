@@ -37,7 +37,9 @@ class FirstPixelsTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use {
             val shm = Shm.bind(display).getOrElse { error -> fail("shm bind failed: $error") }
-            val bar = LayerSurface.create(display, namespace = NAMESPACE, height = BAR_HEIGHT)
+            val bar = LayerSurface.create(
+                display, namespace = NAMESPACE, height = BAR_HEIGHT, exclusiveZone = BAR_HEIGHT,
+            )
                 .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {

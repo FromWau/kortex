@@ -5,42 +5,39 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 
-/** Binds every `wl_output` global to read the compositor-reported scale factor. */
-public object WlOutput {
-    /** The scale factor to render at, read once. See [Handle.scale] for the fallback rule. */
-    public fun detectScale(display: WaylandDisplay): Int = bind(display).scale
+/** An output's identity and placement: name, description, position, transform, current mode size and scale. */
+internal data class OutputGeometry(
+    val name: String,
+    val description: String,
+    val x: Int,
+    val y: Int,
+    val transform: Int,
+    val width: Int,
+    val height: Int,
+    val scale: Int,
+)
 
-    /**
-     * Binds every `wl_output` global and keeps its listener installed, unlike [detectScale], so
-     * [Handle.scale] can be re-read after startup to observe a later `wl_output.scale` event.
-     */
-    internal fun bind(display: WaylandDisplay): Handle {
-        val outputs = display.globals.filter { it.interfaceName == "wl_output" }
-        val listeners = outputs.map { global ->
-            val listener = OutputListener()
-            listener.install(display.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT))
-            listener
-        }
-        if (listeners.isNotEmpty()) display.roundtrip()
-        return Handle(listeners)
-    }
-
-    /**
-     * The live scale factor across every bound output.
-     *
-     * Falls back to 1 when the compositor advertises no output or when outputs disagree; picking the
-     * output a surface is actually on needs `wl_surface.enter`, which is not implemented here.
-     */
-    internal class Handle(private val listeners: List<OutputListener>) {
-        val scale: Int get() = listeners.map { it.scale }.distinct().singleOrNull() ?: DEFAULT_SCALE
-    }
-
-    private const val DEFAULT_SCALE = 1
-}
-
+/**
+ * Reads a `wl_output`'s geometry (position and transform), current mode, name, description and scale,
+ * so a caller can centre a surface on an output and identify which output it is.
+ *
+ * Every wl_output event is double-buffered: the compositor may re-send any of them independently, and
+ * the set is only coherent once `done` arrives. Events accumulate into pending fields here and
+ * [geometry] is replaced atomically on `done`, so a reader never observes half an update.
+ */
 internal class OutputListener {
-    @Volatile var scale: Int = 1
+    @Volatile
+    var geometry: OutputGeometry? = null
         private set
+
+    private var pendingX = 0
+    private var pendingY = 0
+    private var pendingTransform = 0
+    private var pendingName = ""
+    private var pendingDescription = ""
+    private var pendingWidth = 0
+    private var pendingHeight = 0
+    private var pendingScale = DEFAULT_SCALE
 
     fun onGeometry(
         data: MemorySegment,
@@ -53,14 +50,43 @@ internal class OutputListener {
         make: MemorySegment,
         model: MemorySegment,
         transform: Int,
-    ) = Unit
+    ) {
+        pendingX = x
+        pendingY = y
+        pendingTransform = transform
+    }
 
-    fun onMode(data: MemorySegment, proxy: MemorySegment, flags: Int, width: Int, height: Int, refresh: Int) = Unit
+    fun onMode(data: MemorySegment, proxy: MemorySegment, flags: Int, width: Int, height: Int, refresh: Int) {
+        // A compositor sends every supported mode; only the one flagged current is the active one.
+        if (flags and MODE_CURRENT == 0) return
+        pendingWidth = width
+        pendingHeight = height
+    }
 
-    fun onDone(data: MemorySegment, proxy: MemorySegment) = Unit
+    fun onDone(data: MemorySegment, proxy: MemorySegment) {
+        geometry = OutputGeometry(
+            name = pendingName,
+            description = pendingDescription,
+            x = pendingX,
+            y = pendingY,
+            transform = pendingTransform,
+            width = pendingWidth,
+            height = pendingHeight,
+            scale = pendingScale,
+        )
+    }
 
     fun onScale(data: MemorySegment, proxy: MemorySegment, factor: Int) {
-        scale = factor
+        pendingScale = factor
+    }
+
+    fun onName(data: MemorySegment, proxy: MemorySegment, name: MemorySegment) {
+        // The char* arrives with zero length because C says nothing about its extent.
+        pendingName = name.reinterpret(Long.MAX_VALUE).getString(0)
+    }
+
+    fun onDescription(data: MemorySegment, proxy: MemorySegment, description: MemorySegment) {
+        pendingDescription = description.reinterpret(Long.MAX_VALUE).getString(0)
     }
 
     fun install(output: MemorySegment) {
@@ -69,19 +95,23 @@ internal class OutputListener {
         listener.setAtIndex(ADDRESS, MODE, LibWayland.upcall(this, "onMode", MODE_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, DONE, LibWayland.upcall(this, "onDone", DONE_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, SCALE, LibWayland.upcall(this, "onScale", SCALE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, NAME, LibWayland.upcall(this, "onName", NAME_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, DESCRIPTION, LibWayland.upcall(this, "onDescription", DESCRIPTION_DESCRIPTOR))
         check(LibWayland.proxyAddListener(output, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the output listener"
         }
     }
 
     companion object {
-        // wl_output v2 declares exactly these four events; every slot must be filled, because
+        // wl_output v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
-        private const val EVENT_COUNT = 4L
+        private const val EVENT_COUNT = 6L
         private const val GEOMETRY = 0L
         private const val MODE = 1L
         private const val DONE = 2L
         private const val SCALE = 3L
+        private const val NAME = 4L
+        private const val DESCRIPTION = 5L
 
         private val GEOMETRY_DESCRIPTOR = FunctionDescriptor.ofVoid(
             ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS, ADDRESS, JAVA_INT,
@@ -90,5 +120,12 @@ internal class OutputListener {
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
         private val DONE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)
         private val SCALE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+        private val NAME_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+        private val DESCRIPTION_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+
+        private const val MODE_CURRENT = 0x1
+
+        // wl_output.xml: "the client should assume a scale of 1" if the event is never sent.
+        private const val DEFAULT_SCALE = 1
     }
 }

@@ -7,7 +7,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -27,7 +26,7 @@ class VirtualPointerClickTest {
         display.use {
             val manager = VirtualPointerManager.bind(it)
                 .getOrElse { error -> fail("virtual pointer manager bind failed: $error") }
-            val monitor = assertNotNull(primaryMonitorExtent(), "hyprctl monitors reported no usable monitor")
+            val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no usable monitor")
 
             val clicks = AtomicInteger()
 
@@ -72,18 +71,6 @@ class VirtualPointerClickTest {
                     assertEquals(1, clicks.get(), "one press and release must be one click")
                 }
         }
-    }
-
-    /** The first monitor's logical (post-scale) size, the same space [Screen.geometry] reports in. */
-    private data class MonitorExtent(val logicalWidth: Int, val logicalHeight: Int)
-
-    private fun primaryMonitorExtent(): MonitorExtent? {
-        val json = ProcessBuilder("hyprctl", "monitors", "-j").redirectErrorStream(true)
-            .start().inputStream.bufferedReader().readText()
-        val width = Regex("\"width\": (\\d+)").find(json)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-        val height = Regex("\"height\": (\\d+)").find(json)?.groupValues?.get(1)?.toIntOrNull() ?: return null
-        val scale = Regex("\"scale\": ([0-9.]+)").find(json)?.groupValues?.get(1)?.toFloatOrNull() ?: 1f
-        return MonitorExtent((width / scale).roundToInt(), (height / scale).roundToInt())
     }
 
     private companion object {

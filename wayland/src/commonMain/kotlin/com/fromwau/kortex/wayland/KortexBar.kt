@@ -6,10 +6,12 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
@@ -18,16 +20,12 @@ import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.roundToInt
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
-
-// The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
-private fun Dp.toLogicalPx(): Int = value.roundToInt()
 
 /**
  * A Compose composition rendered onto a `zwlr_layer_shell_v1` surface.
@@ -44,7 +42,6 @@ public class KortexBar private constructor(
     private val scene: KortexScene,
     private val clock: FrameClock,
     private val dispatcher: ExecutorCoroutineDispatcher,
-    private val outputs: WlOutput.Handle,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
 ) : AutoCloseable {
@@ -57,13 +54,17 @@ public class KortexBar private constructor(
     @Volatile
     private var pointerInput: PointerInput? = null
 
+    // Set once by create() after the seat is bound; null when the seat announced no keyboard.
+    @Volatile
+    private var keyboardInput: KeyboardInput? = null
+
     private var logicalWidth: Int = layer.logicalWidth
     private var logicalHeight: Int = layer.logicalHeight
 
     // Frames a resize replaced while the compositor still held them; reaped once release() clears busy.
     private val retiring = mutableListOf<Frame>()
 
-    // A test cannot make a real compositor send wl_output.scale; this stands in for it.
+    // A test cannot make a real compositor send wl_surface.preferred_buffer_scale; this stands in for it.
     internal var scaleOverride: Int? = null
 
     /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
@@ -92,11 +93,13 @@ public class KortexBar private constructor(
         renderNow(frameTimeNanos = 0L)
     }
 
-    /** Requests a new size from the compositor; must be called on the loop thread, like every request here. */
-    public fun requestSize(width: Dp, height: Dp) {
-        layer.setSize(width.toLogicalPx(), height.toLogicalPx())
-        layer.commit()
-    }
+    /**
+     * Requests a new size from the compositor; must be called on the loop thread, like every request here.
+     *
+     * @return what [LayerSurface.setSize] rejected, leaving the surface at the size it already had.
+     */
+    public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
+        layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
     /** Runs this bar until the connection dies. Blocks, and owns the connection for as long as it does. */
     public fun runEventLoop() {
@@ -142,6 +145,7 @@ public class KortexBar private constructor(
     }
 
     private fun reconcile() {
+        keyboardInput?.checkRepeat()
         reapRetiredFrames()
         maybeResize()
         maybeRescale()
@@ -158,15 +162,20 @@ public class KortexBar private constructor(
         resizeTo(newWidth, newHeight)
     }
 
-    /** Acts on a later `wl_output.scale`, coalesced to whatever scale is current by the time this runs. */
+    /** Acts on a later `wl_surface.preferred_buffer_scale`, coalesced to the scale current when this runs. */
     private fun maybeRescale() {
-        val newScale = scaleOverride ?: outputs.scale
+        val newScale = scaleOverride ?: layer.preferredBufferScale
         if (newScale == bufferScale) return
         bufferScale = newScale
         cursorTheme.rescale(bufferScale)
         cursorSurface.setBufferScale(bufferScale)
-        // The pointer skips a shape it believes is already showing, stranding it at the old scale.
-        pointerInput?.invalidateCursor()
+        pointerInput?.let { pointer ->
+            // Wayland keeps reporting logical coordinates, so a stale scale puts every event at the
+            // wrong scene position rather than failing outright.
+            pointer.scale = bufferScale.toFloat()
+            // The pointer skips a shape it believes is already showing, stranding it at the old scale.
+            pointer.invalidateCursor()
+        }
         // set_buffer_scale is double-buffered; without a commit it waits for a shape change that may never come.
         cursorSurface.commit()
         resizeTo(logicalWidth, logicalHeight)
@@ -257,6 +266,8 @@ public class KortexBar private constructor(
             display: WaylandDisplay,
             namespace: String = "kortex",
             height: Dp = 32.dp,
+            width: Dp = 0.dp,
+            margins: Margins = Margins.None,
             platform: KortexPlatform = KortexPlatform.None,
             // Set once and never changed: Hyprland does not return the keyboard to the focused window
             // when a layer surface drops its interactivity (hyprwm/Hyprland#8293).
@@ -264,18 +275,19 @@ public class KortexBar private constructor(
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
         ): Result<KortexBar, KortexError> {
-            // Kept for the bar's lifetime so a later wl_output.scale can be re-read, not just the first.
-            val outputs = WlOutput.bind(display)
-            val bufferScale = outputs.scale
             val shm = Shm.bind(display).getOrElse { return Err(it) }
             val heightPx = height.toLogicalPx()
+            val widthPx = width.toLogicalPx()
             val layer = LayerSurface.create(
-                display, namespace = namespace, height = heightPx, keyboard = keyboard, output = output,
+                display, namespace = namespace, height = heightPx, width = widthPx,
+                exclusiveZone = heightPx, margins = margins, keyboard = keyboard, output = output,
             ).getOrElse { return Err(it) }
             if (!layer.waitForConfigure()) {
                 // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
                 return Err(display.protocolError() ?: KortexError.SurfaceNotConfigured)
             }
+            // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
+            val bufferScale = layer.preferredBufferScale
             // Pending state only; it is committed together with the first attach() below.
             layer.setBufferScale(bufferScale)
 
@@ -324,12 +336,14 @@ public class KortexBar private constructor(
                 platform = hostPlatform,
             )
             bar = KortexBar(
-                display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher, outputs,
+                display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
                 cursorTheme, cursorSurface,
             )
             val seat = Seat.bind(display).getOrElse { return Err(it) }
             bar.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
-            if (keyboard != KeyboardInteractivity.None) seat.attachKeyboard(scene, { open.get() })
+            if (keyboard != KeyboardInteractivity.None) {
+                bar.keyboardInput = seat.attachKeyboard(scene, { open.get() })
+            }
             if (!seat.hasPointer) {
                 // A dead connection surfaces first as a seat with no devices; prefer the real cause.
                 val missingPointer = KortexError.MissingSeatDevice(SeatDevice.Pointer)

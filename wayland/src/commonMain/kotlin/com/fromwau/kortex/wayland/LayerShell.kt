@@ -1,5 +1,8 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
@@ -8,6 +11,7 @@ import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
+import kotlin.math.roundToInt
 
 /** Which layer a surface sits in. Other windows tile around anything below `Overlay`. */
 public enum class Layer { Background, Bottom, Top, Overlay }
@@ -20,7 +24,28 @@ public object Anchor {
     public const val RIGHT: Int = 8
 }
 
+/** One of a surface's two axes, each spanned by pinning both of its [Anchor] edges. */
+public enum class Axis { Horizontal, Vertical }
+
 public enum class KeyboardInteractivity { None, Exclusive, OnDemand }
+
+/**
+ * Insets from the anchor point, in `set_margin`'s wire order (top, right, bottom, left) — not the CSS
+ * order a reader may assume. A margin on an edge that [Anchor] does not pin has no effect.
+ */
+public data class Margins(
+    public val top: Dp = 0.dp,
+    public val right: Dp = 0.dp,
+    public val bottom: Dp = 0.dp,
+    public val left: Dp = 0.dp,
+) {
+    public companion object {
+        public val None: Margins = Margins()
+    }
+}
+
+// The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
+internal fun Dp.toLogicalPx(): Int = value.roundToInt()
 
 /** The `zwlr_layer_shell_v1` tables, from `wayland-scanner private-code wlr-layer-shell-unstable-v1.xml`. */
 internal object LayerShellProtocol {
@@ -70,9 +95,11 @@ internal object LayerShellProtocol {
     const val SET_SIZE = 0
     const val SET_ANCHOR = 1
     const val SET_EXCLUSIVE_ZONE = 2
+    const val SET_MARGIN = 3
     const val SET_KEYBOARD_INTERACTIVITY = 4
     const val ACK_CONFIGURE = 6
     const val LAYER_SURFACE_DESTROY = 7
+    const val SET_EXCLUSIVE_EDGE = 9
 }
 
 /**
@@ -85,13 +112,23 @@ public class LayerSurface internal constructor(
     private val display: WaylandDisplay,
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
+    private val anchor: Int,
     private val state: ConfigureState,
+    private val surfaceListener: WlSurfaceListener,
 ) : AutoCloseable {
 
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
     public val logicalWidth: Int get() = state.width
     public val logicalHeight: Int get() = state.height
     public val closed: Boolean get() = state.closed
+
+    /**
+     * The buffer scale the compositor wants for this surface, from `wl_surface.preferred_buffer_scale`.
+     *
+     * It reflects the output this surface is actually on, so two surfaces on a mixed-DPI setup report
+     * different scales. Reads 1 until the compositor says otherwise, as the protocol prescribes.
+     */
+    public val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
 
     /** Blocks until the compositor has configured this surface, acknowledging the serial it sent. */
     public fun waitForConfigure(): Boolean {
@@ -127,12 +164,17 @@ public class LayerSurface internal constructor(
     /**
      * Requests a new size in logical (surface-local) pixels; pending until [commit], which the
      * compositor answers with a fresh configure.
+     *
+     * @return [KortexError.UnspannableAxis] under the same rule [create] applies, since the anchor this
+     *   surface was created with is fixed for its lifetime.
      */
-    public fun setSize(width: Int, height: Int) {
+    public fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
+        unspannableAxis(width, height, anchor)?.let { return Err(it) }
         LibWayland.marshal(
             layerSurface, LayerShellProtocol.SET_SIZE,
             args = listOf(WlArg.Num(width), WlArg.Num(height)),
         )
+        return Ok(Unit)
     }
 
     public fun commit() {
@@ -152,19 +194,43 @@ public class LayerSurface internal constructor(
         /**
          * Creates a layer surface and drives it to its first configure.
          *
-         * @param height logical (surface-local) pixels; the surface spans whichever axis [anchor] pins
-         *   both edges of.
+         * @param height logical (surface-local) pixels; 0 means "you choose" and requires [anchor] to
+         *   pin both TOP and BOTTOM.
+         * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
+         *   to pin both LEFT and RIGHT.
+         * @param exclusiveZone reserves this many logical pixels of screen space, measured inward from
+         *   the anchored edge — a top or bottom bar reserves its [height], a side dock its [width] — which
+         *   is why it has no default. It is meaningful only when [anchor] pins one edge (or an edge plus
+         *   both edges perpendicular to it), or when [exclusiveEdge] names the edge for a corner anchor;
+         *   anything else is treated as zero. Zero asks to be moved clear of surfaces that do reserve
+         *   space. `-1` asks not to be moved at all and to extend all the way to the anchored edges
+         *   instead, the wallpaper and lock-screen case.
+         * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
+         * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
+         *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
+         *   Sent only when non-null, and only once it names a single edge [anchor] pins.
+         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored
+         *   — a request the compositor answers by dropping the connection — or
+         *   [KortexError.InvalidExclusiveEdge] when [exclusiveEdge] is not a single edge [anchor] pins.
          */
         public fun create(
             display: WaylandDisplay,
             namespace: String,
             height: Int,
+            width: Int = SPAN_ANCHORED_AXIS,
             layer: Layer = Layer.Top,
             anchor: Int = Anchor.TOP or Anchor.LEFT or Anchor.RIGHT,
-            exclusiveZone: Int = height,
+            exclusiveZone: Int,
+            margins: Margins = Margins.None,
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,
+            exclusiveEdge: Int? = null,
         ): Result<LayerSurface, KortexError> {
+            unspannableAxis(width, height, anchor)?.let { return Err(it) }
+            if (exclusiveEdge != null && (exclusiveEdge.countOneBits() != 1 || anchor and exclusiveEdge == 0)) {
+                return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
+            }
+
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
             val shell = display
@@ -175,6 +241,9 @@ public class LayerSurface internal constructor(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
                 LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),
             )
+            // Before get_layer_surface below: the compositor answers that with preferred_buffer_scale.
+            val surfaceListener = WlSurfaceListener()
+            surfaceListener.install(surface)
 
             val layerSurface = LibWayland.marshal(
                 shell, LayerShellProtocol.GET_LAYER_SURFACE, LayerShellProtocol.layerSurfaceInterface,
@@ -199,19 +268,49 @@ public class LayerSurface internal constructor(
             LibWayland.marshal(layerSurface, LayerShellProtocol.SET_ANCHOR, args = listOf(WlArg.Num(anchor)))
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_SIZE,
-                args = listOf(WlArg.Num(SPAN_ANCHORED_AXIS), WlArg.Num(height)),
+                args = listOf(WlArg.Num(width), WlArg.Num(height)),
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE, args = listOf(WlArg.Num(exclusiveZone)),
+            )
+            if (exclusiveEdge != null) {
+                LibWayland.marshal(
+                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(exclusiveEdge)),
+                )
+            }
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_MARGIN,
+                args = listOf(
+                    WlArg.Num(margins.top.toLogicalPx()),
+                    WlArg.Num(margins.right.toLogicalPx()),
+                    WlArg.Num(margins.bottom.toLogicalPx()),
+                    WlArg.Num(margins.left.toLogicalPx()),
+                ),
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_KEYBOARD_INTERACTIVITY,
                 args = listOf(WlArg.Num(keyboard.ordinal)),
             )
 
-            val result = LayerSurface(display, surface, layerSurface, state)
+            val result = LayerSurface(display, surface, layerSurface, anchor, state, surfaceListener)
             result.commit()
             return Ok(result)
+        }
+
+        /**
+         * Which axis, if either, was left for the compositor to size without both of its edges anchored.
+         *
+         * Omitting a dimension asks the compositor to pick it, which the protocol allows only when both
+         * of that axis's edges are anchored; anything else it answers by dropping the connection.
+         */
+        private fun unspannableAxis(width: Int, height: Int, anchor: Int): KortexError.UnspannableAxis? = when {
+            width == SPAN_ANCHORED_AXIS && anchor and HORIZONTAL_EDGES != HORIZONTAL_EDGES ->
+                KortexError.UnspannableAxis(Axis.Horizontal, anchor)
+
+            height == SPAN_ANCHORED_AXIS && anchor and VERTICAL_EDGES != VERTICAL_EDGES ->
+                KortexError.UnspannableAxis(Axis.Vertical, anchor)
+
+            else -> null
         }
 
         private const val WL_COMPOSITOR_CREATE_SURFACE = 0
@@ -222,6 +321,8 @@ public class LayerSurface internal constructor(
         private const val WL_SURFACE_DAMAGE_BUFFER = 9
         private const val MAX_SPINS = 32
         private const val SPAN_ANCHORED_AXIS = 0
+        private val HORIZONTAL_EDGES = Anchor.LEFT or Anchor.RIGHT
+        private val VERTICAL_EDGES = Anchor.TOP or Anchor.BOTTOM
 
         private val CONFIGURE_DESCRIPTOR =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)
@@ -254,5 +355,61 @@ internal class ConfigureState(private val layerSurface: MemorySegment) {
         if (!resized) return false
         resized = false
         return true
+    }
+}
+
+/**
+ * Tracks the `wl_surface` events for one surface.
+ *
+ * Only `preferred_buffer_scale` carries state. The other three exist because libwayland dispatches by
+ * indexing the listener struct with the event's opcode and calls straight through an empty slot.
+ */
+internal class WlSurfaceListener {
+    @Volatile var preferredBufferScale: Int = DEFAULT_SCALE
+        private set
+
+    fun onEnter(data: MemorySegment, proxy: MemorySegment, output: MemorySegment) = Unit
+
+    fun onLeave(data: MemorySegment, proxy: MemorySegment, output: MemorySegment) = Unit
+
+    fun onPreferredBufferScale(data: MemorySegment, proxy: MemorySegment, factor: Int) {
+        preferredBufferScale = factor
+    }
+
+    fun onPreferredBufferTransform(data: MemorySegment, proxy: MemorySegment, transform: Int) = Unit
+
+    fun install(surface: MemorySegment) {
+        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(this, "onEnter", ENTER_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(this, "onLeave", LEAVE_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, PREFERRED_BUFFER_SCALE,
+            LibWayland.upcall(this, "onPreferredBufferScale", PREFERRED_BUFFER_SCALE_DESCRIPTOR),
+        )
+        listener.setAtIndex(
+            ADDRESS, PREFERRED_BUFFER_TRANSFORM,
+            LibWayland.upcall(this, "onPreferredBufferTransform", PREFERRED_BUFFER_TRANSFORM_DESCRIPTOR),
+        )
+        check(LibWayland.proxyAddListener(surface, listener, MemorySegment.NULL) == 0) {
+            "wl_proxy_add_listener rejected the surface listener"
+        }
+    }
+
+    companion object {
+        // wl_surface v6 declares exactly these four events; every slot must be filled, because
+        // libwayland indexes the struct and calls straight through it.
+        private const val EVENT_COUNT = 4L
+        private const val ENTER = 0L
+        private const val LEAVE = 1L
+        private const val PREFERRED_BUFFER_SCALE = 2L
+        private const val PREFERRED_BUFFER_TRANSFORM = 3L
+
+        /** The protocol's own starting value: a surface renders at scale 1 until the compositor says otherwise. */
+        private const val DEFAULT_SCALE = 1
+
+        private val ENTER_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+        private val LEAVE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, ADDRESS)
+        private val PREFERRED_BUFFER_SCALE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+        private val PREFERRED_BUFFER_TRANSFORM_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
     }
 }
