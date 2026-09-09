@@ -36,7 +36,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       array by event opcode and calls straight through an empty slot. (`ProtocolVersionTest`)
 - [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
       and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
-      `get_layer_surface` with the event, so the first frame already has it. (`SurfaceScaleTest`)
+      `get_layer_surface` with the event, so the first frame already has it — and nothing depends on that
+      ordering, since `maybeRescale` runs on every loop tick. (`SurfaceScaleTest`)
 - [x] **3. Output geometry** — position, transform, `mode` width/height (current-flagged only), `name`,
       `description` and `scale`, accumulated into pending fields and published atomically on `done`, and
       reachable per bar through `KortexShell`. (`OutputGeometryTest`)
