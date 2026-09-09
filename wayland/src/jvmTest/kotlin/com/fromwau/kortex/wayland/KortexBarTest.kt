@@ -19,7 +19,7 @@ class KortexBarTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexBar.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -44,5 +44,11 @@ class KortexBarTest {
         const val BAR_HEIGHT = 32
         const val GREY = 128
         const val MID_GREY = 0xFF808080.toInt()
+
+        val CONFIG = SurfaceConfig(
+            namespace = NAMESPACE,
+            height = BAR_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+        )
     }
 }

@@ -30,7 +30,7 @@ class VirtualPointerClickTest {
 
             val clicks = AtomicInteger()
 
-            KortexBar.create(it, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            KortexBar.create(it, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent {
@@ -81,5 +81,11 @@ class VirtualPointerClickTest {
 
         // linux/input-event-codes.h
         const val BTN_LEFT = 0x110
+
+        val CONFIG = SurfaceConfig(
+            namespace = NAMESPACE,
+            height = BAR_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+        )
     }
 }

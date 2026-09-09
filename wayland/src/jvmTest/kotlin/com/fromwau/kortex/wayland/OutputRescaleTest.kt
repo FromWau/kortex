@@ -32,7 +32,7 @@ class OutputRescaleTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexBar.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -85,7 +85,7 @@ class OutputRescaleTest {
             val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no monitor")
             val seen = AtomicReference(Offset.Unspecified)
 
-            KortexBar.create(wayland, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            KortexBar.create(wayland, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent {
@@ -166,5 +166,11 @@ class OutputRescaleTest {
 
         /** wl_fixed_t rounding on the way through the compositor, not a scale's worth of slack. */
         const val POSITION_TOLERANCE_PX = 1f
+
+        val CONFIG = SurfaceConfig(
+            namespace = NAMESPACE,
+            height = BAR_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+        )
     }
 }

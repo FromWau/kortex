@@ -27,7 +27,7 @@ class SurfaceScaleTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexBar.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -62,7 +62,7 @@ class SurfaceScaleTest {
                     val output = wayland.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
                     // A wl_output proxy with no listener crashes on its first event.
                     OutputListener().install(output)
-                    val bar = KortexBar.create(wayland, namespace = namespace, height = BAR_HEIGHT.dp, output = output)
+                    val bar = KortexBar.create(wayland, CONFIG.copy(namespace = namespace), output = output)
                         .getOrElse { error -> fail("bar creation failed on output ${global.name}: $error") }
                     namespace to bar
                 }
@@ -121,5 +121,11 @@ class SurfaceScaleTest {
         const val WL_OUTPUT = "wl_output"
         const val BAR_HEIGHT = 32
         const val PUMP_MILLIS = 1500L
+
+        val CONFIG = SurfaceConfig(
+            namespace = NAMESPACE,
+            height = BAR_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+        )
     }
 }

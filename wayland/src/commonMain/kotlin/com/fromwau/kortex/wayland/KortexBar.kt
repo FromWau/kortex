@@ -5,7 +5,6 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -264,24 +263,24 @@ public class KortexBar private constructor(
     public companion object {
         public fun create(
             display: WaylandDisplay,
-            namespace: String = "kortex",
-            height: Dp = 32.dp,
-            width: Dp = 0.dp,
-            margins: Margins = Margins.None,
+            config: SurfaceConfig,
             platform: KortexPlatform = KortexPlatform.None,
-            // Set once and never changed: Hyprland does not return the keyboard to the focused window
-            // when a layer surface drops its interactivity (hyprwm/Hyprland#8293).
-            keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
         ): Result<KortexBar, KortexError> {
             val shm = Shm.bind(display).getOrElse { return Err(it) }
-            val heightPx = height.toLogicalPx()
-            val widthPx = width.toLogicalPx()
             val layer = LayerSurface.create(
-                display, namespace = namespace, height = heightPx, width = widthPx,
-                exclusiveZone = ExclusiveZone.Reserve(height), margins = margins, keyboard = keyboard,
+                display,
+                namespace = config.namespace,
+                height = config.height.toLogicalPx(),
+                width = config.width.toLogicalPx(),
+                layer = config.layer,
+                anchor = config.anchor,
+                exclusiveZone = config.exclusiveZone,
+                margins = config.margins,
+                keyboard = config.keyboard,
                 output = output,
+                exclusiveEdge = config.exclusiveEdge,
             ).getOrElse { return Err(it) }
             if (!layer.waitForConfigure()) {
                 // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
@@ -342,7 +341,7 @@ public class KortexBar private constructor(
             )
             val seat = Seat.bind(display).getOrElse { return Err(it) }
             bar.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
-            if (keyboard != KeyboardInteractivity.None) {
+            if (config.keyboard != KeyboardInteractivity.None) {
                 bar.keyboardInput = seat.attachKeyboard(scene, { open.get() })
             }
             if (!seat.hasPointer) {

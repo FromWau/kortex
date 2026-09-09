@@ -75,3 +75,33 @@ public sealed interface ExclusiveZone {
      */
     public data object Overlap : ExclusiveZone
 }
+
+/**
+ * What kind of surface to put on screen: where it sits, how much of the output it takes, and what it
+ * reserves from the rest of the desktop.
+ *
+ * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`.
+ * @property anchor the edges the surface is pinned to; pinning both edges of an [Axis] spans that axis.
+ * @property width 0 asks the compositor to choose, which requires [anchor] to pin both [Edge.Left] and
+ *   [Edge.Right].
+ * @property height 0 asks the compositor to choose, like [width], and requires both [Edge.Top] and
+ *   [Edge.Bottom].
+ * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows
+ *   into. It has no default because only the anchor decides what a sensible one would be.
+ * @property keyboard whether the surface can take keyboard focus. Set once and never changed: Hyprland
+ *   does not return the keyboard to the focused window when a layer surface drops its interactivity
+ *   (hyprwm/Hyprland#8293).
+ * @property exclusiveEdge which anchored edge [exclusiveZone] is measured from; only needed when
+ *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
+ */
+public data class SurfaceConfig(
+    public val namespace: String = "kortex",
+    public val layer: Layer = Layer.Top,
+    public val anchor: Set<Edge> = setOf(Edge.Top, Edge.Left, Edge.Right),
+    public val width: Dp = 0.dp,
+    public val height: Dp = 32.dp,
+    public val margins: Margins = Margins.None,
+    public val exclusiveZone: ExclusiveZone,
+    public val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
+    public val exclusiveEdge: Edge? = null,
+)

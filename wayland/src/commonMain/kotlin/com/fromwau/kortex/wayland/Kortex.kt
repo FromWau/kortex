@@ -38,10 +38,19 @@ public fun runBar(
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     platform: KortexPlatform = KortexPlatform.None,
     content: @Composable () -> Unit,
-): EmptyResult<KortexError> =
-    WaylandDisplay.connect().flatMap { display ->
+): EmptyResult<KortexError> {
+    val config = SurfaceConfig(
+        namespace = namespace,
+        width = width,
+        height = height,
+        margins = margins,
+        exclusiveZone = ExclusiveZone.Reserve(height),
+        keyboard = keyboard,
+    )
+    return WaylandDisplay.connect().flatMap { display ->
         display.use {
-            KortexShell.create(display, namespace, height, width, margins, platform, keyboard, content)
+            KortexShell.create(display, config, platform, content)
                 .map { shell -> shell.use { it.runEventLoop() } }
         }
     }
+}

@@ -1,8 +1,6 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -15,12 +13,8 @@ import java.lang.foreign.MemorySegment
 /** One [KortexBar] per connected `wl_output`, created and destroyed as outputs come and go. */
 public class KortexShell private constructor(
     private val display: WaylandDisplay,
-    private val namespace: String,
-    private val height: Dp,
-    private val width: Dp,
-    private val margins: Margins,
+    private val config: SurfaceConfig,
     private val platform: KortexPlatform,
-    private val keyboard: KeyboardInteractivity,
     private val content: @Composable () -> Unit,
 ) : AutoCloseable {
 
@@ -98,12 +92,8 @@ public class KortexShell private constructor(
         listener.install(output)
         return KortexBar.create(
             display,
-            namespace = "$namespace-${global.name}",
-            height = height,
-            width = width,
-            margins = margins,
+            config.copy(namespace = "${config.namespace}-${global.name}"),
             platform = platform,
-            keyboard = keyboard,
             output = output,
         ).map { bar ->
             bar.setContent(content)
@@ -126,18 +116,14 @@ public class KortexShell private constructor(
     private class ShellBar(val output: MemorySegment, val listener: OutputListener, val bar: KortexBar)
 
     public companion object {
-        /** Namespace, height, width, margins, platform and keyboard are shared by every bar the shell creates. */
+        /** [config] is shared by every bar the shell creates, its namespace suffixed with the output's id. */
         public fun create(
             display: WaylandDisplay,
-            namespace: String = "kortex",
-            height: Dp = 32.dp,
-            width: Dp = 0.dp,
-            margins: Margins = Margins.None,
+            config: SurfaceConfig,
             platform: KortexPlatform = KortexPlatform.None,
-            keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             content: @Composable () -> Unit,
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, namespace, height, width, margins, platform, keyboard, content)
+            val shell = KortexShell(display, config, platform, content)
             for (global in display.globals.filter { it.interfaceName == WL_OUTPUT }) {
                 shell.addBarOrError(global).getOrElse {
                     shell.close()

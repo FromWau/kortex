@@ -24,7 +24,7 @@ class KortexShellTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, namespace = NAMESPACE, height = BAR_HEIGHT.dp) {
+            val shell = KortexShell.create(wayland, CONFIG) {
                 Box(Modifier.fillMaxSize().background(Color(GREY, GREY, GREY)))
             }.getOrElse { error -> fail("shell creation failed: $error") }
 
@@ -105,5 +105,11 @@ class KortexShellTest {
         const val HYPRCTL_SETTLE_MILLIS = 2000L
         const val HYPRCTL_POLL_MILLIS = 100L
         const val NANOS_PER_MILLI = 1_000_000L
+
+        val CONFIG = SurfaceConfig(
+            namespace = NAMESPACE,
+            height = BAR_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+        )
     }
 }

@@ -23,7 +23,7 @@ class ReconfigureResizeTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, namespace = NAMESPACE, height = INITIAL_HEIGHT.dp)
+            val bar = KortexBar.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -60,5 +60,11 @@ class ReconfigureResizeTest {
         const val RESIZED_HEIGHT = 64
         const val PUMP_MILLIS = 1500L
         const val SPAN_ANCHORED_AXIS = 0
+
+        val CONFIG = SurfaceConfig(
+            namespace = NAMESPACE,
+            height = INITIAL_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(INITIAL_HEIGHT.dp),
+        )
     }
 }

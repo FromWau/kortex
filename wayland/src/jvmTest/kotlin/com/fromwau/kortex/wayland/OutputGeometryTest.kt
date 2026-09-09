@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.MemorySegment
 import kotlin.math.ceil
@@ -66,7 +67,7 @@ class OutputGeometryTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, namespace = SHELL_NAMESPACE) { }
+            val shell = KortexShell.create(wayland, CONFIG) { }
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
             shell.use {
@@ -130,6 +131,13 @@ class OutputGeometryTest {
         const val NAME = "SYNTH-1"
         const val DESCRIPTION = "Synthetic output for the current-mode-flag test"
         const val SHELL_NAMESPACE = "kortex-geometry-test"
+        const val BAR_HEIGHT = 32
         val NONE: MemorySegment = MemorySegment.NULL
+
+        val CONFIG = SurfaceConfig(
+            namespace = SHELL_NAMESPACE,
+            height = BAR_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+        )
     }
 }

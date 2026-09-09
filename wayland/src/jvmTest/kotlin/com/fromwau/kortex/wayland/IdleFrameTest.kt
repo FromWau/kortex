@@ -24,7 +24,7 @@ class IdleFrameTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexBar.create(it, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexBar.create(it, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -51,5 +51,11 @@ class IdleFrameTest {
         // wl_surface.frame fires at output refresh rate (119.88 Hz on this machine), so a busy loop would
         // commit well over a hundred frames in this window; a truly idle bar commits exactly zero.
         const val IDLE_WINDOW_MILLIS = 1000L
+
+        val CONFIG = SurfaceConfig(
+            namespace = NAMESPACE,
+            height = BAR_HEIGHT.dp,
+            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+        )
     }
 }
