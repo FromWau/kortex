@@ -107,7 +107,8 @@ class LayerGeometryTest {
             )
 
             when (result) {
-                is Ok -> fail("a 0-width surface without both horizontal edges anchored must be rejected: ${result.value}")
+                is Ok ->
+                    fail("a 0-width surface without both horizontal edges anchored must be rejected: ${result.value}")
                 is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, Anchor.TOP), result.error)
             }
 
@@ -134,7 +135,8 @@ class LayerGeometryTest {
             )
 
             when (result) {
-                is Ok -> fail("a 0-height surface without both vertical edges anchored must be rejected: ${result.value}")
+                is Ok ->
+                    fail("a 0-height surface without both vertical edges anchored must be rejected: ${result.value}")
                 is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Vertical, horizontal), result.error)
             }
 

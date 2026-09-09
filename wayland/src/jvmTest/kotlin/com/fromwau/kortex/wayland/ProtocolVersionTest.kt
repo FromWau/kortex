@@ -56,6 +56,22 @@ class ProtocolVersionTest {
         }
     }
 
+    /**
+     * The leg above compares against what the compositor advertises, which never exceeds the ceiling
+     * libwayland's own tables declare — so it cannot see a constant raised past that ceiling, which is
+     * the case `wl_proxy_marshal_flags` answers by aborting inside native code.
+     */
+    @Test
+    fun `every version kortex asks for is one its own wl_interface declares`() {
+        BINDINGS.forEach { (interfaceName, iface, asked) ->
+            val declared = LibWayland.interfaceVersion(iface)
+            assertTrue(
+                asked <= declared,
+                "$interfaceName asks for v$asked, past the v$declared its wl_interface declares",
+            )
+        }
+    }
+
     @Test
     fun `the pointer and keyboard inherit the version their seat negotiated`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }

@@ -156,6 +156,10 @@ internal object LibWayland {
     fun interfaceName(iface: MemorySegment): MemorySegment =
         iface.reinterpret(INTERFACE.byteSize()).get(ADDRESS, NAME_OFFSET)
 
+    /** The newest version a `wl_interface` declares; binding past it aborts inside libwayland. */
+    fun interfaceVersion(iface: MemorySegment): Int =
+        iface.reinterpret(INTERFACE.byteSize()).get(JAVA_INT, VERSION_OFFSET)
+
     /**
      * `wl_proxy_marshal_flags(proxy, opcode, interface, version, flags, ...)`.
      *

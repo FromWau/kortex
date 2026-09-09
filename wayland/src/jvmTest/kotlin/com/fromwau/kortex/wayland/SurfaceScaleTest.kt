@@ -74,6 +74,12 @@ class SurfaceScaleTest {
                     }
                     wayland.roundtrip()
                     bars.forEach { (namespace, bar) -> assertRendersAtItsMonitorScale(bar, namespace) }
+                    // Hyprland's own default is what makes the headless output a different scale; if
+                    // that ever changed, every assertion above would still pass on a uniform setup.
+                    assertTrue(
+                        bars.distinctBy { (_, bar) -> bar.currentBufferScale }.size > 1,
+                        "every bar came up at the same scale, so this leg no longer covers mixed DPI",
+                    )
                 } finally {
                     bars.forEach { (_, bar) -> bar.close() }
                 }
@@ -87,7 +93,10 @@ class SurfaceScaleTest {
     private fun assertRendersAtItsMonitorScale(bar: KortexBar, namespace: String) {
         val geometry = assertNotNull(Screen.geometry(namespace), "hyprctl layers did not report $namespace")
         val monitor = assertNotNull(monitorOf(namespace), "hyprctl layers put $namespace on no monitor")
-        val reported = assertNotNull(Hyprctl.monitors().firstOrNull { it.name == monitor }?.scale, "hyprctl monitors reported no scale for $monitor")
+        val reported = assertNotNull(
+            Hyprctl.monitors().firstOrNull { it.name == monitor }?.scale,
+            "hyprctl monitors reported no scale for $monitor",
+        )
         // wl_surface's scale is an integer and Hyprland rounds a fraction up, so the buffer never
         // holds fewer pixels than the output asks for.
         val scale = ceil(reported).toInt()

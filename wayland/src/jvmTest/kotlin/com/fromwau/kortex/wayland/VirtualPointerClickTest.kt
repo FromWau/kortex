@@ -7,7 +7,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.math.roundToInt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -74,7 +73,6 @@ class VirtualPointerClickTest {
         }
     }
 
-    /** The first monitor's logical (post-scale) size, the same space [Screen.geometry] reports in. */
     private companion object {
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
