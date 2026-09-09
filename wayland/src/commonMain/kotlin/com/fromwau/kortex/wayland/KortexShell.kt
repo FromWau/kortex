@@ -10,7 +10,7 @@ import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 
-/** One [KortexBar] per connected `wl_output`, created and destroyed as outputs come and go. */
+/** One [KortexSurface] per connected `wl_output`, created and destroyed as outputs come and go. */
 public class KortexShell private constructor(
     private val display: WaylandDisplay,
     private val config: SurfaceConfig,
@@ -24,10 +24,10 @@ public class KortexShell private constructor(
     private val pendingAdds = mutableListOf<WaylandGlobal>()
     private val pendingRemoves = mutableListOf<Int>()
 
-    /** The bars currently live, one per connected output; exposed so a caller or test can inspect them. */
-    public val activeBars: List<KortexBar> get() = bars.values.map { it.bar }
+    /** The surfaces currently live, one per connected output; exposed so a caller or test can inspect them. */
+    public val activeSurfaces: List<KortexSurface> get() = bars.values.map { it.bar }
 
-    /** Each active bar's published output geometry, parallel to [activeBars]; null until its first `done`. */
+    /** Each active surface's published output geometry, parallel to [activeSurfaces]; null until its first `done`. */
     internal val activeGeometries: List<OutputGeometry?> get() = bars.values.map { it.listener.geometry }
 
     init {
@@ -45,7 +45,7 @@ public class KortexShell private constructor(
         }
     }
 
-    /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses; mirrors [KortexBar.pump]. */
+    /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses; mirrors [KortexSurface.pump]. */
     public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
@@ -90,7 +90,7 @@ public class KortexShell private constructor(
         // A wl_output proxy with no listener crashes on its first event.
         val listener = OutputListener()
         listener.install(output)
-        return KortexBar.create(
+        return KortexSurface.create(
             display,
             config.copy(namespace = "${config.namespace}-${global.name}"),
             platform = platform,
@@ -113,7 +113,7 @@ public class KortexShell private constructor(
         bars.keys.toList().forEach(::removeBar)
     }
 
-    private class ShellBar(val output: MemorySegment, val listener: OutputListener, val bar: KortexBar)
+    private class ShellBar(val output: MemorySegment, val listener: OutputListener, val bar: KortexSurface)
 
     public companion object {
         /** [config] is shared by every bar the shell creates, its namespace suffixed with the output's id. */

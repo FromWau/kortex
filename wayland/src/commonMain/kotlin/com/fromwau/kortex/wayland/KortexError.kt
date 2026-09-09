@@ -4,7 +4,7 @@ import androidx.compose.ui.unit.Dp
 
 import com.fromwau.kern.result.IError
 
-/** A `wl_seat` capability [KortexBar] may need but the compositor did not announce. */
+/** A `wl_seat` capability [KortexSurface] may need but the compositor did not announce. */
 public enum class SeatDevice { Pointer, Keyboard }
 
 /** Which step of allocating a shared-memory buffer failed. */

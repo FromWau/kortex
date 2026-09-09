@@ -9,7 +9,7 @@ import kotlin.test.assertNotNull
  * Where the compositor placed a layer surface, and which monitor and [Layer] it landed on.
  *
  * hyprctl reports the geometry in logical (surface-local) pixels, the same space `configure` uses —
- * not the buffer pixels a [KortexBar] reports, which are larger by the output scale.
+ * not the buffer pixels a [KortexSurface] reports, which are larger by the output scale.
  */
 internal data class LayerGeometry(
     val monitor: String,

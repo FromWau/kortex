@@ -24,7 +24,7 @@ class IdleFrameTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexBar.create(it, CONFIG)
+            val bar = KortexSurface.create(it, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {

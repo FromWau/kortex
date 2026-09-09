@@ -27,7 +27,7 @@ class SurfaceScaleTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, CONFIG)
+            val bar = KortexSurface.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -62,7 +62,7 @@ class SurfaceScaleTest {
                     val output = wayland.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
                     // A wl_output proxy with no listener crashes on its first event.
                     OutputListener().install(output)
-                    val bar = KortexBar.create(wayland, CONFIG.copy(namespace = namespace), output = output)
+                    val bar = KortexSurface.create(wayland, CONFIG.copy(namespace = namespace), output = output)
                         .getOrElse { error -> fail("bar creation failed on output ${global.name}: $error") }
                     namespace to bar
                 }
@@ -90,7 +90,7 @@ class SurfaceScaleTest {
         }
     }
 
-    private fun assertRendersAtItsMonitorScale(bar: KortexBar, namespace: String) {
+    private fun assertRendersAtItsMonitorScale(bar: KortexSurface, namespace: String) {
         val geometry = assertNotNull(Screen.geometry(namespace), "hyprctl layers did not report $namespace")
         val monitor = geometry.monitor
         val reported = assertNotNull(

@@ -108,7 +108,7 @@ class ProtocolVersionTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            KortexBar.create(wayland, CONFIG)
+            KortexSurface.create(wayland, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
@@ -137,7 +137,7 @@ class ProtocolVersionTest {
             val offBarY = monitor.logicalHeight / 2
             val scrolled = AtomicReference(Offset.Zero)
 
-            KortexBar.create(wayland, CONFIG)
+            KortexSurface.create(wayland, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent {

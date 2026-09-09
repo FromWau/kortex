@@ -13,13 +13,13 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-class KortexBarTest {
+class KortexSurfaceTest {
     @Test
     fun `compose renders onto a layer surface`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, CONFIG)
+            val bar = KortexSurface.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {

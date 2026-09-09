@@ -127,7 +127,7 @@ class KeyRepeatTest {
         scene.render(surface.canvas.asComposeCanvas(), System.nanoTime())
     }
 
-    /** Mirrors [KortexBar]'s real tick: check for a due repeat, then render, once per [TICK_MILLIS]. */
+    /** Mirrors [KortexSurface]'s real tick: check for a due repeat, then render, once per [TICK_MILLIS]. */
     private fun pollFor(durationMillis: Long, keyboard: KeyboardInput, scene: KortexScene, surface: Surface) {
         val deadline = System.nanoTime() + durationMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
@@ -212,7 +212,7 @@ class KeyRepeatTest {
         const val NANOS_PER_MILLI = 1_000_000L
         const val NANOS_PER_SECOND = 1_000_000_000L
 
-        // Matches KortexBar's own tick cadence (PUMP_INTERVAL_MILLIS / EVENT_LOOP_TIMEOUT_MILLIS).
+        // Matches KortexSurface's own tick cadence (PUMP_INTERVAL_MILLIS / EVENT_LOOP_TIMEOUT_MILLIS).
         const val TICK_MILLIS = 16L
 
         // Picked so no plausible built-in default (e.g. 25/s after 250ms) could pass this by accident.

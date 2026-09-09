@@ -56,7 +56,7 @@ class SurfaceHandleTest {
                 // drop below, so a pass proves the composition's own close() on kortex-frame did it.
                 closeRequested.value = true
 
-                val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeBars.isEmpty() }
+                val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.isEmpty() }
                 assertTrue(dropped, "the shell never dropped the bar after content called close()")
 
                 val gone = shell.pump(PUMP_TIMEOUT_MILLIS) { kortexNamespace() == null }
@@ -74,7 +74,7 @@ class SurfaceHandleTest {
         val handleRef = AtomicReference<KortexSurfaceHandle>()
 
         display.use {
-            val bar = KortexBar.create(it, CONFIG)
+            val bar = KortexSurface.create(it, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -99,7 +99,7 @@ class SurfaceHandleTest {
         }
     }
 
-    /** [KortexShell] suffixes the configured namespace with the output's id, unlike a bare [KortexBar]. */
+    /** [KortexShell] suffixes the configured namespace with the output's id, unlike a bare [KortexSurface]. */
     private fun kortexNamespace(): String? =
         Hyprctl.layers().values
             .flatMap { it.levels.values.flatten() }

@@ -34,9 +34,9 @@ import org.jetbrains.skia.Surface
  * A Compose composition rendered onto a `zwlr_layer_shell_v1` surface.
  *
  * Frames are paced off `wl_surface.frame` and drawn only when the composition asks for one, so an idle
- * bar costs nothing.
+ * surface costs nothing.
  */
-public class KortexBar private constructor(
+public class KortexSurface private constructor(
     private val display: WaylandDisplay,
     private val layer: LayerSurface,
     private val shm: Shm,
@@ -117,7 +117,7 @@ public class KortexBar private constructor(
     public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
         layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
-    /** Runs this bar until the connection dies. Blocks, and owns the connection for as long as it does. */
+    /** Runs this surface until the connection dies. Blocks, and owns the connection for as long as it does. */
     public fun runEventLoop() {
         while (true) {
             drainQueue()
@@ -151,7 +151,7 @@ public class KortexBar private constructor(
     }
 
     /**
-     * Services this bar for one tick, for a driver running several bars on one connection.
+     * Services this surface for one tick, for a driver running several surfaces on one connection.
      *
      * Unlike [runEventLoop] and [pump], this does not dispatch; the driver owns the connection.
      */
@@ -285,7 +285,7 @@ public class KortexBar private constructor(
             platform: KortexPlatform = KortexPlatform.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
-        ): Result<KortexBar, KortexError> {
+        ): Result<KortexSurface, KortexError> {
             val shm = Shm.bind(display).getOrElse { return Err(it) }
             val layer = LayerSurface.create(
                 display,
@@ -319,14 +319,14 @@ public class KortexBar private constructor(
                 Thread(runnable, "kortex-frame").apply { isDaemon = true }
             }.asCoroutineDispatcher()
 
-            // The bar tracks the open text-input session itself so a host does not have to; keys the
+            // The surface tracks the open text-input session itself so a host does not have to; keys the
             // composition does not consume are turned into edits on it.
             val open = AtomicReference<KortexTextInput?>(null)
-            lateinit var bar: KortexBar
+            lateinit var surface: KortexSurface
             val hostPlatform = object : KortexPlatform {
                 override fun setCursor(cursor: KortexCursor) {
                     // Compose can call this from the frame thread; every libwayland call must run on the loop thread.
-                    bar.queue += { bar.pointerInput?.setCursor(cursor) }
+                    surface.queue += { surface.pointerInput?.setCursor(cursor) }
                     platform.setCursor(cursor)
                 }
 
@@ -350,17 +350,17 @@ public class KortexBar private constructor(
                 size = IntSize(bufferWidth, bufferHeight),
                 density = Density(bufferScale.toFloat()),
                 frameContext = dispatcher,
-                onInvalidate = { bar.onInvalidate() },
+                onInvalidate = { surface.onInvalidate() },
                 platform = hostPlatform,
             )
-            bar = KortexBar(
+            surface = KortexSurface(
                 display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
                 cursorTheme, cursorSurface,
             )
             val seat = Seat.bind(display).getOrElse { return Err(it) }
-            bar.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
+            surface.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
             if (config.keyboard != KeyboardInteractivity.None) {
-                bar.keyboardInput = seat.attachKeyboard(scene, { open.get() })
+                surface.keyboardInput = seat.attachKeyboard(scene, { open.get() })
             }
             if (!seat.hasPointer) {
                 // A dead connection surfaces first as a seat with no devices; prefer the real cause.
@@ -368,7 +368,7 @@ public class KortexBar private constructor(
                 return Err(display.protocolError() ?: missingPointer)
             }
             display.roundtrip()
-            return Ok(bar)
+            return Ok(surface)
         }
 
         // Two buffers, so a frame can be drawn while the compositor still holds the last one.

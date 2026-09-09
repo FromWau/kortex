@@ -43,7 +43,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       `description` and `scale`, accumulated into pending fields and published atomically on `done`, and
       reachable per bar through `KortexShell`. (`OutputGeometryTest`)
 - [x] **4. Key repeat** from `wl_keyboard.repeat_info`. `KeyboardInput` tracks the held key and its
-      due time, delivered through `KortexBar`'s existing tick (`reconcile`, on the loop thread) rather
+      due time, delivered through `KortexSurface`'s existing tick (`reconcile`, on the loop thread) rather
       than a timer thread, so a repeat travels the same `KortexTextInput` path a real press does.
       (`KeyRepeatTest`)
 - [x] **5. Explicit width and `set_margin`.** `width` and a `Margins(top, right, bottom, left)` type in
@@ -64,7 +64,7 @@ presets depend on.
       `KortexShell.activeGeometries` (internal). Still needed: a preset that reads `OutputGeometry` to
       flip a context menu near a screen edge.
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
-      composition local, provided by `KortexBar.setContent` around the caller's content; `compose` still
+      composition local, provided by `KortexSurface.setContent` around the caller's content; `compose` still
       knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state so a
       configure recomposes a reader. `close()` posts onto the bar's queue and sets the same flag a real
       `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceBars` reaps a self-close through the
@@ -74,7 +74,7 @@ presets depend on.
 - [ ] **Several independent surfaces on one connection.** `KortexShell` runs the *same* content once per
       output; it cannot host a dock plus an OSD plus a menu at once. Likely a generalisation of
       `KortexShell.serviceBars` from "bars per output" to "surfaces".
-      Fold in while reshaping: `activeBars` and `activeGeometries` are two separately materialised
+      Fold in while reshaping: `activeSurfaces` and `activeGeometries` are two separately materialised
       lists, parallel by naming convention only. Nothing ties their indices, so a caller zipping them
       across a hotplug gets misaligned data. Pairing a bar with its output geometry is exactly what a
       preset wants, so hang the geometry off the bar instead of exposing a second list.
@@ -102,7 +102,8 @@ presets depend on.
       path through `KortexPlatform`.
 - [ ] **Per-surface density override.** The reference takes `density = Density(2f)` and reads
       `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the surface's `preferred_buffer_scale`; the unused
-      `scale` parameter on `KortexBar.create` was removed as dead, so this would reintroduce it deliberately.
+      `scale` parameter on `KortexSurface.create` was removed as dead, so this would reintroduce it
+      deliberately.
 
 ## Housekeeping
 
@@ -112,7 +113,7 @@ presets depend on.
       wlroots extension.
 - [ ] **A screenshot pixel reads one channel step off**, roughly 1 run in 18 (`0xFF818080` where
       `0xFF808080` is expected). Not introduced by the protocol work, and seen in both `KortexShellTest` and
-      `KortexBarTest`, so it is compositing or capture timing rather than anything test-specific.
+      `KortexSurfaceTest`, so it is compositing or capture timing rather than anything test-specific.
       `Screen.settledPixel` already samples until two reads agree, which is evidently not enough.
 
 ## Deliberately not doing

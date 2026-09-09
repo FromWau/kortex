@@ -30,7 +30,7 @@ class VirtualPointerClickTest {
 
             val clicks = AtomicInteger()
 
-            KortexBar.create(it, CONFIG)
+            KortexSurface.create(it, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent {

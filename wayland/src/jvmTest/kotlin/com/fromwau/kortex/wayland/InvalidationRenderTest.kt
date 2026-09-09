@@ -28,7 +28,7 @@ class InvalidationRenderTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexBar.create(display, CONFIG)
+            val bar = KortexSurface.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {

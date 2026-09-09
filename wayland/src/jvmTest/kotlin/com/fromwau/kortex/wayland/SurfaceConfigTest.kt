@@ -11,7 +11,7 @@ import kotlin.test.fail
 /**
  * Pins that a [SurfaceConfig] reaches the compositor whole: its layer, its anchor and its exclusive
  * zone all decide where the surface lands, rather than being dropped or replaced by a default on the
- * way through [KortexBar].
+ * way through [KortexSurface].
  *
  * The layer is checked against the level `hyprctl layers` files the surface under, not against
  * [Layer] mapped back, so a wrong wire value cannot cancel itself out across the two directions.
@@ -31,7 +31,7 @@ class SurfaceConfigTest {
                 height = DOCK_HEIGHT.dp,
                 exclusiveZone = ExclusiveZone.Reserve(DOCK_HEIGHT.dp),
             )
-            val dock = KortexBar.create(wayland, config, output = monitor.proxy)
+            val dock = KortexSurface.create(wayland, config, output = monitor.proxy)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             dock.use {
@@ -89,7 +89,7 @@ class SurfaceConfigTest {
                     height = 0.dp,
                     exclusiveZone = ExclusiveZone.Overlap,
                 )
-                val background = KortexBar.create(wayland, config, output = monitor.proxy)
+                val background = KortexSurface.create(wayland, config, output = monitor.proxy)
                     .getOrElse { error -> fail("background creation failed: $error") }
 
                 background.use {
