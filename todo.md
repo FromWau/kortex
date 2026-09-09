@@ -82,10 +82,14 @@ presets depend on.
 
 ## Surface presets
 
-- [ ] `Panel` — top/bottom bar, no keyboard focus. Closest to today's `runBar`; mostly a rename plus
-      `ContentPosition`.
-- [ ] `Dock` — as Panel but `OnDemand` keyboard and an exclusive zone.
-- [ ] `DesktopBackground` — `Layer.Background`, anchored to all four edges, no exclusive zone.
+- [x] `SurfaceConfig.panel(edge, thickness, length)` — anchored to `edge` plus the two edges
+      perpendicular to it; `thickness` is both the surface's extent perpendicular to `edge` and exactly
+      what it reserves, `length` runs along `edge` and 0 spans it. `runBar` is rebuilt on it. Still wants
+      `ContentPosition`, a Compose-side layout concern. (`SurfacePresetTest`)
+- [x] `SurfaceConfig.dock(edge, thickness, length)` — `panel` with `OnDemand` keyboard. (`SurfacePresetTest`)
+- [x] `SurfaceConfig.desktopBackground()` — `Layer.Background`, anchored to all four edges, with
+      `ExclusiveZone.Overlap` so it reserves nothing and is never displaced by a panel's zone.
+      (`SurfacePresetTest`)
 - [ ] `Osd` — floating, centred by anchoring to nothing, no exclusive zone. Needs an explicit size and a
       handle. Anchoring to nothing forces `ExclusiveZone.Yield`, because `Overlap` extends a surface to
       its anchored edges and one with no anchor has nothing to extend to: Hyprland lists such a surface
@@ -95,8 +99,9 @@ presets depend on.
 - [ ] `AppMenu` — floating panel with a dismissable handle.
 - [ ] `ContextMenu` — positions at the cursor and flips its anchor near screen edges (`MenuAnchor`
       TOP_LEFT/TOP_RIGHT/BOTTOM_LEFT/BOTTOM_RIGHT).
-- [ ] `LockScreen` — `Layer.Overlay` with `KeyboardInteractivity.Exclusive`. Both already exist, so this
-      is a preset. Note the reference does *not* use `ext-session-lock-v1`, so it is not a real lock.
+- [x] `SurfaceConfig.lockScreen()` — `Layer.Overlay` with `KeyboardInteractivity.Exclusive`, anchored to
+      all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no `ext-session-lock-v1`.
+      (`SurfacePresetTest`)
 - [ ] `surface(config)` — the escape hatch taking layer/anchor/zone/keyboard/size/margins/namespace.
 
 ## Polish

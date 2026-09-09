@@ -71,14 +71,9 @@ public fun runBar(
     platform: KortexPlatform = KortexPlatform.None,
     content: @Composable () -> Unit,
 ): EmptyResult<KortexError> {
-    val config = SurfaceConfig(
-        namespace = namespace,
-        width = width,
-        height = height,
-        margins = margins,
-        exclusiveZone = ExclusiveZone.Reserve(height),
-        keyboard = keyboard,
-    )
+    val config = SurfaceConfig
+        .panel(edge = Edge.Top, thickness = height, length = width)
+        .copy(namespace = namespace, margins = margins, keyboard = keyboard)
     return runSurfaces(
         SurfaceSpec(config = config, target = OutputTarget.EveryOutput, content = content),
         platform = platform,

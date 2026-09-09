@@ -103,4 +103,58 @@ public data class SurfaceConfig(
     public val exclusiveZone: ExclusiveZone,
     public val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     public val exclusiveEdge: Edge? = null,
-)
+) {
+    public companion object {
+        /**
+         * A surface that hugs [edge] and spans it, anchored to [edge] plus the two edges perpendicular
+         * to it — a top bar anchors Top, Left and Right, for example.
+         *
+         * @param thickness how far the surface extends from [edge]; also exactly how much screen space
+         *   it reserves, with no way to reserve a different amount.
+         * @param length how far the surface runs along [edge]; 0 (the default) spans the whole edge.
+         */
+        public fun panel(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig {
+            val (width, height, perpendicular) = when (edge) {
+                Edge.Top, Edge.Bottom -> Triple(length, thickness, setOf(Edge.Left, Edge.Right))
+                Edge.Left, Edge.Right -> Triple(thickness, length, setOf(Edge.Top, Edge.Bottom))
+            }
+            return SurfaceConfig(
+                anchor = setOf(edge) + perpendicular,
+                width = width,
+                height = height,
+                exclusiveZone = ExclusiveZone.Reserve(thickness),
+            )
+        }
+
+        /** A [panel] with [KeyboardInteractivity.OnDemand], for one a user types or clicks into. */
+        public fun dock(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig =
+            panel(edge, thickness, length).copy(keyboard = KeyboardInteractivity.OnDemand)
+
+        /**
+         * Fills the whole output beneath every other surface, reserving nothing and never moved out of
+         * another surface's way.
+         */
+        public fun desktopBackground(): SurfaceConfig = SurfaceConfig(
+            layer = Layer.Background,
+            anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+            height = 0.dp,
+            exclusiveZone = ExclusiveZone.Overlap,
+        )
+
+        /**
+         * Fills the whole output above every other surface, taking keyboard focus exclusively and
+         * never moved out of another surface's way.
+         *
+         * This is not a real lock screen: kortex binds no `ext-session-lock-v1`, so nothing stops
+         * another surface from drawing over or beside it, or the compositor from switching away.
+         * Mistaking this for an actual session lock is a security problem, not a layout one.
+         */
+        public fun lockScreen(): SurfaceConfig = SurfaceConfig(
+            layer = Layer.Overlay,
+            anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+            height = 0.dp,
+            exclusiveZone = ExclusiveZone.Overlap,
+            keyboard = KeyboardInteractivity.Exclusive,
+        )
+    }
+}
