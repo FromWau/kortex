@@ -54,10 +54,6 @@ class InvalidationRenderTest {
         const val PUMP_MILLIS = 1500L
         val AFTER = Color.Blue.toArgb()
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = BAR_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

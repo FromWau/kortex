@@ -61,10 +61,6 @@ class ReconfigureResizeTest {
         const val PUMP_MILLIS = 1500L
         const val SPAN_ANCHORED_AXIS = 0
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = INITIAL_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(INITIAL_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = INITIAL_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

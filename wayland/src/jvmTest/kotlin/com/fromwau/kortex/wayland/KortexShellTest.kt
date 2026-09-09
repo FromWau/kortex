@@ -106,10 +106,6 @@ class KortexShellTest {
         const val HYPRCTL_POLL_MILLIS = 100L
         const val NANOS_PER_MILLI = 1_000_000L
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = SURFACE_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(SURFACE_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

@@ -238,10 +238,6 @@ class ProtocolVersionTest {
         /** How far to scroll, as wl_fixed_t; only that it is non-zero matters. */
         const val SCROLL_FIXED = 15 * 256
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = BAR_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

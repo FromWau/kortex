@@ -167,10 +167,6 @@ class OutputRescaleTest {
         /** wl_fixed_t rounding on the way through the compositor, not a scale's worth of slack. */
         const val POSITION_TOLERANCE_PX = 1f
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = BAR_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

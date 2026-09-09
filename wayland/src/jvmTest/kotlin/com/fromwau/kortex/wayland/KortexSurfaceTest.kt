@@ -42,10 +42,6 @@ class KortexSurfaceTest {
         const val GREY = 128
         const val MID_GREY = 0xFF808080.toInt()
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = BAR_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

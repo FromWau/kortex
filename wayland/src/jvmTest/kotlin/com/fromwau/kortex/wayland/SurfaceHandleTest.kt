@@ -137,10 +137,6 @@ class SurfaceHandleTest {
         const val PUMP_TIMEOUT_MILLIS = 4000L
         const val SPAN_ANCHORED_AXIS = 0
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = SURFACE_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(SURFACE_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

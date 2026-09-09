@@ -137,10 +137,8 @@ class OutputGeometryTest {
         const val SURFACE_HEIGHT = 32
         val NONE: MemorySegment = MemorySegment.NULL
 
-        val CONFIG = SurfaceConfig(
-            namespace = SHELL_NAMESPACE,
-            height = SURFACE_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(SURFACE_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig
+            .panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp)
+            .copy(namespace = SHELL_NAMESPACE)
     }
 }

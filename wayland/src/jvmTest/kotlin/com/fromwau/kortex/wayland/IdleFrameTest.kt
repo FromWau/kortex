@@ -52,10 +52,6 @@ class IdleFrameTest {
         // commit well over a hundred frames in this window; a truly idle bar commits exactly zero.
         const val IDLE_WINDOW_MILLIS = 1000L
 
-        val CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            height = BAR_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
-        )
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }
