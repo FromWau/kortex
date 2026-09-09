@@ -186,6 +186,7 @@ class SurfacePresetTest {
                 val geometry = assertNotNull(
                     Screen.geometry(OSD_NAMESPACE), "hyprctl layers does not report $OSD_NAMESPACE",
                 )
+                assertEquals(Layer.Overlay, geometry.layer, "osd did not land above every other layer")
                 assertEquals(OSD_WIDTH, geometry.logicalWidth, "osd is not its own requested width")
                 assertEquals(OSD_HEIGHT, geometry.logicalHeight, "osd is not its own requested height")
                 assertCentredInUsableArea(before, OSD_WIDTH, OSD_HEIGHT, geometry)

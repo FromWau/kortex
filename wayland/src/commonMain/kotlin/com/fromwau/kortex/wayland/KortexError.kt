@@ -1,7 +1,6 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
-
 import com.fromwau.kern.result.IError
 
 /** A `wl_seat` capability [KortexSurface] may need but the compositor did not announce. */

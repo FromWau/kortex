@@ -181,6 +181,7 @@ public data class SurfaceConfig(
          * area instead, so another surface's own exclusive zone can shift it off the output's true centre.
          */
         public fun osd(width: Dp, height: Dp): SurfaceConfig = SurfaceConfig(
+            layer = Layer.Overlay,
             anchor = emptySet(),
             width = width,
             height = height,
@@ -222,6 +223,7 @@ public data class SurfaceConfig(
                     Margins(bottom = (outputSize.height - at.y).dp, right = (outputSize.width - at.x).dp)
             }
             return SurfaceConfig(
+                layer = Layer.Overlay,
                 anchor = edges,
                 width = menuSize.width.dp,
                 height = menuSize.height.dp,
