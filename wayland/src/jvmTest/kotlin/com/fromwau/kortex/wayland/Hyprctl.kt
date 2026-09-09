@@ -1,8 +1,11 @@
 package com.fromwau.kortex.wayland
 
 import kotlin.math.roundToInt
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /** One entry of `hyprctl monitors -j`. */
+@Serializable
 internal data class Monitor(
     val name: String,
     val x: Int,
@@ -39,17 +42,7 @@ internal object Hyprctl {
     }
 
     /** Every connected monitor, in the order Hyprland lists them. */
-    fun monitors(): List<Monitor> = topLevelObjects(run("monitors", "-j")).map { entry ->
-        Monitor(
-            name = field(entry, "name"),
-            x = int(entry, "x"),
-            y = int(entry, "y"),
-            width = int(entry, "width"),
-            height = int(entry, "height"),
-            scale = field(entry, "scale").toFloat(),
-            transform = int(entry, "transform"),
-        )
-    }
+    fun monitors(): List<Monitor> = JSON.decodeFromString(run("monitors", "-j"))
 
     fun monitorNames(): Set<String> = monitors().mapTo(mutableSetOf(), Monitor::name)
 
@@ -61,25 +54,6 @@ internal object Hyprctl {
         return output
     }
 
-    // Splitting on brace depth keeps each monitor's fields together; scanning the whole document for
-    // a field name instead would read the first monitor's value for every monitor.
-    private fun topLevelObjects(json: String): List<String> {
-        val objects = mutableListOf<String>()
-        var depth = 0
-        var start = 0
-        json.forEachIndexed { index, char ->
-            when (char) {
-                '{' -> if (depth++ == 0) start = index
-                '}' -> if (--depth == 0) objects += json.substring(start, index + 1)
-            }
-        }
-        return objects
-    }
-
-    private fun field(entry: String, name: String): String =
-        checkNotNull(Regex("\"$name\": *\"?([^,\"}\\s]+)").find(entry)?.groupValues?.get(1)) {
-            "hyprctl monitors -j has no $name field in: $entry"
-        }
-
-    private fun int(entry: String, name: String): Int = field(entry, name).toInt()
+    // hyprctl reports far more per monitor than any test reads, and adds fields between releases.
+    private val JSON = Json { ignoreUnknownKeys = true }
 }

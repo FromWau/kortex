@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 group = "com.fromwau.kortex"
@@ -25,6 +26,7 @@ kotlin {
             dependencies {
                 implementation(libs.kotlin.test)
                 implementation(libs.skiko.awt.runtime.linux.x64)
+                implementation(libs.kotlinx.serialization.json)
             }
         }
     }
