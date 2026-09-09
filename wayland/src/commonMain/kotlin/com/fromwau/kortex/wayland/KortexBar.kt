@@ -1,6 +1,8 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -14,7 +16,9 @@ import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
+import com.fromwau.kortex.compose.KortexSurfaceHandle
 import com.fromwau.kortex.compose.KortexTextInput
+import com.fromwau.kortex.compose.LocalKortexSurface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
@@ -60,6 +64,18 @@ public class KortexBar private constructor(
     private var logicalWidth: Int = layer.logicalWidth
     private var logicalHeight: Int = layer.logicalHeight
 
+    // Snapshot state, not a plain var: a configure must recompose whatever content reads handle.size.
+    private val sizeState = mutableStateOf(IntSize(logicalWidth, logicalHeight))
+
+    private val surfaceHandle: KortexSurfaceHandle = object : KortexSurfaceHandle {
+        override val size: IntSize get() = sizeState.value
+
+        override fun close() {
+            // Compose can call this from the frame thread; every libwayland call must run on the loop thread.
+            queue += { layer.markClosed() }
+        }
+    }
+
     // Frames a resize replaced while the compositor still held them; reaped once release() clears busy.
     private val retiring = mutableListOf<Frame>()
 
@@ -84,11 +100,11 @@ public class KortexBar private constructor(
     /** The composition's current density; exposed so a test can assert a rescale updated it too. */
     internal val density: Density get() = scene.density
 
-    /** True once the compositor has sent `zwlr_layer_surface_v1.closed`; this bar must be torn down. */
+    /** True once the compositor has closed this surface, or its content has; either way it must be torn down. */
     internal val closed: Boolean get() = layer.closed
 
     public fun setContent(content: @Composable () -> Unit) {
-        scene.setContent(content)
+        scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
         renderNow(frameTimeNanos = 0L)
     }
 
@@ -198,6 +214,7 @@ public class KortexBar private constructor(
         frames = newFrames
         logicalWidth = newLogicalWidth
         logicalHeight = newLogicalHeight
+        sizeState.value = IntSize(newLogicalWidth, newLogicalHeight)
         scene.size = IntSize(bufferWidth, bufferHeight)
         scene.density = Density(bufferScale.toFloat())
         layer.setBufferScale(bufferScale)

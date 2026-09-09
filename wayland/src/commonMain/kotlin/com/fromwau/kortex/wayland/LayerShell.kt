@@ -120,6 +120,11 @@ public class LayerSurface internal constructor(
     /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */
     internal fun consumeResize(): Boolean = state.consumeResize()
 
+    /** Sets the same flag a real `closed` event would, so a self-close reaps through that one path. */
+    internal fun markClosed() {
+        state.closed = true
+    }
+
     /** Attaches [buffer] and marks the whole surface damaged. Must follow an acknowledged configure. */
     public fun attach(buffer: ShmBuffer) {
         LibWayland.marshal(
