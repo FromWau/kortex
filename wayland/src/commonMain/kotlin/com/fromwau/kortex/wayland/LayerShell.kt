@@ -1,7 +1,6 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -13,35 +12,12 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import kotlin.math.roundToInt
 
-/** Which layer a surface sits in. Other windows tile around anything below `Overlay`. */
-public enum class Layer { Background, Bottom, Top, Overlay }
-
 /** Edges a layer surface is anchored to. Anchoring both edges of an axis spans that axis. */
 public object Anchor {
     public const val TOP: Int = 1
     public const val BOTTOM: Int = 2
     public const val LEFT: Int = 4
     public const val RIGHT: Int = 8
-}
-
-/** One of a surface's two axes, each spanned by pinning both of its [Anchor] edges. */
-public enum class Axis { Horizontal, Vertical }
-
-public enum class KeyboardInteractivity { None, Exclusive, OnDemand }
-
-/**
- * Insets from the anchor point, in `set_margin`'s wire order (top, right, bottom, left) — not the CSS
- * order a reader may assume. A margin on an edge that [Anchor] does not pin has no effect.
- */
-public data class Margins(
-    public val top: Dp = 0.dp,
-    public val right: Dp = 0.dp,
-    public val bottom: Dp = 0.dp,
-    public val left: Dp = 0.dp,
-) {
-    public companion object {
-        public val None: Margins = Margins()
-    }
 }
 
 // The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
