@@ -1,5 +1,7 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.Dp
+
 import com.fromwau.kern.result.IError
 
 /** A `wl_seat` capability [KortexBar] may need but the compositor did not announce. */
@@ -37,6 +39,12 @@ public sealed interface KortexError : IError {
 
     /** [anchor] does not pin [edge], and reserving space against an unanchored edge is a protocol error. */
     public data class InvalidExclusiveEdge(public val edge: Edge, public val anchor: Set<Edge>) : KortexError
+
+    /**
+     * [amount] reserves nothing once rounded to logical pixels, so it names a case of its own:
+     * [ExclusiveZone.Yield] at 0, [ExclusiveZone.Overlap] below it.
+     */
+    public data class InvalidExclusiveZone(public val amount: Dp) : KortexError
 
     /** Allocating a shared-memory buffer failed at [step]. */
     public data class ShmAllocationFailed(public val step: ShmStep) : KortexError

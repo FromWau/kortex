@@ -34,7 +34,7 @@ internal object Screen {
                 val entry = entries.firstOrNull { it.namespace == namespace } ?: continue
                 return LayerGeometry(
                     monitor = monitor,
-                    layer = Layer.entries.first { it.wireValue == level.toInt() },
+                    layer = layerAt(level),
                     x = entry.x,
                     y = entry.y,
                     logicalWidth = entry.w,
@@ -44,6 +44,10 @@ internal object Screen {
         }
         return null
     }
+
+    private fun layerAt(level: String): Layer =
+        Layer.entries.firstOrNull { it.wireValue == level.toInt() }
+            ?: error("hyprctl layers reported level $level, which is no Layer")
 
     /**
      * The centre pixel, sampled until two consecutive reads agree.

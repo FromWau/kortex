@@ -182,8 +182,9 @@ public class LayerSurface internal constructor(
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
          *   Sent only when non-null.
          * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored
-         *   — a request the compositor answers by dropping the connection — or
-         *   [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge].
+         *   — a request the compositor answers by dropping the connection —
+         *   [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge], or
+         *   [KortexError.InvalidExclusiveZone] when an [ExclusiveZone.Reserve] reserves nothing.
          */
         public fun create(
             display: WaylandDisplay,
@@ -201,6 +202,11 @@ public class LayerSurface internal constructor(
             unspannableAxis(width, height, anchor)?.let { return Err(it) }
             if (exclusiveEdge != null && exclusiveEdge !in anchor) {
                 return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
+            }
+            // Tested on the rounded wire value, not the Dp: 0 is Yield's sentinel and -1 is Overlap's,
+            // so a Reserve that reaches either silently becomes the case it was not asking for.
+            if (exclusiveZone is ExclusiveZone.Reserve && exclusiveZone.toWireValue() < 1) {
+                return Err(KortexError.InvalidExclusiveZone(exclusiveZone.amount))
             }
 
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)

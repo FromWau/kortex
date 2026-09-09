@@ -57,7 +57,12 @@ public data class Margins(
  * to it, or when a corner anchor names the edge to measure from; anything else reserves nothing.
  */
 public sealed interface ExclusiveZone {
-    /** Reserves [amount] of screen space, measured inward from the anchored edge, for this surface alone. */
+    /**
+     * Reserves [amount] of screen space, measured inward from the anchored edge, for this surface alone.
+     *
+     * [amount] must round to at least one logical pixel: reserving none of the screen is [Yield], and
+     * reserving less than none is [Overlap].
+     */
     public data class Reserve(public val amount: Dp) : ExclusiveZone
 
     /** Reserves nothing, and asks to be moved clear of the surfaces that do. */

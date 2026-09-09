@@ -149,6 +149,36 @@ class ExclusiveZoneTest {
     }
 
     @Test
+    fun `a Reserve that rounds away to nothing is rejected rather than silently becoming another case`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            for (amount in ROUNDING_TO_NOTHING) {
+                val result = LayerSurface.create(
+                    wayland,
+                    namespace = ROUNDED_NAMESPACE,
+                    height = CORNER_HEIGHT,
+                    exclusiveZone = ExclusiveZone.Reserve(amount),
+                )
+
+                when (result) {
+                    is Ok -> fail("Reserve($amount) reserves nothing and must be rejected: ${result.value}")
+                    is Err -> assertEquals(KortexError.InvalidExclusiveZone(amount), result.error)
+                }
+            }
+
+            // A pixel is the smallest reservation that means what it says, so it must still be accepted.
+            val smallest = LayerSurface.create(
+                wayland,
+                namespace = ROUNDED_NAMESPACE,
+                height = CORNER_HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(1.dp),
+            ).getOrElse { error -> fail("a one-pixel reservation must be accepted: $error") }
+            smallest.use { assertTrue(smallest.waitForConfigure(), "the compositor never configured it") }
+        }
+    }
+
+    @Test
     fun `an exclusiveEdge the anchor does not pin is rejected before any request is sent`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
@@ -185,6 +215,11 @@ class ExclusiveZoneTest {
         const val CORNER_NAMESPACE = "kortex-exclusive-zone-corner"
         const val PROBE_NAMESPACE = "kortex-exclusive-zone-probe"
         const val REJECTED_NAMESPACE = "kortex-exclusive-zone-rejected"
+        const val ROUNDED_NAMESPACE = "kortex-exclusive-zone-rounded"
+
+        // 0 is Yield's wire value and anything below rounds onto Overlap's -1; 0.4 covers the rounding
+        // itself, which a guard reading the Dp rather than the wire value would let through.
+        val ROUNDING_TO_NOTHING = listOf(0.dp, 0.4.dp, (-1).dp)
 
         const val PANEL_HEIGHT = 53
 
