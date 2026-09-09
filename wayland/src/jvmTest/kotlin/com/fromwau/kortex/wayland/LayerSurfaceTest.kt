@@ -24,10 +24,7 @@ class LayerSurfaceTest {
                 assertTrue(bar.logicalWidth > 0, "configure carried a zero width")
                 assertTrue(bar.logicalHeight > 0, "configure carried a zero height")
 
-                val layers = ProcessBuilder("hyprctl", "layers").redirectErrorStream(true)
-                    .start().inputStream.bufferedReader().readText()
-                println("HYPRCTL-MATCH " + layers.lines().count { line -> NAMESPACE in line })
-                assertTrue(NAMESPACE in layers, "hyprctl layers does not list $NAMESPACE")
+                assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers does not report $NAMESPACE")
             }
         }
     }

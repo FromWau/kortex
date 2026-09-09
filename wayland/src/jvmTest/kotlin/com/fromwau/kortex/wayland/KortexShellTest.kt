@@ -41,7 +41,7 @@ class KortexShellTest {
 
                     val namespaces = awaitKortexLayerCount(2)
                     assertEquals(2, namespaces.size, "expected two distinct kortex layer namespaces, got $namespaces")
-                    val monitors = namespaces.map(::monitorForNamespace)
+                    val monitors = namespaces.map { Screen.geometry(it)?.monitor }
                     assertTrue(monitors.all { it != null }, "one of the bars never mapped to a monitor: $monitors")
                     assertNotEquals(monitors[0], monitors[1], "both bars ended up reported on the same output")
 
@@ -75,7 +75,7 @@ class KortexShellTest {
      * A bar counted in [KortexShell.activeBars] can still be a commit or two from appearing in
      * Hyprland's own layer list.
      */
-    private fun awaitKortexLayerCount(count: Int, timeoutMillis: Long = HYPRCTL_SETTLE_MILLIS): List<String> {
+    private fun awaitKortexLayerCount(count: Int, timeoutMillis: Long = HYPRCTL_SETTLE_MILLIS): Set<String> {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         var namespaces = kortexLayerNamespaces()
         while (namespaces.size != count && System.nanoTime() < deadline) {
@@ -85,26 +85,18 @@ class KortexShellTest {
         return namespaces
     }
 
-    /** Every namespace on screen that KortexShell could have produced, i.e. "$NAMESPACE-<output name>". */
-    private fun kortexLayerNamespaces(): List<String> =
-        Regex("\"namespace\": \"($NAMESPACE-[^\"]*)\"").findAll(Hyprctl.run("layers", "-j"))
-            .map { it.groupValues[1] }
-            .toList()
-
-    /** Which Hyprland monitor reported a layer with [namespace], by slicing hyprctl's per-monitor JSON blocks. */
-    private fun monitorForNamespace(namespace: String): String? {
-        val json = Hyprctl.run("layers", "-j")
-        val headers = MONITOR_HEADER.findAll(json).toList()
-        for (i in headers.indices) {
-            val start = headers[i].range.last
-            val end = if (i + 1 < headers.size) headers[i + 1].range.first else json.length
-            if ("\"namespace\": \"$namespace\"" in json.substring(start, end)) return headers[i].groupValues[1]
-        }
-        return null
-    }
+    /**
+     * Every distinct namespace on screen that KortexShell could have produced, i.e.
+     * "$NAMESPACE-<output name>" — distinct because a namespace mid-hotplug can transiently be
+     * reported under two monitors, and that must count as one namespace, not two.
+     */
+    private fun kortexLayerNamespaces(): Set<String> =
+        Hyprctl.layers().values
+            .flatMap { it.levels.values.flatten() }
+            .map { it.namespace }
+            .filterTo(mutableSetOf()) { it.startsWith("$NAMESPACE-") }
 
     private companion object {
-        val MONITOR_HEADER = Regex("\"([^\"]+)\":\\s*\\{\\s*\"levels\"")
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
         const val GREY = 128
