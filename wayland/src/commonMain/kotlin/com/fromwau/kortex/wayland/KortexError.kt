@@ -35,6 +35,9 @@ public sealed interface KortexError : IError {
     /** [axis] was left 0 ("you choose") while [anchor] does not pin both of its edges; the protocol forbids it. */
     public data class UnspannableAxis(public val axis: Axis, public val anchor: Int) : KortexError
 
+    /** [edge] is not one single edge that [anchor] pins, which `set_exclusive_edge` requires it to be. */
+    public data class InvalidExclusiveEdge(public val edge: Int, public val anchor: Int) : KortexError
+
     /** Allocating a shared-memory buffer failed at [step]. */
     public data class ShmAllocationFailed(public val step: ShmStep) : KortexError
 }

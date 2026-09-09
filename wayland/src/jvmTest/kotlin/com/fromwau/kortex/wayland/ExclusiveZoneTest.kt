@@ -1,5 +1,7 @@
 package com.fromwau.kortex.wayland
 
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -145,11 +147,50 @@ class ExclusiveZoneTest {
         }
     }
 
+    @Test
+    fun `an exclusiveEdge that is not one single anchored edge is rejected before any request is sent`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val anchor = Anchor.BOTTOM or Anchor.RIGHT
+
+            fun withEdge(edge: Int) = LayerSurface.create(
+                wayland,
+                namespace = REJECTED_NAMESPACE,
+                height = CORNER_HEIGHT,
+                width = CORNER_WIDTH,
+                anchor = anchor,
+                exclusiveZone = CORNER_ZONE,
+                exclusiveEdge = edge,
+            )
+
+            when (val result = withEdge(Anchor.TOP)) {
+                is Ok -> fail("an exclusiveEdge the anchor does not pin must be rejected: ${result.value}")
+                is Err -> assertEquals(KortexError.InvalidExclusiveEdge(Anchor.TOP, anchor), result.error)
+            }
+
+            // Both edges are anchored, but set_exclusive_edge takes the one edge a zone is measured
+            // from; two of them name no edge at all.
+            when (val result = withEdge(anchor)) {
+                is Ok -> fail("an exclusiveEdge naming two edges must be rejected: ${result.value}")
+                is Err -> assertEquals(KortexError.InvalidExclusiveEdge(anchor, anchor), result.error)
+            }
+
+            // The rejection must happen before any request reaches the compositor, leaving the
+            // connection itself unharmed; prove it by using it normally right after.
+            val sanity = LayerSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = CORNER_HEIGHT, exclusiveZone = 0,
+            ).getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
+            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+        }
+    }
+
     private companion object {
         const val PANEL_NAMESPACE = "kortex-exclusive-zone-panel"
         const val BACKGROUND_NAMESPACE = "kortex-exclusive-zone-background"
         const val CORNER_NAMESPACE = "kortex-exclusive-zone-corner"
         const val PROBE_NAMESPACE = "kortex-exclusive-zone-probe"
+        const val REJECTED_NAMESPACE = "kortex-exclusive-zone-rejected"
 
         const val PANEL_HEIGHT = 53
 

@@ -6,10 +6,12 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
@@ -91,11 +93,13 @@ public class KortexBar private constructor(
         renderNow(frameTimeNanos = 0L)
     }
 
-    /** Requests a new size from the compositor; must be called on the loop thread, like every request here. */
-    public fun requestSize(width: Dp, height: Dp) {
-        layer.setSize(width.toLogicalPx(), height.toLogicalPx())
-        layer.commit()
-    }
+    /**
+     * Requests a new size from the compositor; must be called on the loop thread, like every request here.
+     *
+     * @return what [LayerSurface.setSize] rejected, leaving the surface at the size it already had.
+     */
+    public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
+        layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
     /** Runs this bar until the connection dies. Blocks, and owns the connection for as long as it does. */
     public fun runEventLoop() {

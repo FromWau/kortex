@@ -7,6 +7,7 @@ import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -136,6 +137,38 @@ class LayerGeometryTest {
     }
 
     @Test
+    fun `setSize leaving an axis at 0 is rejected against the anchor the surface was created with`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            // Both axes explicit, so create() itself has nothing to object to and only setSize can.
+            val bar = LayerSurface.create(
+                wayland,
+                namespace = RESIZED_NAMESPACE,
+                height = HEIGHT,
+                width = WIDTH,
+                anchor = Anchor.TOP,
+                exclusiveZone = 0,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+
+            bar.use {
+                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+
+                when (val result = bar.setSize(SPAN_ANCHORED_AXIS, HEIGHT)) {
+                    is Ok -> fail("a 0 width on a surface anchored to TOP alone must be rejected")
+                    is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, Anchor.TOP), result.error)
+                }
+
+                // A rejected request must not have reached the wire at all, so committing after it is
+                // harmless; had set_size gone out, this is where invalid_size would come back.
+                bar.commit()
+                wayland.roundtrip()
+                assertNull(wayland.protocolError(), "the rejected set_size still reached the compositor")
+            }
+        }
+    }
+
+    @Test
     fun `anchoring all four edges lets both axes be left at 0`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
@@ -177,6 +210,7 @@ class LayerGeometryTest {
         const val NAMESPACE = "kortex-layer-geometry"
         const val DEFAULT_NAMESPACE = "kortex-layer-geometry-default"
         const val REJECTED_NAMESPACE = "kortex-layer-geometry-rejected"
+        const val RESIZED_NAMESPACE = "kortex-layer-geometry-resized"
         const val SPANNING_NAMESPACE = "kortex-layer-geometry-spanning"
         const val HEIGHT = 96
         const val WIDTH = 240
@@ -189,5 +223,6 @@ class LayerGeometryTest {
         const val IGNORED_MARGIN = 41
 
         const val DEFAULT_HEIGHT = 32
+        const val SPAN_ANCHORED_AXIS = 0
     }
 }

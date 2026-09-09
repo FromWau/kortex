@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
@@ -111,6 +112,7 @@ public class LayerSurface internal constructor(
     private val display: WaylandDisplay,
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
+    private val anchor: Int,
     private val state: ConfigureState,
     private val surfaceListener: WlSurfaceListener,
 ) : AutoCloseable {
@@ -162,12 +164,17 @@ public class LayerSurface internal constructor(
     /**
      * Requests a new size in logical (surface-local) pixels; pending until [commit], which the
      * compositor answers with a fresh configure.
+     *
+     * @return [KortexError.UnspannableAxis] under the same rule [create] applies, since the anchor this
+     *   surface was created with is fixed for its lifetime.
      */
-    public fun setSize(width: Int, height: Int) {
+    public fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
+        unspannableAxis(width, height, anchor)?.let { return Err(it) }
         LibWayland.marshal(
             layerSurface, LayerShellProtocol.SET_SIZE,
             args = listOf(WlArg.Num(width), WlArg.Num(height)),
         )
+        return Ok(Unit)
     }
 
     public fun commit() {
@@ -199,10 +206,10 @@ public class LayerSurface internal constructor(
          * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
-         *   Sent only when non-null — the compositor raises `invalid_exclusive_edge` for an edge [anchor]
-         *   does not pin.
+         *   Sent only when non-null, and only once it names a single edge [anchor] pins.
          * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges
-         *   anchored, rather than sending a request the compositor answers by dropping the connection.
+         *   anchored, or [KortexError.InvalidExclusiveEdge] when [exclusiveEdge] is not a single edge
+         *   [anchor] pins, rather than sending a request the compositor answers by dropping the connection.
          */
         public fun create(
             display: WaylandDisplay,
@@ -217,13 +224,9 @@ public class LayerSurface internal constructor(
             output: MemorySegment = MemorySegment.NULL,
             exclusiveEdge: Int? = null,
         ): Result<LayerSurface, KortexError> {
-            // Omitting a dimension asks the compositor to pick it, which the protocol allows only when
-            // both of that axis's edges are anchored; anything else it answers by dropping the connection.
-            if (width == SPAN_ANCHORED_AXIS && anchor and HORIZONTAL_EDGES != HORIZONTAL_EDGES) {
-                return Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
-            }
-            if (height == SPAN_ANCHORED_AXIS && anchor and VERTICAL_EDGES != VERTICAL_EDGES) {
-                return Err(KortexError.UnspannableAxis(Axis.Vertical, anchor))
+            unspannableAxis(width, height, anchor)?.let { return Err(it) }
+            if (exclusiveEdge != null && (exclusiveEdge.countOneBits() != 1 || anchor and exclusiveEdge == 0)) {
+                return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
             }
 
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
@@ -287,9 +290,25 @@ public class LayerSurface internal constructor(
                 args = listOf(WlArg.Num(keyboard.ordinal)),
             )
 
-            val result = LayerSurface(display, surface, layerSurface, state, surfaceListener)
+            val result = LayerSurface(display, surface, layerSurface, anchor, state, surfaceListener)
             result.commit()
             return Ok(result)
+        }
+
+        /**
+         * Which axis, if either, was left for the compositor to size without both of its edges anchored.
+         *
+         * Omitting a dimension asks the compositor to pick it, which the protocol allows only when both
+         * of that axis's edges are anchored; anything else it answers by dropping the connection.
+         */
+        private fun unspannableAxis(width: Int, height: Int, anchor: Int): KortexError.UnspannableAxis? = when {
+            width == SPAN_ANCHORED_AXIS && anchor and HORIZONTAL_EDGES != HORIZONTAL_EDGES ->
+                KortexError.UnspannableAxis(Axis.Horizontal, anchor)
+
+            height == SPAN_ANCHORED_AXIS && anchor and VERTICAL_EDGES != VERTICAL_EDGES ->
+                KortexError.UnspannableAxis(Axis.Vertical, anchor)
+
+            else -> null
         }
 
         private const val WL_COMPOSITOR_CREATE_SURFACE = 0
