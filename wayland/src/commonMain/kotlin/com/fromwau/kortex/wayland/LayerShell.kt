@@ -209,9 +209,9 @@ public class LayerSurface internal constructor(
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
          *   Sent only when non-null, and only once it names a single edge [anchor] pins.
-         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges
-         *   anchored, or [KortexError.InvalidExclusiveEdge] when [exclusiveEdge] is not a single edge
-         *   [anchor] pins, rather than sending a request the compositor answers by dropping the connection.
+         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored
+         *   — a request the compositor answers by dropping the connection — or
+         *   [KortexError.InvalidExclusiveEdge] when [exclusiveEdge] is not a single edge [anchor] pins.
          */
         public fun create(
             display: WaylandDisplay,
