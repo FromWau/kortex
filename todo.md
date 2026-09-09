@@ -25,7 +25,7 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] **Multi-monitor.** `KortexShell` runs one bar per `wl_output` and tracks hotplug. The reference lists
       single-monitor-only as a known limitation.
 
-## Protocol versions — branch `wayland-protocols`
+## Protocol versions
 
 Every global is bound at the newest version its interface declares; `wl_registry_bind` clamps to what
 the compositor offers. No legacy paths, no version-conditional branches, no migration shims.
@@ -53,15 +53,15 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next branch: the surface presets below, opening with the two architecture items from Foundations that
-the presets depend on.
+Next: the surface presets below, opening with the two architecture items from Foundations that the
+presets depend on.
 
 ## Foundations — everything below depends on these
 
-- [ ] **Output geometry.** Read as of protocol task 3 — `OutputListener` now publishes position,
-      transform, mode size, name, description and scale on `done` (`WlOutput.kt`), reachable per bar
-      through `KortexShell.activeGeometries` (internal). Still needed: a preset that reads
-      `OutputGeometry` to centre an OSD or flip a context menu near a screen edge.
+- [ ] **Output geometry.** The read side is done: `OutputListener` publishes position, transform, mode
+      size, name, description and scale on `done` (`WlOutput.kt`), reachable per bar through
+      `KortexShell.activeGeometries` (internal). Still needed: a preset that reads `OutputGeometry` to
+      centre an OSD or flip a context menu near a screen edge.
 - [ ] **A surface handle.** `runBar` blocks and hands the composition nothing. The reference's
       `WaylandBridge` exposes `state`, `actualWidth/Height`, `close()`, `awaitClose()`, plus a
       `LocalWaylandBridge` composition local so content can dismiss itself. An OSD that disappears after
@@ -100,13 +100,13 @@ the presets depend on.
 
 ## Housekeeping
 
-- [ ] **Split `LayerShell.kt`** (394 lines, the largest file here). It holds three concerns: the public
+- [ ] **Split `LayerShell.kt`** (415 lines, the largest file here). It holds three concerns: the public
       config vocabulary (`Layer`, `Anchor`, `Axis`, `KeyboardInteractivity`, `Margins`), the
       `zwlr_layer_shell_v1` tables, and `LayerSurface` with its listeners. `WlSurfaceListener` is the
       odd one out — `wl_surface` is a core interface, not part of this wlroots extension.
 - [ ] **A screenshot pixel reads one channel step off**, roughly 1 run in 18 (`0xFF818080` where
-      `0xFF808080` is expected). Predates this branch, and has now been seen in both `KortexShellTest`
-      and `KortexBarTest`, so it is compositing or capture timing rather than anything test-specific.
+      `0xFF808080` is expected). Not introduced by the protocol work, and seen in both `KortexShellTest` and
+      `KortexBarTest`, so it is compositing or capture timing rather than anything test-specific.
       `Screen.settledPixel` already samples until two reads agree, which is evidently not enough.
 
 ## Deliberately not doing
