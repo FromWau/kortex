@@ -1,6 +1,8 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
 /**
@@ -33,6 +35,18 @@ public enum class KeyboardInteractivity(internal val wireValue: Int) {
     None(0),
     Exclusive(1),
     OnDemand(2),
+}
+
+/**
+ * Which corner of a floating menu sits at its anchor point. [TopLeft] means the menu's top-left corner
+ * is at the point and it opens down and to the right; the other three name their corner and opening
+ * direction the same way.
+ */
+public enum class MenuAnchor {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
 }
 
 /**
@@ -157,5 +171,63 @@ public data class SurfaceConfig(
             exclusiveZone = ExclusiveZone.Overlap,
             keyboard = KeyboardInteractivity.Exclusive,
         )
+
+        /**
+         * A surface of exactly [width] by [height], centred on the output by anchoring nothing.
+         *
+         * Centring an unanchored surface only works by yielding, not overlapping. [ExclusiveZone.Overlap]
+         * means "extend to the anchored edges", and an unanchored surface has none to extend to, so the
+         * compositor never renders it at all. [ExclusiveZone.Yield] centres it in the output's *usable*
+         * area instead, so another surface's own exclusive zone can shift it off the output's true centre.
+         */
+        public fun osd(width: Dp, height: Dp): SurfaceConfig = SurfaceConfig(
+            anchor = emptySet(),
+            width = width,
+            height = height,
+            exclusiveZone = ExclusiveZone.Yield,
+        )
+
+        /** An [osd] that also takes keyboard focus on demand, for a floating panel dismissed through its own handle. */
+        public fun appMenu(width: Dp, height: Dp): SurfaceConfig =
+            osd(width, height).copy(keyboard = KeyboardInteractivity.OnDemand)
+
+        /**
+         * Places a menu of [menuSize] so its default corner, [MenuAnchor.TopLeft], sits at [at]. It flips
+         * to whichever corner keeps it inside an output of [outputSize], independently per axis: a point
+         * near one edge flips only that axis, and a point near a corner flips both.
+         *
+         * A pure function of its three inputs: nothing here reads a compositor, so a caller supplies
+         * both sizes in the logical (surface-local) space `configure` and [OutputGeometry] report.
+         *
+         * A [menuSize] wider or taller than [outputSize] still flips on that axis, coming to rest against
+         * the far edge rather than clamping to [outputSize] or overflowing past the edge nearest [at].
+         */
+        public fun contextMenu(at: IntOffset, menuSize: IntSize, outputSize: IntSize): SurfaceConfig {
+            val overflowsRight = at.x + menuSize.width > outputSize.width
+            val overflowsBottom = at.y + menuSize.height > outputSize.height
+            val anchor = when {
+                overflowsRight && overflowsBottom -> MenuAnchor.BottomRight
+                overflowsRight -> MenuAnchor.TopRight
+                overflowsBottom -> MenuAnchor.BottomLeft
+                else -> MenuAnchor.TopLeft
+            }
+            val (edges, margins) = when (anchor) {
+                MenuAnchor.TopLeft -> setOf(Edge.Top, Edge.Left) to
+                    Margins(top = at.y.dp, left = at.x.dp)
+                MenuAnchor.TopRight -> setOf(Edge.Top, Edge.Right) to
+                    Margins(top = at.y.dp, right = (outputSize.width - at.x).dp)
+                MenuAnchor.BottomLeft -> setOf(Edge.Bottom, Edge.Left) to
+                    Margins(bottom = (outputSize.height - at.y).dp, left = at.x.dp)
+                MenuAnchor.BottomRight -> setOf(Edge.Bottom, Edge.Right) to
+                    Margins(bottom = (outputSize.height - at.y).dp, right = (outputSize.width - at.x).dp)
+            }
+            return SurfaceConfig(
+                anchor = edges,
+                width = menuSize.width.dp,
+                height = menuSize.height.dp,
+                margins = margins,
+                exclusiveZone = ExclusiveZone.Yield,
+            )
+        }
     }
 }

@@ -54,15 +54,15 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the surface presets below, opening with the two architecture items from Foundations that the
-presets depend on.
+Next: the polish and housekeeping items below; the surface presets and the Foundations they depended on
+are done.
 
 ## Foundations — everything below depends on these
 
-- [ ] **Output geometry.** The read side is done: `OutputListener` publishes position, transform, mode
-      size, name, description and scale on `done` (`WlOutput.kt`), reachable through
-      `KortexShell.activeSurfaces`, where every entry carries its own output's geometry (internal).
-      Still needed: a preset that reads `OutputGeometry` to flip a context menu near a screen edge.
+- [x] **Output geometry.** `OutputListener` publishes position, transform, mode size, name, description
+      and scale on `done` (`WlOutput.kt`), reachable through `KortexShell.activeSurfaces` and
+      `ActiveSurface.geometry` — both public, so a host can read an output's logical size and hand it to
+      `SurfaceConfig.contextMenu`. (`OutputGeometryTest`)
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
       composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
       still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state
@@ -90,19 +90,26 @@ presets depend on.
 - [x] `SurfaceConfig.desktopBackground()` — `Layer.Background`, anchored to all four edges, with
       `ExclusiveZone.Overlap` so it reserves nothing and is never displaced by a panel's zone.
       (`SurfacePresetTest`)
-- [ ] `Osd` — floating, centred by anchoring to nothing, no exclusive zone. Needs an explicit size and a
-      handle. Anchoring to nothing forces `ExclusiveZone.Yield`, because `Overlap` extends a surface to
-      its anchored edges and one with no anchor has nothing to extend to: Hyprland lists such a surface
-      in `hyprctl layers` and draws nothing. The cost is that a yielding OSD is centred in the *usable*
-      area, so any other surface's exclusive zone pushes it off true centre. A preset that must sit dead
-      centre has to anchor and place itself with margins, which also lets it `Overlap`.
-- [ ] `AppMenu` — floating panel with a dismissable handle.
-- [ ] `ContextMenu` — positions at the cursor and flips its anchor near screen edges (`MenuAnchor`
-      TOP_LEFT/TOP_RIGHT/BOTTOM_LEFT/BOTTOM_RIGHT).
+- [x] `SurfaceConfig.osd(width, height)` — floating, centred on the output by anchoring nothing, sized
+      exactly `width` by `height`. Anchoring nothing forces `ExclusiveZone.Yield`, because `Overlap`
+      extends a surface to its anchored edges and one with no anchor has nothing to extend to: Hyprland
+      lists such a surface in `hyprctl layers` and draws nothing. The cost is that a yielding OSD is
+      centred in the *usable* area, so another surface's own exclusive zone can push it off true centre.
+      A preset that must sit dead centre has to anchor and place itself with margins, which also lets it
+      `Overlap`. (`SurfacePresetTest`)
+- [x] `SurfaceConfig.appMenu(width, height)` — an `osd` that also takes keyboard focus on demand, for a
+      floating panel whose content dismisses it through its `KortexSurfaceHandle`. (`SurfacePresetTest`)
+- [x] `SurfaceConfig.contextMenu(at, menuSize, outputSize)` — places a menu so its default corner
+      (`MenuAnchor.TopLeft`) sits at `at`, flipping to whichever corner keeps it inside `outputSize`,
+      independently per axis. A pure function of its three inputs, so the flip logic needs no compositor
+      to test. A menu wider or taller than `outputSize` still flips on that axis, coming to rest against
+      the far edge rather than clamping or overflowing the edge nearest `at`. (`MenuAnchorTest`)
 - [x] `SurfaceConfig.lockScreen()` — `Layer.Overlay` with `KeyboardInteractivity.Exclusive`, anchored to
       all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no `ext-session-lock-v1`.
       (`SurfacePresetTest`)
-- [ ] `surface(config)` — the escape hatch taking layer/anchor/zone/keyboard/size/margins/namespace.
+- [x] The escape hatch is `SurfaceConfig`'s own constructor: layer, anchor, exclusive zone, keyboard,
+      size, margins, namespace and exclusiveEdge are all public and defaulted where a default makes
+      sense, so a caller a preset doesn't cover constructs one directly. (`SurfaceConfigTest`)
 
 ## Polish
 

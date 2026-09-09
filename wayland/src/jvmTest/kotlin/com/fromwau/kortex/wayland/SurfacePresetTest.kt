@@ -2,15 +2,18 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Pins that [SurfaceConfig.panel], [SurfaceConfig.dock], [SurfaceConfig.desktopBackground] and
- * [SurfaceConfig.lockScreen] assemble the layer, anchor and exclusive zone each promises, and that
- * reaches the compositor rather than being dropped or replaced by a default on the way through.
+ * Pins that [SurfaceConfig.panel], [SurfaceConfig.dock], [SurfaceConfig.desktopBackground],
+ * [SurfaceConfig.lockScreen], [SurfaceConfig.osd] and [SurfaceConfig.appMenu] assemble the layer,
+ * anchor and exclusive zone each promises, and that reaches the compositor rather than being dropped
+ * or replaced by a default on the way through.
  */
 class SurfacePresetTest {
     @Test
@@ -163,6 +166,76 @@ class SurfacePresetTest {
         }
     }
 
+    @Test
+    fun `osd is centred in the usable area, within a pixel of rounding, and reserves nothing`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val output = bindFirstOutput(wayland)
+            // The usable area, not the raw output: yielding centres an unanchored surface in what is
+            // left after another surface's own exclusive zone, not the output's true centre.
+            val before = monitor(output.geometry.name)
+            val config = SurfaceConfig.osd(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = OSD_NAMESPACE)
+
+            val osd = KortexSurface.create(wayland, config, output = output.proxy)
+                .getOrElse { error -> fail("osd creation failed: $error") }
+
+            osd.use {
+                wayland.roundtrip()
+
+                val geometry = assertNotNull(
+                    Screen.geometry(OSD_NAMESPACE), "hyprctl layers does not report $OSD_NAMESPACE",
+                )
+                assertEquals(OSD_WIDTH, geometry.logicalWidth, "osd is not its own requested width")
+                assertEquals(OSD_HEIGHT, geometry.logicalHeight, "osd is not its own requested height")
+                assertCentredInUsableArea(before, OSD_WIDTH, OSD_HEIGHT, geometry)
+
+                val after = monitor(output.geometry.name)
+                assertEquals(before.reserved, after.reserved, "osd reserved screen space")
+            }
+        }
+    }
+
+    @Test
+    fun `appMenu centres like osd and additionally takes keyboard focus on demand`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val output = bindFirstOutput(wayland)
+            val before = monitor(output.geometry.name)
+            val config = SurfaceConfig.appMenu(APP_MENU_WIDTH.dp, APP_MENU_HEIGHT.dp)
+                .copy(namespace = APP_MENU_NAMESPACE)
+            assertEquals(
+                KeyboardInteractivity.OnDemand, config.keyboard, "appMenu did not ask for keyboard on demand",
+            )
+
+            val appMenu = KortexSurface.create(wayland, config, output = output.proxy)
+                .getOrElse { error -> fail("appMenu creation failed: $error") }
+
+            appMenu.use {
+                wayland.roundtrip()
+
+                val geometry = assertNotNull(
+                    Screen.geometry(APP_MENU_NAMESPACE), "hyprctl layers does not report $APP_MENU_NAMESPACE",
+                )
+                assertCentredInUsableArea(before, APP_MENU_WIDTH, APP_MENU_HEIGHT, geometry)
+            }
+        }
+    }
+
+    private fun assertCentredInUsableArea(before: Monitor, width: Int, height: Int, geometry: LayerGeometry) {
+        val expectedX = before.usableX + (before.usableWidth - width) / 2
+        val expectedY = before.usableY + (before.usableHeight - height) / 2
+        assertTrue(
+            abs(geometry.x - expectedX) <= 1,
+            "expected x within a pixel of $expectedX, got ${geometry.x}",
+        )
+        assertTrue(
+            abs(geometry.y - expectedY) <= 1,
+            "expected y within a pixel of $expectedY, got ${geometry.y}",
+        )
+    }
+
     private fun monitor(name: String): Monitor =
         assertNotNull(Hyprctl.monitors().firstOrNull { it.name == name }, "hyprctl lost monitor $name")
 
@@ -182,11 +255,17 @@ class SurfacePresetTest {
         const val DOCK_NAMESPACE = "kortex-preset-dock"
         const val BACKGROUND_NAMESPACE = "kortex-preset-background"
         const val LOCK_NAMESPACE = "kortex-preset-lock"
+        const val OSD_NAMESPACE = "kortex-preset-osd"
+        const val APP_MENU_NAMESPACE = "kortex-preset-app-menu"
 
         // Distinct from each other and from the sizes other tests use, so a preset reaching the wrong
         // field shows up as a wrong number rather than an accidental match.
         const val PANEL_THICKNESS = 71
         const val DOCK_THICKNESS = 89
+        const val OSD_WIDTH = 233
+        const val OSD_HEIGHT = 47
+        const val APP_MENU_WIDTH = 311
+        const val APP_MENU_HEIGHT = 199
 
         const val SETTLE_TIMEOUT_MILLIS = 2000L
         const val POLL_INTERVAL_MILLIS = 100L
