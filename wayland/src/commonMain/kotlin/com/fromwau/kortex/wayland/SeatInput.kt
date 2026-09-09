@@ -25,7 +25,8 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  */
 internal class PointerInput(
     private val scene: KortexScene,
-    private val scale: Float,
+    // Mutable because a surface can move to an output with a different scale; see KortexBar.maybeRescale.
+    var scale: Float,
     // Absent when a caller only needs event delivery, e.g. a test with no surface behind it.
     private val cursorTheme: WlCursorTheme? = null,
     private val cursorSurface: WlCursorSurface? = null,

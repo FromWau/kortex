@@ -165,8 +165,13 @@ public class KortexBar private constructor(
         bufferScale = newScale
         cursorTheme.rescale(bufferScale)
         cursorSurface.setBufferScale(bufferScale)
-        // The pointer skips a shape it believes is already showing, stranding it at the old scale.
-        pointerInput?.invalidateCursor()
+        pointerInput?.let { pointer ->
+            // Wayland keeps reporting logical coordinates, so a stale scale puts every event at the
+            // wrong scene position rather than failing outright.
+            pointer.scale = bufferScale.toFloat()
+            // The pointer skips a shape it believes is already showing, stranding it at the old scale.
+            pointer.invalidateCursor()
+        }
         // set_buffer_scale is double-buffered; without a commit it waits for a shape change that may never come.
         cursorSurface.commit()
         resizeTo(logicalWidth, logicalHeight)
