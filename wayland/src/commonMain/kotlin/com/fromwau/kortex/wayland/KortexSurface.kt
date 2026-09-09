@@ -279,7 +279,7 @@ public class KortexSurface private constructor(
     private class Frame(val buffer: ShmBuffer, val surface: Surface)
 
     public companion object {
-        public fun create(
+        internal fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
             platform: KortexPlatform = KortexPlatform.None,

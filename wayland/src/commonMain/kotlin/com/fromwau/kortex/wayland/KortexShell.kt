@@ -16,9 +16,16 @@ internal class ShellOutput(
     val listener: OutputListener,
 )
 
-/** A live surface together with the output it went on. */
+/**
+ * A live surface together with the spec it came from and the output it went on.
+ *
+ * @property spec what the host asked for, so one of its surfaces can be told from another. A
+ *   per-output surface carries the output's registry name as a namespace suffix, so this is the
+ *   namespace the host wrote rather than the one the compositor knows the surface by.
+ */
 public class ActiveSurface internal constructor(
     public val surface: KortexSurface,
+    public val spec: SurfaceSpec,
     internal val output: ShellOutput?,
 ) {
     /** What the output published about itself; null before its first `done`, and with no output at all. */
@@ -152,7 +159,7 @@ public class KortexShell private constructor(
             output = output?.proxy ?: MemorySegment.NULL,
         ).map { surface ->
             surface.setContent(spec.content)
-            surfaces += ActiveSurface(surface, output)
+            surfaces += ActiveSurface(surface, spec, output)
         }
     }
 
