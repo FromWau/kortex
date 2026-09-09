@@ -99,8 +99,8 @@ are done.
       `Overlap`. (`SurfacePresetTest`)
 - [x] `SurfaceConfig.appMenu(width, height)` — an `osd` that also takes keyboard focus on demand, for a
       floating panel whose content dismisses it through its `KortexSurfaceHandle`. (`SurfacePresetTest`)
-- [x] `SurfaceConfig.contextMenu(at, menuSize, outputSize)` — places a menu so its default corner
-      (`MenuAnchor.TopLeft`) sits at `at`, flipping to whichever corner keeps it inside `outputSize`,
+- [x] `SurfaceConfig.contextMenu(at, menuSize, outputSize)` — places a menu so its top-left corner
+      sits at `at`, flipping to whichever corner keeps it inside `outputSize`,
       independently per axis. A pure function of its three inputs, so the flip logic needs no compositor
       to test. A menu wider or taller than `outputSize` still flips on that axis: the anchored corner
       sits at `at` and the excess runs off the opposite edge, so the answer stays one consistent corner
@@ -129,6 +129,14 @@ are done.
       `SurfaceConfig.kt`, leaving the `zwlr_layer_shell_v1` tables and `LayerSurface`.
       `WlSurfaceListener` is still the odd one out: `wl_surface` is a core interface, not part of this
       wlroots extension.
+- [ ] **Three published statements of "the default bar".** `SurfaceConfig()`'s own defaults
+      (`Top+Left+Right`, `height = 32.dp`), `SurfaceConfig.panel(Edge.Top, 32.dp)` and `runBar`'s
+      `height = 32.dp` all describe the same surface, so changing one silently disagrees with the other
+      two. Folding them means changing a published default, which is why it was left rather than done.
+- [ ] **Compose warns `GlobalSnapshotManager: concurrent registrations on multiple threads might lead
+      to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
+      one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
+      surfaces on one connection makes it routine rather than rare.
 - [ ] **A screenshot pixel reads one channel step off**, roughly 1 run in 18 (`0xFF818080` where
       `0xFF808080` is expected). Not introduced by the protocol work, and seen in both `KortexShellTest` and
       `KortexSurfaceTest`, so it is compositing or capture timing rather than anything test-specific.

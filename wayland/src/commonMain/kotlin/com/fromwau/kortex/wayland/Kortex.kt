@@ -58,8 +58,9 @@ public fun runSurfaces(
  * @param height how tall the bar is; the anchored axis spans the output.
  * @param width how wide the bar is; 0 (the default) spans the output the same way [height] can.
  * @param margins insets from the anchor point; an edge the default anchor does not pin ignores its margin.
- * @param keyboard whether the bar can take keyboard focus. Changing this at runtime is not
- *   supported by every compositor, so it is fixed for the bar's lifetime.
+ * @param keyboard whether the bar can take keyboard focus. Fixed for the bar's lifetime: Hyprland
+ *   does not return the keyboard to the focused window when a layer surface drops its interactivity
+ *   (hyprwm/Hyprland#8293).
  * @param content the composition, drawn on every output.
  */
 public fun runBar(

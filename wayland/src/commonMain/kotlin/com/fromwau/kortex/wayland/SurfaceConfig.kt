@@ -30,6 +30,13 @@ public enum class Edge(internal val bit: Int) {
 /** One of a surface's two axes, each spanned by anchoring both of its [Edge]s. */
 public enum class Axis { Horizontal, Vertical }
 
+/** The two edges that bound this axis. */
+internal val Axis.edges: Set<Edge>
+    get() = when (this) {
+        Axis.Horizontal -> setOf(Edge.Left, Edge.Right)
+        Axis.Vertical -> setOf(Edge.Top, Edge.Bottom)
+    }
+
 /** Whether a surface can take keyboard focus, numbered as `zwlr_layer_surface_v1.keyboard_interactivity`. */
 public enum class KeyboardInteractivity(internal val wireValue: Int) {
     None(0),
@@ -42,7 +49,7 @@ public enum class KeyboardInteractivity(internal val wireValue: Int) {
  * is at the point and it opens down and to the right; the other three name their corner and opening
  * direction the same way.
  */
-public enum class MenuAnchor {
+internal enum class MenuAnchor {
     TopLeft,
     TopRight,
     BottomLeft,
@@ -129,8 +136,8 @@ public data class SurfaceConfig(
          */
         public fun panel(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig {
             val (width, height, perpendicular) = when (edge) {
-                Edge.Top, Edge.Bottom -> Triple(length, thickness, setOf(Edge.Left, Edge.Right))
-                Edge.Left, Edge.Right -> Triple(thickness, length, setOf(Edge.Top, Edge.Bottom))
+                Edge.Top, Edge.Bottom -> Triple(length, thickness, Axis.Horizontal.edges)
+                Edge.Left, Edge.Right -> Triple(thickness, length, Axis.Vertical.edges)
             }
             return SurfaceConfig(
                 anchor = setOf(edge) + perpendicular,
@@ -175,8 +182,8 @@ public data class SurfaceConfig(
          * A surface of exactly [width] by [height], centred on the output by anchoring nothing.
          *
          * Centring an unanchored surface only works by yielding, not overlapping. [ExclusiveZone.Overlap]
-         * means "extend to the anchored edges", and an unanchored surface has none to extend to, so the
-         * compositor never renders it at all. [ExclusiveZone.Yield] centres it in the output's *usable*
+         * means "extend to the anchored edges", and an unanchored surface has none, so the request says
+         * nothing and a compositor may show no surface at all. [ExclusiveZone.Yield] centres it in the *usable*
          * area instead, so another surface's own exclusive zone can shift it off the output's true centre.
          */
         public fun osd(width: Dp, height: Dp): SurfaceConfig = SurfaceConfig(
@@ -192,9 +199,9 @@ public data class SurfaceConfig(
             osd(width, height).copy(keyboard = KeyboardInteractivity.OnDemand)
 
         /**
-         * Places a menu of [menuSize] so its default corner, [MenuAnchor.TopLeft], sits at [at]. It flips
-         * to whichever corner keeps it inside an output of [outputSize], independently per axis: a point
-         * near one edge flips only that axis, and a point near a corner flips both.
+         * Places a menu of [menuSize] so its top-left corner sits at [at], opening down and to the
+         * right. It flips to whichever corner keeps the menu inside an output of [outputSize],
+         * independently per axis: a point near one edge flips only that axis, a point near a corner both.
          *
          * A pure function of its three inputs: nothing here reads a compositor, so a caller supplies
          * both sizes in the logical (surface-local) space `configure` and [OutputGeometry] report.

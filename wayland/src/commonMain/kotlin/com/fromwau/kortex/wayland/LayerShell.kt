@@ -292,10 +292,10 @@ public class LayerSurface internal constructor(
             height: Int,
             anchor: Set<Edge>,
         ): KortexError.UnspannableAxis? = when {
-            width == SPAN_ANCHORED_AXIS && !anchor.containsAll(HORIZONTAL_EDGES) ->
+            width == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Horizontal.edges) ->
                 KortexError.UnspannableAxis(Axis.Horizontal, anchor)
 
-            height == SPAN_ANCHORED_AXIS && !anchor.containsAll(VERTICAL_EDGES) ->
+            height == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Vertical.edges) ->
                 KortexError.UnspannableAxis(Axis.Vertical, anchor)
 
             else -> null
@@ -309,8 +309,6 @@ public class LayerSurface internal constructor(
         private const val WL_SURFACE_DAMAGE_BUFFER = 9
         private const val MAX_SPINS = 32
         private const val SPAN_ANCHORED_AXIS = 0
-        private val HORIZONTAL_EDGES = setOf(Edge.Left, Edge.Right)
-        private val VERTICAL_EDGES = setOf(Edge.Top, Edge.Bottom)
 
         private val CONFIGURE_DESCRIPTOR =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)

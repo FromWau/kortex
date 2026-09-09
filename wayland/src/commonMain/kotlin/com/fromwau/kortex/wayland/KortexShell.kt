@@ -61,7 +61,8 @@ public class KortexShell private constructor(
      *
      * A surface that closed itself is never put back, so the loop ends with the last one — unless an
      * [OutputTarget.EveryOutput] spec is still waiting for an output to place one on, which keeps it
-     * running with nothing on screen.
+     * running with nothing on screen. Only a new output places a per-output surface, so on two outputs
+     * content that closes its own surface leaves that output bare while the other keeps running.
      *
      * Blocks, and owns the connection for as long as it does.
      */

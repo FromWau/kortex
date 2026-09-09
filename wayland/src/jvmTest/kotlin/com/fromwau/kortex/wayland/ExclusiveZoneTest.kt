@@ -217,8 +217,8 @@ class ExclusiveZoneTest {
         const val REJECTED_NAMESPACE = "kortex-exclusive-zone-rejected"
         const val ROUNDED_NAMESPACE = "kortex-exclusive-zone-rounded"
 
-        // 0 is Yield's wire value and anything below rounds onto Overlap's -1; 0.4 covers the rounding
-        // itself, which a guard reading the Dp rather than the wire value would let through.
+        // 0 is Yield's wire value and -1 is Overlap's; 0.4 covers the rounding itself, which a guard
+        // reading the Dp rather than the wire value would let through.
         val ROUNDING_TO_NOTHING = listOf(0.dp, 0.4.dp, (-1).dp)
 
         const val PANEL_HEIGHT = 53
