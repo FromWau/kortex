@@ -237,12 +237,8 @@ class SurfacePresetTest {
                     output.geometry.width / output.geometry.scale,
                     output.geometry.height / output.geometry.scale,
                 )
-                val config = SurfaceConfig
-                    .contextMenu(
-                        at = IntOffset(MENU_X, MENU_Y),
-                        menuSize = IntSize(MENU_WIDTH, MENU_HEIGHT),
-                        outputSize = outputSize,
-                    )
+                val menuSize = IntSize(MENU_WIDTH, MENU_HEIGHT)
+                val config = SurfaceConfig.contextMenu(IntOffset(MENU_X, MENU_Y), menuSize, outputSize)
                     .copy(namespace = MENU_NAMESPACE)
 
                 val menu = KortexSurface.create(wayland, config, output = output.proxy)
