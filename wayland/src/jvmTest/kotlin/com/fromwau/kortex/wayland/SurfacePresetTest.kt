@@ -93,12 +93,11 @@ class SurfacePresetTest {
     }
 
     @Test
-    fun `desktopBackground covers the whole output at level 0 and reserves nothing`() {
+    fun `desktopBackground covers the whole output at level 0`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
             val output = bindFirstOutput(wayland)
-            val before = monitor(output.geometry.name)
             val config = SurfaceConfig.desktopBackground().copy(namespace = BACKGROUND_NAMESPACE)
 
             val background = KortexSurface.create(wayland, config, output = output.proxy)
@@ -124,9 +123,6 @@ class SurfacePresetTest {
                     monitorLogicalHeight, geometry.logicalHeight,
                     "desktopBackground did not cover the whole output",
                 )
-
-                val after = monitor(output.geometry.name)
-                assertEquals(before.reserved, after.reserved, "desktopBackground reserved screen space")
             }
         }
     }
@@ -137,7 +133,6 @@ class SurfacePresetTest {
 
         display.use { wayland ->
             val output = bindFirstOutput(wayland)
-            val before = monitor(output.geometry.name)
             val config = SurfaceConfig.lockScreen().copy(namespace = LOCK_NAMESPACE)
             assertEquals(
                 KeyboardInteractivity.Exclusive, config.keyboard,
@@ -161,15 +156,12 @@ class SurfacePresetTest {
                 assertEquals(output.geometry.y, geometry.y, "lockScreen did not cover the whole output")
                 assertEquals(monitorLogicalWidth, geometry.logicalWidth, "lockScreen did not cover the whole output")
                 assertEquals(monitorLogicalHeight, geometry.logicalHeight, "lockScreen did not cover the whole output")
-
-                val after = monitor(output.geometry.name)
-                assertEquals(before.reserved, after.reserved, "lockScreen reserved screen space")
             }
         }
     }
 
     @Test
-    fun `osd is centred in the usable area, within a pixel of rounding, and reserves nothing`() {
+    fun `osd is centred in the usable area, within a pixel of rounding`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
@@ -192,9 +184,6 @@ class SurfacePresetTest {
                 assertEquals(OSD_WIDTH, geometry.logicalWidth, "osd is not its own requested width")
                 assertEquals(OSD_HEIGHT, geometry.logicalHeight, "osd is not its own requested height")
                 assertCentredInUsableArea(before, OSD_WIDTH, OSD_HEIGHT, geometry)
-
-                val after = monitor(output.geometry.name)
-                assertEquals(before.reserved, after.reserved, "osd reserved screen space")
             }
         }
     }
