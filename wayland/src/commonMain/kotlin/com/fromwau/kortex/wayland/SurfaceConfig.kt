@@ -4,11 +4,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Which layer a surface sits in. Other windows tile around anything below `Overlay`.
- *
- * The wire values are `zwlr_layer_shell_v1.layer`'s own, not this declaration's order.
+ * Which layer a surface sits in, numbered as `zwlr_layer_shell_v1.layer` numbers them. Other windows
+ * tile around anything below `Overlay`.
  */
-public enum class Layer(internal val value: Int) {
+public enum class Layer(internal val wireValue: Int) {
     Background(0),
     Bottom(1),
     Top(2),
@@ -16,9 +15,8 @@ public enum class Layer(internal val value: Int) {
 }
 
 /**
- * An edge a layer surface can be anchored to. Anchoring both edges of an [Axis] spans that axis.
- *
- * The wire bits are `zwlr_layer_surface_v1.anchor`'s own, not this declaration's order.
+ * An edge a layer surface can be anchored to, carrying `zwlr_layer_surface_v1.anchor`'s bit for it.
+ * Anchoring both edges of an [Axis] spans that axis.
  */
 public enum class Edge(internal val bit: Int) {
     Top(1),
@@ -30,12 +28,8 @@ public enum class Edge(internal val bit: Int) {
 /** One of a surface's two axes, each spanned by anchoring both of its [Edge]s. */
 public enum class Axis { Horizontal, Vertical }
 
-/**
- * Whether a surface can take keyboard focus.
- *
- * The wire values are `zwlr_layer_surface_v1.keyboard_interactivity`'s own, not this declaration's order.
- */
-public enum class KeyboardInteractivity(internal val value: Int) {
+/** Whether a surface can take keyboard focus, numbered as `zwlr_layer_surface_v1.keyboard_interactivity`. */
+public enum class KeyboardInteractivity(internal val wireValue: Int) {
     None(0),
     Exclusive(1),
     OnDemand(2),
@@ -87,7 +81,7 @@ public sealed interface ExclusiveZone {
  * @property height 0 asks the compositor to choose, like [width], and requires both [Edge.Top] and
  *   [Edge.Bottom].
  * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows
- *   into. It has no default because only the anchor decides what a sensible one would be.
+ *   into; what is sensible depends on [anchor], so it has no default.
  * @property keyboard whether the surface can take keyboard focus. Set once and never changed: Hyprland
  *   does not return the keyboard to the focused window when a layer surface drops its interactivity
  *   (hyprwm/Hyprland#8293).

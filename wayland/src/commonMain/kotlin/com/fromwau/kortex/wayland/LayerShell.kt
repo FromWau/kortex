@@ -224,7 +224,7 @@ public class LayerSurface internal constructor(
                     WlArg.Ptr(MemorySegment.NULL),
                     WlArg.Ptr(surface),
                     WlArg.Ptr(output),
-                    WlArg.Num(layer.value),
+                    WlArg.Num(layer.wireValue),
                     WlArg.Ptr(LibWayland.cString(namespace)),
                 ),
             )
@@ -262,7 +262,7 @@ public class LayerSurface internal constructor(
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_KEYBOARD_INTERACTIVITY,
-                args = listOf(WlArg.Num(keyboard.value)),
+                args = listOf(WlArg.Num(keyboard.wireValue)),
             )
 
             val result = LayerSurface(display, surface, layerSurface, anchor, state, surfaceListener)
