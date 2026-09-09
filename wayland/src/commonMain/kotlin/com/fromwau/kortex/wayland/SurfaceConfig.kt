@@ -100,14 +100,19 @@ public sealed interface ExclusiveZone {
  * What kind of surface to put on screen: where it sits, how much of the output it takes, and what it
  * reserves from the rest of the desktop.
  *
+ * The three fields that decide the shape — [anchor], [width] and [height] — have no default, as
+ * [exclusiveZone] does not: each is only sensible in the light of the others, and a default silently
+ * shapes a surface the caller never asked for. The companion's presets are what supply a whole set.
+ *
  * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`.
  * @property anchor the edges the surface is pinned to; pinning both edges of an [Axis] spans that axis.
+ *   Pinning nothing centres the surface, which then needs an explicit [width] and [height].
  * @property width 0 asks the compositor to choose, which requires [anchor] to pin both [Edge.Left] and
- *   [Edge.Right].
+ *   [Edge.Right]; without them you get [KortexError.UnspannableAxis].
  * @property height 0 asks the compositor to choose, like [width], and requires both [Edge.Top] and
  *   [Edge.Bottom].
  * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows
- *   into; what is sensible depends on [anchor], so it has no default.
+ *   into; what is sensible depends on [anchor].
  * @property keyboard whether the surface can take keyboard focus. Set once and never changed: Hyprland
  *   does not return the keyboard to the focused window when a layer surface drops its interactivity
  *   (hyprwm/Hyprland#8293).
@@ -117,9 +122,9 @@ public sealed interface ExclusiveZone {
 public data class SurfaceConfig(
     public val namespace: String = "kortex",
     public val layer: Layer = Layer.Top,
-    public val anchor: Set<Edge> = setOf(Edge.Top, Edge.Left, Edge.Right),
-    public val width: Dp = 0.dp,
-    public val height: Dp = 32.dp,
+    public val anchor: Set<Edge>,
+    public val width: Dp,
+    public val height: Dp,
     public val margins: Margins = Margins.None,
     public val exclusiveZone: ExclusiveZone,
     public val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
@@ -158,6 +163,7 @@ public data class SurfaceConfig(
         public fun desktopBackground(): SurfaceConfig = SurfaceConfig(
             layer = Layer.Background,
             anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+            width = 0.dp,
             height = 0.dp,
             exclusiveZone = ExclusiveZone.Overlap,
         )
@@ -173,6 +179,7 @@ public data class SurfaceConfig(
         public fun lockScreen(): SurfaceConfig = SurfaceConfig(
             layer = Layer.Overlay,
             anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+            width = 0.dp,
             height = 0.dp,
             exclusiveZone = ExclusiveZone.Overlap,
             keyboard = KeyboardInteractivity.Exclusive,

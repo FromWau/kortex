@@ -28,6 +28,7 @@ class SurfaceConfigTest {
                 namespace = DOCK_NAMESPACE,
                 layer = Layer.Overlay,
                 anchor = setOf(Edge.Bottom, Edge.Left, Edge.Right),
+                width = 0.dp,
                 height = DOCK_HEIGHT.dp,
                 exclusiveZone = ExclusiveZone.Reserve(DOCK_HEIGHT.dp),
             )

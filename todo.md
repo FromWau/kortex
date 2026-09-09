@@ -113,9 +113,13 @@ are done.
 - [x] `SurfaceConfig.lockScreen()` — `Layer.Overlay` with `KeyboardInteractivity.Exclusive`, anchored to
       all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no `ext-session-lock-v1`.
       (`SurfacePresetTest`)
-- [x] The escape hatch is `SurfaceConfig`'s own constructor: layer, anchor, exclusive zone, keyboard,
-      size, margins, namespace and exclusiveEdge are all public and defaulted where a default makes
-      sense, so a caller a preset doesn't cover constructs one directly. (`SurfaceConfigTest`)
+- [x] The escape hatch is `SurfaceConfig`'s own constructor: layer, anchor, size, exclusive zone,
+      keyboard, margins, namespace and exclusiveEdge are all public, so a caller a preset doesn't cover
+      constructs one directly. The four fields that decide the shape — `anchor`, `width`, `height` and
+      `exclusiveZone` — have no default, because each is only sensible in the light of the others: a
+      caller who omits an anchored axis's extent gets a compile error, and one who asks the compositor
+      to span an axis it has no anchor for gets `KortexError.UnspannableAxis`. `runBar` is the one
+      published statement of the default bar's shape. (`SurfaceConfigTest`)
 
 ## Polish
 
@@ -134,10 +138,6 @@ are done.
       `SurfaceConfig.kt`, leaving the `zwlr_layer_shell_v1` tables and `LayerSurface`.
       `WlSurfaceListener` is still the odd one out: `wl_surface` is a core interface, not part of this
       wlroots extension.
-- [ ] **Three published statements of "the default bar".** `SurfaceConfig()`'s own defaults
-      (`Top+Left+Right`, `height = 32.dp`), `SurfaceConfig.panel(Edge.Top, 32.dp)` and `runBar`'s
-      `height = 32.dp` all describe the same surface, so changing one silently disagrees with the other
-      two. Folding them means changing a published default, which is why it was left rather than done.
 - [ ] **Compose warns `GlobalSnapshotManager: concurrent registrations on multiple threads might lead
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
