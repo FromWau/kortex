@@ -101,12 +101,10 @@ internal object LibC {
         return fd
     }
 
-    /** `read(2)` into all of [buffer]; a non-blocking fd with nothing to read leaves it untouched. */
     fun read(fd: Int, buffer: MemorySegment) {
         read.invoke(fd, buffer, buffer.byteSize())
     }
 
-    /** `write(2)` of all of [buffer]. */
     fun write(fd: Int, buffer: MemorySegment) {
         write.invoke(fd, buffer, buffer.byteSize())
     }
@@ -127,7 +125,8 @@ internal object LibC {
             val state = call.allocate(callState)
             while (true) {
                 val timeout = pollTimeoutMillis(deadlineNanos, System.nanoTime())
-                if (poll.invoke(state, entries, fds.size.toLong(), timeout) as Int >= 0) break
+                val ready = poll.invoke(state, entries, fds.size.toLong(), timeout) as Int
+                if (ready >= 0) break
                 val errno = state.get(JAVA_INT, errnoOffset)
                 // A signal cut the wait short, which says nothing about the fds; wait out what is left of it.
                 check(errno == EINTR) { "poll failed with errno $errno" }

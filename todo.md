@@ -40,13 +40,13 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
 - [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
       and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
       `get_layer_surface` with the event, so the first frame already has it — and nothing depends on that
-      ordering, since `maybeRescale` runs on every loop tick. (`SurfaceScaleTest`)
+      ordering, since `maybeRescale` runs on every loop pass. (`SurfaceScaleTest`)
 - [x] **3. Output geometry** — position, transform, `mode` width/height (current-flagged only), `name`,
       `description` and `scale`, accumulated into pending fields and published atomically on `done`, and
       reachable per surface through `KortexShell`. (`OutputGeometryTest`)
 - [x] **4. Key repeat** from `wl_keyboard.repeat_info`. `KeyboardInput` tracks the held key and its
-      due time, delivered through `KortexSurface`'s existing tick (`reconcile`, on the loop thread) rather
-      than a timer thread, so a repeat travels the same `KortexTextInput` path a real press does.
+      due time, delivered by `reconcile` on the loop thread, which wakes for it, rather than by a timer
+      thread, so a repeat travels the same `KortexTextInput` path a real press does.
       (`KeyRepeatTest`)
 - [x] **5. Explicit width and `set_margin`.** `width` and a `Margins(top, right, bottom, left)` type in
       the protocol's wire order reach `set_size`/`set_margin`. Omitting either dimension without both of
@@ -250,16 +250,18 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       `left_ptr`. (`KortexSceneTest`, `WlCursorThemeTest`)
 - [x] **The event loop wakes on demand.** `KortexShell.runEventLoop` and `KortexSurface.runEventLoop` both
       sleep in `WaylandDisplay.awaitWork` until a Wayland event arrives, another thread posts work, or a held
-      key's next repeat falls due. It does libwayland's read dance itself: it dispatches whatever is already
-      queued, flushes, `poll`s the Wayland fd beside an `eventfd`, reads or cancels, and dispatches what
-      arrived. `WaylandDisplay.wake()` counts that `eventfd` up from any thread, and every post the loop
-      drains calls it after enqueueing: `KortexHost.open`, and the surface queue that invalidations, cursor
-      changes and `KortexSurfaceHandle.close` go through. `KeyboardInput` reports the repeat deadline, a
-      shell takes the earliest across its surfaces, and `poll` gets it rounded up to whole milliseconds;
-      with no key repeating the loop waits indefinitely, so an idle bar does not wake at all. A roundtrip
-      inside a pass makes the next wait return at once, since the events it dispatched can change what that
-      pass already checked, and a shell runs its surfaces' posted work before reaping closed ones. Another
-      source, D-Bus or a timerfd, would be one more fd in that `poll`. (`EventLoopWakeTest`, `KeyRepeatTest`)
+      key's next repeat falls due. It does libwayland's read dance itself: events already queued are
+      dispatched and the loop goes round again; otherwise it flushes, `poll`s the Wayland fd beside an
+      `eventfd`, reads or cancels, and dispatches what arrived. `WaylandDisplay.wake()` counts that
+      `eventfd` up from any thread, and every post the loop drains calls it after enqueueing:
+      `KortexHost.open`, and the surface queue that invalidations, cursor changes and
+      `KortexSurfaceHandle.close` go through. `KeyboardInput` reports the repeat deadline, which its own
+      `checkRepeat` delivers against, a shell takes the earliest across its surfaces, and `poll` gets it
+      rounded up to whole milliseconds; with no key repeating the loop waits indefinitely, so an idle bar
+      sleeps until something actually happens. A roundtrip inside a pass makes the next wait return at
+      once, since the events it dispatched can change what that pass already checked, and a shell runs its
+      surfaces' posted work before reaping closed ones. Another source, D-Bus or a timerfd, would be one
+      more fd in that `poll`. (`EventLoopWakeTest`, `KeyRepeatTest`)
 
 ## Housekeeping
 

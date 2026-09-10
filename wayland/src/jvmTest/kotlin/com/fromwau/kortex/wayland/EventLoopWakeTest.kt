@@ -119,7 +119,7 @@ class EventLoopWakeTest {
         loop.isDaemon = true
         loop.start()
 
-        // Set in catch, read in finally, so a trouble found there attaches to the failure that surfaced first.
+        // Set in catch, read in finally: what finally finds attaches to the failure that surfaced first.
         var primary: Throwable? = null
         try {
             block(display, loop)
