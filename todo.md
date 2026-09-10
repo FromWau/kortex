@@ -138,8 +138,9 @@ Housekeeping. The surface presets and raising a surface while the host runs are 
       `marshalIfSince`-then-`proxyDestroy` shape `releaseCompositor` and `releaseShm` already had, so
       both `removeOutput`'s hotplug path and `close` give every bound `wl_output` back rather than only
       destroying the proxy client-side. Nothing in-process shows a request leaving the client, so the
-      covering test drives a child JVM under `WAYLAND_DEBUG=client` and reads the release requests off
-      its wire. (`OutputReleaseWireTest`)
+      covering tests drive `ReleaseOutputProbe` in a child JVM under `WAYLAND_DEBUG=client` and read the
+      release requests off its wire: the default build covers the shell-close path, and the hotplug path
+      runs once `-Pkortex.hotplugTests=true` opts it in. (`OutputReleaseWireTest`)
 - [x] **A surface whose creation fails partway gives back what it built.** `KortexSurface.create` pushes
       a closer for each piece as it builds it, and every exit taken before the `KortexSurface` exists,
       one added later included, runs them newest first from a `finally`. Once the surface is constructed,
@@ -317,6 +318,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       terminal background, the inactive window border, AGS and dunst all draw, so it is what shows
       through wherever nothing sits on top, and it has not recurred since. These tests read the
       composited screen, so a run needs a desktop nobody opens anything on.
+- [ ] **`OutputRescaleTest`'s pointer case has failed intermittently in full-suite runs, never alone.**
+      `a pointer event after a scale change lands at the new scale's scene position` failed once at
+      4096x2160, with the pointer landing 32px right and 8px up of its aim, and twice more during the
+      hotplug-tag work (19:40 to 19:55, same resolution), passing run alone straight after each time. The
+      branch before this one saw the same kind of scene-position mismatch at 2560x1440, in a focused
+      rerun right after a full build (17:11 to 17:12) that had just done heavy hotplugging, alongside
+      `ProtocolVersionTest`'s wheel case, so the flake is not specific to one monitor mode. The test
+      reads the bar's scene position from `hyprctl layers` once, before moving the pointer; whether the
+      surface it reads has settled by then is unconfirmed.
 
 ## Deliberately not doing
 

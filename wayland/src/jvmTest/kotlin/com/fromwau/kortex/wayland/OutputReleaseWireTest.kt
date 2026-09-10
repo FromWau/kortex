@@ -12,12 +12,38 @@ import kotlin.test.assertTrue
  * `WAYLAND_DEBUG` once per process and never clears it, which would log every later connection in this JVM.
  */
 class OutputReleaseWireTest {
+    @Test
+    fun `every bound output is released on shell close`() {
+        val (exitCode, stderr) = runProbe(ProbeMode.ShellCloseOnly)
+        val raw = stderr.joinToString("\n")
+        assertEquals(0, exitCode, "probe exited $exitCode; stderr:\n$raw")
+
+        val boundAt = stderr.indexOf(PROBE_MARKER_BOUND)
+        val shellClosedAt = stderr.indexOf(PROBE_MARKER_SHELL_CLOSED)
+        assertTrue(
+            boundAt >= 0 && shellClosedAt > boundAt,
+            "markers missing or out of order (bound=$boundAt closed=$shellClosedAt); stderr:\n$raw",
+        )
+
+        val boundBeforeFirstMarker = outputIds(stderr.subList(0, boundAt), NEW_OUTPUT_ID)
+        assertTrue(
+            boundBeforeFirstMarker.isNotEmpty(),
+            "no wl_output was bound before the first marker; stderr:\n$raw",
+        )
+
+        val releasedOnClose = outputIds(stderr.subList(boundAt + 1, shellClosedAt), RELEASE_LINE)
+        assertEquals(
+            boundBeforeFirstMarker, releasedOnClose,
+            "not every output bound before the first marker was released on shell close; stderr:\n$raw",
+        )
+    }
+
     @Hotplug
     @Test
     fun `every bound output is released, the hotplugged one on removal and the rest on shell close`() {
         val outputsBefore = Hyprctl.monitorNames()
         try {
-            val (exitCode, stderr) = runProbe()
+            val (exitCode, stderr) = runProbe(ProbeMode.Full)
             val raw = stderr.joinToString("\n")
             assertEquals(0, exitCode, "probe exited $exitCode; stderr:\n$raw")
 
@@ -66,7 +92,7 @@ class OutputReleaseWireTest {
         }
     }
 
-    private fun runProbe(): Pair<Int, List<String>> {
+    private fun runProbe(mode: ProbeMode): Pair<Int, List<String>> {
         val javaExecutable = ProcessHandle
             .current()
             .info()
@@ -75,7 +101,7 @@ class OutputReleaseWireTest {
         val classpath = System.getProperty("java.class.path")
 
         val builder = ProcessBuilder(
-            javaExecutable, "--enable-native-access=ALL-UNNAMED", "-cp", classpath, PROBE_MAIN_CLASS,
+            javaExecutable, "--enable-native-access=ALL-UNNAMED", "-cp", classpath, PROBE_MAIN_CLASS, mode.name,
         )
         builder.environment()["WAYLAND_DEBUG"] = "client"
         builder.environment()["NO_COLOR"] = "1"
