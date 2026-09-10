@@ -58,7 +58,8 @@ public class KortexSurface private constructor(
     @Volatile
     private var pointerInput: PointerInput? = null
 
-    // Set once by create() after the seat is bound; null when the seat announced no keyboard.
+    // Set once by create() after the seat is bound; null when config.keyboard is None or the seat announced
+    // no keyboard, and once close() has released it.
     @Volatile
     private var keyboardInput: KeyboardInput? = null
 
@@ -218,10 +219,7 @@ public class KortexSurface private constructor(
 
         frames.forEach { frame ->
             // Freeing a buffer the compositor is still scanning out is a use-after-free on its side.
-            if (frame.buffer.busy) retiring += frame else {
-                frame.surface.close()
-                frame.buffer.close()
-            }
+            if (frame.buffer.busy) retiring += frame else frame.close()
         }
 
         frames = newFrames
@@ -239,8 +237,7 @@ public class KortexSurface private constructor(
         while (iterator.hasNext()) {
             val frame = iterator.next()
             if (frame.buffer.busy) continue
-            frame.surface.close()
-            frame.buffer.close()
+            frame.close()
             iterator.remove()
         }
     }
@@ -289,15 +286,9 @@ public class KortexSurface private constructor(
         display.roundtrip()
         cursorTheme.close()
         scene.close()
-        frames.forEach {
-            it.surface.close()
-            it.buffer.close()
-        }
+        frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.
-        retiring.forEach {
-            it.surface.close()
-            it.buffer.close()
-        }
+        retiring.forEach(Frame::close)
         // Before layer.close() destroys the wl_surface this callback was requested on.
         clock.close()
         layer.close()
@@ -305,7 +296,13 @@ public class KortexSurface private constructor(
         dispatcher.close()
     }
 
-    private class Frame(val buffer: ShmBuffer, val surface: Surface)
+    private class Frame(val buffer: ShmBuffer, val surface: Surface) {
+        fun close() {
+            // The Skia surface draws straight into the buffer's pixels, so it closes before they are unmapped.
+            surface.close()
+            buffer.close()
+        }
+    }
 
     public companion object {
         internal fun create(
@@ -349,11 +346,7 @@ public class KortexSurface private constructor(
                 val bufferWidth = layer.logicalWidth * bufferScale
                 val bufferHeight = layer.logicalHeight * bufferScale
                 val frames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }
-                frames.forEach { frame ->
-                    // Buffer first, so each Skia surface closes before the pixels it draws into are unmapped.
-                    unwind += frame.buffer::close
-                    unwind += frame.surface::close
-                }
+                frames.forEach { frame -> unwind += frame::close }
 
                 val dispatcher = Executors.newSingleThreadExecutor { runnable ->
                     Thread(runnable, "kortex-frame").apply { isDaemon = true }
@@ -433,10 +426,7 @@ public class KortexSurface private constructor(
             val frames = mutableListOf<Frame>()
             repeat(BUFFER_COUNT) {
                 val buffer = shm.createBuffer(bufferWidth, bufferHeight).getOrElse { failure ->
-                    frames.forEach {
-                        it.surface.close()
-                        it.buffer.close()
-                    }
+                    frames.forEach(Frame::close)
                     return Err(failure)
                 }
                 frames += Frame(buffer, Surface.makeRasterDirect(info, buffer.pixels.address(), buffer.stride))
