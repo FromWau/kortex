@@ -45,10 +45,17 @@ class VirtualPointerClickTest {
                     val targetX = geometry.x + TARGET_DP / 2
                     val targetY = geometry.y + TARGET_DP / 2
 
-                    manager.createVirtualPointer().use { pointer ->
-                        pointer.motionAbsolute(targetX, targetY, monitor.logicalWidth, monitor.logicalHeight)
-                        pointer.frame()
-                        it.roundtrip()
+                    val delivered = manager.createVirtualPointer().use { pointer ->
+                        fun moveTo(x: Int, y: Int) {
+                            pointer.motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
+                            pointer.frame()
+                            it.roundtrip()
+                        }
+
+                        // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
+                        // cursor already parked on these coordinates would never enter the new surface.
+                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight / 2)
+                        moveTo(targetX, targetY)
 
                         pointer.button(BTN_LEFT, pressed = true)
                         pointer.frame()
@@ -57,9 +64,12 @@ class VirtualPointerClickTest {
                         pointer.button(BTN_LEFT, pressed = false)
                         pointer.frame()
                         it.roundtrip()
-                    }
 
-                    val delivered = bar.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
+                        val landed = bar.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
+                        // Park it off the bar again: the screenshot tests sample the pixel it sits on.
+                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight / 2)
+                        landed
+                    }
 
                     val protocolError = it.protocolError()
                     if (protocolError != null) {

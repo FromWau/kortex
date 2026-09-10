@@ -46,6 +46,9 @@ class SurfaceTeardownTest {
                 val before = shell.activeSurfaces.size
 
                 manager.createVirtualPointer().use { pointer ->
+                    // Off both surfaces first: the compositor re-evaluates pointer focus on motion, so a
+                    // cursor already parked on these coordinates would never enter the new surface.
+                    moveTo(shell, pointer, monitor, monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                     // The menu must hold the pointer focus when it goes: the leave that losing focus
                     // produces is what its own listener would still be dispatched afterwards.
                     moveTo(shell, pointer, monitor, menu.x + menu.logicalWidth / 2, menu.y + menu.logicalHeight / 2)
@@ -67,6 +70,8 @@ class SurfaceTeardownTest {
 
                     val delivered = shell.pump(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
                     val protocolError = wayland.protocolError()
+                    // Park it off the bar again: the screenshot tests sample the pixel it sits on.
+                    moveTo(shell, pointer, monitor, monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                     if (protocolError != null) {
                         fail("wayland protocol error after the menu was torn down: $protocolError")
                     }
