@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
@@ -207,8 +208,8 @@ public class WaylandDisplay private constructor(
     public companion object {
         /** Connects to [name], or to `$WAYLAND_DISPLAY` when null. */
         public fun connect(name: String? = null): Result<WaylandDisplay, KortexError> {
-            // Before connecting: this fails only by throwing, which then leaves no connection to give back.
-            val wakeFd = LibC.eventfd()
+            // Before connecting, so failing here leaves nothing built to give back.
+            val wakeFd = LibC.eventfd().getOrElse { return Err(it) }
             // libwayland copies the name into the socket address, so it has to outlive only the call.
             val display = Arena.ofConfined().use { request ->
                 LibWayland.displayConnect(name?.let { request.allocateFrom(it) } ?: MemorySegment.NULL)

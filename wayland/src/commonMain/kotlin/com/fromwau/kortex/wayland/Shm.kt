@@ -42,7 +42,11 @@ internal object LibC {
     )
     private val munmap = downcall("munmap", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG))
     private val close = downcall("close", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
-    private val eventfd = downcall("eventfd", FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT))
+    private val eventfd = downcall(
+        "eventfd",
+        FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT),
+        Linker.Option.captureCallState(ERRNO),
+    )
     private val read = downcall("read", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
     private val write = downcall("write", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
     private val poll = downcall(
@@ -95,10 +99,13 @@ internal object LibC {
     }
 
     /** A close-on-exec, non-blocking `eventfd` whose counter starts at 0. */
-    fun eventfd(): Int {
-        val fd = eventfd.invoke(0, EFD_CLOEXEC or EFD_NONBLOCK) as Int
-        check(fd >= 0) { "eventfd failed" }
-        return fd
+    fun eventfd(): Result<Int, KortexError> {
+        Arena.ofConfined().use { call ->
+            val state = call.allocate(callState)
+            val fd = eventfd.invoke(state, 0, EFD_CLOEXEC or EFD_NONBLOCK) as Int
+            if (fd < 0) return Err(KortexError.ConnectionError(state.get(JAVA_INT, errnoOffset)))
+            return Ok(fd)
+        }
     }
 
     fun read(fd: Int, buffer: MemorySegment) {
