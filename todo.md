@@ -108,17 +108,23 @@ raising a surface while the host runs are done.
       `disposed` to sit beside the public `closed`, which is the compositor's word rather than a
       teardown flag. `wl_compositor.release` carries an opcode and a `since` that are fatal to get wrong
       together, so `releaseCompositor` holds both once, beside `releaseShm`. (`SurfaceLifetimeTest`)
-- [ ] **A closed surface still pins its Compose scene, permanently.** `LibWayland.arena` is
-      `Arena.global()`, and `LibWayland.upcall` binds its receiver into the stub it allocates there, so
-      every upcall outlives the JVM's whole run. A surface allocates about 29 of them, and `PointerInput`
-      and `KeyboardInput` each hold the `KortexScene`, so closing a surface gives back its proxies and
-      keeps its entire composition, recomposer and Skia surfaces reachable. This was bounded by monitor
-      events before `KortexHost.open` existed; the demo bar now takes the path on every right click.
+- [ ] **Every surface leaks about 0.8MB of FFM upcall stubs, permanently.** `LibWayland.arena` is
+      `Arena.global()`, so the roughly 29 stubs `LibWayland.upcall` allocates per surface are never
+      freed. Measured on this machine rather than reasoned about: 2900 stubs cost 80MB of RSS that
+      `malloc_trim` will not return, so 27.8kB each and 0.79MB per surface, and a create/close loop grows
+      RSS by 0.96MB per cycle in a straight line over 150 cycles. This was bounded by monitor events
+      before `KortexHost.open` existed; the demo bar now pays it on every right click.
+      What it does *not* do is retain the composition: a probe whose content remembered a 4MB array saw
+      every one collected after close, because `scene.close()` disposes the composition before the
+      pinned `PointerInput` can hold anything but an emptied shell. The Java side grows about 50kB per
+      surface, which is the stubs' receivers and those shells.
       The fix is a per-surface `Arena.ofShared()` for that surface's stubs and listener structs, closed
-      last in `KortexSurface.close()` after a final roundtrip, with the registry and the interface tables
-      staying global. The comment at `LibWayland.kt` justifying the global arena says a proxy can outlive
-      any scope we could tie it to, which the per-surface teardown has made untrue for these; it is still
-      true for the rest. Getting the order wrong is a jump into freed code inside libwayland's dispatcher.
+      last in `KortexSurface.close()` after a final roundtrip, with the registry and interface tables
+      staying global. Getting the order wrong is a jump into freed code inside libwayland's dispatcher.
+      Ruled out by measurement while finding this, so nobody need look again: no fd leak and no mapping
+      leak (both flat from cycle 10 to 150), no thread leak (`dispatcher.close()` leaves no
+      `kortex-frame` behind), and no measurable growth from the cursor theme, the cursor surface, the
+      layer surface or the shm buffers.
 - [ ] **`wl_output.release` is never sent.** `KortexShell` destroys the proxy without it
       (`bindOutput`'s counterpart in `removeOutput` and in `close`). It is opcode 0 since version 3 and
       `WlVersion.OUTPUT` is 4, so it is available; one server-side resource accumulates per hotplug cycle.
