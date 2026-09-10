@@ -266,10 +266,19 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       `grim` allows showed the tail of that ramp is its slowest part: steps 70 to 125ms apart, with the
       value wobbling a step either way as it lands. `Screen.settledPixel` slept 90ms and returned as soon
       as two reads agreed, so landing twice on one tail step was likely rather than rare, and every value
-      ever recorded, `0xFF7E7E7E` through `0xFF828181`, is a point on that ramp. It now waits for a value
-      to hold for 400ms, past the widest step measured. Five full-suite runs clean where two in three had
-      failed, and a deliberately wrong expected colour still fails, so the wait did not become a
-      tautology.
+      of that kind ever recorded, `0xFF7E7E7E` through `0xFF828181`, is a point on that ramp.
+      A stability window cannot tell a finished surface from a step that happens to hold, so
+      `Screen.pixelReaching` now polls for the colour each caller expects and hands back the last value
+      read if it never arrives; a deliberately wrong expected colour still fails.
+      Fourteen full-suite runs under `MALLOC_CHECK_=3` and `MALLOC_PERTURB_=165` then failed once, and
+      the value, `0xFF3B7891`, held for the whole five-second budget while matching no ramp step, no
+      theme colour and neither window border: something was drawn over the point. That run coincided
+      with an AGS media popover being opened from the bar; it hangs from the bar's right-hand end, so
+      whether it reached the sample point at the screen's centre is not confirmed. The failure captured
+      before the change, `0xFF101417`, names no single source: it is the theme's `#0f1417`, which the
+      terminal background, the inactive window border, AGS and dunst all draw, so it is what shows
+      through wherever nothing sits on top, and it has not recurred since. These tests read the
+      composited screen, so a run needs a desktop nobody opens anything on.
 
 ## Deliberately not doing
 

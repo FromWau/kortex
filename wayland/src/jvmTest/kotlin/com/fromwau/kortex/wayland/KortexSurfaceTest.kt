@@ -27,7 +27,7 @@ class KortexSurfaceTest {
                 display.roundtrip()
 
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl did not report $NAMESPACE")
-                val captured = Screen.settledPixel(geometry)
+                val captured = Screen.pixelReaching(geometry, MID_GREY)
                 assertEquals(
                     MID_GREY, captured,
                     "Compose's output did not reach the screen; a swapped channel order would show here",

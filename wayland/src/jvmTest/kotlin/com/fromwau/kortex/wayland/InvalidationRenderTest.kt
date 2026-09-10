@@ -36,14 +36,14 @@ class InvalidationRenderTest {
                 display.roundtrip()
 
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl did not report $NAMESPACE")
-                assertNotEquals(AFTER, Screen.settledPixel(geometry), "the bar already showed the target colour")
+                assertNotEquals(AFTER, Screen.pixelReaching(geometry, BEFORE), "the bar already showed the target colour")
 
                 colour.value = Color.Blue
                 // Pumps the connection only; nothing here renders, so the frame has to be driven by the
                 // composition asking for one.
                 bar.pump(timeoutMillis = PUMP_MILLIS)
 
-                assertEquals(AFTER, Screen.settledPixel(geometry), "the state change never reached the screen")
+                assertEquals(AFTER, Screen.pixelReaching(geometry, AFTER), "the state change never reached the screen")
             }
         }
     }
@@ -52,6 +52,7 @@ class InvalidationRenderTest {
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
         const val PUMP_MILLIS = 1500L
+        val BEFORE = Color.Red.toArgb()
         val AFTER = Color.Blue.toArgb()
 
         val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
