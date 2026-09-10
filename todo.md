@@ -78,7 +78,10 @@ raising a surface while the host runs are done.
       it — and the content to draw on it. `KortexShell` tracks outputs and surfaces separately, so a
       dock, an OSD and a menu run side by side on one connection, and `activeSurfaces` hands out each
       surface already paired with the spec it came from and its output's geometry rather than a second
-      list parallel by naming convention. `runSurfaces`, `runBar` and `KortexShell.create` are how a
+      list parallel by naming convention. Closing one surface releases the `wl_pointer`, `wl_keyboard` and
+      `wl_seat` it bound before its scene goes, so a sibling on the same connection keeps taking input
+      instead of the closed scene taking the process down (`SurfaceTeardownTest`).
+      `runSurfaces`, `runBar` and `KortexShell.create` are how a
       host opens a surface; `KortexSurface.create` is internal, since filling its `wl_output` needs a
       proxy only this module can bind. The shell's loop ends when no surface is left and none can
       return, so a host whose content closed itself stops instead of spinning on an empty screen, while
@@ -143,16 +146,21 @@ raising a surface while the host runs are done.
 - [x] **A `CompositorChoice` surface the compositor takes away is placed again**, as long as an output is
       still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
       gone either way. With no output at all connected at that moment there is nowhere to place the
-      replacement, and it stays gone until asked for again. (`CompositorChoiceTest`)
+      replacement, and it stays gone until asked for again, and a replacement that fails to be placed is
+      dropped rather than ending the run. Both tests reach this through
+      `KortexSurface.simulateCompositorClose`, the shell's own seam; the end-to-end trigger, an output
+      going away under the surface, is not exercised anywhere. (`CompositorChoiceTest`)
 
-The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a right click
-opens a `SurfaceConfig.contextMenu` through `LocalKortexHost.current.open`, targeted at the click's own
-output with `OutputTarget.NamedOutput`, and closes itself through `LocalKortexSurface.current.close()`
-when an item is picked. It assumes the bar's own top-left is the output's top-left, true only when nothing
+The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a right click on
+the bar's own background, not on its button or its text field, opens a `SurfaceConfig.contextMenu` through
+`LocalKortexHost.current.open`, targeted at the click's own output with `OutputTarget.NamedOutput` and
+anchored just below the bar; a second right click dismisses the menu already open, since `open` hands back
+no handle to close one with; and the menu closes itself through `LocalKortexSurface.current.close()` when an
+item is picked. It assumes the bar's own top-left is the output's top-left, true only when nothing
 else also reserves space on the output's Top edge: `zwlr_layer_shell_v1` reports a surface's size but never
 its position, so a bar sharing the Top edge with another exclusive-zone surface has no way to learn how far
-down it was actually pushed. Verified against a desktop that runs one: the menu opened where the bar-local
-click landed in output coordinates, not where the click actually was on screen.
+down it was actually pushed. Measured against a desktop that runs one: the bar sat at y=62 and its menu
+opened at y=56, its own height, which is where the bar would begin if nothing else reserved that edge.
 
 ## Polish
 
@@ -198,15 +206,18 @@ click landed in output coordinates, not where the click actually was on screen.
 - [ ] **A screenshot pixel occasionally reads one step high** against an expected `0xFF808080`. It predates
       the protocol work, and it is far more frequent than the earlier estimate of one run in eighteen: on one
       machine it failed roughly half the runs of a single assertion, at the same rate on this branch and on
-      the commit it was cut from, so it tracks the machine rather than the code. The drift is
-      always a prefix of the channels in ARGB order, never an arbitrary colour: `0xFF818080` (red only),
-      `0xFF818180` (red and green) and `0xFF818181` (all three) have all been seen on the same assertion.
+      the commit it was cut from, so it tracks the machine rather than the code. Three drifts have been
+      recorded on the same assertion, all one step up and never an arbitrary colour: `0xFF818080` (red),
+      `0xFF818180` (red and green) and `0xFF818181` (all three). Alpha did not move in any of them, so the
+      pattern such as it is runs over the RGB channels, and three samples is too few to call it a rule.
       Seen in `KortexShellTest`, `KortexSurfaceTest` and `MultiSurfaceTest`, so it is compositing or capture
       timing rather than anything test-specific. Window occlusion is ruled out, since occlusion would not
       land a one-step drift this close to the expected colour, and so is a gamma or night-light daemon: none
       of `hyprsunset`, `gammastep`, `redshift` or `wlsunset` was running when it was checked. Still
-      unexplained. `Screen.settledPixel` already samples until two reads agree, which is evidently not
-      enough, and the prefix pattern suggests it is sampling a partially written pixel.
+      unexplained, and nothing so far says where the step enters: kortex writes `BGRA_8888` into its own
+      buffer, while the value compared against is read out of grim's PNG through `ImageIO`, with
+      compositing, capture and decode in between. `Screen.settledPixel` already samples until two reads
+      agree, which is evidently not enough.
 
 ## Deliberately not doing
 
