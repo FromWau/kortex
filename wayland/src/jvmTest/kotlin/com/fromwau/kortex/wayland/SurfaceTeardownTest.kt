@@ -101,10 +101,7 @@ class SurfaceTeardownTest {
 
     /** Moves the pointer and lets the compositor deliver the enter and leave the move produces. */
     private fun moveTo(shell: KortexShell, pointer: VirtualPointer, monitor: Monitor, x: Int, y: Int) {
-        // Screen.geometry and the virtual pointer's absolute space agree only because this suite runs
-        // against a single output pinned at the compositor's origin.
-        pointer.motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
-        pointer.frame()
+        pointer.moveTo(monitor, x, y)
         shell.pump(SETTLE_MILLIS)
     }
 

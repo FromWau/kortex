@@ -81,11 +81,12 @@ raising a surface while the host runs are done.
       list parallel by naming convention. Closing one surface releases the `wl_pointer`, `wl_keyboard` and
       `wl_seat` it bound before its scene goes, so a sibling on the same connection keeps taking input
       instead of the closed scene taking the process down (`SurfaceTeardownTest`).
-      `runSurfaces`, `runBar` and `KortexShell.create` are how a
-      host opens a surface; `KortexSurface.create` is internal, since filling its `wl_output` needs a
-      proxy only this module can bind. The shell's loop ends when no surface is left and none can
-      return, so a host whose content closed itself stops instead of spinning on an empty screen, while
-      an `EveryOutput` spec with no output waits for one. (`MultiSurfaceTest`)
+      `runSurfaces`, `runBar` and `KortexShell.create` are how a host opens a surface up front, and
+      `KortexHost.open` is how its content opens one later. `KortexSurface.create` is internal, since
+      filling its `wl_output` needs a proxy only this module can bind. The shell's loop ends when no
+      surface is left and none can return, so a host whose content closed itself stops instead of
+      spinning on an empty screen, while an `EveryOutput` spec with no output waits for one.
+      (`MultiSurfaceTest`)
 - [ ] **The teardown above is still partial.** `KortexSurface.create` also binds a `wl_shm` for `Shm`
       (`Shm.kt:171`), a second `wl_shm` inside `WlCursorTheme.load` (`WlCursor.kt:150`), and a
       `wl_compositor` plus a cursor `wl_surface` in `WlCursorSurface.create` (`WlCursor.kt:187`), along

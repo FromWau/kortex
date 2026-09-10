@@ -47,8 +47,7 @@ class VirtualPointerClickTest {
 
                     val delivered = manager.createVirtualPointer().use { pointer ->
                         fun moveTo(x: Int, y: Int) {
-                            pointer.motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
-                            pointer.frame()
+                            pointer.moveTo(monitor, x, y)
                             it.roundtrip()
                         }
 

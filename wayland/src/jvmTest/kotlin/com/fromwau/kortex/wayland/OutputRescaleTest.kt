@@ -118,10 +118,7 @@ class OutputRescaleTest {
                     val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
                     manager.createVirtualPointer().use { pointer ->
                         fun moveTo(x: Int, y: Int) {
-                            // Screen.geometry and the virtual pointer's absolute space agree only
-                            // because this suite runs against a single output pinned at the origin.
-                            pointer.motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
-                            pointer.frame()
+                            pointer.moveTo(monitor, x, y)
                             wayland.roundtrip()
                             bar.pump(timeoutMillis = SETTLE_MILLIS)
                         }

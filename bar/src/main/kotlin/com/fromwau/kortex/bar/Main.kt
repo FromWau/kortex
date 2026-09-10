@@ -57,9 +57,9 @@ private fun Bar() {
     var clicks by remember { mutableStateOf(0) }
     var text by remember { mutableStateOf("") }
     val host = LocalKortexHost.current
-    val surface = LocalKortexSurface.current
+    val barSurface = LocalKortexSurface.current
     // KortexHost.open hands back no handle, so a menu is dismissed through the flag its content watches.
-    val openMenu = remember { mutableStateOf<MutableState<Boolean>?>(null) }
+    val openMenuDismissal = remember { mutableStateOf<MutableState<Boolean>?>(null) }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
         Box(
@@ -84,11 +84,11 @@ private fun Bar() {
                                 val x = (event.changes.first().position.x / density).roundToInt()
                                 // The bar is anchored Top, Left and Right with no margins, so its own
                                 // top-left is the output's and the menu clears it by opening below it.
-                                val at = IntOffset(x, surface.size.height)
-                                openMenu.value?.value = true
-                                val dismissed = mutableStateOf(false)
-                                openMenu.value = dismissed
-                                host.open(contextMenuSpec(at, output, dismissed))
+                                val at = IntOffset(x, barSurface.size.height)
+                                openMenuDismissal.value?.value = true
+                                val dismissal = mutableStateOf(false)
+                                openMenuDismissal.value = dismissal
+                                host.open(contextMenuSpec(at, output, dismissal))
                             }
                         }
                     },
@@ -114,7 +114,7 @@ private fun Bar() {
     }
 }
 
-private fun contextMenuSpec(at: IntOffset, output: OutputGeometry, dismissed: State<Boolean>): SurfaceSpec {
+private fun contextMenuSpec(at: IntOffset, output: OutputGeometry, dismissal: State<Boolean>): SurfaceSpec {
     val config = SurfaceConfig
         .contextMenu(
             at = at,
@@ -122,15 +122,14 @@ private fun contextMenuSpec(at: IntOffset, output: OutputGeometry, dismissed: St
             outputSize = IntSize(output.width / output.scale, output.height / output.scale),
         )
         .copy(namespace = "kortex-menu")
-    return SurfaceSpec(config, OutputTarget.NamedOutput(output.name)) { ContextMenu(dismissed) }
+    return SurfaceSpec(config, OutputTarget.NamedOutput(output.name)) { ContextMenu(dismissal) }
 }
 
 @Composable
-private fun ContextMenu(dismissed: State<Boolean>) {
+private fun ContextMenu(dismissal: State<Boolean>) {
     val surface = LocalKortexSurface.current
-    val gone = dismissed.value
 
-    LaunchedEffect(gone) { if (gone) surface.close() }
+    LaunchedEffect(dismissal.value) { if (dismissal.value) surface.close() }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
         Column(

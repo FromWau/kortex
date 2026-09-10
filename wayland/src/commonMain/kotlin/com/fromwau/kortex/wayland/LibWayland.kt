@@ -164,6 +164,9 @@ internal object LibWayland {
      * `wl_proxy_marshal_flags(proxy, opcode, interface, version, flags, ...)`.
      *
      * Pass [iface] as NULL for a request that creates no object.
+     *
+     * The flags are always empty, so even a request the protocol marks a destructor only sends it: the
+     * proxy stays alive until [proxyDestroy] takes it.
      */
     fun marshal(
         proxy: MemorySegment,

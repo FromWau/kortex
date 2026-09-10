@@ -6,6 +6,18 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 /**
+ * Moves the pointer to logical ([x], [y]) on [monitor], the space [Screen.geometry] reports in.
+ *
+ * The two spaces line up only because this suite runs against a single output pinned at the
+ * compositor's origin. Driving the client afterwards is the caller's, since what has to be pumped to
+ * see the motion differs per test.
+ */
+internal fun VirtualPointer.moveTo(monitor: Monitor, x: Int, y: Int) {
+    motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
+    frame()
+}
+
+/**
  * Where the compositor placed a layer surface, and which monitor and [Layer] it landed on.
  *
  * hyprctl reports the geometry in logical (surface-local) pixels, the same space `configure` uses —

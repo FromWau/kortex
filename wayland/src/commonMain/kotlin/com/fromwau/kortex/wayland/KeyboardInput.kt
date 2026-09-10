@@ -175,12 +175,7 @@ internal class KeyboardInput(
         }
     }
 
-    /**
-     * Gives the keyboard and its compiled keymap back; nothing here may be used afterwards.
-     *
-     * `wl_keyboard.release` is a destructor, but [LibWayland.marshal] sends a request without ever
-     * destroying a proxy, so the client side is destroyed here too.
-     */
+    /** Gives the keyboard and its compiled keymap back; nothing here may be used afterwards. */
     fun release() {
         LibWayland.marshal(keyboardProxy, WL_KEYBOARD_RELEASE)
         LibWayland.proxyDestroy(keyboardProxy)

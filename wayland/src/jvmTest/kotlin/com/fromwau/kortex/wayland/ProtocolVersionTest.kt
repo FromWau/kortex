@@ -163,10 +163,7 @@ class ProtocolVersionTest {
 
                     manager.createVirtualPointer().use { wheel ->
                         fun moveTo(x: Int, y: Int) {
-                            // Screen.geometry and the virtual pointer's absolute space agree only
-                            // because this suite runs against a single output pinned at the origin.
-                            wheel.motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
-                            wheel.frame()
+                            wheel.moveTo(monitor, x, y)
                             wayland.roundtrip()
                             bar.pump(timeoutMillis = SETTLE_MILLIS)
                         }

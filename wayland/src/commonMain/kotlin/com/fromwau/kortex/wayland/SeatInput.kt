@@ -135,12 +135,7 @@ internal class PointerInput(
         }
     }
 
-    /**
-     * Gives the pointer back; nothing here may be used afterwards.
-     *
-     * `wl_pointer.release` is a destructor, but [LibWayland.marshal] sends a request without ever
-     * destroying a proxy, so the client side is destroyed here too.
-     */
+    /** Gives the pointer back; nothing here may be used afterwards. */
     fun release() {
         LibWayland.marshal(pointerProxy, WL_POINTER_RELEASE)
         LibWayland.proxyDestroy(pointerProxy)
