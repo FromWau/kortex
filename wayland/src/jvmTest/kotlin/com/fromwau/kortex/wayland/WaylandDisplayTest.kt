@@ -73,7 +73,7 @@ class WaylandDisplayTest {
 
     @Test
     fun `a wake from another thread ends a wait with no deadline`() {
-        val waited = timedWait(deadlineAfterMillis = null, wakeAfterMillis = WAKE_MILLIS, setUp = ::spendPendingPass)
+        val waited = timedWait(deadlineAfterMillis = null, wakeAfterMillis = WAKE_MILLIS)
         assertTrue(
             waited >= WAKE_MILLIS - WAKE_SLACK_MILLIS,
             "a wait with no deadline returned after ${waited}ms, before anything woke it",
@@ -82,11 +82,7 @@ class WaylandDisplayTest {
 
     @Test
     fun `a wait with nothing to do ends at its deadline`() {
-        val waited = timedWait(
-            deadlineAfterMillis = DEADLINE_MILLIS,
-            wakeAfterMillis = SAFETY_WAKE_MILLIS,
-            setUp = ::spendPendingPass,
-        )
+        val waited = timedWait(deadlineAfterMillis = DEADLINE_MILLIS, wakeAfterMillis = SAFETY_WAKE_MILLIS)
         assertTrue(
             waited in DEADLINE_MILLIS..<DEADLINE_MILLIS + PROMPT_MILLIS,
             "a wait with a ${DEADLINE_MILLIS}ms deadline and nothing to do returned after ${waited}ms",
@@ -96,9 +92,14 @@ class WaylandDisplayTest {
     /**
      * Times one [WaylandDisplay.awaitWork] on a thread of its own, which owns the connection until it returns,
      * while this thread calls [WaylandDisplay.wake] once [wakeAfterMillis] have passed or the wait has ended.
-     * A wake that never lands then fails the test rather than hanging it.
+     * A wake that never lands then fails the test rather than hanging it. A fresh connection owes no pass, so
+     * without [setUp] only that wake or the deadline can end the wait.
      */
-    private fun timedWait(deadlineAfterMillis: Long?, wakeAfterMillis: Long, setUp: (WaylandDisplay) -> Unit): Long {
+    private fun timedWait(
+        deadlineAfterMillis: Long?,
+        wakeAfterMillis: Long,
+        setUp: (WaylandDisplay) -> Unit = {},
+    ): Long {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         setUp(display)
         val waitedNanos = AtomicLong()
@@ -119,11 +120,6 @@ class WaylandDisplayTest {
         if (waiter.isAlive) fail("awaitWork never returned, so its connection stays open for the rest of this test JVM")
         display.close()
         return waitedNanos.get() / NANOS_PER_MILLI
-    }
-
-    // Spends any no-sleep that connecting left behind, so only the wake or the deadline can end the timed wait.
-    private fun spendPendingPass(display: WaylandDisplay) {
-        display.awaitWork(System.nanoTime())
     }
 
     private companion object {
