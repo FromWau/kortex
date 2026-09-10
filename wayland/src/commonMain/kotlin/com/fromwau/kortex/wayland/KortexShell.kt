@@ -252,7 +252,8 @@ public class KortexShell private constructor(
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
-        // After every surface: each still holds a null ownedDispatcher for this one and never closes it.
+        // Only after every surface: each surface's own ownedDispatcher is null for this one, so none of
+        // them would ever close it themselves.
         frameDispatcher.close()
     }
 
