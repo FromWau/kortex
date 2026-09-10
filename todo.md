@@ -116,17 +116,21 @@ surface while the host runs are done.
       RSS each; a create/close loop on one connection grew RSS by about 0.8MB per cycle in a straight
       line before this, and shows no slope after it over 150 cycles.
       What stays in `Arena.global()` does so deliberately: the three library lookups, since closing their
-      arena unloads the library under every downcall bound to it; the `wl_interface` tables, which
-      libwayland reads through every proxy made against them; and the registry listener, which lives as
-      long as the connection. No RSS assertion guards this, because a threshold loose enough not to
-      flake would miss one listener put in the wrong arena. `SurfaceLifetimeTest` and
-      `SurfaceTeardownTest` cover the half that can crash, a stub freed before its proxy.
-- [ ] **Three `LibWayland.cString` calls still allocate in the global arena, and are never freed.**
-      `LibC.memfdCreate` allocates its constant name again for every shm buffer (`Shm.kt:43`), two per
-      surface and two more per resize; `WlCursorTheme` allocates each XCursor name it looks up on a
-      cache miss (`WlCursor.kt:154`), again after every rescale; and `WlCursorTheme.load` allocates
-      `$XCURSOR_THEME` once per surface when it is set (`WlCursor.kt:182`). About 300 bytes a surface in
-      all. The first can be one allocation for the life of the process; the theme name belongs to the
+      arena unloads the library under every downcall bound to it, and the `wl_interface` tables, which
+      libwayland reads through every proxy made against them. The registry listener is there too, and
+      outlives its connection, as the next entry records. No RSS assertion guards this, because a
+      threshold loose enough not to flake would miss one listener put in the wrong arena.
+      `SurfaceLifetimeTest` and `SurfaceTeardownTest` cover the half that can crash, a stub freed before
+      its proxy.
+- [ ] **The registry listener and three `LibWayland.cString` calls still allocate in the global arena,
+      and are never freed.** `WaylandDisplay.connect` puts the registry listener's struct and both its
+      stubs there (`WaylandDisplay.kt:125-131`), so every connection leaves them behind after `close()`:
+      about 56kB a connection, at 27.8kB a stub. `LibC.memfdCreate` allocates its constant name again for
+      every shm buffer (`Shm.kt:43`), two per surface and two more per resize; `WlCursorTheme` allocates
+      each XCursor name it looks up on a cache miss (`WlCursor.kt:154`), again after every rescale; and
+      `WlCursorTheme.load` allocates `$XCURSOR_THEME` once per surface when it is set
+      (`WlCursor.kt:182`). About 300 bytes a surface in all. The listener belongs to the `WaylandDisplay`;
+      the first name can be one allocation for the life of the process; the theme name belongs to the
       theme.
 - [x] **`wl_output.release` is sent.** `ShellOutput.destroy()` calls `releaseOutput`, the same
       `marshalIfSince`-then-`proxyDestroy` shape `releaseCompositor` and `releaseShm` already had, so
@@ -139,9 +143,9 @@ surface while the host runs are done.
       one added later included, runs them newest first from a `finally`. Once the surface is constructed,
       its own `close()` is the one owner of every piece. The pointer check comes before that point, which
       `Seat.bind`'s round trip already allows, so no exit returns an error once the surface exists. The
-      test provokes the latest exit, a withdrawn `wl_seat`; the pointer-less seat, `waitForConfigure`,
-      `createFrames`, the cursor theme and the cursor surface cannot be reached on this machine and are
-      covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
+      test provokes the latest exit this machine can reach, a withdrawn `wl_seat`; the pointer-less seat,
+      `waitForConfigure`, `createFrames`, the cursor theme and the cursor surface cannot be reached on this
+      machine and are covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
 - [ ] **Nothing proves `KortexHost.output` actually recomposes a reader.** It is snapshot state and
       `OutputGeometryTest` pins the read and the write, but `KortexShell.create` round-trips before
       placing, so geometry is already there at first composition and every existing test would pass with
@@ -275,6 +279,9 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       output added or removed by re-sending dmabuf feedback to every client, and GTK 4.22.4 crashes on a
       re-send roughly one time in 256 (fixed in 4.22.5). Steam's X11 GTK2 crashed too, on X errors about a
       RandR output that no longer existed. Test runs on the live desktop took down ghostty, AGS and Steam.
+      Two virtual-pointer tests, `OutputRescaleTest` and `ProtocolVersionTest`, failed in a full build
+      that followed heavy hotplugging; `OutputRescaleTest` failed again on a focused rerun, and both
+      passed later.
       Fix: tag those tests and leave them out of the default build, or run the suite against a nested
       Hyprland.
 - [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
