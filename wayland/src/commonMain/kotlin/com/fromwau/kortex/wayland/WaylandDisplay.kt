@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
@@ -22,6 +23,13 @@ public class WaylandDisplay private constructor(
     private val registry: MemorySegment,
 ) : AutoCloseable {
     private val mutableGlobals = CopyOnWriteArrayList<WaylandGlobal>()
+
+    // Holds the registry listener's struct and stubs, which close() frees with the connection.
+    private val arena: Arena = Arena.ofShared()
+
+    /** The registry listener's struct; not private because a test asserts that [close] frees it. */
+    internal lateinit var registryListener: MemorySegment
+        private set
 
     /** Live registry snapshot; safe to read from another thread while upcalls append or remove during dispatch. */
     public val globals: List<WaylandGlobal> get() = mutableGlobals
@@ -101,13 +109,35 @@ public class WaylandDisplay private constructor(
         return Ok(bind(global, iface, maxVersion))
     }
 
-    override fun close(): Unit = LibWayland.displayDisconnect(display)
+    override fun close() {
+        // wl_registry has no destructor request, so its proxy is only ever freed on this side.
+        LibWayland.proxyDestroy(registry)
+        LibWayland.displayDisconnect(display)
+        // After the destroy, never before: an event still queued for the registry would reach a freed stub.
+        arena.close()
+    }
+
+    private fun installRegistryListener() {
+        val sink = RegistryListener(this)
+        val listener = arena.allocate(ADDRESS.byteSize() * 2)
+        listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(arena, sink, "onGlobal", GLOBAL_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, 1L,
+            LibWayland.upcall(arena, sink, "onGlobalRemove", GLOBAL_REMOVE_DESCRIPTOR),
+        )
+        check(LibWayland.proxyAddListener(registry, listener, MemorySegment.NULL) == 0) {
+            "wl_proxy_add_listener rejected the registry listener"
+        }
+        registryListener = listener
+    }
 
     public companion object {
         /** Connects to [name], or to `$WAYLAND_DISPLAY` when null. */
         public fun connect(name: String? = null): Result<WaylandDisplay, KortexError> {
-            val target = if (name == null) MemorySegment.NULL else LibWayland.cString(name)
-            val display = LibWayland.displayConnect(target)
+            // libwayland copies the name into the socket address, so it has to outlive only the call.
+            val display = Arena.ofConfined().use { request ->
+                LibWayland.displayConnect(name?.let { request.allocateFrom(it) } ?: MemorySegment.NULL)
+            }
             if (display.equals(MemorySegment.NULL)) return Err(KortexError.NoCompositorResponse)
 
             val registry = LibWayland.marshal(
@@ -119,22 +149,11 @@ public class WaylandDisplay private constructor(
             )
 
             val waylandDisplay = WaylandDisplay(display, registry)
-            // The listener struct and its stubs are handed to the compositor for the life of the
-            // registry, so they live in the global arena rather than a scope that could close first.
-            val sink = RegistryListener(waylandDisplay)
-            val arena = LibWayland.arena
-            val listener = arena.allocate(ADDRESS.byteSize() * 2)
-            listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(arena, sink, "onGlobal", GLOBAL_DESCRIPTOR))
-            listener.setAtIndex(
-                ADDRESS, 1L,
-                LibWayland.upcall(arena, sink, "onGlobalRemove", GLOBAL_REMOVE_DESCRIPTOR),
-            )
-            check(LibWayland.proxyAddListener(registry, listener, MemorySegment.NULL) == 0) {
-                "wl_proxy_add_listener rejected the registry listener"
-            }
+            waylandDisplay.installRegistryListener()
             if (LibWayland.displayRoundtrip(display) < 0) {
-                val protocolError = waylandDisplay.protocolError()
-                return Err(protocolError ?: KortexError.NoCompositorResponse)
+                val failure = waylandDisplay.protocolError() ?: KortexError.NoCompositorResponse
+                waylandDisplay.close()
+                return Err(failure)
             }
 
             return Ok(waylandDisplay)
