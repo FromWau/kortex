@@ -286,9 +286,11 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
-      `OutputReleaseWireTest`, `SurfaceOpenTest` and `SurfaceScaleTest` that calls
+      `OutputReleaseWireTest`, `SurfaceOpenTest` and `SurfaceScaleTest` that reaches
       `Hyprctl.createHeadlessOutput`, and `settings.gradle.kts` excludes the tag from every `Test` task
-      unless `-Pkortex.hotplugTests=true`.
+      unless `-Pkortex.hotplugTests=true`, which also sets the `kortex.hotplugTests` system property.
+      Outside Gradle, IntelliJ's own JUnit runner included, the tagged tests are reported disabled unless
+      that system property is `true`.
       That opt-in still hotplugs the live desktop the tests run on: Hyprland (0.56.2) re-sends dmabuf
       feedback to every client on every output added or removed, and GTK 4.22.4 crashes on a re-send
       roughly one time in 256 (fixed in 4.22.5); Steam's X11 GTK2 crashed too, on X errors about a RandR
