@@ -84,6 +84,9 @@ public class KortexSurface private constructor(
     // A test cannot make a real compositor send wl_surface.preferred_buffer_scale; this stands in for it.
     internal var scaleOverride: Int? = null
 
+    // A second close() would re-marshal every request below on proxies the first call already freed.
+    private var disposed = false
+
     /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
     public val bufferSize: IntSize
         get() = IntSize(frames.first().buffer.width, frames.first().buffer.height)
@@ -271,6 +274,8 @@ public class KortexSurface private constructor(
     }
 
     override fun close() {
+        if (disposed) return
+        disposed = true
         // Before scene.close(): the seat this surface owns keeps delivering, and a leave still in flight
         // would otherwise reach a closed scene, where the throw happens inside an upcall and ends the process.
         pointerInput?.release()
