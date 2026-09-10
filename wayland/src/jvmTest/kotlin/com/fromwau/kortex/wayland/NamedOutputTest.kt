@@ -23,6 +23,7 @@ import kotlin.test.fail
  * [KortexShell.create] binds and rounds-trips before placing anything, the path a `NamedOutput` at
  * startup depends on, since the compositor has not yet named a freshly bound output otherwise.
  */
+@Hotplug
 class NamedOutputTest {
     @Test
     fun `a surface named for a chosen output appears under that output and no other`() {

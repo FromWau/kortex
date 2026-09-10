@@ -102,6 +102,7 @@ class MultiSurfaceTest {
         }
     }
 
+    @Hotplug
     @Test
     fun `a hotplugged output grows the per-output surface and nothing else`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }

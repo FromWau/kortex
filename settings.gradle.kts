@@ -36,8 +36,15 @@ plugins {
 }
 
 gradle.lifecycle.beforeProject {
+    // See Hotplug.kt's KDoc, in wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland.
+    val hotplugTag = "hotplug"
+
     tasks.withType<Test>().configureEach {
-        useJUnitPlatform()
+        useJUnitPlatform {
+            if (!providers.gradleProperty("kortex.hotplugTests").getOrElse("false").toBoolean()) {
+                excludeTags(hotplugTag)
+            }
+        }
         jvmArgs("--enable-native-access=ALL-UNNAMED")
     }
 }

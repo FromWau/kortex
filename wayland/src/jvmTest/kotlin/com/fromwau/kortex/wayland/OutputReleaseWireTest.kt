@@ -12,6 +12,7 @@ import kotlin.test.assertTrue
  * `WAYLAND_DEBUG` once per process and never clears it, which would log every later connection in this JVM.
  */
 class OutputReleaseWireTest {
+    @Hotplug
     @Test
     fun `every bound output is released, the hotplugged one on removal and the rest on shell close`() {
         val outputsBefore = Hyprctl.monitorNames()

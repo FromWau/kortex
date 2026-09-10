@@ -55,8 +55,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the hotplug entry under Housekeeping. Until it lands, a full test run can crash other apps on the
-desktop, and the open `KortexHost.output` test waits on it. Then the rest of Foundations, Polish and
+Next: the registry listener entry under Foundations. Then the rest of Foundations, Polish and
 Housekeeping. The surface presets and raising a surface while the host runs are done.
 
 ## Foundations
@@ -156,8 +155,8 @@ Housekeeping. The surface presets and raising a surface while the host runs are 
       `KortexSurfaceHandle.size` is written the same way while `SurfaceHandleTest` reads it from the test
       thread, so neither has been seen to recompose content. A test needs an output to republish geometry
       under a live reader: on Hyprland 0.56.2, `hyprctl eval` with an `hl.monitor` rule moves a headless
-      output at runtime, while `hyprctl keyword` is refused under a Lua config. Changing an output is what
-      the hotplug entry under Housekeeping warns against, so this test waits on it.
+      output at runtime, while `hyprctl keyword` is refused under a Lua config. Write it `@Hotplug`, like
+      the tests under Housekeeping; running it needs `-Pkortex.hotplugTests=true`.
 
 ## Surface presets
 
@@ -283,18 +282,21 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
-- [ ] **Tests that hotplug outputs crash other apps on the desktop they run on.** Seven test classes add
-      and remove headless outputs through `Hyprctl.createHeadlessOutput`. Hyprland (0.56.2) answers every
-      output added or removed by re-sending dmabuf feedback to every client, and GTK 4.22.4 crashes on a
-      re-send roughly one time in 256 (fixed in 4.22.5). Steam's X11 GTK2 crashed too, on X errors about a
-      RandR output that no longer existed. Test runs on the live desktop took down ghostty, AGS and Steam.
-      Two virtual-pointer tests, `OutputRescaleTest` and `ProtocolVersionTest`, failed in a full build
-      that followed heavy hotplugging; `OutputRescaleTest` failed again on a focused rerun, and both
-      passed later.
-      Fix: tag those tests and leave them out of the default build, or run the suite against a nested
-      Hyprland. Only the nested compositor also keeps the virtual pointer and the screenshots out of the
-      user's session: `SurfaceLifetimeTest` has clicked into a fullscreen game, and that game's cursor
-      re-centring failed `OutputRescaleTest` three times.
+- [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
+      `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
+      in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
+      `OutputReleaseWireTest`, `SurfaceOpenTest` and `SurfaceScaleTest` that calls
+      `Hyprctl.createHeadlessOutput`, and `settings.gradle.kts` excludes the tag from every `Test` task
+      unless `-Pkortex.hotplugTests=true`.
+      That opt-in still hotplugs the live desktop the tests run on: Hyprland (0.56.2) re-sends dmabuf
+      feedback to every client on every output added or removed, and GTK 4.22.4 crashes on a re-send
+      roughly one time in 256 (fixed in 4.22.5); Steam's X11 GTK2 crashed too, on X errors about a RandR
+      output that no longer existed. Test runs on the live desktop took down ghostty, AGS and Steam.
+      The pointer and screenshot tests still need a desktop nobody is using regardless of the tag:
+      `SurfaceLifetimeTest` has clicked into a fullscreen game, and that game's cursor re-centring failed
+      `OutputRescaleTest` three times.
+      A nested Hyprland was considered, since it would also keep the virtual pointer and the screenshots
+      off the user's own session, and set aside in favour of the tag.
 - [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
       `KortexSurfaceTest` and `MultiSurfaceTest`, at times two full-suite runs in three. It was never
       compositing noise. Hyprland ramps a new layer surface from whatever is behind it up to its own
