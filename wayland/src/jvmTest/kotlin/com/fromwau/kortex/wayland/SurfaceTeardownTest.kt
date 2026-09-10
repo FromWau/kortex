@@ -8,6 +8,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.LocalKortexSurface
@@ -32,12 +34,13 @@ class SurfaceTeardownTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val closeRequested = mutableStateOf(false)
         val clicks = AtomicInteger()
+        val menuHovers = AtomicInteger()
 
         display.use { wayland ->
             val manager = VirtualPointerManager.bind(wayland)
                 .getOrElse { error -> fail("virtual pointer manager bind failed: $error") }
             val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no usable monitor")
-            val shell = KortexShell.create(wayland, panelSpec(clicks), menuSpec(closeRequested))
+            val shell = KortexShell.create(wayland, panelSpec(clicks), menuSpec(closeRequested, menuHovers))
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
             shell.use {
@@ -46,37 +49,51 @@ class SurfaceTeardownTest {
                 val before = shell.activeSurfaces.size
 
                 manager.createVirtualPointer().use { pointer ->
-                    // Off both surfaces first: the compositor re-evaluates pointer focus on motion, so a
-                    // cursor already parked on these coordinates would never enter the new surface.
-                    moveTo(shell, pointer, monitor, monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-                    // The menu must hold the pointer focus when it goes: the leave that losing focus
-                    // produces is what its own listener would still be dispatched afterwards.
-                    moveTo(shell, pointer, monitor, menu.x + menu.logicalWidth / 2, menu.y + menu.logicalHeight / 2)
+                    try {
+                        // Off both surfaces first: the compositor re-evaluates pointer focus on motion, so a
+                        // cursor already parked on these coordinates would never enter the new surface.
+                        moveTo(shell, pointer, monitor, monitor.logicalWidth / 2, monitor.logicalHeight - 1)
+                        // The menu must hold the pointer focus when it goes: the leave that losing focus
+                        // produces is what its own listener would still be dispatched afterwards.
+                        moveTo(
+                            shell, pointer, monitor,
+                            menu.x + menu.logicalWidth / 2, menu.y + menu.logicalHeight / 2,
+                        )
 
-                    // Nothing on the test thread calls close(): only this flag can drop the menu, and it
-                    // does so from the composition's own thread.
-                    closeRequested.value = true
-                    val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before - 1 }
-                    assertTrue(dropped, "the shell never dropped the menu after its content called close()")
+                        // Asserts the premise the comment above only states: without this, a layout change
+                        // that moved the menu off the pointer would silently degrade this into a test that
+                        // closes a surface nobody was pointing at, and it would keep passing.
+                        val entered = shell.pump(PUMP_TIMEOUT_MILLIS) { menuHovers.get() > 0 }
+                        assertTrue(entered, "the menu never received the pointer enter this test's premise needs")
 
-                    val panel = assertNotNull(Screen.geometry(panelNamespace), "the panel went away with the menu")
-                    moveTo(shell, pointer, monitor, panel.x + TARGET_DP / 2, panel.y + TARGET_DP / 2)
+                        // Nothing on the test thread calls close(): only this flag can drop the menu, and it
+                        // does so from the composition's own thread.
+                        closeRequested.value = true
+                        val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before - 1 }
+                        assertTrue(dropped, "the shell never dropped the menu after its content called close()")
 
-                    pointer.button(BTN_LEFT, pressed = true)
-                    pointer.frame()
-                    shell.pump(SETTLE_MILLIS)
-                    pointer.button(BTN_LEFT, pressed = false)
-                    pointer.frame()
+                        val panel =
+                            assertNotNull(Screen.geometry(panelNamespace), "the panel went away with the menu")
+                        moveTo(shell, pointer, monitor, panel.x + TARGET_DP / 2, panel.y + TARGET_DP / 2)
 
-                    val delivered = shell.pump(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
-                    val protocolError = wayland.protocolError()
-                    // Park it off the bar again: the screenshot tests sample the pixel it sits on.
-                    moveTo(shell, pointer, monitor, monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-                    if (protocolError != null) {
-                        fail("wayland protocol error after the menu was torn down: $protocolError")
+                        pointer.button(BTN_LEFT, pressed = true)
+                        pointer.frame()
+                        shell.pump(SETTLE_MILLIS)
+                        pointer.button(BTN_LEFT, pressed = false)
+                        pointer.frame()
+
+                        val delivered = shell.pump(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
+                        val protocolError = wayland.protocolError()
+                        if (protocolError != null) {
+                            fail("wayland protocol error after the menu was torn down: $protocolError")
+                        }
+                        assertTrue(delivered, "a click never reached the panel that outlived the menu")
+                        assertEquals(1, clicks.get(), "one press and release must be one click")
+                    } finally {
+                        // Unconditional, so an assertion failing above still can't leave the cursor on a
+                        // target and deny the next test's own move here the enter it depends on.
+                        moveTo(shell, pointer, monitor, monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                     }
-                    assertTrue(delivered, "a click never reached the panel that outlived the menu")
-                    assertEquals(1, clicks.get(), "one press and release must be one click")
                 }
             }
         }
@@ -100,12 +117,23 @@ class SurfaceTeardownTest {
      * An [SurfaceConfig.appMenu], not an OSD, so the surface that goes owns a `wl_keyboard` as well as a
      * `wl_pointer` and both teardown paths are exercised.
      */
-    private fun menuSpec(closeRequested: MutableState<Boolean>): SurfaceSpec =
+    private fun menuSpec(closeRequested: MutableState<Boolean>, hovers: AtomicInteger): SurfaceSpec =
         SurfaceSpec(MENU_CONFIG, OutputTarget.CompositorChoice) {
             val surface = LocalKortexSurface.current
             val requested = closeRequested.value
             LaunchedEffect(requested) { if (requested) surface.close() }
-            Box(Modifier.fillMaxSize())
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.type == PointerEventType.Enter) hovers.incrementAndGet()
+                            }
+                        }
+                    },
+            )
         }
 
     /** Pumps [shell] until the panel reaches `hyprctl layers`, and returns the namespace it was filed under. */
