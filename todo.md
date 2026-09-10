@@ -195,16 +195,17 @@ click landed in output coordinates, not where the click actually was on screen.
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
-- [ ] **A screenshot pixel occasionally reads one step high**, roughly 1 run in 18 against an expected
-      `0xFF808080`. The step is not always the same shape: this session alone saw a uniform `0xFF818181`
-      (all three channels) and, in a later run of the same assertion, `0xFF818180` (two of three), so it
-      is a one-step-per-channel drift rather than a fixed pattern. Seen in `KortexShellTest`,
-      `KortexSurfaceTest` and `MultiSurfaceTest`, so it is compositing or capture timing rather than
-      anything test-specific. Window occlusion is ruled out, since occlusion would not land a one-step
-      drift this close to the expected colour, and so is a gamma or night-light daemon: none of
-      `hyprsunset`, `gammastep`, `redshift` or `wlsunset` was running when it was checked. Still
-      unexplained. `Screen.settledPixel` already samples until two reads agree, which is evidently not
-      enough.
+- [ ] **A screenshot pixel occasionally reads one step high** against an expected `0xFF808080`. It
+      predates the protocol work. It is intermittent, and turned up far more often in this session than an
+      earlier rate estimate on this entry had suggested; the cause is still unknown. The step is not always
+      the same shape: this session alone saw a uniform `0xFF818181` (all three channels) and, in a later run
+      of the same assertion, `0xFF818180` (two of three), so it is a one-step-per-channel drift rather than
+      a fixed pattern. Seen in `KortexShellTest`, `KortexSurfaceTest` and `MultiSurfaceTest`, so it is
+      compositing or capture timing rather than anything test-specific. Window occlusion is ruled out, since
+      occlusion would not land a one-step drift this close to the expected colour, and so is a gamma or
+      night-light daemon: none of `hyprsunset`, `gammastep`, `redshift` or `wlsunset` was running when it was
+      checked. Still unexplained. `Screen.settledPixel` already samples until two reads agree, which is
+      evidently not enough.
 - [ ] **`KortexSurface.close()` tears down no `wl_pointer` or `wl_keyboard` proxy.** It closes the scene,
       the frames, the retiring frames, the layer surface and the dispatcher, and stops there. Each surface
       binds its own seat devices (`Seat.attachPointer`/`attachKeyboard` in `SeatInput.kt`), so their

@@ -193,10 +193,8 @@ public data class SurfaceConfig(
          * nothing and a compositor may show no surface at all. [ExclusiveZone.Yield] centres it in the *usable*
          * area instead, so another surface's own exclusive zone can shift it off the output's true centre.
          *
-         * A surface only exists for as long as the [runSurfaces] call that placed it, and that call takes
-         * its surfaces up front. So this config can be handed over at startup, but nothing can raise one
-         * in response to a later event — a volume change, a right click — and content that closes its own
-         * surface cannot bring it back. That entry point does not exist yet.
+         * Raise one at startup in [runSurfaces]'s spec list, or later, in response to an event such as a
+         * volume change, through [KortexHost.open].
          */
         public fun osd(width: Dp, height: Dp): SurfaceConfig = SurfaceConfig(
             layer = Layer.Overlay,
@@ -208,7 +206,7 @@ public data class SurfaceConfig(
 
         /**
          * An [osd] that also takes keyboard focus on demand, for a floating panel dismissed through its
-         * own handle. It inherits [osd]'s placement rules and its startup-only lifetime.
+         * own handle. It inherits [osd]'s placement rules.
          */
         public fun appMenu(width: Dp, height: Dp): SurfaceConfig =
             osd(width, height).copy(keyboard = KeyboardInteractivity.OnDemand)
@@ -228,9 +226,8 @@ public data class SurfaceConfig(
          * sits at [at] and the excess runs off the opposite edge, so the answer stays one consistent
          * corner rather than a special case.
          *
-         * A surface only exists for as long as the [runSurfaces] call that placed it, and that call takes
-         * its surfaces up front — so a menu cannot yet be raised at the moment of the click whose position
-         * it is built from. That entry point does not exist yet.
+         * Typically raised at the moment of the click whose position it is built from, by calling
+         * [KortexHost.open] with a [SurfaceSpec] wrapping this config.
          */
         public fun contextMenu(at: IntOffset, menuSize: IntSize, outputSize: IntSize): SurfaceConfig {
             val overflowsRight = at.x + menuSize.width > outputSize.width
