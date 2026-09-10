@@ -270,10 +270,6 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       reaches everything else, so nothing here is blocked by the binding layer. That design subsumes the
       key-repeat timer as just another fd, and the small version above does not stand in its way — the
       whole `dispatch_timeout` call is replaced rather than worked around.
-- [ ] **Per-surface density override.** The reference takes `density = Density(2f)` and reads
-      `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the surface's `preferred_buffer_scale`; the unused
-      `scale` parameter on `KortexSurface.create` was removed as dead, so this would reintroduce it
-      deliberately.
 
 ## Housekeeping
 
@@ -349,3 +345,6 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - `BinarySource` / bundled binary extraction / arch-specific resources — no helper binary exists.
 - The two JVM reflection flags — kortex reaches `PlatformContext` directly.
 - JitPack publishing — publishing is out of scope for now.
+- A per-surface density override. The reference takes `density = Density(2f)` and reads
+  `GDK_SCALE`/`QT_SCALE_FACTOR` because it cannot tell a surface's scale; kortex takes density from each
+  surface's `preferred_buffer_scale`, so an override would only zoom content its dp values already size.
