@@ -137,6 +137,9 @@ class NamedOutputTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         var shell: KortexShell? = null
         var loopThread: Thread? = null
+        // Set in catch, read in finally: lets the poisoning check attach itself with addSuppressed
+        // instead of throwing over whatever assertion actually failed above.
+        var primary: Throwable? = null
 
         try {
             val probe = Hyprctl.createHeadlessOutput()
@@ -182,18 +185,24 @@ class NamedOutputTest {
                 !thread.isAlive,
                 "the event loop kept running after its only surface closed on a still-connected output",
             )
+        } catch (thrown: Throwable) {
+            primary = thrown
+            throw thrown
         } finally {
             pendingOutput?.let(Hyprctl::removeHeadlessOutput)
             // Closing would race the loop thread if it were still inside libwayland; safe only once it
             // has actually returned, which either a successful join or the mutation's immediate exit prove.
             if (loopThread?.isAlive == true) {
-                fail(
-                    "the event loop thread never returned, so its connection, its surfaces and the thread " +
-                        "itself stay live: every later test in this worker runs against a poisoned session",
-                )
+                val poisoning = "the event loop thread never returned, so its connection, its surfaces and " +
+                    "the thread itself stay live: every later test in this worker runs against a poisoned session"
+                // A throw here would replace whichever assertion actually failed above; attach it instead
+                // so the real diagnostic survives. Only reachable with a live thread when try already failed.
+                val existing = primary
+                if (existing != null) existing.addSuppressed(AssertionError(poisoning)) else fail(poisoning)
+            } else {
+                shell?.close()
+                display.close()
             }
-            shell?.close()
-            display.close()
         }
     }
 
