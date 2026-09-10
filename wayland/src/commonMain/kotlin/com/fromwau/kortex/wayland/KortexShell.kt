@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.CompositionLocalProvider
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -8,6 +9,7 @@ import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /** A bound `wl_output`: the registry name it was announced under, its proxy, and what it publishes. */
 internal class ShellOutput(
@@ -49,6 +51,9 @@ public class KortexShell private constructor(
     // iterating them.
     private val pendingAdds = mutableListOf<WaylandGlobal>()
     private val pendingRemoves = mutableListOf<Int>()
+
+    // open() is called from a frame thread, unlike the registry callbacks above, which fire on the loop thread.
+    private val pendingOpens = ConcurrentLinkedQueue<SurfaceSpec>()
 
     /** The surfaces currently live, each with its output; exposed so a caller or test can inspect them. */
     public val activeSurfaces: List<ActiveSurface> get() = surfaces.toList()
@@ -109,6 +114,14 @@ public class KortexShell private constructor(
             pendingRemoves.clear()
             removes.forEach(::removeOutput)
         }
+        if (pendingOpens.isNotEmpty()) {
+            // Drained fully before any is placed: placing one can compose content that calls open()
+            // again, and servicing that in the same pass would spin forever on pathological content.
+            val opens = generateSequence(pendingOpens::poll).toList()
+            opens.forEach { spec ->
+                placeSurfaces(spec).getOrElse { error("kortex surface open failed for ${spec.config.namespace}: $it") }
+            }
+        }
     }
 
     private fun serviceSurfaces() {
@@ -158,8 +171,21 @@ public class KortexShell private constructor(
             platform = platform,
             output = output?.proxy ?: MemorySegment.NULL,
         ).map { surface ->
-            surface.setContent(spec.content)
-            surfaces += ActiveSurface(surface, spec, output)
+            val active = ActiveSurface(surface, spec, output)
+            val host = hostFor(active)
+            surface.setContent {
+                CompositionLocalProvider(LocalKortexHost provides host) { spec.content() }
+            }
+            surfaces += active
+        }
+    }
+
+    // Built once per surface, not inside the content lambda: LocalKortexHost is static, so a fresh
+    // instance handed to it on every recomposition would recompose everything the local reaches.
+    private fun hostFor(active: ActiveSurface): KortexHost = object : KortexHost {
+        override val output: OutputGeometry? get() = active.geometry
+        override fun open(spec: SurfaceSpec) {
+            pendingOpens += spec
         }
     }
 
