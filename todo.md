@@ -190,6 +190,11 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       Wayland event announces it, so the constant timeout is standing in for a timer.
       **Small version:** pass the real next deadline as the timeout instead of the constant — no key held
       means blocking until an event arrives, so a genuinely idle bar costs nothing at all.
+      That is not safe on its own any more. `KortexHost.open` posts onto `KortexShell.pendingOpens` from a
+      frame thread and cannot wake the loop, since only the loop thread may call libwayland; the fixed
+      16ms tick is the only reason a menu raised from content appears at all. Blocking on a key-repeat
+      deadline instead would leave it unplaced until some unrelated event arrived. That queue therefore
+      needs a wakeup of its own, which is the same second-source problem the next paragraph describes.
       **Know before starting it:** `dispatch_timeout` can wait on exactly one source, and blocking inside it
       is being deaf to every other one. A bar that grows a second source — D-Bus for MPRIS, notifications or
       battery, a timerfd, a config watch — needs `wl_display_get_fd` plus the
