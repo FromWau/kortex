@@ -68,7 +68,8 @@ Housekeeping. The surface presets and raising a surface while the host runs are 
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
       composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
       still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state
-      so a configure recomposes a reader. `close()` posts onto the surface's queue and sets the same flag
+      so a configure can recompose a reader, though no test has shown one doing so yet (see the
+      `KortexHost.output` entry). `close()` posts onto the surface's queue and sets the same flag
       a real `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceSurfaces` reaps a self-close
       through the one existing teardown path. No `awaitClose()` — the blocking entry point is already the
       host's wait, and it returns once content has closed the last surface. (`SurfaceHandleTest`)
@@ -212,8 +213,9 @@ Housekeeping. The surface presets and raising a surface while the host runs are 
       placed and nothing fails, and a standing spec is placed later if the output arrives.
       Hotplug coverage for this rests on a finding checked against the live Hyprland session rather than
       assumed: its headless output names are a monotonically increasing counter that survives removal and
-      is never reused, which is what makes the hotplug path deterministic enough to test. A compositor
-      whose output names are reused is untested. (`NamedOutputTest`)
+      is never reused within one compositor session (it restarts with Hyprland), which is what makes the
+      hotplug path deterministic enough to test. A compositor whose output names are reused is untested.
+      (`NamedOutputTest`)
 - [x] **A `CompositorChoice` surface the compositor takes away is placed again**, as long as an output is
       still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
       gone either way. With no output at all connected at that moment there is nowhere to place the
@@ -290,7 +292,9 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       that followed heavy hotplugging; `OutputRescaleTest` failed again on a focused rerun, and both
       passed later.
       Fix: tag those tests and leave them out of the default build, or run the suite against a nested
-      Hyprland.
+      Hyprland. Only the nested compositor also keeps the virtual pointer and the screenshots out of the
+      user's session: `SurfaceLifetimeTest` has clicked into a fullscreen game, and that game's cursor
+      re-centring failed `OutputRescaleTest` three times.
 - [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
       `KortexSurfaceTest` and `MultiSurfaceTest`, at times two full-suite runs in three. It was never
       compositing noise. Hyprland ramps a new layer surface from whatever is behind it up to its own
