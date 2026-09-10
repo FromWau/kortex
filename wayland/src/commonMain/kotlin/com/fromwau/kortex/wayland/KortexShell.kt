@@ -10,6 +10,9 @@ import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 
 /** A bound `wl_output`: the registry name it was announced under, its proxy, and what it publishes. */
 internal class ShellOutput(
@@ -50,6 +53,9 @@ public class KortexShell private constructor(
     private val display: WaylandDisplay,
     private val specs: List<SurfaceSpec>,
     private val platform: KortexPlatform,
+    // Shared so every surface's FrameRecomposer registers with GlobalSnapshotManager from the same
+    // thread; a distinct dispatcher per surface is what provokes its multi-thread warning.
+    private val frameDispatcher: ExecutorCoroutineDispatcher,
 ) : AutoCloseable {
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
@@ -215,6 +221,7 @@ public class KortexShell private constructor(
             spec.config.copy(namespace = namespace),
             platform = platform,
             output = output?.proxy ?: MemorySegment.NULL,
+            frameDispatcher = frameDispatcher,
         ).map { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
@@ -245,6 +252,8 @@ public class KortexShell private constructor(
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
+        // After every surface: each still holds a null ownedDispatcher for this one and never closes it.
+        frameDispatcher.close()
     }
 
     public companion object {
@@ -259,7 +268,10 @@ public class KortexShell private constructor(
             vararg specs: SurfaceSpec,
             platform: KortexPlatform = KortexPlatform.None,
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, specs.toList(), platform)
+            val frameDispatcher = Executors.newSingleThreadExecutor { runnable ->
+                Thread(runnable, "kortex-frame").apply { isDaemon = true }
+            }.asCoroutineDispatcher()
+            val shell = KortexShell(display, specs.toList(), platform, frameDispatcher)
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)

@@ -44,7 +44,9 @@ public class KortexSurface private constructor(
     private var frames: List<Frame>,
     private val scene: KortexScene,
     private val clock: FrameClock,
-    private val dispatcher: ExecutorCoroutineDispatcher,
+    // Non-null only when this surface built its own frame dispatcher rather than borrowing a shell's;
+    // only that one is this surface's to close.
+    private val ownedDispatcher: ExecutorCoroutineDispatcher?,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
     private val seat: Seat,
@@ -293,7 +295,7 @@ public class KortexSurface private constructor(
         clock.close()
         layer.close()
         shm.close()
-        dispatcher.close()
+        ownedDispatcher?.close()
     }
 
     private class Frame(val buffer: ShmBuffer, val surface: Surface) {
@@ -311,6 +313,9 @@ public class KortexSurface private constructor(
             platform: KortexPlatform = KortexPlatform.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
+            // A shell passes its shared dispatcher here so every surface's composition lands on one
+            // thread; absent, the surface builds and owns one of its own.
+            frameDispatcher: ExecutorCoroutineDispatcher? = null,
         ): Result<KortexSurface, KortexError> {
             // The surface tracks the open text-input session itself so a host does not have to; keys the
             // composition does not consume are turned into edits on it.
@@ -370,10 +375,12 @@ public class KortexSurface private constructor(
                 val frames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }
                 frames.forEach { frame -> unwind += frame::close }
 
-                val dispatcher = Executors.newSingleThreadExecutor { runnable ->
+                val dispatcher = frameDispatcher ?: Executors.newSingleThreadExecutor { runnable ->
                     Thread(runnable, "kortex-frame").apply { isDaemon = true }
                 }.asCoroutineDispatcher()
-                unwind += dispatcher::close
+                // A borrowed dispatcher outlives this surface and is a shell's to close, not ours.
+                val ownedDispatcher = if (frameDispatcher == null) dispatcher else null
+                ownedDispatcher?.let { owned -> unwind += owned::close }
 
                 val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
                 unwind += cursorTheme::close
@@ -400,7 +407,7 @@ public class KortexSurface private constructor(
                     return Err(display.protocolError() ?: missingPointer)
                 }
                 surface = KortexSurface(
-                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
+                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), ownedDispatcher,
                     cursorTheme, cursorSurface, seat,
                 )
                 // From here the surface's own close() is the one owner of every piece above.

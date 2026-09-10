@@ -275,10 +275,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - [x] **`WlSurfaceListener` has a file of its own.** `wl_surface` is a core interface, not part of the
       wlroots extension, so its listener sits in `WlSurfaceListener.kt` and `LayerShell.kt` keeps the
       `zwlr_layer_shell_v1` tables and `LayerSurface`.
-- [ ] **Compose warns `GlobalSnapshotManager: concurrent registrations on multiple threads might lead
-      to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
-      one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
-      surfaces on one connection makes it routine rather than rare.
+- [x] **A shell's surfaces share one `kortex-frame` thread.** `KortexShell` builds one daemon dispatcher
+      named `kortex-frame`, hands it to every `KortexSurface.create` call it makes, and closes it in its
+      own `close()` after every surface is closed. `KortexSurface.create` takes that dispatcher as an
+      internal, optional parameter: given one, the surface neither adds it to its create unwind nor
+      closes it; given none, it builds and owns its own, as a bare `KortexSurface` still does. One thread
+      registering with Compose's `GlobalSnapshotManager` instead of one per surface is what keeps its
+      `concurrent registrations on multiple threads might lead to races` warning from ever printing for a
+      shell running several surfaces, and removes the race the warning was naming
+      (`SharedFrameThreadTest`).
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
