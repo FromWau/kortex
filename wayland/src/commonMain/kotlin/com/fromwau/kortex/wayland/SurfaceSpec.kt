@@ -10,10 +10,13 @@ public sealed interface OutputTarget {
     /**
      * A single surface that names no output, leaving the compositor to place it.
      *
-     * It is created once and never replaced: should the output the compositor put it on go away, the
-     * surface goes with it and nothing brings it back, where an [EveryOutput] surface reappears when
-     * an output is plugged in again. A host that needs one on screen after a monitor change has to ask
-     * for it again.
+     * A spec passed to [KortexShell.create] is placed again once the compositor takes its surface
+     * away, for instance by removing the output it landed on. Content dismissing its own surface stays
+     * gone instead, and so does one placed through [KortexHost.open]: neither counts as the compositor
+     * taking it away.
+     *
+     * One limitation follows: if no output at all is connected at the moment the compositor takes the
+     * surface, there is nowhere to place the replacement, and it stays gone until asked for again.
      */
     public data object CompositorChoice : OutputTarget
 

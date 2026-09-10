@@ -29,6 +29,8 @@ public class ActiveSurface internal constructor(
     public val surface: KortexSurface,
     public val spec: SurfaceSpec,
     internal val output: ShellOutput?,
+    // False for a spec that arrived through KortexHost.open: a one-shot placement never comes back.
+    internal val standing: Boolean,
 ) {
     /** What the output published about itself; null before its first `done`, and with no output at all. */
     public val geometry: OutputGeometry? get() = output?.listener?.geometry
@@ -124,16 +126,30 @@ public class KortexShell private constructor(
             // again, and servicing that in the same pass would spin forever on pathological content.
             val opens = generateSequence(pendingOpens::poll).toList()
             opens.forEach { spec ->
-                placeSurfaces(spec).getOrElse { error("kortex surface open failed for ${spec.config.namespace}: $it") }
+                placeSurfaces(spec, standing = false)
+                    .getOrElse { error("kortex surface open failed for ${spec.config.namespace}: $it") }
             }
         }
     }
 
     private fun serviceSurfaces() {
         // filter copies first: removeSurface mutates the very list this walks.
-        surfaces.filter { it.surface.closed }.forEach(::removeSurface)
+        val closing = surfaces.filter { it.surface.closed }
+        val toReplace = closing.filter(::shouldReplace)
+        closing.forEach(::removeSurface)
+        toReplace.forEach { active ->
+            placeSurfaces(active.spec, standing = true)
+                .getOrElse { error("kortex surface replacement failed for ${active.spec.config.namespace}: $it") }
+        }
         surfaces.forEach { it.surface.serviceTick() }
     }
+
+    // Exactly what OutputTarget.CompositorChoice's own KDoc promises: replaced only here, gone otherwise.
+    private fun shouldReplace(active: ActiveSurface): Boolean =
+        active.standing &&
+            active.spec.target == OutputTarget.CompositorChoice &&
+            active.surface.closeReason == CloseReason.Compositor &&
+            outputs.isNotEmpty()
 
     // A hotplug arrives long after create() returned, with no Result channel left to report through.
     private fun addOutput(global: WaylandGlobal) {
@@ -147,7 +163,7 @@ public class KortexShell private constructor(
                 is OutputTarget.NamedOutput -> output.matchesName(target.name)
             }
         }.forEach { spec ->
-            createSurface(spec, output)
+            createSurface(spec, output, standing = true)
                 .getOrElse { error("kortex surface creation failed for output ${global.name}: $it") }
         }
     }
@@ -169,20 +185,20 @@ public class KortexShell private constructor(
         LibWayland.proxyDestroy(output.proxy)
     }
 
-    private fun placeSurfaces(spec: SurfaceSpec): EmptyResult<KortexError> {
+    private fun placeSurfaces(spec: SurfaceSpec, standing: Boolean): EmptyResult<KortexError> {
         when (val target = spec.target) {
-            OutputTarget.CompositorChoice -> return createSurface(spec, output = null)
+            OutputTarget.CompositorChoice -> return createSurface(spec, output = null, standing)
             OutputTarget.EveryOutput -> outputs.values.forEach { output ->
-                createSurface(spec, output).getOrElse { return Err(it) }
+                createSurface(spec, output, standing).getOrElse { return Err(it) }
             }
             is OutputTarget.NamedOutput -> outputs.values
                 .firstOrNull { it.matchesName(target.name) }
-                ?.let { output -> createSurface(spec, output).getOrElse { return Err(it) } }
+                ?.let { output -> createSurface(spec, output, standing).getOrElse { return Err(it) } }
         }
         return Ok(Unit)
     }
 
-    private fun createSurface(spec: SurfaceSpec, output: ShellOutput?): EmptyResult<KortexError> {
+    private fun createSurface(spec: SurfaceSpec, output: ShellOutput?, standing: Boolean): EmptyResult<KortexError> {
         val namespace = output?.let { "${spec.config.namespace}-${it.name}" } ?: spec.config.namespace
         return KortexSurface.create(
             display,
@@ -190,7 +206,7 @@ public class KortexShell private constructor(
             platform = platform,
             output = output?.proxy ?: MemorySegment.NULL,
         ).map { surface ->
-            val active = ActiveSurface(surface, spec, output)
+            val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
             surface.setContent {
                 CompositionLocalProvider(LocalKortexHost provides host) { spec.content() }
@@ -240,7 +256,7 @@ public class KortexShell private constructor(
             // A NamedOutput spec placed before any output's own done arrives would match no name at all.
             display.roundtrip()
             for (spec in specs) {
-                shell.placeSurfaces(spec).getOrElse {
+                shell.placeSurfaces(spec, standing = true).getOrElse {
                     shell.close()
                     return Err(it)
                 }

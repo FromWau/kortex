@@ -104,6 +104,14 @@ public class KortexSurface private constructor(
     /** True once the compositor has closed this surface, or its content has; either way it must be torn down. */
     internal val closed: Boolean get() = layer.closed
 
+    /** Which side closed this surface, once [closed] is true; null beforehand. */
+    internal val closeReason: CloseReason? get() = layer.closeReason
+
+    /** A test cannot make the real compositor close this exact surface, since it lands on the unpluggable output. */
+    internal fun simulateCompositorClose() {
+        layer.simulateCompositorClose()
+    }
+
     public fun setContent(content: @Composable () -> Unit) {
         scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
         renderNow(frameTimeNanos = 0L)
