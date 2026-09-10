@@ -8,7 +8,8 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 
 - [x] `zwlr_layer_shell_v1` surfaces
 - [x] Compose Desktop content with state, animation, interactivity
-- [x] Frame pacing off `wl_surface.frame` — idle costs nothing (`FrameClock`, `IdleFrameTest`)
+- [x] Frame pacing off `wl_surface.frame` — an idle bar draws nothing (`FrameClock`, `IdleFrameTest`).
+      It still wakes on a fixed tick, which is the event-loop item under Polish.
 - [x] Keyboard through xkbcommon: layout-aware keysyms, modifier state (`KeyboardInput`, `Xkb`)
 - [x] Text input via `TextField` with an IME session (`KortexTextInput`)
 - [x] HiDPI: per-surface scale detection, physical-pixel rendering, logical↔buffer pointer translation
@@ -147,6 +148,26 @@ are done.
       missing `move`, `wait`, and the four resize shapes. Blocked by Compose: only `PointerIcon.Default`,
       `.Crosshair`, `.Text` and `.Hand` are public constants, so the rest need a caller-supplied cursor
       path through `KortexPlatform`.
+- [ ] **Wake the event loop on demand instead of on a fixed tick.** Nothing polls Wayland: events arrive
+      on a socket fd and `wl_display_dispatch_timeout` blocks on it. What is fixed is the *timeout* —
+      `EVENT_LOOP_TIMEOUT_MILLIS = 16`, in both `KortexShell` and `KortexSurface` — so an idle host wakes
+      about 60 times a second to run four "has this changed?" checks and draw nothing, which is enough to
+      keep a laptop out of deep idle.
+      Only one of those checks needs a tick at all. `consumeResize`, `preferredBufferScale` and the retired
+      frames are all set by events, so they can be serviced when an event actually arrives.
+      `KeyboardInput.checkRepeat` is the exception: it is a deadline (`nowNanos < nextRepeatAtNanos`) and no
+      Wayland event announces it, so the constant timeout is standing in for a timer.
+      **Small version:** pass the real next deadline as the timeout instead of the constant — no key held
+      means blocking until an event arrives, so a genuinely idle bar costs nothing at all.
+      **Know before starting it:** `dispatch_timeout` can wait on exactly one source, and blocking inside it
+      is being deaf to every other one. A bar that grows a second source — D-Bus for MPRIS, notifications or
+      battery, a timerfd, a config watch — needs `wl_display_get_fd` plus the
+      `prepare_read`/`read_events`/`cancel_read` dance to put the Wayland fd into its own `poll`/`epoll`
+      alongside the others; that dance exists to close the race where one reader decides to sleep just as
+      another drains the socket. libwayland 1.26 exports all of it, and FFM reaches it the same way it
+      reaches everything else, so nothing here is blocked by the binding layer. That design subsumes the
+      key-repeat timer as just another fd, and the small version above does not stand in its way — the
+      whole `dispatch_timeout` call is replaced rather than worked around.
 - [ ] **Per-surface density override.** The reference takes `density = Density(2f)` and reads
       `GDK_SCALE`/`QT_SCALE_FACTOR`. kortex always uses the surface's `preferred_buffer_scale`; the unused
       `scale` parameter on `KortexSurface.create` was removed as dead, so this would reintroduce it
