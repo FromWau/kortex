@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Surface
+import java.awt.Cursor
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -169,6 +170,47 @@ class KortexSceneTest {
                 synchronized(cursors) { cursors.lastOrNull() },
                 "hovering the text region must ask the host for a text cursor",
             )
+        }
+    }
+
+    @Test
+    fun `hovering a region asks the host for move, wait or the matching resize cursor`() {
+        val shapes = listOf(
+            Cursor.MOVE_CURSOR to KortexCursor.Move,
+            Cursor.WAIT_CURSOR to KortexCursor.Wait,
+            Cursor.N_RESIZE_CURSOR to KortexCursor.ResizeNorth,
+            Cursor.NE_RESIZE_CURSOR to KortexCursor.ResizeNorthEast,
+            Cursor.E_RESIZE_CURSOR to KortexCursor.ResizeEast,
+            Cursor.SE_RESIZE_CURSOR to KortexCursor.ResizeSouthEast,
+            Cursor.S_RESIZE_CURSOR to KortexCursor.ResizeSouth,
+            Cursor.SW_RESIZE_CURSOR to KortexCursor.ResizeSouthWest,
+            Cursor.W_RESIZE_CURSOR to KortexCursor.ResizeWest,
+            Cursor.NW_RESIZE_CURSOR to KortexCursor.ResizeNorthWest,
+        )
+
+        for ((awtCursorType, expected) in shapes) {
+            val cursors = mutableListOf<KortexCursor>()
+            val host = object : KortexPlatform {
+                override fun setCursor(cursor: KortexCursor) {
+                    synchronized(cursors) { cursors += cursor }
+                }
+            }
+
+            withScene(platform = host) { scene, surface ->
+                scene.setContent {
+                    Box(Modifier.size(BOX_DP.dp).pointerHoverIcon(PointerIcon(Cursor(awtCursorType))))
+                }
+                scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+                scene.sendPointerEvent(PointerEventType.Move, Offset(BOX_DP / 2f, BOX_DP / 2f), timeMillis = 0L)
+                scene.render(surface.canvas.asComposeCanvas(), 1L)
+
+                assertEquals(
+                    expected,
+                    synchronized(cursors) { cursors.lastOrNull() },
+                    "hovering the region must ask the host for $expected",
+                )
+            }
         }
     }
 

@@ -12,6 +12,16 @@ public enum class KortexCursor {
     Crosshair,
     Text,
     Hand,
+    Move,
+    Wait,
+    ResizeNorth,
+    ResizeNorthEast,
+    ResizeEast,
+    ResizeSouthEast,
+    ResizeSouth,
+    ResizeSouthWest,
+    ResizeWest,
+    ResizeNorthWest,
 }
 
 /**

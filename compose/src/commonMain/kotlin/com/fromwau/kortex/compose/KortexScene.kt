@@ -24,6 +24,7 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import java.awt.Cursor
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.awaitCancellation
 
@@ -173,9 +174,23 @@ private class KortexPlatformContext(
     }
 }
 
-private fun PointerIcon.toKortexCursor(): KortexCursor = when (this) {
-    PointerIcon.Crosshair -> KortexCursor.Crosshair
-    PointerIcon.Text -> KortexCursor.Text
-    PointerIcon.Hand -> KortexCursor.Hand
-    else -> KortexCursor.Default
-}
+// AwtCursor (what PointerIcon(Cursor(...)) constructs) implements equals/hashCode by cursor type, so this
+// lookup is built once rather than allocating a fresh PointerIcon to compare against on every hover.
+private val CURSOR_ICONS: Map<PointerIcon, KortexCursor> = mapOf(
+    PointerIcon.Default to KortexCursor.Default,
+    PointerIcon.Crosshair to KortexCursor.Crosshair,
+    PointerIcon.Text to KortexCursor.Text,
+    PointerIcon.Hand to KortexCursor.Hand,
+    PointerIcon(Cursor(Cursor.MOVE_CURSOR)) to KortexCursor.Move,
+    PointerIcon(Cursor(Cursor.WAIT_CURSOR)) to KortexCursor.Wait,
+    PointerIcon(Cursor(Cursor.N_RESIZE_CURSOR)) to KortexCursor.ResizeNorth,
+    PointerIcon(Cursor(Cursor.NE_RESIZE_CURSOR)) to KortexCursor.ResizeNorthEast,
+    PointerIcon(Cursor(Cursor.E_RESIZE_CURSOR)) to KortexCursor.ResizeEast,
+    PointerIcon(Cursor(Cursor.SE_RESIZE_CURSOR)) to KortexCursor.ResizeSouthEast,
+    PointerIcon(Cursor(Cursor.S_RESIZE_CURSOR)) to KortexCursor.ResizeSouth,
+    PointerIcon(Cursor(Cursor.SW_RESIZE_CURSOR)) to KortexCursor.ResizeSouthWest,
+    PointerIcon(Cursor(Cursor.W_RESIZE_CURSOR)) to KortexCursor.ResizeWest,
+    PointerIcon(Cursor(Cursor.NW_RESIZE_CURSOR)) to KortexCursor.ResizeNorthWest,
+)
+
+private fun PointerIcon.toKortexCursor(): KortexCursor = CURSOR_ICONS[this] ?: KortexCursor.Default

@@ -13,7 +13,8 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] Keyboard through xkbcommon: layout-aware keysyms, modifier state (`KeyboardInput`, `Xkb`)
 - [x] Text input via `TextField` with an IME session (`KortexTextInput`)
 - [x] HiDPI: per-surface scale detection, physical-pixel rendering, logical↔buffer pointer translation
-- [x] Cursor shapes from `Modifier.pointerHoverIcon` (`WlCursorTheme`)
+- [x] Cursor shapes from `Modifier.pointerHoverIcon`, including move, wait and all eight resize directions
+      (`WlCursorTheme`)
 - [x] Configurable layer, anchor, exclusive zone, keyboard mode (`Layer`, `Edge`, `ExclusiveZone`,
       `KeyboardInteractivity`), gathered into `SurfaceConfig`
 
@@ -240,10 +241,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 
 ## Polish
 
-- [ ] **Cursor shapes.** kortex maps 4 (`Default`, `Crosshair`, `Text`, `Hand`); the reference names 10 —
-      missing `move`, `wait`, and the four resize shapes. Blocked by Compose: only `PointerIcon.Default`,
-      `.Crosshair`, `.Text` and `.Hand` are public constants, so the rest need a caller-supplied cursor
-      path through `KortexPlatform`.
+- [x] **Cursor shapes.** kortex maps all 14 shapes Compose can ask for: `Default`, `Crosshair`, `Text`,
+      `Hand`, `Move`, `Wait` and all eight resize directions, more than the reference's 10. No caller-supplied
+      path through `KortexPlatform` is needed: `PointerIcon(java.awt.Cursor(type))` reaches its `KortexCursor`
+      through one `PointerIcon`-keyed lookup built once in `KortexScene`, since Compose's `AwtCursor`
+      implements `equals`/`hashCode` by cursor type; an icon the lookup does not recognise still resolves to
+      `Default`. `WlCursorTheme.resolve` gives each shape a candidate XCursor name, its CSS name, then
+      `left_ptr`. (`KortexSceneTest`, `WlCursorThemeTest`)
 - [ ] **Wake the event loop on demand instead of on a fixed tick.** Nothing polls Wayland: events arrive
       on a socket fd and `wl_display_dispatch_timeout` blocks on it. What is fixed is the *timeout* —
       `EVENT_LOOP_TIMEOUT_MILLIS = 16`, in both `KortexShell` and `KortexSurface` — so an idle host wakes
