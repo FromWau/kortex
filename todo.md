@@ -55,8 +55,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the open items under Foundations, then Polish and Housekeeping. The surface presets and raising a
-surface while the host runs are done.
+Next: the hotplug entry under Housekeeping. Until it lands, a full test run can crash other apps on the
+desktop, and the open `KortexHost.output` test waits on it. Then the rest of Foundations, Polish and
+Housekeeping. The surface presets and raising a surface while the host runs are done.
 
 ## Foundations
 
@@ -122,16 +123,17 @@ surface while the host runs are done.
       threshold loose enough not to flake would miss one listener put in the wrong arena.
       `SurfaceLifetimeTest` and `SurfaceTeardownTest` cover the half that can crash, a stub freed before
       its proxy.
-- [ ] **The registry listener and three `LibWayland.cString` calls still allocate in the global arena,
+- [ ] **The registry listener and a few `LibWayland.cString` calls still allocate in the global arena,
       and are never freed.** `WaylandDisplay.connect` puts the registry listener's struct and both its
       stubs there (`WaylandDisplay.kt:125-131`), so every connection leaves them behind after `close()`:
-      about 56kB a connection, at 27.8kB a stub. `LibC.memfdCreate` allocates its constant name again for
-      every shm buffer (`Shm.kt:43`), two per surface and two more per resize; `WlCursorTheme` allocates
-      each XCursor name it looks up on a cache miss (`WlCursor.kt:154`), again after every rescale; and
-      `WlCursorTheme.load` allocates `$XCURSOR_THEME` once per surface when it is set
-      (`WlCursor.kt:182`). About 300 bytes a surface in all. The listener belongs to the `WaylandDisplay`;
-      the first name can be one allocation for the life of the process; the theme name belongs to the
-      theme.
+      about 56kB a connection, at 27.8kB a stub. It also allocates the display name there when a caller
+      passes one (`WaylandDisplay.kt:109`); `runSurfaces` passes none. `LibC.memfdCreate` allocates its
+      constant name again for every shm buffer (`Shm.kt:43`), two per surface and two more per resize;
+      `WlCursorTheme` allocates each XCursor name it looks up on a cache miss (`WlCursor.kt:154`), again
+      after every rescale; and `WlCursorTheme.load` allocates `$XCURSOR_THEME` once per surface when it is
+      set (`WlCursor.kt:182`). The strings come to about 300 bytes a surface. The listener can live in an
+      arena `WaylandDisplay` closes after disconnecting, when nothing can dispatch into it any more; the
+      shm name can be one allocation for the life of the process; the theme name belongs to the theme.
 - [x] **`wl_output.release` is sent.** `ShellOutput.destroy()` calls `releaseOutput`, the same
       `marshalIfSince`-then-`proxyDestroy` shape `releaseCompositor` and `releaseShm` already had, so
       both `removeOutput`'s hotplug path and `close` give every bound `wl_output` back rather than only
@@ -149,7 +151,12 @@ surface while the host runs are done.
 - [ ] **Nothing proves `KortexHost.output` actually recomposes a reader.** It is snapshot state and
       `OutputGeometryTest` pins the read and the write, but `KortexShell.create` round-trips before
       placing, so geometry is already there at first composition and every existing test would pass with
-      zero recompositions. A test needs an output to republish geometry under a live reader.
+      zero recompositions. It is written on the loop thread, straight into the global snapshot, and
+      `KortexSurfaceHandle.size` is written the same way while `SurfaceHandleTest` reads it from the test
+      thread, so neither has been seen to recompose content. A test needs an output to republish geometry
+      under a live reader: on Hyprland 0.56.2, `hyprctl eval` with an `hl.monitor` rule moves a headless
+      output at runtime, while `hyprctl keyword` is refused under a Lua config. Changing an output is what
+      the hotplug entry under Housekeeping warns against, so this test waits on it.
 
 ## Surface presets
 
