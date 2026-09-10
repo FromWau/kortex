@@ -294,6 +294,7 @@ public class KortexSurface private constructor(
             it.buffer.close()
         }
         layer.close()
+        shm.close()
         dispatcher.close()
     }
 
