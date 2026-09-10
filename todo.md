@@ -318,15 +318,16 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       terminal background, the inactive window border, AGS and dunst all draw, so it is what shows
       through wherever nothing sits on top, and it has not recurred since. These tests read the
       composited screen, so a run needs a desktop nobody opens anything on.
-- [ ] **`OutputRescaleTest`'s pointer case has failed intermittently in full-suite runs, never alone.**
-      `a pointer event after a scale change lands at the new scale's scene position` failed once at
-      4096x2160, with the pointer landing 32px right and 8px up of its aim, and twice more during the
-      hotplug-tag work (19:40 to 19:55, same resolution), passing run alone straight after each time. The
-      branch before this one saw the same kind of scene-position mismatch at 2560x1440, in a focused
-      rerun right after a full build (17:11 to 17:12) that had just done heavy hotplugging, alongside
-      `ProtocolVersionTest`'s wheel case, so the flake is not specific to one monitor mode. The test
-      reads the bar's scene position from `hyprctl layers` once, before moving the pointer; whether the
-      surface it reads has settled by then is unconfirmed.
+- [ ] **`OutputRescaleTest`'s pointer case has failed only alongside other test classes.**
+      `a pointer event after a scale change lands at the new scale's scene position` failed in three
+      full-suite runs at 4096x2160, with the pointer landing 32px right and 8px up of its aim
+      (`surface-local 40,8 at scale 2 must reach the scene at Offset(80.0, 16.0), not
+      Offset(144.0, 0.0)`), and once at 2560x1440 in a run of it together with `ProtocolVersionTest`,
+      straight after a full build heavy with hotplugging. Every one of those was followed by running it
+      alone, which passed each time: the flake is not specific to one monitor mode. The test reads the
+      bar's scene position from `hyprctl layers` once, before moving the pointer; whether the surface it
+      reads has settled by then is unconfirmed, for instance while a previous class's surface is still
+      going away.
 
 ## Deliberately not doing
 
