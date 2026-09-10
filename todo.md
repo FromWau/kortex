@@ -99,14 +99,15 @@ raising a surface while the host runs are done.
       opcode past a proxy's version kills the connection; the proxies themselves are always freed
       client-side. Each `close()` is idempotent, since the `KortexSurface` latch guarding them is not
       something a direct caller of those classes has. (`SurfaceLifetimeTest`)
-- [ ] **`LayerSurface` leaks two more of the same kind.** `LayerSurface.create` binds a `wl_compositor`
-      and a `zwlr_layer_shell_v1` of its own, uses each once and keeps neither, so `LayerSurface.close()`
-      gives back neither and every surface leaks both on the same close-and-replace path. Found while
-      closing the item above, which enumerated the cursor and shm binds but not these. The fix is the
-      shape `WlCursorSurface` now has: retain both proxies, then release and destroy them in `close()`
-      after the layer surface and `wl_surface` go. `LayerShellProtocol` already declares the shell's
-      `destroy` (opcode 1, `since` 3, and it binds at 5), and `LibWayland.marshalIfSince` already carries
-      the version rule `wl_compositor.release` needs.
+- [x] **The last of it: `LayerSurface` and the frame clock.** `LayerSurface.create` binds a
+      `wl_compositor` and a `zwlr_layer_shell_v1` of its own, since `WaylandDisplay.require` caches
+      nothing, and kept neither; `FrameClock` released its `wl_callback` only when the frame fired, so a
+      surface closed mid-frame leaked one. All four are given back now, the shell and the compositor
+      after the layer surface and `wl_surface` go, and the callback before the `wl_surface` it was
+      requested on. `LayerSurface.close()` took the same idempotence latch its siblings have, named
+      `disposed` to sit beside the public `closed`, which is the compositor's word rather than a
+      teardown flag. `wl_compositor.release` carries an opcode and a `since` that are fatal to get wrong
+      together, so `releaseCompositor` holds both once, beside `releaseShm`. (`SurfaceLifetimeTest`)
 
 ## Surface presets
 

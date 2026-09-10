@@ -32,6 +32,14 @@ internal class FrameClock(private val surface: MemorySegment) {
         }
     }
 
+    /** Gives back a frame that will now never fire; destroying the proxy drops its queued done too. */
+    fun close() {
+        if (pending.equals(MemorySegment.NULL)) return
+        LibWayland.proxyDestroy(pending)
+        pending = MemorySegment.NULL
+        onFrame = null
+    }
+
     fun onDone(data: MemorySegment, callback: MemorySegment, callbackData: Int) {
         val handler = onFrame
         // A wl_callback fires once and is then dead; the proxy has to be released or every frame leaks one.

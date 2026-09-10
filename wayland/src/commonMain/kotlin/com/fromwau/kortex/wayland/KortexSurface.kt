@@ -298,6 +298,8 @@ public class KortexSurface private constructor(
             it.surface.close()
             it.buffer.close()
         }
+        // Before layer.close() destroys the wl_surface this callback was requested on.
+        clock.close()
         layer.close()
         shm.close()
         dispatcher.close()
