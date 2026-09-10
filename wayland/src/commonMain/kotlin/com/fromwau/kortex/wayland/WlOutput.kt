@@ -1,5 +1,8 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
@@ -43,8 +46,9 @@ public data class OutputGeometry(
  * [geometry] is replaced atomically on `done`, so a reader never observes half an update.
  */
 internal class OutputListener {
-    @Volatile
-    var geometry: OutputGeometry? = null
+    // Snapshot state, not a plain field: an output may publish again at any time, and content reading
+    // its geometry through KortexHost has to recompose when it does.
+    var geometry: OutputGeometry? by mutableStateOf(null)
         private set
 
     private var pendingX = 0
