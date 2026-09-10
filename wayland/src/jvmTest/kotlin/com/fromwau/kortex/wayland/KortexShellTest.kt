@@ -19,6 +19,7 @@ import kotlin.test.fail
  * per output, on distinct outputs, and that tearing one down leaves its sibling rendering.
  */
 class KortexShellTest {
+    @Hotplug
     @Test
     fun `one surface per output, created and destroyed as outputs come and go`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }

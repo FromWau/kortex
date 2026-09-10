@@ -6,6 +6,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /** Hotplugs an output to prove `wl_registry.global`/`global_remove` reach [WaylandDisplay]'s globals. */
+@Hotplug
 class OutputHotplugTest {
     @Test
     fun `a hotplugged output updates globals and fires add-remove notifications`() {

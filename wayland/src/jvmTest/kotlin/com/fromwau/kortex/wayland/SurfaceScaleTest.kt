@@ -45,6 +45,7 @@ class SurfaceScaleTest {
      * The single-monitor leg above cannot fail on a uniformly scaled setup, so this hotplugs a second
      * output — Hyprland scales a headless one on its own — and pins each bar to its own monitor.
      */
+    @Hotplug
     @Test
     fun `a second bar on a differently scaled output renders at that output's scale`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
