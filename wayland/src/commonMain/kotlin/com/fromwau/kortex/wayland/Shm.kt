@@ -159,8 +159,14 @@ public class Shm internal constructor(private val shm: MemorySegment) : AutoClos
         val stride = width * BYTES_PER_PIXEL
         val size = stride.toLong() * height
         val fd = LibC.memfdCreate("kortex-shm").getOrElse { return Err(it) }
-        LibC.ftruncate(fd, size).getOrElse { return Err(it) }
-        val pixels = LibC.mmapShared(fd, size).getOrElse { return Err(it) }
+        LibC.ftruncate(fd, size).getOrElse { failure ->
+            LibC.close(fd)
+            return Err(failure)
+        }
+        val pixels = LibC.mmapShared(fd, size).getOrElse { failure ->
+            LibC.close(fd)
+            return Err(failure)
+        }
 
         val pool = LibWayland.marshal(
             shm, WL_SHM_CREATE_POOL, LibWayland.shmPoolInterface, LibWayland.proxyGetVersion(shm),
