@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
+import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import kotlin.math.ceil
 import kotlin.test.Test
@@ -98,16 +99,17 @@ class OutputGeometryTest {
     @Test
     fun `only the mode flagged current survives, and nothing publishes before done`() {
         val listener = OutputListener()
+        val strings = Arena.ofAuto()
 
         listener.onGeometry(
-            NONE, NONE, X, Y, 0, 0, 0, LibWayland.cString("make"), LibWayland.cString("model"), TRANSFORM,
+            NONE, NONE, X, Y, 0, 0, 0, strings.allocateFrom("make"), strings.allocateFrom("model"), TRANSFORM,
         )
         listener.onMode(NONE, NONE, flags = NOT_CURRENT, width = 640, height = 480, refresh = 0)
         listener.onMode(NONE, NONE, flags = CURRENT, width = 1920, height = 1080, refresh = 60_000)
         listener.onMode(NONE, NONE, flags = NOT_CURRENT, width = 111, height = 222, refresh = 0)
         listener.onScale(NONE, NONE, factor = SCALE)
-        listener.onName(NONE, NONE, LibWayland.cString(NAME))
-        listener.onDescription(NONE, NONE, LibWayland.cString(DESCRIPTION))
+        listener.onName(NONE, NONE, strings.allocateFrom(NAME))
+        listener.onDescription(NONE, NONE, strings.allocateFrom(DESCRIPTION))
 
         assertNull(listener.geometry, "geometry must not be visible before done, even with every other event in")
 
