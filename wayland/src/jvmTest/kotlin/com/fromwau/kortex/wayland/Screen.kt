@@ -71,7 +71,8 @@ internal object Screen {
      * value to survive [STABLE_WINDOW_MILLIS], which is comfortably past the widest step seen.
      */
     fun settledPixel(geometry: LayerGeometry): Int {
-        val deadline = System.nanoTime() + SETTLE_TIMEOUT_MILLIS * NANOS_PER_MILLI
+        val start = System.nanoTime()
+        val deadline = start + SETTLE_TIMEOUT_MILLIS * NANOS_PER_MILLI
         var value = readPixel(geometry)
         var heldSince = System.nanoTime()
         while (System.nanoTime() < deadline) {
@@ -80,7 +81,10 @@ internal object Screen {
             if (next != value) {
                 value = next
                 heldSince = System.nanoTime()
-            } else if (System.nanoTime() - heldSince >= STABLE_WINDOW_MILLIS * NANOS_PER_MILLI) {
+            } else if (
+                System.nanoTime() - heldSince >= STABLE_WINDOW_MILLIS * NANOS_PER_MILLI &&
+                System.nanoTime() - start >= RAMP_MILLIS * NANOS_PER_MILLI
+            ) {
                 return value
             }
         }
@@ -102,6 +106,10 @@ internal object Screen {
 
     private const val SETTLE_INTERVAL_MILLIS = 20L
     private const val STABLE_WINDOW_MILLIS = 400L
+
+    // The ramp begins at the backdrop and hyprctl reports a surface before the fade starts, so a
+    // window that opens too early settles on the desktop showing through it.
+    private const val RAMP_MILLIS = 900L
     private const val SETTLE_TIMEOUT_MILLIS = 5000L
     private const val NANOS_PER_MILLI = 1_000_000L
 }
