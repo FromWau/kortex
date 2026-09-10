@@ -17,10 +17,8 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * A shell running a panel and an OSD against a real compositor, each recording the thread its own
- * `LaunchedEffect` runs on once the shell has already settled. One shared `kortex-frame` thread across
- * both surfaces is what keeps Compose's `GlobalSnapshotManager` from ever seeing more than one
- * registered thread.
+ * A panel and an OSD on one shell, each recording the thread its own `LaunchedEffect` runs on once the
+ * shell has settled, while `System.out` is captured for Compose's `GlobalSnapshotManager` warning.
  */
 class SharedFrameThreadTest {
     @Test

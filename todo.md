@@ -279,11 +279,18 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       named `kortex-frame`, hands it to every `KortexSurface.create` call it makes, and closes it in its
       own `close()` after every surface is closed. `KortexSurface.create` takes that dispatcher as an
       internal, optional parameter: given one, the surface neither adds it to its create unwind nor
-      closes it; given none, it builds and owns its own, as a bare `KortexSurface` still does. One thread
-      registering with Compose's `GlobalSnapshotManager` instead of one per surface is what keeps its
-      `concurrent registrations on multiple threads might lead to races` warning from ever printing for a
-      shell running several surfaces, and removes the race the warning was naming
+      closes it; given none, it builds and owns its own, as a bare `KortexSurface` still does. Compose's
+      `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`
+      when the snapshot pumps its surfaces register run on different threads, and with one frame thread
+      per shell a panel and an OSD run their effects on that one thread and it has not printed
       (`SharedFrameThreadTest`).
+- [ ] **Compose's snapshot pump can still run on two threads.** Every frame,
+      `FrameRecomposer.performFrameDispatch` flushes a surface's pending coroutine work, its
+      `GlobalSnapshotManager` pump included, on the loop thread that renders it. So one surface's pump can
+      run there while another's runs on `kortex-frame`, which is the race (b/418800424) the warning
+      names, narrowed by the shared thread rather than closed. Running the frame dispatcher on the loop
+      thread itself would close it, and needs the loop to wake for posted work first (the event-loop
+      entry under Polish).
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
