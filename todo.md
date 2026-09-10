@@ -55,8 +55,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the registry listener entry under Foundations. Then the rest of Foundations, Polish and
-Housekeeping. The surface presets and raising a surface while the host runs are done.
+Next: the rest of Foundations, Polish and Housekeeping. The surface presets and raising a surface while
+the host runs are done.
 
 ## Foundations
 
@@ -118,22 +118,24 @@ Housekeeping. The surface presets and raising a surface while the host runs are 
       line before this, and shows no slope after it over 150 cycles.
       What stays in `Arena.global()` does so deliberately: the three library lookups, since closing their
       arena unloads the library under every downcall bound to it, and the `wl_interface` tables, which
-      libwayland reads through every proxy made against them. The registry listener is there too, and
-      outlives its connection, as the next entry records. No RSS assertion guards this, because a
+      libwayland reads through every proxy made against them. No RSS assertion guards this, because a
       threshold loose enough not to flake would miss one listener put in the wrong arena.
       `SurfaceLifetimeTest` and `SurfaceTeardownTest` cover the half that can crash, a stub freed before
       its proxy.
-- [ ] **The registry listener and a few `LibWayland.cString` calls still allocate in the global arena,
-      and are never freed.** `WaylandDisplay.connect` puts the registry listener's struct and both its
-      stubs there (`WaylandDisplay.kt:125-131`), so every connection leaves them behind after `close()`:
-      about 56kB a connection, at 27.8kB a stub. It also allocates the display name there when a caller
-      passes one (`WaylandDisplay.kt:109`); `runSurfaces` passes none. `LibC.memfdCreate` allocates its
-      constant name again for every shm buffer (`Shm.kt:43`), two per surface and two more per resize;
-      `WlCursorTheme` allocates each XCursor name it looks up on a cache miss (`WlCursor.kt:154`), again
-      after every rescale; and `WlCursorTheme.load` allocates `$XCURSOR_THEME` once per surface when it is
-      set (`WlCursor.kt:182`). The strings come to about 300 bytes a surface. The listener can live in an
-      arena `WaylandDisplay` closes after disconnecting, when nothing can dispatch into it any more; the
-      shm name can be one allocation for the life of the process; the theme name belongs to the theme.
+- [x] **A connection frees what it allocated, and a string a call only reads is freed with the call.**
+      `WaylandDisplay` owns the arena its registry listener lives in. `close()` destroys the registry
+      proxy, disconnects and then closes that arena, and a first roundtrip that fails in `connect` closes
+      the half-built connection the same way. Before, every connection left the listener's struct and
+      both stubs in the global arena, and the registry proxy with libwayland. Over 2000 connections the
+      JVM's code cache, where the stubs live, grew steadily from 9.3MB to 12.2MB before the change and
+      levels off at about 10MB after it. RSS moved too noisily across those runs to confirm or refute the
+      27.8kB a stub the entry above measured for surfaces.
+      The display name, the memfd name, `$XCURSOR_THEME` and each XCursor name now live in an arena
+      confined to the call that reads them: libwayland 1.26 copies the display name into the socket
+      address, `wl_cursor_theme_load` and `wl_cursor_theme_get_cursor` read theirs only during the call,
+      and the kernel copies the memfd name. `LibWayland.cString` is gone, since the interface tables were
+      its last callers and they allocate from the global arena directly. (`WaylandDisplayTest`,
+      `WlCursorThemeTest`, `SurfaceCreateFailureTest`)
 - [x] **`wl_output.release` is sent.** `ShellOutput.destroy()` calls `releaseOutput`, the same
       `marshalIfSince`-then-`proxyDestroy` shape `releaseCompositor` and `releaseShm` already had, so
       both `removeOutput`'s hotplug path and `close` give every bound `wl_output` back rather than only
@@ -275,10 +277,9 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 
 ## Housekeeping
 
-- [ ] **Move `WlSurfaceListener` out of `LayerShell.kt`.** The config vocabulary has moved to
-      `SurfaceConfig.kt`, leaving the `zwlr_layer_shell_v1` tables and `LayerSurface`.
-      `WlSurfaceListener` is still the odd one out: `wl_surface` is a core interface, not part of this
-      wlroots extension.
+- [x] **`WlSurfaceListener` has a file of its own.** `wl_surface` is a core interface, not part of the
+      wlroots extension, so its listener sits in `WlSurfaceListener.kt` and `LayerShell.kt` keeps the
+      `zwlr_layer_shell_v1` tables and `LayerSurface`.
 - [ ] **Compose warns `GlobalSnapshotManager: concurrent registrations on multiple threads might lead
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
