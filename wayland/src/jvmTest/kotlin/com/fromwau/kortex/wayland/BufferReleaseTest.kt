@@ -23,7 +23,7 @@ class BufferReleaseTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexBar.create(it, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexSurface.create(it, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -49,5 +49,7 @@ class BufferReleaseTest {
         const val BAR_HEIGHT = 32
         const val FRAMES = 6
         const val PUMP_MILLIS = 250L
+
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

@@ -1,7 +1,10 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -11,21 +14,42 @@ class LayerSurfaceTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = LayerSurface.create(it, namespace = NAMESPACE, height = BAR_HEIGHT, exclusiveZone = BAR_HEIGHT)
-                .getOrElse { error -> fail("layer surface creation failed: $error") }
+            val bar = LayerSurface.create(
+                it, namespace = NAMESPACE, height = BAR_HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
                 assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
                 assertTrue(!bar.closed, "compositor closed the layer surface")
 
-                println("CONFIGURE ${bar.logicalWidth}x${bar.logicalHeight}")
                 assertTrue(bar.logicalWidth > 0, "configure carried a zero width")
                 assertTrue(bar.logicalHeight > 0, "configure carried a zero height")
 
-                val layers = ProcessBuilder("hyprctl", "layers").redirectErrorStream(true)
-                    .start().inputStream.bufferedReader().readText()
-                println("HYPRCTL-MATCH " + layers.lines().count { line -> NAMESPACE in line })
-                assertTrue(NAMESPACE in layers, "hyprctl layers does not list $NAMESPACE")
+                assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers does not report $NAMESPACE")
+            }
+        }
+    }
+
+    @Test
+    fun `a layer surface created at a given Layer is reported at that layer's level`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            val layer = Layer.Overlay
+            val overlay = LayerSurface.create(
+                it,
+                namespace = NAMESPACE,
+                height = BAR_HEIGHT,
+                exclusiveZone = ExclusiveZone.Yield,
+                layer = layer,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+
+            overlay.use {
+                assertTrue(overlay.waitForConfigure(), "compositor never configured the layer surface")
+
+                val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
+                assertEquals(layer, geometry.layer, "$NAMESPACE landed at the wrong layer level")
             }
         }
     }

@@ -27,7 +27,7 @@ class SurfaceScaleTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexSurface.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -62,7 +62,7 @@ class SurfaceScaleTest {
                     val output = wayland.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
                     // A wl_output proxy with no listener crashes on its first event.
                     OutputListener().install(output)
-                    val bar = KortexBar.create(wayland, namespace = namespace, height = BAR_HEIGHT.dp, output = output)
+                    val bar = KortexSurface.create(wayland, CONFIG.copy(namespace = namespace), output = output)
                         .getOrElse { error -> fail("bar creation failed on output ${global.name}: $error") }
                     namespace to bar
                 }
@@ -90,9 +90,9 @@ class SurfaceScaleTest {
         }
     }
 
-    private fun assertRendersAtItsMonitorScale(bar: KortexBar, namespace: String) {
+    private fun assertRendersAtItsMonitorScale(bar: KortexSurface, namespace: String) {
         val geometry = assertNotNull(Screen.geometry(namespace), "hyprctl layers did not report $namespace")
-        val monitor = assertNotNull(monitorOf(namespace), "hyprctl layers put $namespace on no monitor")
+        val monitor = geometry.monitor
         val reported = assertNotNull(
             Hyprctl.monitors().firstOrNull { it.name == monitor }?.scale,
             "hyprctl monitors reported no scale for $monitor",
@@ -100,7 +100,6 @@ class SurfaceScaleTest {
         // wl_surface's scale is an integer and Hyprland rounds a fraction up, so the buffer never
         // holds fewer pixels than the output asks for.
         val scale = ceil(reported).toInt()
-        println("BAR $namespace ${bar.bufferSize} at $geometry on $monitor scale $reported")
 
         assertEquals(
             scale, bar.currentBufferScale,
@@ -116,21 +115,12 @@ class SurfaceScaleTest {
         )
     }
 
-    /** Which monitor Hyprland put the layer named [namespace] on; its `layers -j` is keyed by monitor. */
-    private fun monitorOf(namespace: String): String? {
-        val json = Hyprctl.run("layers", "-j")
-        val at = json.indexOf("\"namespace\": \"$namespace\"")
-        if (at < 0) return null
-        return MONITOR_KEY.findAll(json).lastOrNull { it.range.first < at }?.groupValues?.get(1)
-    }
-
     private companion object {
         const val NAMESPACE = "kortex"
         const val WL_OUTPUT = "wl_output"
         const val BAR_HEIGHT = 32
         const val PUMP_MILLIS = 1500L
 
-        /** Only a monitor's own key opens a `levels` object; every layer below it is nested deeper. */
-        val MONITOR_KEY = Regex("\"([^\"]+)\": \\{\\s*\"levels\"")
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.MemorySegment
 import kotlin.math.ceil
@@ -62,19 +63,22 @@ class OutputGeometryTest {
     }
 
     @Test
-    fun `a bar's published geometry is reachable through the shell that owns it`() {
+    fun `a surface's published geometry is reachable through the shell that owns it`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, namespace = SHELL_NAMESPACE) { }
+            val shell = KortexShell.create(wayland, SurfaceSpec(CONFIG) { })
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
             shell.use {
-                val geometries = shell.activeGeometries
-                assertTrue(geometries.isNotEmpty(), "shell has no bars to read geometry through")
+                val active = shell.activeSurfaces
+                assertTrue(active.isNotEmpty(), "shell has no surfaces to read geometry through")
 
-                geometries.forEach { geometry ->
-                    val published = assertNotNull(geometry, "a live bar's output geometry never reached the shell")
+                active.forEach { entry ->
+                    val published = assertNotNull(
+                        entry.geometry,
+                        "a live surface's output geometry never reached the shell",
+                    )
                     val expected = assertNotNull(
                         Hyprctl.monitors().firstOrNull { it.name == published.name },
                         "hyprctl monitors -j reported nothing named ${published.name}",
@@ -130,6 +134,11 @@ class OutputGeometryTest {
         const val NAME = "SYNTH-1"
         const val DESCRIPTION = "Synthetic output for the current-mode-flag test"
         const val SHELL_NAMESPACE = "kortex-geometry-test"
+        const val SURFACE_HEIGHT = 32
         val NONE: MemorySegment = MemorySegment.NULL
+
+        val CONFIG = SurfaceConfig
+            .panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp)
+            .copy(namespace = SHELL_NAMESPACE)
     }
 }

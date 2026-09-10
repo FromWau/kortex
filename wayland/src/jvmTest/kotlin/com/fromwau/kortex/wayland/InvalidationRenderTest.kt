@@ -28,7 +28,7 @@ class InvalidationRenderTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexBar.create(display, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexSurface.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -53,5 +53,7 @@ class InvalidationRenderTest {
         const val BAR_HEIGHT = 32
         const val PUMP_MILLIS = 1500L
         val AFTER = Color.Blue.toArgb()
+
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

@@ -23,7 +23,7 @@ import kotlin.test.fail
 
 /**
  * A client cannot make a real compositor send `wl_surface.preferred_buffer_scale`, so this drives
- * [KortexBar.scaleOverride] instead. It proves the reaction is right — rebuilt buffers, `scene.size`,
+ * [KortexSurface.scaleOverride] instead. It proves the reaction is right — rebuilt buffers, `scene.size`,
  * `scene.density` — but not that a real event reaches that seam.
  */
 class OutputRescaleTest {
@@ -32,7 +32,7 @@ class OutputRescaleTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexBar.create(display, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            val bar = KortexSurface.create(display, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
 
             bar.use {
@@ -85,7 +85,7 @@ class OutputRescaleTest {
             val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no monitor")
             val seen = AtomicReference(Offset.Unspecified)
 
-            KortexBar.create(wayland, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            KortexSurface.create(wayland, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent {
@@ -166,5 +166,7 @@ class OutputRescaleTest {
 
         /** wl_fixed_t rounding on the way through the compositor, not a scale's worth of slack. */
         const val POSITION_TOLERANCE_PX = 1f
+
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

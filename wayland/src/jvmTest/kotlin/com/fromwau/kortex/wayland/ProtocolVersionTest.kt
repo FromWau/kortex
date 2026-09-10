@@ -108,7 +108,7 @@ class ProtocolVersionTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            KortexBar.create(wayland, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            KortexSurface.create(wayland, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
@@ -137,7 +137,7 @@ class ProtocolVersionTest {
             val offBarY = monitor.logicalHeight / 2
             val scrolled = AtomicReference(Offset.Zero)
 
-            KortexBar.create(wayland, namespace = NAMESPACE, height = BAR_HEIGHT.dp)
+            KortexSurface.create(wayland, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent {
@@ -237,5 +237,7 @@ class ProtocolVersionTest {
 
         /** How far to scroll, as wl_fixed_t; only that it is non-zero matters. */
         const val SCROLL_FIXED = 15 * 256
+
+        val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }
 }

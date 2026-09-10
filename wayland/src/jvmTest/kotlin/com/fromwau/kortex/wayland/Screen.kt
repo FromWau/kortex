@@ -6,12 +6,19 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 /**
- * Where the compositor placed a layer surface.
+ * Where the compositor placed a layer surface, and which monitor and [Layer] it landed on.
  *
- * hyprctl reports these in logical (surface-local) pixels, the same space `configure` uses — not the
- * buffer pixels a [KortexBar] reports, which are larger by the output scale.
+ * hyprctl reports the geometry in logical (surface-local) pixels, the same space `configure` uses —
+ * not the buffer pixels a [KortexSurface] reports, which are larger by the output scale.
  */
-internal data class LayerGeometry(val x: Int, val y: Int, val logicalWidth: Int, val logicalHeight: Int) {
+internal data class LayerGeometry(
+    val monitor: String,
+    val layer: Layer,
+    val x: Int,
+    val y: Int,
+    val logicalWidth: Int,
+    val logicalHeight: Int,
+) {
     /** The `x,y WxH` form grim's `-g` expects. */
     val grimArea: String get() = "$x,$y ${logicalWidth}x$logicalHeight"
 
@@ -20,20 +27,27 @@ internal data class LayerGeometry(val x: Int, val y: Int, val logicalWidth: Int,
 
 /** Reads back what a layer surface actually put on screen. */
 internal object Screen {
-    /** Where the layer named [namespace] is, or null if it is not mapped. */
+    /** Where the layer named [namespace] is, or null if it is not mapped on any monitor. */
     fun geometry(namespace: String): LayerGeometry? {
-        val json = Hyprctl.run("layers", "-j")
-        val at = json.indexOf("\"namespace\": \"$namespace\"")
-        if (at < 0) return null
-        val block = json.substring(maxOf(0, at - BLOCK_LOOKBEHIND), at)
-        fun field(name: String): Int? =
-            Regex("\"$name\": (-?\\d+)").findAll(block).lastOrNull()?.groupValues?.get(1)?.toInt()
-        val x = field("x") ?: return null
-        val y = field("y") ?: return null
-        val w = field("w") ?: return null
-        val h = field("h") ?: return null
-        return LayerGeometry(x, y, w, h)
+        for ((monitor, monitorLayers) in Hyprctl.layers()) {
+            for ((level, entries) in monitorLayers.levels) {
+                val entry = entries.firstOrNull { it.namespace == namespace } ?: continue
+                return LayerGeometry(
+                    monitor = monitor,
+                    layer = layerAt(level),
+                    x = entry.x,
+                    y = entry.y,
+                    logicalWidth = entry.w,
+                    logicalHeight = entry.h,
+                )
+            }
+        }
+        return null
     }
+
+    private fun layerAt(level: String): Layer =
+        Layer.entries.firstOrNull { it.wireValue == level.toInt() }
+            ?: error("hyprctl layers reported level $level, which is no Layer")
 
     /**
      * The centre pixel, sampled until two consecutive reads agree.
@@ -63,5 +77,4 @@ internal object Screen {
 
     private const val SETTLE_INTERVAL_MILLIS = 90L
     private const val MAX_SETTLE_READS = 25
-    private const val BLOCK_LOOKBEHIND = 400
 }

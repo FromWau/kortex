@@ -1,8 +1,9 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.Dp
 import com.fromwau.kern.result.IError
 
-/** A `wl_seat` capability [KortexBar] may need but the compositor did not announce. */
+/** A `wl_seat` capability [KortexSurface] may need but the compositor did not announce. */
 public enum class SeatDevice { Pointer, Keyboard }
 
 /** Which step of allocating a shared-memory buffer failed. */
@@ -33,13 +34,16 @@ public sealed interface KortexError : IError {
     ) : KortexError
 
     /** [axis] was left 0 ("you choose") while [anchor] does not pin both of its edges; the protocol forbids it. */
-    public data class UnspannableAxis(public val axis: Axis, public val anchor: Int) : KortexError
+    public data class UnspannableAxis(public val axis: Axis, public val anchor: Set<Edge>) : KortexError
+
+    /** [anchor] does not pin [edge], and reserving space against an unanchored edge is a protocol error. */
+    public data class InvalidExclusiveEdge(public val edge: Edge, public val anchor: Set<Edge>) : KortexError
 
     /**
-     * [edge] is not one single edge that [anchor] pins. An edge outside [anchor] is a protocol error;
-     * naming two is refused because the request exists to pick one of a corner's edges, not both.
+     * [amount] reserves nothing once rounded to logical pixels, so it names a case of its own:
+     * [ExclusiveZone.Yield] at 0, [ExclusiveZone.Overlap] below it.
      */
-    public data class InvalidExclusiveEdge(public val edge: Int, public val anchor: Int) : KortexError
+    public data class InvalidExclusiveZone(public val amount: Dp) : KortexError
 
     /** Allocating a shared-memory buffer failed at [step]. */
     public data class ShmAllocationFailed(public val step: ShmStep) : KortexError
