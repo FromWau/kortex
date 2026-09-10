@@ -10,6 +10,7 @@ import java.lang.foreign.ValueLayout.JAVA_INT
 /** libxkbcommon: turns a keycode into a keysym and a character under the active layout. */
 internal object Xkb {
     private val linker = Linker.nativeLinker()
+    // Global: closing the arena would unload the library out from under every handle bound below.
     private val lookup = SymbolLookup.libraryLookup("libxkbcommon.so.0", LibWayland.arena)
 
     private fun downcall(name: String, descriptor: FunctionDescriptor) =

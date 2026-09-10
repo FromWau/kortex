@@ -16,7 +16,13 @@ internal class ShellOutput(
     val name: Int,
     val proxy: MemorySegment,
     val listener: OutputListener,
-)
+) {
+    /** Gives the output back. The order is the point: the proxy first, then the stubs it dispatches into. */
+    fun destroy() {
+        LibWayland.proxyDestroy(proxy)
+        listener.close()
+    }
+}
 
 /**
  * A live surface together with the spec it came from and the output it went on.
@@ -186,7 +192,7 @@ public class KortexShell private constructor(
     private fun removeOutput(name: Int) {
         val output = outputs.remove(name) ?: return
         surfaces.filter { it.output === output }.forEach(::removeSurface)
-        LibWayland.proxyDestroy(output.proxy)
+        output.destroy()
     }
 
     private fun placeSurfaces(spec: SurfaceSpec, standing: Boolean): EmptyResult<KortexError> {
@@ -237,7 +243,7 @@ public class KortexShell private constructor(
         display.onGlobalAdded = null
         display.onGlobalRemoved = null
         surfaces.toList().forEach(::removeSurface)
-        outputs.values.forEach { LibWayland.proxyDestroy(it.proxy) }
+        outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
     }
 

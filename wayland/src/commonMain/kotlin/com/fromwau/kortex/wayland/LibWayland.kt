@@ -57,8 +57,9 @@ internal object WlVersion {
 internal object LibWayland {
     private val linker: Linker = Linker.nativeLinker()
 
-    // Global: stubs, interface tables and strings handed to the compositor must outlive every proxy
-    // that references them, and a proxy can outlive any scope we could tie them to.
+    // Global for what is static by nature: the library lookups, and the interface tables and their
+    // strings, which libwayland dereferences through any proxy created against them. Listener stubs are
+    // not static, and belong to an arena the object that installed them closes; see upcall below.
     val arena: Arena = Arena.global()
 
     private val lookup: SymbolLookup = SymbolLookup.libraryLookup("libwayland-client.so.0", arena)
@@ -135,19 +136,24 @@ internal object LibWayland {
         proxyAddListener.invoke(proxy, implementation, data) as Int
 
     /**
-     * Binds [method] on [target] as an upcall stub for a listener slot.
+     * Binds [method] on [target] as an upcall stub for a listener slot, living as long as [arena].
+     *
+     * Named rather than defaulted, because closing [arena] frees the stub's code: whoever installs a
+     * listener has to have decided which teardown destroys the proxy that can still call it. Pass a
+     * shared arena, not a confined one, which would refuse every thread but the one that installed.
      *
      * The Java signature is derived from [descriptor], because a mismatch between the two crashes inside
      * native code rather than failing to compile. [method] must be public — Kotlin mangles an `internal`
      * name out of the lookup's reach.
      */
-    fun upcall(target: Any, method: String, descriptor: FunctionDescriptor): MemorySegment {
+    fun upcall(arena: Arena, target: Any, method: String, descriptor: FunctionDescriptor): MemorySegment {
         val handle = MethodHandles.publicLookup()
             .findVirtual(target.javaClass, method, descriptor.toMethodType())
             .bindTo(target)
         return linker.upcallStub(handle, descriptor, arena)
     }
 
+    /** Global, so only for a string a proxy or an interface table keeps reading; a request argument is copied. */
     fun cString(value: String): MemorySegment = arena.allocateFrom(value)
 
     /** The `name` field of a `wl_interface`, which `wl_registry_bind` passes back to the compositor. */

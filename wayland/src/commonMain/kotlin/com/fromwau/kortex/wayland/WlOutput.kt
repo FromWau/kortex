@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
@@ -46,6 +47,8 @@ public data class OutputGeometry(
  * [geometry] is replaced atomically on `done`, so a reader never observes half an update.
  */
 internal class OutputListener {
+    private val arena: Arena = Arena.ofShared()
+
     // Snapshot state, not a plain field: an output may publish again at any time, and content reading
     // its geometry through KortexHost has to recompose when it does.
     var geometry: OutputGeometry? by mutableStateOf(null)
@@ -111,16 +114,24 @@ internal class OutputListener {
     }
 
     fun install(output: MemorySegment) {
-        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
-        listener.setAtIndex(ADDRESS, GEOMETRY, LibWayland.upcall(this, "onGeometry", GEOMETRY_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, MODE, LibWayland.upcall(this, "onMode", MODE_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, DONE, LibWayland.upcall(this, "onDone", DONE_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, SCALE, LibWayland.upcall(this, "onScale", SCALE_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, NAME, LibWayland.upcall(this, "onName", NAME_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, DESCRIPTION, LibWayland.upcall(this, "onDescription", DESCRIPTION_DESCRIPTOR))
+        val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, GEOMETRY, LibWayland.upcall(arena, this, "onGeometry", GEOMETRY_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, MODE, LibWayland.upcall(arena, this, "onMode", MODE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, DONE, LibWayland.upcall(arena, this, "onDone", DONE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, SCALE, LibWayland.upcall(arena, this, "onScale", SCALE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, NAME, LibWayland.upcall(arena, this, "onName", NAME_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, DESCRIPTION,
+            LibWayland.upcall(arena, this, "onDescription", DESCRIPTION_DESCRIPTOR),
+        )
         check(LibWayland.proxyAddListener(output, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the output listener"
         }
+    }
+
+    /** Frees all six stubs; only [ShellOutput.destroy] may call it, and only after the `wl_output` is gone. */
+    fun close() {
+        arena.close()
     }
 
     companion object {

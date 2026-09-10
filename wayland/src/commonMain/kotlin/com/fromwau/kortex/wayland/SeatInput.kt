@@ -12,6 +12,7 @@ import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
+import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
@@ -31,6 +32,8 @@ internal class PointerInput(
     private val cursorTheme: WlCursorTheme? = null,
     private val cursorSurface: WlCursorSurface? = null,
 ) {
+    private val arena: Arena = Arena.ofShared()
+
     private var position = Offset.Zero
     private var buttons = PointerButtons()
 
@@ -114,33 +117,45 @@ internal class PointerInput(
 
     fun install(pointer: MemorySegment) {
         pointerProxy = pointer
-        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
-        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(this, "onEnter", ENTER_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(this, "onLeave", LEAVE_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, MOTION, LibWayland.upcall(this, "onMotion", MOTION_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, BUTTON, LibWayland.upcall(this, "onButton", BUTTON_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, AXIS, LibWayland.upcall(this, "onAxis", AXIS_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, FRAME, LibWayland.upcall(this, "onFrame", FRAME_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, AXIS_SOURCE, LibWayland.upcall(this, "onAxisSource", AXIS_SOURCE_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, AXIS_STOP, LibWayland.upcall(this, "onAxisStop", AXIS_STOP_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, AXIS_DISCRETE, LibWayland.upcall(this, "onAxisDiscrete", AXIS_DISCRETE_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, AXIS_VALUE120, LibWayland.upcall(this, "onAxisValue120", AXIS_VALUE120_DESCRIPTOR))
+        val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(arena, this, "onEnter", ENTER_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(arena, this, "onLeave", LEAVE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, MOTION, LibWayland.upcall(arena, this, "onMotion", MOTION_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, BUTTON, LibWayland.upcall(arena, this, "onButton", BUTTON_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, AXIS, LibWayland.upcall(arena, this, "onAxis", AXIS_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, FRAME, LibWayland.upcall(arena, this, "onFrame", FRAME_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, AXIS_SOURCE,
+            LibWayland.upcall(arena, this, "onAxisSource", AXIS_SOURCE_DESCRIPTOR),
+        )
+        listener.setAtIndex(ADDRESS, AXIS_STOP, LibWayland.upcall(arena, this, "onAxisStop", AXIS_STOP_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, AXIS_DISCRETE,
+            LibWayland.upcall(arena, this, "onAxisDiscrete", AXIS_DISCRETE_DESCRIPTOR),
+        )
+        listener.setAtIndex(
+            ADDRESS, AXIS_VALUE120,
+            LibWayland.upcall(arena, this, "onAxisValue120", AXIS_VALUE120_DESCRIPTOR),
+        )
         listener.setAtIndex(
             ADDRESS, AXIS_RELATIVE_DIRECTION,
-            LibWayland.upcall(this, "onAxisRelativeDirection", AXIS_RELATIVE_DIRECTION_DESCRIPTOR),
+            LibWayland.upcall(arena, this, "onAxisRelativeDirection", AXIS_RELATIVE_DIRECTION_DESCRIPTOR),
         )
-        listener.setAtIndex(ADDRESS, WARP, LibWayland.upcall(this, "onWarp", WARP_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, WARP, LibWayland.upcall(arena, this, "onWarp", WARP_DESCRIPTOR))
         check(LibWayland.proxyAddListener(pointer, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the pointer listener"
         }
     }
 
-    /** Gives the pointer back; nothing here may be used afterwards. */
+    /** Gives the pointer back and frees its stubs; nothing here may be used afterwards. */
     fun release() {
         if (pointerProxy.equals(MemorySegment.NULL)) return
         LibWayland.marshalIfSince(pointerProxy, WL_POINTER_RELEASE, WL_POINTER_RELEASE_SINCE)
         LibWayland.proxyDestroy(pointerProxy)
         pointerProxy = MemorySegment.NULL
+        // After the destroy, never before: closing the arena frees the code the twelve stubs above are,
+        // and libwayland drops the events queued for a destroyed proxy rather than dispatching them.
+        arena.close()
     }
 
     /** Forgets which shape is showing, so the next [setCursor] re-sends it at the current scale. */
@@ -260,6 +275,8 @@ internal class Seat private constructor(
         released = true
         LibWayland.marshalIfSince(seat, WL_SEAT_RELEASE, WL_SEAT_RELEASE_SINCE)
         LibWayland.proxyDestroy(seat)
+        // After the destroy, so no capabilities event can still reach a stub this frees.
+        capabilities.close()
     }
 
     companion object {
@@ -280,6 +297,8 @@ internal class Seat private constructor(
 }
 
 internal class SeatCapabilities {
+    private val arena: Arena = Arena.ofShared()
+
     @Volatile var value: Int = 0
 
     fun onCapabilities(data: MemorySegment, proxy: MemorySegment, capabilities: Int) {
@@ -289,12 +308,20 @@ internal class SeatCapabilities {
     fun onName(data: MemorySegment, proxy: MemorySegment, name: MemorySegment) = Unit
 
     fun install(seat: MemorySegment) {
-        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
-        listener.setAtIndex(ADDRESS, CAPABILITIES, LibWayland.upcall(this, "onCapabilities", CAPABILITIES_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, NAME, LibWayland.upcall(this, "onName", NAME_DESCRIPTOR))
+        val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(
+            ADDRESS, CAPABILITIES,
+            LibWayland.upcall(arena, this, "onCapabilities", CAPABILITIES_DESCRIPTOR),
+        )
+        listener.setAtIndex(ADDRESS, NAME, LibWayland.upcall(arena, this, "onName", NAME_DESCRIPTOR))
         check(LibWayland.proxyAddListener(seat, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the seat listener"
         }
+    }
+
+    /** Frees both stubs; only [Seat.release] may call it, and only once the `wl_seat` itself is destroyed. */
+    fun close() {
+        arena.close()
     }
 
     private companion object {

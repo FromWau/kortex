@@ -17,6 +17,7 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  */
 internal object LibWaylandCursor {
     private val linker = Linker.nativeLinker()
+    // Global: closing the arena would unload the library out from under every handle bound below.
     private val lookup = SymbolLookup.libraryLookup("libwayland-cursor.so.0", LibWayland.arena)
 
     private fun downcall(name: String, descriptor: FunctionDescriptor) =
