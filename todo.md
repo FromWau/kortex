@@ -207,14 +207,6 @@ click landed in output coordinates, not where the click actually was on screen.
       of `hyprsunset`, `gammastep`, `redshift` or `wlsunset` was running when it was checked. Still
       unexplained. `Screen.settledPixel` already samples until two reads agree, which is evidently not
       enough, and the prefix pattern suggests it is sampling a partially written pixel.
-- [ ] **`KortexSurface.close()` tears down no `wl_pointer` or `wl_keyboard` proxy.** It closes the scene,
-      the frames, the retiring frames, the layer surface and the dispatcher, and stops there. Each surface
-      binds its own seat devices (`Seat.attachPointer`/`attachKeyboard` in `SeatInput.kt`), so their
-      listeners are left pointing at a closed `KortexScene`. An input event arriving for a live surface
-      after a different surface has closed can be delivered to the closed surface's listener too and take
-      the JVM down. Pre-existing, not introduced by this branch: Task 3 hit it through a mutation test, and
-      picking an item in the bar demo's own context menu reproduces it directly, the pointer's next
-      `leave` crashing into the menu's already-closed `KortexScene`.
 
 ## Deliberately not doing
 

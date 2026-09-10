@@ -135,6 +135,18 @@ internal class PointerInput(
         }
     }
 
+    /**
+     * Gives the pointer back; nothing here may be used afterwards.
+     *
+     * `wl_pointer.release` is a destructor, but [LibWayland.marshal] sends a request without ever
+     * destroying a proxy, so the client side is destroyed here too.
+     */
+    fun release() {
+        LibWayland.marshal(pointerProxy, WL_POINTER_RELEASE)
+        LibWayland.proxyDestroy(pointerProxy)
+        pointerProxy = MemorySegment.NULL
+    }
+
     /** Forgets which shape is showing, so the next [setCursor] re-sends it at the current scale. */
     fun invalidateCursor() {
         shownCursor = null
@@ -164,6 +176,7 @@ internal class PointerInput(
         private const val BUTTON_PRESSED = 1
         private const val AXIS_VERTICAL = 0
         private const val WL_POINTER_SET_CURSOR = 0
+        private const val WL_POINTER_RELEASE = 1
 
         // linux/input-event-codes.h
         private const val BTN_LEFT = 0x110
@@ -242,6 +255,12 @@ internal class Seat private constructor(
         return KeyboardInput(scene, textInput).also { it.install(keyboard) }
     }
 
+    /** Gives the seat back; every device taken from it must already have been released. */
+    fun release() {
+        LibWayland.marshal(seat, WL_SEAT_RELEASE)
+        LibWayland.proxyDestroy(seat)
+    }
+
     companion object {
         fun bind(display: WaylandDisplay): Result<Seat, KortexError> =
             display.require("wl_seat", LibWayland.seatInterface, WlVersion.SEAT).map { seat ->
@@ -254,6 +273,7 @@ internal class Seat private constructor(
         private const val CAPABILITY_POINTER = 1
         private const val CAPABILITY_KEYBOARD = 2
         private const val WL_SEAT_GET_KEYBOARD = 1
+        private const val WL_SEAT_RELEASE = 3
     }
 }
 

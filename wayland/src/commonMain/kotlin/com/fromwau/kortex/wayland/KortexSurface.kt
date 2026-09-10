@@ -47,6 +47,7 @@ public class KortexSurface private constructor(
     private val dispatcher: ExecutorCoroutineDispatcher,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
+    private val seat: Seat,
 ) : AutoCloseable {
 
     // Posted by onInvalidate (the frame thread) and drained only on the loop thread, which is the
@@ -270,6 +271,13 @@ public class KortexSurface private constructor(
     }
 
     override fun close() {
+        // Before scene.close(): the seat this surface owns keeps delivering, and a leave still in flight
+        // would otherwise reach a closed scene, where the throw happens inside an upcall and ends the process.
+        pointerInput?.release()
+        keyboardInput?.release()
+        pointerInput = null
+        keyboardInput = null
+        seat.release()
         scene.close()
         frames.forEach {
             it.surface.close()
@@ -361,11 +369,12 @@ public class KortexSurface private constructor(
                 onInvalidate = { surface.onInvalidate() },
                 platform = hostPlatform,
             )
+            // Bound per surface, and never cached: each surface releases the seat it owns when it closes.
+            val seat = Seat.bind(display).getOrElse { return Err(it) }
             surface = KortexSurface(
                 display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
-                cursorTheme, cursorSurface,
+                cursorTheme, cursorSurface, seat,
             )
-            val seat = Seat.bind(display).getOrElse { return Err(it) }
             surface.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
             if (config.keyboard != KeyboardInteractivity.None) {
                 surface.keyboardInput = seat.attachKeyboard(scene, { open.get() })

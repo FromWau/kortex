@@ -45,6 +45,8 @@ internal class KeyboardInput(
             if (format != XKB_V1_FORMAT) return
             // The compositor hands over a read-only fd; map it, compile it, and let the mapping go.
             val text = LibC.mmapPrivateRead(fd, size.toLong())
+            // A keymap may be re-sent at any time, and the state compiled from the last one is ours.
+            Xkb.releaseState(state)
             state = Xkb.stateFromKeymap(text) ?: MemorySegment.NULL
             LibC.munmap(text, size.toLong())
         } finally {
@@ -173,7 +175,22 @@ internal class KeyboardInput(
         }
     }
 
+    /**
+     * Gives the keyboard and its compiled keymap back; nothing here may be used afterwards.
+     *
+     * `wl_keyboard.release` is a destructor, but [LibWayland.marshal] sends a request without ever
+     * destroying a proxy, so the client side is destroyed here too.
+     */
+    fun release() {
+        LibWayland.marshal(keyboardProxy, WL_KEYBOARD_RELEASE)
+        LibWayland.proxyDestroy(keyboardProxy)
+        keyboardProxy = MemorySegment.NULL
+        Xkb.releaseState(state)
+        state = MemorySegment.NULL
+    }
+
     private companion object {
+        const val WL_KEYBOARD_RELEASE = 0
         const val KEY_PRESSED = 1
         const val XKB_V1_FORMAT = 1
         const val FIRST_PRINTABLE = 0x20
