@@ -20,10 +20,13 @@ import com.fromwau.kortex.compose.KortexPlatform
  * }
  * ```
  *
- * Blocks until the compositor goes away, or until no surface is left and none can return: content that
- * closes its own surface ends the run once the last one is gone, while an [OutputTarget.EveryOutput]
- * spec with no output to place on keeps waiting for one. Everything it opens — the connection, the
- * surfaces, the buffers — is closed before it returns, however it returns.
+ * Blocks until the compositor goes away, or until no surface is left and none can return. Content that
+ * closes its own surface ends the run once the last one is gone, but a spec still able to place another
+ * keeps it going with nothing on screen: an [OutputTarget.EveryOutput] spec waiting for any output, or
+ * an [OutputTarget.NamedOutput] spec waiting for the one output it names. A standing
+ * [OutputTarget.CompositorChoice] surface keeps it going a third way, by being placed again whenever the
+ * compositor takes it away while an output is still connected. Everything it opens, the connection, the
+ * surfaces and the buffers, is closed before it returns, however it returns.
  *
  * @param specs what to put on screen and where, created in the order given.
  * @param platform host hooks the compositions drive, e.g. the cursor shape a hover asks for.

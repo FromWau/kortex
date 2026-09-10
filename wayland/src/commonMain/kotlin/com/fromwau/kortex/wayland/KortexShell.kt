@@ -78,10 +78,11 @@ public class KortexShell private constructor(
     /**
      * Runs every surface until the connection dies, or until no surface is left and none can return.
      *
-     * A surface that closed itself is never put back, so the loop ends with the last one — unless an
-     * [OutputTarget.EveryOutput] spec is still waiting for an output to place one on, which keeps it
-     * running with nothing on screen. Only a new output places a per-output surface, so on two outputs
-     * content that closes its own surface leaves that output bare while the other keeps running.
+     * A surface that closed itself is never put back, so the loop ends with the last one, unless a spec
+     * can still place another. An [OutputTarget.EveryOutput] spec waiting for any output keeps it running
+     * with nothing on screen, and so does an [OutputTarget.NamedOutput] spec whose own output is not
+     * connected. Only a new output places a per-output surface, so on two outputs content that closes its
+     * own surface leaves that output bare while the other keeps running.
      *
      * A standing [OutputTarget.CompositorChoice] surface is a further exception: when the compositor
      * itself closes it, rather than content, it is placed again as long as any output remains connected,
