@@ -213,22 +213,24 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
-- [ ] **A screenshot pixel occasionally reads one step high** against an expected `0xFF808080`. It predates
-      the protocol work, and it is far more frequent than the earlier estimate of one run in eighteen: on one
-      machine it failed roughly half the runs of a single assertion, at the same rate on this branch and on
-      the commit it was cut from, so it tracks the machine rather than the code. Three drifts have been
-      recorded so far, all one step up and never an arbitrary colour: `0xFF818080` (red), `0xFF818180`
-      (red and green) and `0xFF818181` (all three), the last two seen again on a later run and on two
-      different assertions. Alpha did not move in any of them, so the pattern such as it is runs over the
-      RGB channels, and three values is too few to call it a rule.
+- [ ] **A screenshot pixel occasionally reads a step off** an expected `0xFF808080`. It predates the
+      protocol work, and it is far more frequent than the earlier estimate of one run in eighteen: on one
+      machine it reached both full-suite runs in a row, at the same rate on this branch and on the commit it
+      was cut from, so it tracks the machine rather than the code. The drift is small but not one-directional
+      and not a fixed shape: `0xFF818080`, `0xFF818180` and `0xFF818181` step one up over a growing run of
+      RGB channels, `0xFF828181` steps two up on red, and `0xFF7F7F7F` steps one *down* on all three. Alpha
+      has never moved. Anything that reads these as a single pattern is reading too few samples.
       Seen in `KortexShellTest`, `KortexSurfaceTest` and `MultiSurfaceTest`, so it is compositing or capture
-      timing rather than anything test-specific. Window occlusion is ruled out, since occlusion would not
-      land a one-step drift this close to the expected colour, and so is a gamma or night-light daemon: none
-      of `hyprsunset`, `gammastep`, `redshift` or `wlsunset` was running when it was checked. Still
-      unexplained, and nothing so far says where the step enters: kortex writes `BGRA_8888` into its own
-      buffer, while the value compared against is read out of grim's PNG through `ImageIO`, with
-      compositing, capture and decode in between. `Screen.settledPixel` already samples until two reads
-      agree, which is evidently not enough.
+      rather than anything test-specific. Ruled out: window occlusion, which would not land this close to the
+      expected colour; and a gamma or night-light daemon, since none of `hyprsunset`, `gammastep`, `redshift`
+      or `wlsunset` was running when it was checked.
+      The open lead is the compositor's own colour management. `hyprctl getoption render:cm_enabled` reports
+      true on Hyprland 0.56.2 by default, and a colour-managed render path is exactly the kind of thing that
+      rounds a channel by one either way depending on frame timing. Test it by running the failing assertion
+      with `hyprctl keyword render:cm_enabled false` and putting it back afterwards, which nobody has done
+      yet. Failing that, note that kortex writes `BGRA_8888` into its own buffer while the compared value
+      comes out of grim's PNG through `ImageIO`, so compositing, capture and decode all sit in between.
+      `Screen.settledPixel` samples until two reads agree, which is evidently not enough.
 
 ## Deliberately not doing
 
