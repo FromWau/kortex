@@ -99,6 +99,14 @@ raising a surface while the host runs are done.
       opcode past a proxy's version kills the connection; the proxies themselves are always freed
       client-side. Each `close()` is idempotent, since the `KortexSurface` latch guarding them is not
       something a direct caller of those classes has. (`SurfaceLifetimeTest`)
+- [ ] **`LayerSurface` leaks two more of the same kind.** `LayerSurface.create` binds a `wl_compositor`
+      and a `zwlr_layer_shell_v1` of its own, uses each once and keeps neither, so `LayerSurface.close()`
+      gives back neither and every surface leaks both on the same close-and-replace path. Found while
+      closing the item above, which enumerated the cursor and shm binds but not these. The fix is the
+      shape `WlCursorSurface` now has: retain both proxies, then release and destroy them in `close()`
+      after the layer surface and `wl_surface` go. `LayerShellProtocol` already declares the shell's
+      `destroy` (opcode 1, `since` 3, and it binds at 5), and `LibWayland.marshalIfSince` already carries
+      the version rule `wl_compositor.release` needs.
 
 ## Surface presets
 

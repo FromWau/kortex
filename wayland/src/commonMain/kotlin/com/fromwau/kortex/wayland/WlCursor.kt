@@ -116,11 +116,9 @@ internal class WlCursorTheme private constructor(
     private var scale = 1
     private val cache = HashMap<KortexCursor, CursorImage?>()
 
-    // Every handle a rescale replaced, kept so [close] can free them all once the cursor surface their
-    // buffers were attached to is gone.
     private val superseded = mutableListOf<MemorySegment>()
 
-    private var destroyed = false
+    private var closed = false
 
     fun imageFor(cursor: KortexCursor): CursorImage? {
         if (cache.containsKey(cursor)) return cache[cursor]
@@ -166,8 +164,8 @@ internal class WlCursorTheme private constructor(
      * are attached to must already be destroyed and that destroy already processed; see [KortexSurface.close].
      */
     override fun close() {
-        if (destroyed) return
-        destroyed = true
+        if (closed) return
+        closed = true
         cache.clear()
         superseded.forEach { LibWaylandCursor.themeDestroy(it) }
         superseded.clear()
@@ -191,13 +189,12 @@ internal class WlCursorTheme private constructor(
 
 /** The dedicated `wl_surface` a cursor image is attached to; created once and reused for every shape. */
 internal class WlCursorSurface private constructor(
-    // Kept only so close() can give it back: nothing else is made from it after the surface below.
     private val compositor: MemorySegment,
     private val surface: MemorySegment,
 ) : AutoCloseable {
     val proxy: MemorySegment get() = surface
 
-    private var destroyed = false
+    private var closed = false
 
     /** Double-buffered like every pending surface state: only takes effect on the next [commit]. */
     fun setBufferScale(scale: Int) {
@@ -220,17 +217,13 @@ internal class WlCursorSurface private constructor(
         commit()
     }
 
-    /** Destroys the cursor surface and gives back the `wl_compositor` it was made from. */
+    /** Gives the cursor surface and its `wl_compositor` back; [proxy] must not reach `set_cursor` afterwards. */
     override fun close() {
-        if (destroyed) return
-        destroyed = true
+        if (closed) return
+        closed = true
         LibWayland.marshal(surface, WL_SURFACE_DESTROY)
         LibWayland.proxyDestroy(surface)
-        // wl_compositor.release only exists from version 7; sending it to a proxy bound against an older
-        // compositor is a protocol error that takes the connection down, so that one is only freed here.
-        if (LibWayland.proxyGetVersion(compositor) >= WL_COMPOSITOR_RELEASE_SINCE) {
-            LibWayland.marshal(compositor, WL_COMPOSITOR_RELEASE)
-        }
+        LibWayland.marshalIfSince(compositor, WL_COMPOSITOR_RELEASE, WL_COMPOSITOR_RELEASE_SINCE)
         LibWayland.proxyDestroy(compositor)
     }
 

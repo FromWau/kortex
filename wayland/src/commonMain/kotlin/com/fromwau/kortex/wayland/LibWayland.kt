@@ -194,6 +194,16 @@ internal object LibWayland {
     }
 
     /**
+     * Marshals [opcode] only when the proxy's negotiated version is [since] or newer.
+     *
+     * libwayland refuses a marshal past a proxy's own version and kills the connection with EINVAL, so a
+     * destructor the compositor is too old to know has to be skipped rather than sent and ignored.
+     */
+    fun marshalIfSince(proxy: MemorySegment, opcode: Int, since: Int) {
+        if (proxyGetVersion(proxy) >= since) marshal(proxy, opcode)
+    }
+
+    /**
      * Builds a `wl_interface` and its message tables in native memory.
      *
      * libwayland exports tables for the 24 core interfaces only, so an extension supplies its own. Copy

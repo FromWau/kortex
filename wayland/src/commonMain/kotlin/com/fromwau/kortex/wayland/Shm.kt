@@ -132,14 +132,9 @@ public class ShmBuffer internal constructor(
     }
 }
 
-/**
- * Gives a `wl_shm` proxy back and frees it.
- *
- * `wl_shm.release` only exists from version 2, and sending a request the negotiated version does not
- * have is a protocol error that takes the connection down, so an older bind is only freed client-side.
- */
+/** Gives a `wl_shm` proxy back and frees it; both surfaces and cursor themes bind one of their own. */
 internal fun releaseShm(shm: MemorySegment) {
-    if (LibWayland.proxyGetVersion(shm) >= WL_SHM_RELEASE_SINCE) LibWayland.marshal(shm, WL_SHM_RELEASE)
+    LibWayland.marshalIfSince(shm, WL_SHM_RELEASE, WL_SHM_RELEASE_SINCE)
     LibWayland.proxyDestroy(shm)
 }
 
@@ -149,7 +144,7 @@ private const val WL_SHM_RELEASE_SINCE = 2
 /** The compositor's shared-memory buffer factory. */
 public class Shm internal constructor(private val shm: MemorySegment) : AutoCloseable {
 
-    private var released = false
+    private var closed = false
 
     public fun createBuffer(width: Int, height: Int): Result<ShmBuffer, KortexError> {
         val stride = width * BYTES_PER_PIXEL
@@ -183,10 +178,10 @@ public class Shm internal constructor(private val shm: MemorySegment) : AutoClos
         return Ok(shmBuffer)
     }
 
-    /** Gives the `wl_shm` back; every [ShmBuffer] taken from it must already be closed. */
+    /** Gives the `wl_shm` back; buffers already taken from it stay valid, but [createBuffer] must not run again. */
     override fun close() {
-        if (released) return
-        released = true
+        if (closed) return
+        closed = true
         releaseShm(shm)
     }
 
