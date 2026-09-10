@@ -13,11 +13,10 @@ internal enum class ProbeMode {
     /** Bind every output, mark, close the shell, mark, close the display. Hotplugs nothing. */
     ShellCloseOnly,
 
-    /** [ShellCloseOnly]'s sequence with a headless output hotplugged and dropped in between the marks. */
-    Full,
+    HotplugThenShellClose,
     ;
 
-    internal companion object {
+    companion object {
         fun fromOrNull(raw: String): ProbeMode? = entries.firstOrNull { it.name == raw }
     }
 }
@@ -35,7 +34,7 @@ public fun main(args: Array<String>) {
     System.err.println(PROBE_MARKER_BOUND)
 
     when (mode) {
-        ProbeMode.Full -> {
+        ProbeMode.HotplugThenShellClose -> {
             hotplugAndDrop(display, shell)
             System.err.println(PROBE_MARKER_HOTPLUG_DONE)
         }

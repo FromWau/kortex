@@ -43,7 +43,7 @@ class OutputReleaseWireTest {
     fun `every bound output is released, the hotplugged one on removal and the rest on shell close`() {
         val outputsBefore = Hyprctl.monitorNames()
         try {
-            val (exitCode, stderr) = runProbe(ProbeMode.Full)
+            val (exitCode, stderr) = runProbe(ProbeMode.HotplugThenShellClose)
             val raw = stderr.joinToString("\n")
             assertEquals(0, exitCode, "probe exited $exitCode; stderr:\n$raw")
 
