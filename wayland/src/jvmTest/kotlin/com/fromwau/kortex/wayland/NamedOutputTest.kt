@@ -90,6 +90,64 @@ class NamedOutputTest {
         }
     }
 
+    @Test
+    fun `a hotplugged output whose predicted name matches the standing spec gets the named surface`() {
+        var pending: String? = null
+        try {
+            val probe = Hyprctl.createHeadlessOutput()
+            Hyprctl.removeHeadlessOutput(probe)
+            val predictedName = nextHeadlessName(probe)
+
+            val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+            display.use { wayland ->
+                val shell = KortexShell.create(wayland, namedSpec(predictedName))
+                    .getOrElse { error -> fail("shell creation failed: $error") }
+
+                shell.use {
+                    pending = Hyprctl.createHeadlessOutput()
+                    assertEquals(
+                        predictedName, pending,
+                        "Hyprland's headless output naming scheme changed: expected the next HEADLESS-N " +
+                            "after $probe was removed, so the prediction this test relies on no longer holds",
+                    )
+
+                    val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
+                    assertTrue(appeared, "hyprctl layers never reported a $NAMED_NAMESPACE- namespace after hotplug")
+
+                    val namespace = assertNotNull(namedNamespace(), "the named surface's namespace vanished mid-check")
+                    assertEquals(
+                        setOf(predictedName), monitorsShowing(namespace),
+                        "the named surface is not under exactly the output it named",
+                    )
+                }
+            }
+        } finally {
+            // Guarantees the virtual output never survives a failed assertion above.
+            pending?.let(Hyprctl::removeHeadlessOutput)
+        }
+    }
+
+    @Test
+    fun `a shell whose only spec names an output that never connects keeps its event loop running`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val shell = KortexShell.create(display, namedSpec(ABSENT_OUTPUT_NAME))
+            .getOrElse { error -> fail("shell creation failed: $error") }
+
+        assertEquals(0, shell.activeSurfaces.size, "a NamedOutput spec for an absent output must place nothing")
+
+        // Left running as a daemon: closing from here would race this loop's own dispatch on the same
+        // display, corrupting native state (verified: SIGABRT). It runs forever by design in this
+        // scenario, so there is no safe moment to close it from outside; the JVM reclaims it at exit.
+        val loopThread = Thread(shell::runEventLoop, "kortex-named-output-await-test").apply { isDaemon = true }
+        loopThread.start()
+
+        Thread.sleep(LOOP_ALIVE_CHECK_MILLIS)
+        assertTrue(
+            loopThread.isAlive,
+            "the event loop exited even though its only spec is still waiting for its own output to connect",
+        )
+    }
+
     private fun panelSpec(): SurfaceSpec =
         SurfaceSpec(PANEL_CONFIG) { Box(Modifier.fillMaxSize()) }
 
@@ -106,6 +164,12 @@ class NamedOutputTest {
 
     // A per-output surface's namespace carries the output's registry id as a suffix, like any other.
     private fun namedNamespace(): String? = Hyprctl.namespaces().firstOrNull { it.startsWith("$NAMED_NAMESPACE-") }
+
+    // hyprctl's headless names are HEADLESS-<n>; the caller's own assertion catches it if that ever changes.
+    private fun nextHeadlessName(name: String): String {
+        val next = name.substringAfterLast('-').toInt() + 1
+        return "${name.substringBeforeLast('-')}-$next"
+    }
 
     /** Polls `hyprctl layers -j` until it reports [count] panel namespaces, since it lags the shell's own state. */
     private fun awaitPanelCount(count: Int): Set<String> {
@@ -128,6 +192,11 @@ class NamedOutputTest {
         const val HYPRCTL_SETTLE_MILLIS = 2000L
         const val HYPRCTL_POLL_MILLIS = 100L
         const val NANOS_PER_MILLI = 1_000_000L
+        const val LOOP_ALIVE_CHECK_MILLIS = 200L
+
+        // Hyprland's own outputs are real connector names (HDMI-A-2) or a HEADLESS-<n> counter; this
+        // string matches neither pattern, so no connected output can ever carry it.
+        const val ABSENT_OUTPUT_NAME = "kortex-test-absent-output"
 
         val PANEL_CONFIG = SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE)
         val NAMED_CONFIG = SurfaceConfig.osd(OSD_SIZE.dp, OSD_SIZE.dp).copy(namespace = NAMED_NAMESPACE)
