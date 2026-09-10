@@ -62,31 +62,45 @@ internal object Screen {
             ?: error("hyprctl layers reported level $level, which is no Layer")
 
     /**
-     * The centre pixel, sampled until two consecutive reads agree.
+     * The centre pixel, once it has held the same value long enough to be the finished one.
      *
-     * Hyprland's `fadeLayersIn` animation ramps a new layer surface up over several frames, so a single
-     * capture reads a blended value.
+     * Hyprland ramps a new layer surface up over roughly 850ms, one step per frame, and the tail of that
+     * ramp is its slowest part: measured steps sit 70 to 125ms apart, and the value wobbles by a step
+     * either way as it lands. Two reads that merely agree therefore prove nothing, so this waits for a
+     * value to survive [STABLE_WINDOW_MILLIS], which is comfortably past the widest step seen.
      */
     fun settledPixel(geometry: LayerGeometry): Int {
-        var previous = Int.MIN_VALUE
-        repeat(MAX_SETTLE_READS) {
+        val deadline = System.nanoTime() + SETTLE_TIMEOUT_MILLIS * NANOS_PER_MILLI
+        var value = readPixel(geometry)
+        var heldSince = System.nanoTime()
+        while (System.nanoTime() < deadline) {
             Thread.sleep(SETTLE_INTERVAL_MILLIS)
-            val shot = File.createTempFile("kortex-capture", ".png")
-            try {
-                val grim = ProcessBuilder("grim", "-g", geometry.grimArea, shot.absolutePath)
-                    .redirectErrorStream(true).start()
-                assertEquals(0, grim.waitFor(), "grim failed: " + grim.inputStream.bufferedReader().readText())
-                val image = assertNotNull(ImageIO.read(shot), "grim produced no readable image")
-                val pixel = image.getRGB(image.width / 2, image.height / 2)
-                if (pixel == previous) return pixel
-                previous = pixel
-            } finally {
-                shot.delete()
+            val next = readPixel(geometry)
+            if (next != value) {
+                value = next
+                heldSince = System.nanoTime()
+            } else if (System.nanoTime() - heldSince >= STABLE_WINDOW_MILLIS * NANOS_PER_MILLI) {
+                return value
             }
         }
-        return previous
+        return value
     }
 
-    private const val SETTLE_INTERVAL_MILLIS = 90L
-    private const val MAX_SETTLE_READS = 25
+    private fun readPixel(geometry: LayerGeometry): Int {
+        val shot = File.createTempFile("kortex-capture", ".png")
+        try {
+            val grim = ProcessBuilder("grim", "-g", geometry.grimArea, shot.absolutePath)
+                .redirectErrorStream(true).start()
+            assertEquals(0, grim.waitFor(), "grim failed: " + grim.inputStream.bufferedReader().readText())
+            val image = assertNotNull(ImageIO.read(shot), "grim produced no readable image")
+            return image.getRGB(image.width / 2, image.height / 2)
+        } finally {
+            shot.delete()
+        }
+    }
+
+    private const val SETTLE_INTERVAL_MILLIS = 20L
+    private const val STABLE_WINDOW_MILLIS = 400L
+    private const val SETTLE_TIMEOUT_MILLIS = 5000L
+    private const val NANOS_PER_MILLI = 1_000_000L
 }
