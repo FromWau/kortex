@@ -26,9 +26,7 @@ import com.fromwau.kortex.compose.KortexPlatform
  * an [OutputTarget.NamedOutput] spec waiting for the one output it names. A standing
  * [OutputTarget.CompositorChoice] surface keeps it going a third way, by being placed again whenever the
  * compositor takes it away while an output is still connected. The connection itself is always closed
- * before this returns. What each surface opened is not: a surface whose own creation fails partway
- * leaks what it had already built, and even one that closes cleanly does not yet release every native
- * resource it holds.
+ * before this returns, but a surface does not release every native resource it opened.
  *
  * @param specs what to put on screen and where, created in the order given.
  * @param platform host hooks the compositions drive, e.g. the cursor shape a hover asks for.
@@ -57,9 +55,7 @@ public fun runSurfaces(
  * Blocks for the lifetime of the bar. Outputs may come and go while it runs; a bar appears and
  * disappears with each. It also returns once content has closed the last bar while an output is still
  * connected, since nothing would put another one there. The connection itself is always closed before
- * this returns. What each surface opened is not: a surface whose own creation fails partway leaks what
- * it had already built, and even one that closes cleanly does not yet release every native resource it
- * holds.
+ * this returns, but a bar does not release every native resource it opened.
  *
  * @param namespace what the compositor calls these surfaces, e.g. in `hyprctl layers`.
  * @param height how tall the bar is; the anchored axis spans the output.

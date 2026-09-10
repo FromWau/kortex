@@ -54,7 +54,7 @@ public class KortexSurface private constructor(
     // one thread ever allowed to call into libwayland.
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
 
-    // Set once by create() after the seat is bound; null when the seat announced no pointer.
+    // Set once by create() after the seat is bound; null only once close() has released it.
     @Volatile
     private var pointerInput: PointerInput? = null
 
@@ -315,90 +315,112 @@ public class KortexSurface private constructor(
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
         ): Result<KortexSurface, KortexError> {
-            val shm = Shm.bind(display).getOrElse { return Err(it) }
-            val layer = LayerSurface.create(
-                display,
-                namespace = config.namespace,
-                height = config.height.toLogicalPx(),
-                width = config.width.toLogicalPx(),
-                layer = config.layer,
-                anchor = config.anchor,
-                exclusiveZone = config.exclusiveZone,
-                margins = config.margins,
-                keyboard = config.keyboard,
-                output = output,
-                exclusiveEdge = config.exclusiveEdge,
-            ).getOrElse { return Err(it) }
-            if (!layer.waitForConfigure()) {
-                // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-                return Err(display.protocolError() ?: KortexError.SurfaceNotConfigured)
-            }
-            // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
-            val bufferScale = layer.preferredBufferScale
-            // Pending state only; it is committed together with the first attach() below.
-            layer.setBufferScale(bufferScale)
+            // Run newest first by any exit taken before the surface exists, so nothing outlives what it leans on.
+            val unwind = mutableListOf<() -> Unit>()
+            var handedOver = false
+            try {
+                val shm = Shm.bind(display).getOrElse { return Err(it) }
+                unwind += shm::close
+                val layer = LayerSurface.create(
+                    display,
+                    namespace = config.namespace,
+                    height = config.height.toLogicalPx(),
+                    width = config.width.toLogicalPx(),
+                    layer = config.layer,
+                    anchor = config.anchor,
+                    exclusiveZone = config.exclusiveZone,
+                    margins = config.margins,
+                    keyboard = config.keyboard,
+                    output = output,
+                    exclusiveEdge = config.exclusiveEdge,
+                ).getOrElse { return Err(it) }
+                unwind += layer::close
+                if (!layer.waitForConfigure()) {
+                    // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
+                    return Err(display.protocolError() ?: KortexError.SurfaceNotConfigured)
+                }
+                // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
+                val bufferScale = layer.preferredBufferScale
+                // Pending state only; it is committed together with the first attach() below.
+                layer.setBufferScale(bufferScale)
 
-            // layer.logicalWidth/logicalHeight are surface-local (logical) per configure; the shm buffer
-            // and Skia surface must hold the buffer (physical) pixels the compositor expects.
-            val bufferWidth = layer.logicalWidth * bufferScale
-            val bufferHeight = layer.logicalHeight * bufferScale
-            val frames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }
-
-            val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-                Thread(runnable, "kortex-frame").apply { isDaemon = true }
-            }.asCoroutineDispatcher()
-
-            // The surface tracks the open text-input session itself so a host does not have to; keys the
-            // composition does not consume are turned into edits on it.
-            val open = AtomicReference<KortexTextInput?>(null)
-            lateinit var surface: KortexSurface
-            val hostPlatform = object : KortexPlatform {
-                override fun setCursor(cursor: KortexCursor) {
-                    // Compose can call this from the frame thread; every libwayland call must run on the loop thread.
-                    surface.queue += { surface.pointerInput?.setCursor(cursor) }
-                    platform.setCursor(cursor)
+                // layer.logicalWidth/logicalHeight are surface-local (logical) per configure; the shm buffer
+                // and Skia surface must hold the buffer (physical) pixels the compositor expects.
+                val bufferWidth = layer.logicalWidth * bufferScale
+                val bufferHeight = layer.logicalHeight * bufferScale
+                val frames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }
+                frames.forEach { frame ->
+                    // Buffer first, so each Skia surface closes before the pixels it draws into are unmapped.
+                    unwind += frame.buffer::close
+                    unwind += frame.surface::close
                 }
 
-                override fun onTextInputStarted(session: KortexTextInput) {
-                    open.set(session)
-                    platform.onTextInputStarted(session)
+                val dispatcher = Executors.newSingleThreadExecutor { runnable ->
+                    Thread(runnable, "kortex-frame").apply { isDaemon = true }
+                }.asCoroutineDispatcher()
+                unwind += dispatcher::close
+
+                // The surface tracks the open text-input session itself so a host does not have to; keys the
+                // composition does not consume are turned into edits on it.
+                val open = AtomicReference<KortexTextInput?>(null)
+                lateinit var surface: KortexSurface
+                val hostPlatform = object : KortexPlatform {
+                    override fun setCursor(cursor: KortexCursor) {
+                        // Compose can call this from the frame thread, and only the loop thread may call libwayland.
+                        surface.queue += { surface.pointerInput?.setCursor(cursor) }
+                        platform.setCursor(cursor)
+                    }
+
+                    override fun onTextInputStarted(session: KortexTextInput) {
+                        open.set(session)
+                        platform.onTextInputStarted(session)
+                    }
+
+                    override fun onTextInputStopped() {
+                        open.set(null)
+                        platform.onTextInputStopped()
+                    }
                 }
 
-                override fun onTextInputStopped() {
-                    open.set(null)
-                    platform.onTextInputStopped()
+                val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
+                unwind += cursorTheme::close
+                val cursorSurface = WlCursorSurface.create(display).getOrElse { return Err(it) }
+                unwind += cursorSurface::close
+                // Pending state only, like the layer surface above; committed together with the first show().
+                cursorSurface.setBufferScale(bufferScale)
+
+                val scene = KortexScene(
+                    size = IntSize(bufferWidth, bufferHeight),
+                    density = Density(bufferScale.toFloat()),
+                    frameContext = dispatcher,
+                    onInvalidate = { surface.onInvalidate() },
+                    platform = hostPlatform,
+                )
+                unwind += scene::close
+                // Bound per surface, and never cached: each surface releases the seat it owns when it closes.
+                val seat = Seat.bind(display).getOrElse { return Err(it) }
+                unwind += seat::release
+                // Tested before the surface exists so this exit unwinds too; Seat.bind has already round-tripped.
+                if (!seat.hasPointer) {
+                    // A dead connection surfaces first as a seat with no devices; prefer the real cause.
+                    val missingPointer = KortexError.MissingSeatDevice(SeatDevice.Pointer)
+                    return Err(display.protocolError() ?: missingPointer)
                 }
+                surface = KortexSurface(
+                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
+                    cursorTheme, cursorSurface, seat,
+                )
+                // From here the surface's own close() is the one owner of every piece above.
+                handedOver = true
+                surface.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
+                if (config.keyboard != KeyboardInteractivity.None) {
+                    surface.keyboardInput = seat.attachKeyboard(scene, { open.get() })
+                }
+                display.roundtrip()
+                return Ok(surface)
+            } finally {
+                if (!handedOver) unwind.asReversed().forEach { it() }
             }
-
-            val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
-            val cursorSurface = WlCursorSurface.create(display).getOrElse { return Err(it) }
-            // Pending state only, like the layer surface above; committed together with the first show().
-            cursorSurface.setBufferScale(bufferScale)
-
-            val scene = KortexScene(
-                size = IntSize(bufferWidth, bufferHeight),
-                density = Density(bufferScale.toFloat()),
-                frameContext = dispatcher,
-                onInvalidate = { surface.onInvalidate() },
-                platform = hostPlatform,
-            )
-            // Bound per surface, and never cached: each surface releases the seat it owns when it closes.
-            val seat = Seat.bind(display).getOrElse { return Err(it) }
-            surface = KortexSurface(
-                display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
-                cursorTheme, cursorSurface, seat,
-            )
-            surface.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
-            if (config.keyboard != KeyboardInteractivity.None) {
-                surface.keyboardInput = seat.attachKeyboard(scene, { open.get() })
-            }
-            if (!seat.hasPointer) {
-                // A dead connection surfaces first as a seat with no devices; prefer the real cause.
-                val missingPointer = KortexError.MissingSeatDevice(SeatDevice.Pointer)
-                return Err(display.protocolError() ?: missingPointer)
-            }
-            display.roundtrip()
-            return Ok(surface)
         }
 
         // Two buffers, so a frame can be drawn while the compositor still holds the last one.

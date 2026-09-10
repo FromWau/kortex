@@ -134,9 +134,14 @@ surface while the host runs are done.
       destroying the proxy client-side. Nothing in-process shows a request leaving the client, so the
       covering test drives a child JVM under `WAYLAND_DEBUG=client` and reads the release requests off
       its wire. (`OutputReleaseWireTest`)
-- [ ] **`KortexSurface.create`'s failure paths leak whatever they built.** Each `getOrElse { return Err }`
-      returns without closing the shm, cursor theme, cursor surface, seat or layer surface created above
-      it. `runSurfaces`' KDoc no longer promises otherwise, but the paths themselves are unchanged.
+- [x] **A surface whose creation fails partway gives back what it built.** `KortexSurface.create` pushes
+      a closer for each piece as it builds it, and every exit taken before the `KortexSurface` exists,
+      one added later included, runs them newest first from a `finally`. Once the surface is constructed,
+      its own `close()` is the one owner of every piece. The pointer check comes before that point, which
+      `Seat.bind`'s round trip already allows, so no exit returns an error once the surface exists. The
+      test provokes the latest exit, a withdrawn `wl_seat`; the pointer-less seat, `waitForConfigure`,
+      `createFrames`, the cursor theme and the cursor surface cannot be reached on this machine and are
+      covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
 - [ ] **Nothing proves `KortexHost.output` actually recomposes a reader.** It is snapshot state and
       `OutputGeometryTest` pins the read and the write, but `KortexShell.create` round-trips before
       placing, so geometry is already there at first composition and every existing test would pass with

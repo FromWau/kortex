@@ -39,7 +39,7 @@ internal data class LayerGeometry(
 
 /** Reads back what a layer surface actually put on screen. */
 internal object Screen {
-    /** Where the layer named [namespace] is, or null if it is not mapped on any monitor. */
+    /** Where the layer named [namespace] is, or null if no monitor lists it. */
     fun geometry(namespace: String): LayerGeometry? {
         for ((monitor, monitorLayers) in Hyprctl.layers()) {
             for ((level, entries) in monitorLayers.levels) {

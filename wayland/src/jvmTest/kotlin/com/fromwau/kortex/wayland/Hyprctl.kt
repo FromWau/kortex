@@ -76,7 +76,7 @@ internal object Hyprctl {
     /** Every monitor's layer-shell surfaces, keyed by monitor name. */
     fun layers(): Map<String, MonitorLayers> = JSON.decodeFromString(run("layers", "-j"))
 
-    /** Every mapped surface's namespace, across every monitor and level. */
+    /** Every layer surface's namespace across every monitor and level, including one that has no buffer yet. */
     fun namespaces(): List<String> = layers()
         .values
         .flatMap { it.levels.values.flatten() }
