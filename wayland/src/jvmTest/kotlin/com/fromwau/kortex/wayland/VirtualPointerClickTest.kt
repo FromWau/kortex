@@ -54,7 +54,7 @@ class VirtualPointerClickTest {
 
                         // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
                         // cursor already parked on these coordinates would never enter the new surface.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight / 2)
+                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                         moveTo(targetX, targetY)
 
                         pointer.button(BTN_LEFT, pressed = true)
@@ -66,8 +66,9 @@ class VirtualPointerClickTest {
                         it.roundtrip()
 
                         val landed = bar.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
-                        // Park it off the bar again: the screenshot tests sample the pixel it sits on.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight / 2)
+                        // Off it again: a cursor left on a target would deny the next test's own move
+                        // here an enter, the same hazard the first move above avoids.
+                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                         landed
                     }
 
