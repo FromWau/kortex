@@ -255,13 +255,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       `eventfd`, reads or cancels, and dispatches what arrived. `WaylandDisplay.wake()` counts that
       `eventfd` up from any thread, and every post the loop drains calls it after enqueueing:
       `KortexHost.open`, and the surface queue that invalidations, cursor changes and
-      `KortexSurfaceHandle.close` go through. `KeyboardInput` reports the repeat deadline, which its own
-      `checkRepeat` delivers against, a shell takes the earliest across its surfaces, and `poll` gets it
-      rounded up to whole milliseconds; with no key repeating the loop waits indefinitely, so an idle bar
-      sleeps until something actually happens. A roundtrip inside a pass makes the next wait return at
-      once, since the events it dispatched can change what that pass already checked, and a shell runs its
-      surfaces' posted work before reaping closed ones. Another source, D-Bus or a timerfd, would be one
-      more fd in that `poll`. (`EventLoopWakeTest`, `KeyRepeatTest`)
+      `KortexSurfaceHandle.close` go through. `KeyboardInput` reports a held key's next repeat, the same
+      deadline its own `checkRepeat` delivers against. A shell waits for the earliest of those across its
+      surfaces, rounded up to whole milliseconds for `poll`. With no key repeating the loop waits
+      indefinitely, so an idle bar sleeps until something actually happens. A roundtrip or dispatch inside
+      a pass makes the next wait return at once, since the events it ran can change what that pass already
+      checked. A shell runs its surfaces' posted work before reaping closed ones, so a close that content
+      posts is reaped in the pass it wakes. A bare `KortexSurface`'s own loop runs under no test. Another
+      source, D-Bus or a timerfd, would be one more fd in that `poll`.
+      (`EventLoopWakeTest`, `KeyRepeatTest`, `WaylandDisplayTest`)
 
 ## Housekeeping
 
