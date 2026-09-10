@@ -58,10 +58,15 @@ public class KortexShell private constructor(
     /** The surfaces currently live, each with its output; exposed so a caller or test can inspect them. */
     public val activeSurfaces: List<ActiveSurface> get() = surfaces.toList()
 
-    // Once the shell is running, only an output arriving can add a surface, and only for a spec that
-    // asked for every output.
+    // A future output could still complete an EveryOutput spec, or the one output a NamedOutput spec names.
     private val awaitingAnOutput: Boolean
-        get() = outputs.isEmpty() && specs.any { it.target == OutputTarget.EveryOutput }
+        get() = specs.any { spec ->
+            when (val target = spec.target) {
+                OutputTarget.EveryOutput -> outputs.isEmpty()
+                OutputTarget.CompositorChoice -> false
+                is OutputTarget.NamedOutput -> outputs.values.none { it.matchesName(target.name) }
+            }
+        }
 
     init {
         display.onGlobalAdded = { global -> if (global.interfaceName == WL_OUTPUT) pendingAdds += global }
@@ -133,7 +138,15 @@ public class KortexShell private constructor(
     // A hotplug arrives long after create() returned, with no Result channel left to report through.
     private fun addOutput(global: WaylandGlobal) {
         val output = bindOutput(global)
-        specs.filter { it.target == OutputTarget.EveryOutput }.forEach { spec ->
+        // The output has no name until its own done arrives, and a NamedOutput match needs it now.
+        display.roundtrip()
+        specs.filter { spec ->
+            when (val target = spec.target) {
+                OutputTarget.EveryOutput -> true
+                OutputTarget.CompositorChoice -> false
+                is OutputTarget.NamedOutput -> output.matchesName(target.name)
+            }
+        }.forEach { spec ->
             createSurface(spec, output)
                 .getOrElse { error("kortex surface creation failed for output ${global.name}: $it") }
         }
@@ -147,6 +160,9 @@ public class KortexShell private constructor(
         return ShellOutput(global.name, proxy, listener).also { outputs[global.name] = it }
     }
 
+    // wl_output.name (what a NamedOutput target carries) is not ShellOutput.name, the registry id.
+    private fun ShellOutput.matchesName(name: String): Boolean = listener.geometry?.name == name
+
     private fun removeOutput(name: Int) {
         val output = outputs.remove(name) ?: return
         surfaces.filter { it.output === output }.forEach(::removeSurface)
@@ -154,11 +170,14 @@ public class KortexShell private constructor(
     }
 
     private fun placeSurfaces(spec: SurfaceSpec): EmptyResult<KortexError> {
-        when (spec.target) {
+        when (val target = spec.target) {
             OutputTarget.CompositorChoice -> return createSurface(spec, output = null)
             OutputTarget.EveryOutput -> outputs.values.forEach { output ->
                 createSurface(spec, output).getOrElse { return Err(it) }
             }
+            is OutputTarget.NamedOutput -> outputs.values
+                .firstOrNull { it.matchesName(target.name) }
+                ?.let { output -> createSurface(spec, output).getOrElse { return Err(it) } }
         }
         return Ok(Unit)
     }
@@ -218,6 +237,8 @@ public class KortexShell private constructor(
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)
+            // A NamedOutput spec placed before any output's own done arrives would match no name at all.
+            display.roundtrip()
             for (spec in specs) {
                 shell.placeSurfaces(spec).getOrElse {
                     shell.close()

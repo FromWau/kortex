@@ -16,6 +16,18 @@ public sealed interface OutputTarget {
      * for it again.
      */
     public data object CompositorChoice : OutputTarget
+
+    /**
+     * A single surface on the output that `wl_output.name` calls [name], e.g. "DP-1", the same string
+     * `hyprctl monitors` prints.
+     *
+     * Placed once that output is connected, and dropped when it goes away like any per-output surface.
+     * Should the named output not be connected when this is placed, nothing is placed and nothing
+     * fails: the output going away between the click that named it and the placement is a lost race,
+     * not a programming error. A standing spec is placed later if the output arrives; a one-shot
+     * [KortexHost.open] for an output that never arrives simply never shows.
+     */
+    public data class NamedOutput(public val name: String) : OutputTarget
 }
 
 /**
