@@ -10,7 +10,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 public interface KortexHost {
     /**
      * The output this composition's own surface is on, backed by snapshot state: content that reads it
-     * recomposes when that output publishes again, which it may do at any time, since a re-sent scale or
+     * recomposes when that geometry changes, which may happen at any time, since a re-sent scale or
      * mode replaces the whole geometry.
      *
      * Null for an [OutputTarget.CompositorChoice] surface, since the shell never learns which output the

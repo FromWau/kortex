@@ -52,7 +52,7 @@ internal object Xkb {
         return if (state.equals(MemorySegment.NULL)) null else state
     }
 
-    /** Drops the reference [stateFromKeymap] took, freeing the keymap with it; NULL is a no-op. */
+    /** Drops the reference `xkb_state_new` took on the keymap, freeing it too; NULL is a no-op. */
     fun releaseState(state: MemorySegment) {
         stateUnref.invoke(state)
     }

@@ -10,7 +10,8 @@ public sealed interface OutputTarget {
     /**
      * A single surface that names no output, leaving the compositor to place it.
      *
-     * A spec passed to [runSurfaces] is placed again once the compositor takes its surface away.
+     * A spec passed to [runSurfaces] or [KortexShell.create] is placed again once the compositor takes
+     * its surface away.
      * Content dismissing its own surface stays gone instead, and so does one placed through
      * [KortexHost.open]: neither counts as the compositor taking it away.
      *
