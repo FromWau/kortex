@@ -10,9 +10,7 @@ internal const val PROBE_MARKER_SHELL_CLOSED = "KORTEX-PROBE shell-closed"
 
 /** Which of the probe's two wire sequences a run performs, selected by [main]'s one argument. */
 internal enum class ProbeMode {
-    /** Bind every output, mark, close the shell, mark, close the display. Hotplugs nothing. */
     ShellCloseOnly,
-
     HotplugThenShellClose,
     ;
 
