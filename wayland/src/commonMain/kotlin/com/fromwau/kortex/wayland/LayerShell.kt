@@ -259,17 +259,21 @@ public class LayerSurface internal constructor(
             val surfaceListener = WlSurfaceListener()
             surfaceListener.install(arena, surface)
 
-            val layerSurface = LibWayland.marshal(
-                shell, LayerShellProtocol.GET_LAYER_SURFACE, LayerShellProtocol.layerSurfaceInterface,
-                LibWayland.proxyGetVersion(shell),
-                listOf(
-                    WlArg.Ptr(MemorySegment.NULL),
-                    WlArg.Ptr(surface),
-                    WlArg.Ptr(output),
-                    WlArg.Num(layer.wireValue),
-                    WlArg.Ptr(LibWayland.cString(namespace)),
-                ),
-            )
+            // wl_proxy_marshal copies a string argument into the message it builds, so the namespace is
+            // only borrowed for the call and has no business in an arena that outlives it.
+            val layerSurface = Arena.ofConfined().use { request ->
+                LibWayland.marshal(
+                    shell, LayerShellProtocol.GET_LAYER_SURFACE, LayerShellProtocol.layerSurfaceInterface,
+                    LibWayland.proxyGetVersion(shell),
+                    listOf(
+                        WlArg.Ptr(MemorySegment.NULL),
+                        WlArg.Ptr(surface),
+                        WlArg.Ptr(output),
+                        WlArg.Num(layer.wireValue),
+                        WlArg.Ptr(request.allocateFrom(namespace)),
+                    ),
+                )
+            }
 
             val state = ConfigureState(layerSurface)
             val listener = arena.allocate(ADDRESS.byteSize() * 2)
