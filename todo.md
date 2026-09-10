@@ -237,8 +237,9 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       machine it reached both full-suite runs in a row, at the same rate on this branch and on the commit it
       was cut from, so it tracks the machine rather than the code. The drift is small but not one-directional
       and not a fixed shape: `0xFF818080`, `0xFF818180` and `0xFF818181` step one up over a growing run of
-      RGB channels, `0xFF828181` steps two up on red, and `0xFF7F7F7F` steps one *down* on all three. Alpha
-      has never moved. Anything that reads these as a single pattern is reading too few samples.
+      RGB channels, `0xFF828181` steps two up on red, and `0xFF7F7F7F` and `0xFF7E7E7E` step one and two
+      *down* on all three. Alpha has never moved, and the magnitude has reached two in both directions.
+      Anything that reads these as a single pattern is reading too few samples.
       Seen in `KortexShellTest`, `KortexSurfaceTest` and `MultiSurfaceTest`, so it is compositing or capture
       rather than anything test-specific. Ruled out: window occlusion, which would not land this close to the
       expected colour; and a gamma or night-light daemon, since none of `hyprsunset`, `gammastep`, `redshift`
