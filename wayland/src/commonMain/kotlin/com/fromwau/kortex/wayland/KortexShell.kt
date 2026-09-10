@@ -83,6 +83,10 @@ public class KortexShell private constructor(
      * running with nothing on screen. Only a new output places a per-output surface, so on two outputs
      * content that closes its own surface leaves that output bare while the other keeps running.
      *
+     * A standing [OutputTarget.CompositorChoice] surface is a further exception: when the compositor
+     * itself closes it, rather than content, it is placed again as long as any output remains connected,
+     * so that case keeps the loop running too.
+     *
      * Blocks, and owns the connection for as long as it does.
      */
     public fun runEventLoop() {

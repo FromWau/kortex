@@ -55,8 +55,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the polish and housekeeping items below; the surface presets and the Foundations they depended on
-are done.
+Next: the polish and housekeeping items below; the surface presets, the Foundations they depended on, and
+raising a surface while the host runs are done.
 
 ## Foundations
 
@@ -125,22 +125,34 @@ are done.
       to span an axis it has no anchor for gets `KortexError.UnspannableAxis`. `runBar` is the one
       published statement of the default bar's shape. (`SurfaceConfigTest`)
 
-## Next branch — raising a surface while the host runs
+## Raising a surface while the host runs
 
-- [ ] **A surface can only be placed when `runSurfaces` is called.** It takes its specs up front and then
-      blocks, and `KortexShell`'s placement is private, so nothing can raise a surface in response to an
-      event. `osd`, `appMenu` and `contextMenu` are the presets this makes unreachable: a context menu is
-      built from the position of a click that has not happened yet, and an OSD that content dismisses
-      cannot come back. Their KDoc says so.
-      The hard part is not the shell method — it is who holds the shell, since `runSurfaces` blocks for the
-      lifetime of the host. Whatever that handle turns out to be, it must reach the loop thread the way
-      `KortexSurfaceHandle.close()` already does, because only that thread may call libwayland.
-- [ ] **A surface cannot be aimed at a chosen output.** `OutputTarget` offers `EveryOutput` and
-      `CompositorChoice` only, and `KortexSurface.create`'s `output` is internal. A context menu belongs on
-      the output the click happened on, so this and the item above are the same feature.
-- [ ] **A `CompositorChoice` surface is never replaced** once the output it was placed on goes away, while
-      `EveryOutput` surfaces return on replug. Documented on `OutputTarget.CompositorChoice`; recreating it
-      is a design change that belongs with the item above.
+- [x] **A surface can be raised after `runSurfaces` is already running.** `KortexHost`, reached from
+      content through `LocalKortexHost.current`, carries `open(spec: SurfaceSpec)`: it places `spec` the
+      next time the shell applies pending work and does not retain it, so an output arriving later never
+      replays it. This is what makes `osd`, `appMenu` and `contextMenu` reachable: a context menu can now
+      be built from the position of a click that has already happened. (`SurfaceOpenTest`)
+- [x] **A surface can be aimed at a chosen output.** `OutputTarget.NamedOutput(name)` places a surface on
+      the `wl_output` whose `wl_output.name`, the same string `hyprctl monitors` prints, matches `name`.
+      The named output not being connected when this is placed is a lost race, not an error: nothing is
+      placed and nothing fails, and a standing spec is placed later if the output arrives.
+      Hotplug coverage for this rests on a finding checked against the live Hyprland session rather than
+      assumed: its headless output names are a monotonically increasing counter that survives removal and
+      is never reused, which is what makes the hotplug path deterministic enough to test. A compositor
+      whose output names are reused is untested. (`NamedOutputTest`)
+- [x] **A `CompositorChoice` surface the compositor takes away is placed again**, as long as an output is
+      still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
+      gone either way. With no output at all connected at that moment there is nowhere to place the
+      replacement, and it stays gone until asked for again. (`CompositorChoiceTest`)
+
+The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a right click
+opens a `SurfaceConfig.contextMenu` through `LocalKortexHost.current.open`, targeted at the click's own
+output with `OutputTarget.NamedOutput`, and closes itself through `LocalKortexSurface.current.close()`
+when an item is picked. It assumes the bar's own top-left is the output's top-left, true only when nothing
+else also reserves space on the output's Top edge: `zwlr_layer_shell_v1` reports a surface's size but never
+its position, so a bar sharing the Top edge with another exclusive-zone surface has no way to learn how far
+down it was actually pushed. Verified against a desktop that runs one: the menu opened where the bar-local
+click landed in output coordinates, not where the click actually was on screen.
 
 ## Polish
 
@@ -183,10 +195,24 @@ are done.
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
-- [ ] **A screenshot pixel reads one channel step off**, roughly 1 run in 18 (`0xFF818080` where
-      `0xFF808080` is expected). Not introduced by the protocol work, and seen in both `KortexShellTest` and
-      `KortexSurfaceTest`, so it is compositing or capture timing rather than anything test-specific.
-      `Screen.settledPixel` already samples until two reads agree, which is evidently not enough.
+- [ ] **A screenshot pixel occasionally reads one step high**, roughly 1 run in 18 against an expected
+      `0xFF808080`. The step is not always the same shape: this session alone saw a uniform `0xFF818181`
+      (all three channels) and, in a later run of the same assertion, `0xFF818180` (two of three), so it
+      is a one-step-per-channel drift rather than a fixed pattern. Seen in `KortexShellTest`,
+      `KortexSurfaceTest` and `MultiSurfaceTest`, so it is compositing or capture timing rather than
+      anything test-specific. Window occlusion is ruled out, since occlusion would not land a one-step
+      drift this close to the expected colour, and so is a gamma or night-light daemon: none of
+      `hyprsunset`, `gammastep`, `redshift` or `wlsunset` was running when it was checked. Still
+      unexplained. `Screen.settledPixel` already samples until two reads agree, which is evidently not
+      enough.
+- [ ] **`KortexSurface.close()` tears down no `wl_pointer` or `wl_keyboard` proxy.** It closes the scene,
+      the frames, the retiring frames, the layer surface and the dispatcher, and stops there. Each surface
+      binds its own seat devices (`Seat.attachPointer`/`attachKeyboard` in `SeatInput.kt`), so their
+      listeners are left pointing at a closed `KortexScene`. An input event arriving for a live surface
+      after a different surface has closed can be delivered to the closed surface's listener too and take
+      the JVM down. Pre-existing, not introduced by this branch: Task 3 hit it through a mutation test, and
+      picking an item in the bar demo's own context menu reproduces it directly, the pointer's next
+      `leave` crashing into the menu's already-closed `KortexScene`.
 
 ## Deliberately not doing
 
