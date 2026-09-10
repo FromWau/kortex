@@ -107,7 +107,7 @@ public class KortexSurface private constructor(
     /** Which side closed this surface, once [closed] is true; null beforehand. */
     internal val closeReason: CloseReason? get() = layer.closeReason
 
-    /** A test cannot make the real compositor close this exact surface, since it lands on the unpluggable output. */
+    /** A test cannot make the compositor close this surface: that needs removing whatever output it chose. */
     internal fun simulateCompositorClose() {
         layer.simulateCompositorClose()
     }

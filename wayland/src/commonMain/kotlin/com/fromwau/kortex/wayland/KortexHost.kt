@@ -19,7 +19,9 @@ public interface KortexHost {
      * Puts [spec] on screen the next time the shell applies pending work. Placed once: nothing
      * later replays [spec], so an output arriving afterward does not put it there too.
      *
-     * Returns immediately: a placement failure has no caller left here to report it to.
+     * Returns immediately, before the surface exists. By the time the shell places it there is no
+     * caller left to hand a failure back to, so a [spec] the protocol will not accept, such as one
+     * whose config omits an axis it has no anchor to span, takes the host down instead.
      */
     public fun open(spec: SurfaceSpec)
 }

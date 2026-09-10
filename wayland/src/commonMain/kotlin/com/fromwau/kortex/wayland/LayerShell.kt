@@ -126,7 +126,7 @@ public class LayerSurface internal constructor(
         state.closeReason = CloseReason.Content
     }
 
-    // No production caller: only KortexSurface.simulateCompositorClose, a test seam, calls this.
+    // A test seam: in production only the compositor's own closed event sets this reason.
     internal fun simulateCompositorClose() {
         state.closeReason = CloseReason.Compositor
     }
