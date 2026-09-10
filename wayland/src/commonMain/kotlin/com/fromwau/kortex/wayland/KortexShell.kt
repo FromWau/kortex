@@ -19,7 +19,7 @@ internal class ShellOutput(
 ) {
     /** Gives the output back. The order is the point: the proxy first, then the stubs it dispatches into. */
     fun destroy() {
-        LibWayland.proxyDestroy(proxy)
+        releaseOutput(proxy)
         listener.close()
     }
 }

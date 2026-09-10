@@ -128,9 +128,12 @@ surface while the host runs are done.
       `$XCURSOR_THEME` once per surface when it is set (`WlCursor.kt:182`). About 300 bytes a surface in
       all. The first can be one allocation for the life of the process; the theme name belongs to the
       theme.
-- [ ] **`wl_output.release` is never sent.** `KortexShell` destroys the proxy without it
-      (`bindOutput`'s counterpart in `removeOutput` and in `close`). It is opcode 0 since version 3 and
-      `WlVersion.OUTPUT` is 4, so it is available; one server-side resource accumulates per hotplug cycle.
+- [x] **`wl_output.release` is sent.** `ShellOutput.destroy()` calls `releaseOutput`, the same
+      `marshalIfSince`-then-`proxyDestroy` shape `releaseCompositor` and `releaseShm` already had, so
+      both `removeOutput`'s hotplug path and `close` give every bound `wl_output` back rather than only
+      destroying the proxy client-side. Nothing in-process shows a request leaving the client, so the
+      covering test drives a child JVM under `WAYLAND_DEBUG=client` and reads the release requests off
+      its wire. (`OutputReleaseWireTest`)
 - [ ] **`KortexSurface.create`'s failure paths leak whatever they built.** Each `getOrElse { return Err }`
       returns without closing the shm, cursor theme, cursor surface, seat or layer surface created above
       it. `runSurfaces`' KDoc no longer promises otherwise, but the paths themselves are unchanged.
