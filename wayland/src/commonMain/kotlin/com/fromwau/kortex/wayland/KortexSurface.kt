@@ -61,9 +61,10 @@ public class KortexSurface private constructor(
     private var pointerInput: PointerInput? = null
 
     // Set once by create() after the seat is bound; null when config.keyboard is None or the seat announced
-    // no keyboard, and once close() has released it.
+    // no keyboard, and once close() has released it. Not private: a test hands one to a surface without
+    // keyboard interactivity, since Hyprland gives an interactive surface the user's focus as it maps.
     @Volatile
-    private var keyboardInput: KeyboardInput? = null
+    internal var keyboardInput: KeyboardInput? = null
 
     private var logicalWidth: Int = layer.logicalWidth
     private var logicalHeight: Int = layer.logicalHeight

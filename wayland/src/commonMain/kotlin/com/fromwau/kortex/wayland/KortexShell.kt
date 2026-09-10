@@ -111,7 +111,8 @@ public class KortexShell private constructor(
         }
     }
 
-    private fun nextDeadlineNanos(): Long? = surfaces.mapNotNull { it.surface.nextDeadlineNanos }.minOrNull()
+    /** The earliest deadline across the surfaces that no event announces; not private because a test asserts it. */
+    internal fun nextDeadlineNanos(): Long? = surfaces.mapNotNull { it.surface.nextDeadlineNanos }.minOrNull()
 
     /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses; mirrors [KortexSurface.pump]. */
     public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
@@ -151,7 +152,7 @@ public class KortexShell private constructor(
     }
 
     private fun serviceSurfaces() {
-        // Before the reap: a close content posts marks its surface only once run, and nothing wakes the loop again.
+        // Before the reap: content's posted close marks its surface only when drained, and its wake is already spent.
         surfaces.forEach { it.surface.drainQueue() }
         // filter copies first: removeSurface mutates the very list this walks.
         val closing = surfaces.filter { it.surface.closed }
