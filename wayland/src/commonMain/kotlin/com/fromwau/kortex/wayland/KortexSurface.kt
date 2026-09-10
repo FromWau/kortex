@@ -312,6 +312,28 @@ public class KortexSurface private constructor(
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
         ): Result<KortexSurface, KortexError> {
+            // The surface tracks the open text-input session itself so a host does not have to; keys the
+            // composition does not consume are turned into edits on it.
+            val open = AtomicReference<KortexTextInput?>(null)
+            lateinit var surface: KortexSurface
+            val hostPlatform = object : KortexPlatform {
+                override fun setCursor(cursor: KortexCursor) {
+                    // Compose can call this from the frame thread; every libwayland call must run on the loop thread.
+                    surface.queue += { surface.pointerInput?.setCursor(cursor) }
+                    platform.setCursor(cursor)
+                }
+
+                override fun onTextInputStarted(session: KortexTextInput) {
+                    open.set(session)
+                    platform.onTextInputStarted(session)
+                }
+
+                override fun onTextInputStopped() {
+                    open.set(null)
+                    platform.onTextInputStopped()
+                }
+            }
+
             // Run newest first by any exit taken before the surface exists, so nothing outlives what it leans on.
             val unwind = mutableListOf<() -> Unit>()
             var handedOver = false
@@ -352,28 +374,6 @@ public class KortexSurface private constructor(
                     Thread(runnable, "kortex-frame").apply { isDaemon = true }
                 }.asCoroutineDispatcher()
                 unwind += dispatcher::close
-
-                // The surface tracks the open text-input session itself so a host does not have to; keys the
-                // composition does not consume are turned into edits on it.
-                val open = AtomicReference<KortexTextInput?>(null)
-                lateinit var surface: KortexSurface
-                val hostPlatform = object : KortexPlatform {
-                    override fun setCursor(cursor: KortexCursor) {
-                        // Compose can call this from the frame thread, and only the loop thread may call libwayland.
-                        surface.queue += { surface.pointerInput?.setCursor(cursor) }
-                        platform.setCursor(cursor)
-                    }
-
-                    override fun onTextInputStarted(session: KortexTextInput) {
-                        open.set(session)
-                        platform.onTextInputStarted(session)
-                    }
-
-                    override fun onTextInputStopped() {
-                        open.set(null)
-                        platform.onTextInputStopped()
-                    }
-                }
 
                 val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
                 unwind += cursorTheme::close

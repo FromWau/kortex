@@ -2,9 +2,8 @@ package com.fromwau.kortex.wayland
 
 import java.lang.foreign.MemorySegment
 
-// Destructors for the core globals a surface or the shell binds one of its own of, kept together
-// because each pairs an opcode with the version it first exists at, and sending one past that version
-// kills the connection.
+// Destructors for core globals, kept together because each pairs an opcode with the version it first exists
+// at, and sending one past that version kills the connection.
 
 /** Gives a `wl_compositor` proxy back and frees it; a layer surface and a cursor surface each bind one. */
 internal fun releaseCompositor(compositor: MemorySegment) {
