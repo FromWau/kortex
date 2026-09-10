@@ -4,6 +4,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
+import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
@@ -18,6 +19,8 @@ internal class KeyboardInput(
     private val scene: KortexScene,
     private val textInput: () -> KortexTextInput? = { null },
 ) {
+    private val arena: Arena = Arena.ofShared()
+
     private var state: MemorySegment = MemorySegment.NULL
 
     /** The bound `wl_keyboard`, kept only so a test can read the version it negotiated. */
@@ -45,6 +48,8 @@ internal class KeyboardInput(
             if (format != XKB_V1_FORMAT) return
             // The compositor hands over a read-only fd; map it, compile it, and let the mapping go.
             val text = LibC.mmapPrivateRead(fd, size.toLong())
+            // A keymap may be re-sent at any time, and the state compiled from the last one is ours.
+            Xkb.releaseState(state)
             state = Xkb.stateFromKeymap(text) ?: MemorySegment.NULL
             LibC.munmap(text, size.toLong())
         } finally {
@@ -161,19 +166,37 @@ internal class KeyboardInput(
 
     fun install(keyboard: MemorySegment) {
         keyboardProxy = keyboard
-        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
-        listener.setAtIndex(ADDRESS, KEYMAP, LibWayland.upcall(this, "onKeymap", KEYMAP_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(this, "onEnter", ENTER_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(this, "onLeave", LEAVE_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, KEY, LibWayland.upcall(this, "onKey", KEY_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, MODIFIERS, LibWayland.upcall(this, "onModifiers", MODIFIERS_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, REPEAT_INFO, LibWayland.upcall(this, "onRepeatInfo", REPEAT_INFO_DESCRIPTOR))
+        val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, KEYMAP, LibWayland.upcall(arena, this, "onKeymap", KEYMAP_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(arena, this, "onEnter", ENTER_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(arena, this, "onLeave", LEAVE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, KEY, LibWayland.upcall(arena, this, "onKey", KEY_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, MODIFIERS, LibWayland.upcall(arena, this, "onModifiers", MODIFIERS_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, REPEAT_INFO,
+            LibWayland.upcall(arena, this, "onRepeatInfo", REPEAT_INFO_DESCRIPTOR),
+        )
         check(LibWayland.proxyAddListener(keyboard, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the keyboard listener"
         }
     }
 
+    /** Gives the keyboard, its stubs and its compiled keymap back; nothing here may be used afterwards. */
+    fun release() {
+        if (keyboardProxy.equals(MemorySegment.NULL)) return
+        LibWayland.marshalIfSince(keyboardProxy, WL_KEYBOARD_RELEASE, WL_KEYBOARD_RELEASE_SINCE)
+        LibWayland.proxyDestroy(keyboardProxy)
+        keyboardProxy = MemorySegment.NULL
+        // After the destroy, never before: closing the arena frees the code the six stubs above are, and
+        // libwayland drops the events queued for a destroyed proxy rather than dispatching them.
+        arena.close()
+        Xkb.releaseState(state)
+        state = MemorySegment.NULL
+    }
+
     private companion object {
+        const val WL_KEYBOARD_RELEASE = 0
+        const val WL_KEYBOARD_RELEASE_SINCE = 3
         const val KEY_PRESSED = 1
         const val XKB_V1_FORMAT = 1
         const val FIRST_PRINTABLE = 0x20

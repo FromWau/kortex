@@ -57,7 +57,7 @@ class FirstPixelsTest {
                         bar.attach(buffer)
                         bar.commit()
                         display.roundtrip()
-                        Screen.settledPixel(geometry)
+                        Screen.pixelReaching(geometry, argb)
                     }
                 }
             }

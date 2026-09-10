@@ -6,6 +6,7 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
+import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
 import java.lang.foreign.MemorySegment
@@ -94,6 +95,8 @@ public class ShmBuffer internal constructor(
     private val fd: Int,
     private val size: Long,
 ) : AutoCloseable {
+    private val arena: Arena = Arena.ofShared()
+
     @Volatile
     private var held = false
 
@@ -120,22 +123,39 @@ public class ShmBuffer internal constructor(
         }
     }
 
+    /** Installs the `wl_buffer.release` listener, whose stub lives exactly as long as this buffer. */
+    internal fun installRelease() {
+        val listener = arena.allocate(ADDRESS.byteSize())
+        val release = BufferRelease(this)
+        listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(arena, release, "onRelease", RELEASE_DESCRIPTOR))
+        check(LibWayland.proxyAddListener(buffer, listener, MemorySegment.NULL) == 0) {
+            "wl_proxy_add_listener rejected the buffer listener"
+        }
+    }
+
     override fun close() {
         LibWayland.marshal(buffer, WL_BUFFER_DESTROY)
         LibWayland.proxyDestroy(buffer)
+        // After the destroy: a release still queued for this buffer would otherwise reach a freed stub.
+        arena.close()
         LibC.munmap(pixels, size)
         LibC.close(fd)
     }
 
     internal companion object {
         const val WL_BUFFER_DESTROY = 0
+
+        private val RELEASE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)
     }
 }
 
 /** The compositor's shared-memory buffer factory. */
-public class Shm internal constructor(private val shm: MemorySegment) {
+public class Shm internal constructor(private val shm: MemorySegment) : AutoCloseable {
+
+    private var closed = false
 
     public fun createBuffer(width: Int, height: Int): Result<ShmBuffer, KortexError> {
+        check(!closed) { "createBuffer on a Shm whose wl_shm is already given back" }
         val stride = width * BYTES_PER_PIXEL
         val size = stride.toLong() * height
         val fd = LibC.memfdCreate("kortex-shm").getOrElse { return Err(it) }
@@ -157,21 +177,19 @@ public class Shm internal constructor(private val shm: MemorySegment) {
         LibWayland.marshal(pool, WL_SHM_POOL_DESTROY)
         LibWayland.proxyDestroy(pool)
 
-        val shmBuffer = ShmBuffer(buffer, pixels, width, height, stride, fd, size)
-        val listener = LibWayland.arena.allocate(ADDRESS.byteSize())
-        val release = BufferRelease(shmBuffer)
-        listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(release, "onRelease", RELEASE_DESCRIPTOR))
-        check(LibWayland.proxyAddListener(buffer, listener, MemorySegment.NULL) == 0) {
-            "wl_proxy_add_listener rejected the buffer listener"
-        }
-        return Ok(shmBuffer)
+        return Ok(ShmBuffer(buffer, pixels, width, height, stride, fd, size).also { it.installRelease() })
+    }
+
+    /** Gives the `wl_shm` back; buffers already taken from it stay valid, but [createBuffer] must not run again. */
+    override fun close() {
+        if (closed) return
+        closed = true
+        releaseShm(shm)
     }
 
     public companion object {
         public fun bind(display: WaylandDisplay): Result<Shm, KortexError> =
             display.require("wl_shm", LibWayland.shmInterface, WlVersion.SHM).map { Shm(it) }
-
-        private val RELEASE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)
 
         private const val WL_SHM_CREATE_POOL = 0
         private const val WL_SHM_POOL_CREATE_BUFFER = 0

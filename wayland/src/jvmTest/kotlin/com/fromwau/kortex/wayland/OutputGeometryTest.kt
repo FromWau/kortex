@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.MemorySegment
@@ -123,6 +124,34 @@ class OutputGeometryTest {
         assertEquals(1080, geometry.height, "took a mode other than the one flagged current")
     }
 
+    /**
+     * A re-sent scale or mode replaces the published geometry whole, at any time, so content reading it
+     * through [KortexHost] has to recompose; that needs both the read and the write to reach the
+     * snapshot system rather than a plain field.
+     */
+    @Test
+    fun `reading and republishing geometry reaches the snapshot system`() {
+        val listener = OutputListener()
+        listener.onScale(NONE, NONE, factor = SCALE)
+        listener.onDone(NONE, NONE)
+
+        val reads = mutableListOf<Any>()
+        val published = Snapshot.observe(readObserver = reads::add) { listener.geometry }
+        assertEquals(SCALE, assertNotNull(published).scale)
+        assertTrue(reads.isNotEmpty(), "reading geometry recorded no snapshot read, so nothing can recompose on it")
+
+        val writes = mutableListOf<Any>()
+        Snapshot.observe(writeObserver = writes::add) {
+            listener.onScale(NONE, NONE, factor = RESCALED)
+            listener.onDone(NONE, NONE)
+        }
+        assertTrue(writes.isNotEmpty(), "republishing geometry recorded no snapshot write")
+        assertEquals(
+            RESCALED, assertNotNull(listener.geometry).scale,
+            "the re-sent scale did not replace the published one",
+        )
+    }
+
     private companion object {
         const val WL_OUTPUT = "wl_output"
         const val CURRENT = 0x1
@@ -130,6 +159,7 @@ class OutputGeometryTest {
         const val X = 7
         const val Y = 13
         const val SCALE = 2
+        const val RESCALED = 3
         const val TRANSFORM = 3
         const val NAME = "SYNTH-1"
         const val DESCRIPTION = "Synthetic output for the current-mode-flag test"

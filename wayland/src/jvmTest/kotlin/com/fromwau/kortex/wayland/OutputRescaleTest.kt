@@ -118,21 +118,19 @@ class OutputRescaleTest {
                     val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
                     manager.createVirtualPointer().use { pointer ->
                         fun moveTo(x: Int, y: Int) {
-                            // Screen.geometry and the virtual pointer's absolute space agree only
-                            // because this suite runs against a single output pinned at the origin.
-                            pointer.motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
-                            pointer.frame()
+                            pointer.moveTo(monitor, x, y)
                             wayland.roundtrip()
                             bar.pump(timeoutMillis = SETTLE_MILLIS)
                         }
 
                         // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
                         // cursor already parked on these coordinates would never enter the new surface.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight / 2)
+                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                         moveTo(geometry.x + PROBE_LOGICAL_X, geometry.y + PROBE_LOGICAL_Y)
                         val delivered = bar.pump(timeoutMillis = PUMP_MILLIS) { seen.get().isSpecified }
-                        // Park it off the bar again: the screenshot tests sample the pixel it sits on.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight / 2)
+                        // Off it again: a cursor left on a target would deny the next test's own move
+                        // here an enter, the same hazard the first move above avoids.
+                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
 
                         assertNull(wayland.protocolError(), "the connection reported a protocol error")
                         assertTrue(delivered, "no pointer motion over the bar reached the composition")

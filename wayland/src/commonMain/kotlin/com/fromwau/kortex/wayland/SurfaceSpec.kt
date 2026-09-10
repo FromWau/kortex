@@ -10,12 +10,30 @@ public sealed interface OutputTarget {
     /**
      * A single surface that names no output, leaving the compositor to place it.
      *
-     * It is created once and never replaced: should the output the compositor put it on go away, the
-     * surface goes with it and nothing brings it back, where an [EveryOutput] surface reappears when
-     * an output is plugged in again. A host that needs one on screen after a monitor change has to ask
-     * for it again.
+     * A spec passed to [runSurfaces] or [KortexShell.create] is placed again once the compositor takes
+     * its surface away.
+     * Content dismissing its own surface stays gone instead, and so does one placed through
+     * [KortexHost.open]: neither counts as the compositor taking it away.
+     *
+     * Two limitations follow. With no output at all connected at the moment the compositor takes the
+     * surface, there is nowhere to place the replacement and it stays gone until asked for again.
+     * Should placing the replacement itself fail, the run drops it and carries on rather than taking
+     * the host down with it: that failure comes from a connection which may already be going down. If
+     * the dropped surface was the last one, the run then ends the way an empty screen always ends it.
      */
     public data object CompositorChoice : OutputTarget
+
+    /**
+     * A single surface on the output that `wl_output.name` calls [name], e.g. "DP-1", the same string
+     * `hyprctl monitors` prints.
+     *
+     * Placed once that output is connected, and dropped when it goes away like any per-output surface.
+     * Should the named output not be connected when this is placed, nothing is placed and nothing
+     * fails: the output going away between the click that named it and the placement is a lost race,
+     * not a programming error. A standing spec is placed later if the output arrives; a one-shot
+     * [KortexHost.open] for an output that never arrives simply never shows.
+     */
+    public data class NamedOutput(public val name: String) : OutputTarget
 }
 
 /**

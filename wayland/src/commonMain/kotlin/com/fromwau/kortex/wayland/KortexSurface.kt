@@ -47,6 +47,7 @@ public class KortexSurface private constructor(
     private val dispatcher: ExecutorCoroutineDispatcher,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
+    private val seat: Seat,
 ) : AutoCloseable {
 
     // Posted by onInvalidate (the frame thread) and drained only on the loop thread, which is the
@@ -83,6 +84,9 @@ public class KortexSurface private constructor(
     // A test cannot make a real compositor send wl_surface.preferred_buffer_scale; this stands in for it.
     internal var scaleOverride: Int? = null
 
+    // A second close() would re-marshal every request below on proxies the first call already freed.
+    private var disposed = false
+
     /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
     public val bufferSize: IntSize
         get() = IntSize(frames.first().buffer.width, frames.first().buffer.height)
@@ -103,6 +107,14 @@ public class KortexSurface private constructor(
 
     /** True once the compositor has closed this surface, or its content has; either way it must be torn down. */
     internal val closed: Boolean get() = layer.closed
+
+    /** Which side closed this surface, once [closed] is true; null beforehand. */
+    internal val closeReason: CloseReason? get() = layer.closeReason
+
+    /** A test cannot make the compositor close this surface: that needs removing whatever output it chose. */
+    internal fun simulateCompositorClose() {
+        layer.simulateCompositorClose()
+    }
 
     public fun setContent(content: @Composable () -> Unit) {
         scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
@@ -262,6 +274,20 @@ public class KortexSurface private constructor(
     }
 
     override fun close() {
+        if (disposed) return
+        disposed = true
+        // Before scene.close(): the seat this surface owns keeps delivering, and a leave still in flight
+        // would otherwise reach a closed scene, where the throw happens inside an upcall and ends the process.
+        pointerInput?.release()
+        keyboardInput?.release()
+        pointerInput = null
+        keyboardInput = null
+        seat.release()
+        // Destroyed before the theme, and round-tripped, so the compositor has processed both the released
+        // pointer and this surface's destroy, and holds no cursor buffer the theme is about to free.
+        cursorSurface.close()
+        display.roundtrip()
+        cursorTheme.close()
         scene.close()
         frames.forEach {
             it.surface.close()
@@ -272,7 +298,10 @@ public class KortexSurface private constructor(
             it.surface.close()
             it.buffer.close()
         }
+        // Before layer.close() destroys the wl_surface this callback was requested on.
+        clock.close()
         layer.close()
+        shm.close()
         dispatcher.close()
     }
 
@@ -353,11 +382,12 @@ public class KortexSurface private constructor(
                 onInvalidate = { surface.onInvalidate() },
                 platform = hostPlatform,
             )
+            // Bound per surface, and never cached: each surface releases the seat it owns when it closes.
+            val seat = Seat.bind(display).getOrElse { return Err(it) }
             surface = KortexSurface(
                 display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
-                cursorTheme, cursorSurface,
+                cursorTheme, cursorSurface, seat,
             )
-            val seat = Seat.bind(display).getOrElse { return Err(it) }
             surface.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
             if (config.keyboard != KeyboardInteractivity.None) {
                 surface.keyboardInput = seat.attachKeyboard(scene, { open.get() })

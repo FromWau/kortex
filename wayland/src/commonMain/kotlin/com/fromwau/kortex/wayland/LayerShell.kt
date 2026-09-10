@@ -6,6 +6,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
+import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
@@ -68,6 +69,10 @@ internal object LayerShellProtocol {
 
     const val GET_LAYER_SURFACE = 0
 
+    /** `zwlr_layer_shell_v1.destroy`, which the interface table declares from version 3. */
+    const val DESTROY = 1
+    const val DESTROY_SINCE = 3
+
     const val SET_SIZE = 0
     const val SET_ANCHOR = 1
     const val SET_EXCLUSIVE_ZONE = 2
@@ -91,12 +96,20 @@ public class LayerSurface internal constructor(
     private val anchor: Set<Edge>,
     private val state: ConfigureState,
     private val surfaceListener: WlSurfaceListener,
+    private val compositor: MemorySegment,
+    private val shell: MemorySegment,
+    // Holds the stubs of both listeners above, since one close() gives back the two proxies they hang off.
+    private val arena: Arena,
 ) : AutoCloseable {
+
+    // Paired with the public closed, which is the compositor's word rather than this teardown latch.
+    private var disposed = false
 
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
     public val logicalWidth: Int get() = state.width
     public val logicalHeight: Int get() = state.height
-    public val closed: Boolean get() = state.closed
+    public val closed: Boolean get() = state.closeReason != null
+    internal val closeReason: CloseReason? get() = state.closeReason
 
     /**
      * The buffer scale the compositor wants for this surface, from `wl_surface.preferred_buffer_scale`.
@@ -110,7 +123,7 @@ public class LayerSurface internal constructor(
     public fun waitForConfigure(): Boolean {
         display.roundtrip()
         var spins = 0
-        while (!state.configured && !state.closed && spins < MAX_SPINS) {
+        while (!state.configured && state.closeReason == null && spins < MAX_SPINS) {
             display.dispatch()
             spins++
         }
@@ -120,9 +133,14 @@ public class LayerSurface internal constructor(
     /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */
     internal fun consumeResize(): Boolean = state.consumeResize()
 
-    /** Sets the same flag a real `closed` event would, so a self-close reaps through that one path. */
+    /** Sets the same reason a real `closed` event would, so a self-close reaps through that one path. */
     internal fun markClosed() {
-        state.closed = true
+        state.closeReason = CloseReason.Content
+    }
+
+    // A test seam: in production only the compositor's own closed event sets this reason.
+    internal fun simulateCompositorClose() {
+        state.closeReason = CloseReason.Compositor
     }
 
     /** Attaches [buffer] and marks the whole surface damaged. Must follow an acknowledged configure. */
@@ -164,10 +182,18 @@ public class LayerSurface internal constructor(
     }
 
     override fun close() {
+        if (disposed) return
+        disposed = true
         LibWayland.marshal(layerSurface, LayerShellProtocol.LAYER_SURFACE_DESTROY)
         LibWayland.proxyDestroy(layerSurface)
         LibWayland.marshal(surface, WL_SURFACE_DESTROY)
         LibWayland.proxyDestroy(surface)
+        // After both destroys, never before: closing the arena frees the code their six stubs are.
+        arena.close()
+        // Bound per surface like everything else here, so they go with it rather than at disconnect.
+        LibWayland.marshalIfSince(shell, LayerShellProtocol.DESTROY, LayerShellProtocol.DESTROY_SINCE)
+        LibWayland.proxyDestroy(shell)
+        releaseCompositor(compositor)
         display.flush()
     }
 
@@ -218,32 +244,41 @@ public class LayerSurface internal constructor(
                 .getOrElse { return Err(it) }
             val shell = display
                 .require("zwlr_layer_shell_v1", LayerShellProtocol.layerShellInterface, WlVersion.LAYER_SHELL)
-                .getOrElse { return Err(it) }
+                .getOrElse {
+                    releaseCompositor(compositor)
+                    return Err(it)
+                }
 
             val surface = LibWayland.marshal(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
                 LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),
             )
+            // Closed by the LayerSurface this all ends up in, which is the one owner of both proxies.
+            val arena = Arena.ofShared()
             // Before get_layer_surface below: the compositor answers that with preferred_buffer_scale.
             val surfaceListener = WlSurfaceListener()
-            surfaceListener.install(surface)
+            surfaceListener.install(arena, surface)
 
-            val layerSurface = LibWayland.marshal(
-                shell, LayerShellProtocol.GET_LAYER_SURFACE, LayerShellProtocol.layerSurfaceInterface,
-                LibWayland.proxyGetVersion(shell),
-                listOf(
-                    WlArg.Ptr(MemorySegment.NULL),
-                    WlArg.Ptr(surface),
-                    WlArg.Ptr(output),
-                    WlArg.Num(layer.wireValue),
-                    WlArg.Ptr(LibWayland.cString(namespace)),
-                ),
-            )
+            // wl_proxy_marshal copies a string argument into the message it builds, so the namespace is
+            // only borrowed for the call and has no business in an arena that outlives it.
+            val layerSurface = Arena.ofConfined().use { request ->
+                LibWayland.marshal(
+                    shell, LayerShellProtocol.GET_LAYER_SURFACE, LayerShellProtocol.layerSurfaceInterface,
+                    LibWayland.proxyGetVersion(shell),
+                    listOf(
+                        WlArg.Ptr(MemorySegment.NULL),
+                        WlArg.Ptr(surface),
+                        WlArg.Ptr(output),
+                        WlArg.Num(layer.wireValue),
+                        WlArg.Ptr(request.allocateFrom(namespace)),
+                    ),
+                )
+            }
 
             val state = ConfigureState(layerSurface)
-            val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * 2)
-            listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(state, "onConfigure", CONFIGURE_DESCRIPTOR))
-            listener.setAtIndex(ADDRESS, 1L, LibWayland.upcall(state, "onClosed", CLOSED_DESCRIPTOR))
+            val listener = arena.allocate(ADDRESS.byteSize() * 2)
+            listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(arena, state, "onConfigure", CONFIGURE_DESCRIPTOR))
+            listener.setAtIndex(ADDRESS, 1L, LibWayland.upcall(arena, state, "onClosed", CLOSED_DESCRIPTOR))
             check(LibWayland.proxyAddListener(layerSurface, listener, MemorySegment.NULL) == 0) {
                 "wl_proxy_add_listener rejected the layer surface listener"
             }
@@ -276,7 +311,9 @@ public class LayerSurface internal constructor(
                 args = listOf(WlArg.Num(keyboard.wireValue)),
             )
 
-            val result = LayerSurface(display, surface, layerSurface, anchor, state, surfaceListener)
+            val result = LayerSurface(
+                display, surface, layerSurface, anchor, state, surfaceListener, compositor, shell, arena,
+            )
             result.commit()
             return Ok(result)
         }
@@ -316,11 +353,14 @@ public class LayerSurface internal constructor(
     }
 }
 
+/** Why a layer surface stopped being usable: the compositor took it away, or its own content did. */
+internal enum class CloseReason { Compositor, Content }
+
 internal class ConfigureState(private val layerSurface: MemorySegment) {
     @Volatile var width: Int = 0
     @Volatile var height: Int = 0
     @Volatile var configured: Boolean = false
-    @Volatile var closed: Boolean = false
+    @Volatile var closeReason: CloseReason? = null
     @Volatile private var resized: Boolean = false
 
     fun onConfigure(data: MemorySegment, proxy: MemorySegment, serial: Int, width: Int, height: Int) {
@@ -334,7 +374,7 @@ internal class ConfigureState(private val layerSurface: MemorySegment) {
     }
 
     fun onClosed(data: MemorySegment, proxy: MemorySegment) {
-        closed = true
+        closeReason = CloseReason.Compositor
     }
 
     fun consumeResize(): Boolean {
@@ -364,17 +404,18 @@ internal class WlSurfaceListener {
 
     fun onPreferredBufferTransform(data: MemorySegment, proxy: MemorySegment, transform: Int) = Unit
 
-    fun install(surface: MemorySegment) {
-        val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
-        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(this, "onEnter", ENTER_DESCRIPTOR))
-        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(this, "onLeave", LEAVE_DESCRIPTOR))
+    /** [arena] is the owning [LayerSurface]'s, which closes it once the `wl_surface` is destroyed. */
+    fun install(arena: Arena, surface: MemorySegment) {
+        val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(arena, this, "onEnter", ENTER_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(arena, this, "onLeave", LEAVE_DESCRIPTOR))
         listener.setAtIndex(
             ADDRESS, PREFERRED_BUFFER_SCALE,
-            LibWayland.upcall(this, "onPreferredBufferScale", PREFERRED_BUFFER_SCALE_DESCRIPTOR),
+            LibWayland.upcall(arena, this, "onPreferredBufferScale", PREFERRED_BUFFER_SCALE_DESCRIPTOR),
         )
         listener.setAtIndex(
             ADDRESS, PREFERRED_BUFFER_TRANSFORM,
-            LibWayland.upcall(this, "onPreferredBufferTransform", PREFERRED_BUFFER_TRANSFORM_DESCRIPTOR),
+            LibWayland.upcall(arena, this, "onPreferredBufferTransform", PREFERRED_BUFFER_TRANSFORM_DESCRIPTOR),
         )
         check(LibWayland.proxyAddListener(surface, listener, MemorySegment.NULL) == 0) {
             "wl_proxy_add_listener rejected the surface listener"

@@ -55,8 +55,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the polish and housekeeping items below; the surface presets and the Foundations they depended on
-are done.
+Next: the polish and housekeeping items below; the surface presets, the Foundations they depended on, and
+raising a surface while the host runs are done.
 
 ## Foundations
 
@@ -78,11 +78,63 @@ are done.
       it — and the content to draw on it. `KortexShell` tracks outputs and surfaces separately, so a
       dock, an OSD and a menu run side by side on one connection, and `activeSurfaces` hands out each
       surface already paired with the spec it came from and its output's geometry rather than a second
-      list parallel by naming convention. `runSurfaces`, `runBar` and `KortexShell.create` are how a
-      host opens a surface; `KortexSurface.create` is internal, since filling its `wl_output` needs a
-      proxy only this module can bind. The shell's loop ends when no surface is left and none can
-      return, so a host whose content closed itself stops instead of spinning on an empty screen, while
-      an `EveryOutput` spec with no output waits for one. (`MultiSurfaceTest`)
+      list parallel by naming convention. Closing one surface releases the `wl_pointer`, `wl_keyboard` and
+      `wl_seat` it bound before its scene goes, so a sibling on the same connection keeps taking input
+      instead of the closed scene taking the process down (`SurfaceTeardownTest`).
+      `runSurfaces`, `runBar` and `KortexShell.create` are how a host opens a surface up front, and
+      `KortexHost.open` is how its content opens one later. `KortexSurface.create` is internal, since
+      filling its `wl_output` needs a proxy only this module can bind. The shell's loop ends when no
+      surface is left and none can return, so a host whose content closed itself stops instead of
+      spinning on an empty screen, while an `EveryOutput` spec with no output waits for one.
+      (`MultiSurfaceTest`)
+- [x] **The rest of that teardown.** `Shm`, `WlCursorTheme` and `WlCursorSurface` each have a `close()`
+      now, so the `wl_shm` a surface binds, the second `wl_shm` behind its cursor theme, the
+      `wl_compositor` `WlCursorSurface` binds, its cursor `wl_surface` and every `wl_cursor_theme` handle
+      are all given back rather than leaked once per surface on `KortexShell`'s close-and-replace path.
+      Order carries the risk: `wl_cursor_theme_destroy` destroys the `wl_buffer`s the compositor was
+      handed, so the pointer is released and the cursor surface destroyed first, and a round trip proves
+      the compositor has processed both before the theme frees them. `rescale` retains each handle it
+      supersedes instead of leaking it, since the same argument frees them all. `wl_shm.release` and
+      `wl_compositor.release` are sent only when the negotiated version has them, because marshalling an
+      opcode past a proxy's version kills the connection; the proxies themselves are always freed
+      client-side. Each `close()` is idempotent, since the `KortexSurface` latch guarding them is not
+      something a direct caller of those classes has. (`SurfaceLifetimeTest`)
+- [x] **Every proxy a surface binds is given back.** `LayerSurface.create` binds a
+      `wl_compositor` and a `zwlr_layer_shell_v1` of its own, since `WaylandDisplay.require` caches
+      nothing, and kept neither; `FrameClock` released its `wl_callback` only when the frame fired, so a
+      surface closed mid-frame leaked one. All four are given back now, the shell and the compositor
+      after the layer surface and `wl_surface` go, and the callback before the `wl_surface` it was
+      requested on. `LayerSurface.close()` took the same idempotence latch its siblings have, named
+      `disposed` to sit beside the public `closed`, which is the compositor's word rather than a
+      teardown flag. `wl_compositor.release` carries an opcode and a `since` that are fatal to get wrong
+      together, so `releaseCompositor` holds both once, beside `releaseShm`. (`SurfaceLifetimeTest`)
+- [ ] **Every surface leaks about 0.8MB of FFM upcall stubs, permanently.** `LibWayland.arena` is
+      `Arena.global()`, so the roughly 29 stubs `LibWayland.upcall` allocates per surface are never
+      freed. Measured on this machine rather than reasoned about: 2900 stubs cost 80MB of RSS that
+      `malloc_trim` will not return, so 27.8kB each and 0.79MB per surface, and a create/close loop grows
+      RSS by 0.96MB per cycle in a straight line over 150 cycles. This was bounded by monitor events
+      before `KortexHost.open` existed; the demo bar now pays it on every right click.
+      What it does *not* do is retain the composition: a probe whose content remembered a 4MB array saw
+      every one collected after close, because `scene.close()` disposes the composition before the
+      pinned `PointerInput` can hold anything but an emptied shell. The Java side grows about 50kB per
+      surface, which is the stubs' receivers and those shells.
+      The fix is a per-surface `Arena.ofShared()` for that surface's stubs and listener structs, closed
+      last in `KortexSurface.close()` after a final roundtrip, with the registry and interface tables
+      staying global. Getting the order wrong is a jump into freed code inside libwayland's dispatcher.
+      Ruled out by measurement while finding this, so nobody need look again: no fd leak and no mapping
+      leak (both flat from cycle 10 to 150), no thread leak (`dispatcher.close()` leaves no
+      `kortex-frame` behind), and no measurable growth from the cursor theme, the cursor surface, the
+      layer surface or the shm buffers.
+- [ ] **`wl_output.release` is never sent.** `KortexShell` destroys the proxy without it
+      (`bindOutput`'s counterpart in `removeOutput` and in `close`). It is opcode 0 since version 3 and
+      `WlVersion.OUTPUT` is 4, so it is available; one server-side resource accumulates per hotplug cycle.
+- [ ] **`KortexSurface.create`'s failure paths leak whatever they built.** Each `getOrElse { return Err }`
+      returns without closing the shm, cursor theme, cursor surface, seat or layer surface created above
+      it. `runSurfaces`' KDoc no longer promises otherwise, but the paths themselves are unchanged.
+- [ ] **Nothing proves `KortexHost.output` actually recomposes a reader.** It is snapshot state and
+      `OutputGeometryTest` pins the read and the write, but `KortexShell.create` round-trips before
+      placing, so geometry is already there at first composition and every existing test would pass with
+      zero recompositions. A test needs an output to republish geometry under a live reader.
 
 ## Surface presets
 
@@ -125,22 +177,41 @@ are done.
       to span an axis it has no anchor for gets `KortexError.UnspannableAxis`. `runBar` is the one
       published statement of the default bar's shape. (`SurfaceConfigTest`)
 
-## Next branch — raising a surface while the host runs
+## Raising a surface while the host runs
 
-- [ ] **A surface can only be placed when `runSurfaces` is called.** It takes its specs up front and then
-      blocks, and `KortexShell`'s placement is private, so nothing can raise a surface in response to an
-      event. `osd`, `appMenu` and `contextMenu` are the presets this makes unreachable: a context menu is
-      built from the position of a click that has not happened yet, and an OSD that content dismisses
-      cannot come back. Their KDoc says so.
-      The hard part is not the shell method — it is who holds the shell, since `runSurfaces` blocks for the
-      lifetime of the host. Whatever that handle turns out to be, it must reach the loop thread the way
-      `KortexSurfaceHandle.close()` already does, because only that thread may call libwayland.
-- [ ] **A surface cannot be aimed at a chosen output.** `OutputTarget` offers `EveryOutput` and
-      `CompositorChoice` only, and `KortexSurface.create`'s `output` is internal. A context menu belongs on
-      the output the click happened on, so this and the item above are the same feature.
-- [ ] **A `CompositorChoice` surface is never replaced** once the output it was placed on goes away, while
-      `EveryOutput` surfaces return on replug. Documented on `OutputTarget.CompositorChoice`; recreating it
-      is a design change that belongs with the item above.
+- [x] **A surface can be raised after `runSurfaces` is already running.** `KortexHost`, reached from
+      content through `LocalKortexHost.current`, carries `open(spec: SurfaceSpec)`: it places `spec` the
+      next time the shell applies pending work and does not retain it, so an output arriving later never
+      replays it. This is what makes `osd`, `appMenu` and `contextMenu` reachable: a context menu can now
+      be built from the position of a click that has already happened. (`SurfaceOpenTest`)
+- [x] **A surface can be aimed at a chosen output.** `OutputTarget.NamedOutput(name)` places a surface on
+      the `wl_output` whose `wl_output.name`, the same string `hyprctl monitors` prints, matches `name`.
+      The named output not being connected when this is placed is a lost race, not an error: nothing is
+      placed and nothing fails, and a standing spec is placed later if the output arrives.
+      Hotplug coverage for this rests on a finding checked against the live Hyprland session rather than
+      assumed: its headless output names are a monotonically increasing counter that survives removal and
+      is never reused, which is what makes the hotplug path deterministic enough to test. A compositor
+      whose output names are reused is untested. (`NamedOutputTest`)
+- [x] **A `CompositorChoice` surface the compositor takes away is placed again**, as long as an output is
+      still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
+      gone either way. With no output at all connected at that moment there is nowhere to place the
+      replacement, and it stays gone until asked for again, and a replacement that fails to be placed is
+      dropped rather than ending the run. Two of `CompositorChoiceTest`'s three tests reach this through
+      `KortexSurface.simulateCompositorClose`, the shell's own seam: the standing surface being placed
+      again, and an opened surface not being replaced. The third, content closing its own surface, does
+      not need it. The end-to-end trigger, an output going away under the surface, is not exercised
+      anywhere. (`CompositorChoiceTest`)
+
+The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a right click on
+the bar's own background, not on its button or its text field, opens a `SurfaceConfig.contextMenu` through
+`LocalKortexHost.current.open`, targeted at the click's own output with `OutputTarget.NamedOutput` and
+anchored just below the bar; a second right click dismisses the menu already open, since `open` hands back
+no handle to close one with; and the menu closes itself through `LocalKortexSurface.current.close()` when an
+item is picked. It assumes the bar's own top-left is the output's top-left, true only when nothing
+else also reserves space on the output's Top edge: `zwlr_layer_shell_v1` reports a surface's size but never
+its position, so a bar sharing the Top edge with another exclusive-zone surface has no way to learn how far
+down it was actually pushed. Measured against a desktop that runs one: the bar sat at y=62 and its menu
+opened at y=56, its own height, which is where the bar would begin if nothing else reserved that edge.
 
 ## Polish
 
@@ -159,6 +230,11 @@ are done.
       Wayland event announces it, so the constant timeout is standing in for a timer.
       **Small version:** pass the real next deadline as the timeout instead of the constant — no key held
       means blocking until an event arrives, so a genuinely idle bar costs nothing at all.
+      That is not safe on its own any more. `KortexHost.open` posts onto `KortexShell.pendingOpens` from a
+      frame thread and cannot wake the loop, since only the loop thread may call libwayland; the fixed
+      16ms tick is the only reason a menu raised from content appears at all. Blocking on a key-repeat
+      deadline instead would leave it unplaced until some unrelated event arrived. That queue therefore
+      needs a wakeup of its own, which is the same second-source problem the next paragraph describes.
       **Know before starting it:** `dispatch_timeout` can wait on exactly one source, and blocking inside it
       is being deaf to every other one. A bar that grows a second source — D-Bus for MPRIS, notifications or
       battery, a timerfd, a config watch — needs `wl_display_get_fd` plus the
@@ -183,10 +259,26 @@ are done.
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
-- [ ] **A screenshot pixel reads one channel step off**, roughly 1 run in 18 (`0xFF818080` where
-      `0xFF808080` is expected). Not introduced by the protocol work, and seen in both `KortexShellTest` and
-      `KortexSurfaceTest`, so it is compositing or capture timing rather than anything test-specific.
-      `Screen.settledPixel` already samples until two reads agree, which is evidently not enough.
+- [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
+      `KortexSurfaceTest` and `MultiSurfaceTest`, at times two full-suite runs in three. It was never
+      compositing noise. Hyprland ramps a new layer surface from whatever is behind it up to its own
+      colour over roughly 850ms, one step per frame, and a probe that sampled the centre pixel as fast as
+      `grim` allows showed the tail of that ramp is its slowest part: steps 70 to 125ms apart, with the
+      value wobbling a step either way as it lands. `Screen.settledPixel` slept 90ms and returned as soon
+      as two reads agreed, so landing twice on one tail step was likely rather than rare, and every value
+      of that kind ever recorded, `0xFF7E7E7E` through `0xFF828181`, is a point on that ramp.
+      A stability window cannot tell a finished surface from a step that happens to hold, so
+      `Screen.pixelReaching` now polls for the colour each caller expects and hands back the last value
+      read if it never arrives; a deliberately wrong expected colour still fails.
+      Fourteen full-suite runs under `MALLOC_CHECK_=3` and `MALLOC_PERTURB_=165` then failed once, and
+      the value, `0xFF3B7891`, held for the whole five-second budget while matching no ramp step, no
+      theme colour and neither window border: something was drawn over the point. That run coincided
+      with an AGS media popover being opened from the bar; it hangs from the bar's right-hand end, so
+      whether it reached the sample point at the screen's centre is not confirmed. The failure captured
+      before the change, `0xFF101417`, names no single source: it is the theme's `#0f1417`, which the
+      terminal background, the inactive window border, AGS and dunst all draw, so it is what shows
+      through wherever nothing sits on top, and it has not recurred since. These tests read the
+      composited screen, so a run needs a desktop nobody opens anything on.
 
 ## Deliberately not doing
 

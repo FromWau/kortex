@@ -57,8 +57,9 @@ internal object WlVersion {
 internal object LibWayland {
     private val linker: Linker = Linker.nativeLinker()
 
-    // Global: stubs, interface tables and strings handed to the compositor must outlive every proxy
-    // that references them, and a proxy can outlive any scope we could tie them to.
+    // Global for what is static by nature: the library lookups, and the interface tables and their
+    // strings, which libwayland dereferences through any proxy created against them. Listener stubs are
+    // not static, and belong to an arena the object that installed them closes; see upcall below.
     val arena: Arena = Arena.global()
 
     private val lookup: SymbolLookup = SymbolLookup.libraryLookup("libwayland-client.so.0", arena)
@@ -135,19 +136,24 @@ internal object LibWayland {
         proxyAddListener.invoke(proxy, implementation, data) as Int
 
     /**
-     * Binds [method] on [target] as an upcall stub for a listener slot.
+     * Binds [method] on [target] as an upcall stub for a listener slot, living as long as [arena].
+     *
+     * Named rather than defaulted, because closing [arena] frees the stub's code: whoever installs a
+     * listener has to have decided which teardown destroys the proxy that can still call it. Pass a
+     * shared arena, not a confined one, which would refuse every thread but the one that installed.
      *
      * The Java signature is derived from [descriptor], because a mismatch between the two crashes inside
      * native code rather than failing to compile. [method] must be public — Kotlin mangles an `internal`
      * name out of the lookup's reach.
      */
-    fun upcall(target: Any, method: String, descriptor: FunctionDescriptor): MemorySegment {
+    fun upcall(arena: Arena, target: Any, method: String, descriptor: FunctionDescriptor): MemorySegment {
         val handle = MethodHandles.publicLookup()
             .findVirtual(target.javaClass, method, descriptor.toMethodType())
             .bindTo(target)
         return linker.upcallStub(handle, descriptor, arena)
     }
 
+    /** Global, so only for a string a proxy or an interface table keeps reading; a request argument is copied. */
     fun cString(value: String): MemorySegment = arena.allocateFrom(value)
 
     /** The `name` field of a `wl_interface`, which `wl_registry_bind` passes back to the compositor. */
@@ -164,6 +170,9 @@ internal object LibWayland {
      * `wl_proxy_marshal_flags(proxy, opcode, interface, version, flags, ...)`.
      *
      * Pass [iface] as NULL for a request that creates no object.
+     *
+     * The flags are always empty, so even a request the protocol marks a destructor only sends it: the
+     * proxy stays alive until [proxyDestroy] takes it.
      */
     fun marshal(
         proxy: MemorySegment,
@@ -188,6 +197,16 @@ internal object LibWayland {
         call += proxy; call += opcode; call += iface; call += version; call += NO_FLAGS
         args.forEach { call += if (it is WlArg.Num) it.value else (it as WlArg.Ptr).value }
         return handle.invokeWithArguments(call) as MemorySegment
+    }
+
+    /**
+     * Marshals [opcode] only when the proxy's negotiated version is [since] or newer.
+     *
+     * libwayland refuses a marshal past a proxy's own version and kills the connection with EINVAL, so a
+     * destructor the compositor is too old to know has to be skipped rather than sent and ignored.
+     */
+    fun marshalIfSince(proxy: MemorySegment, opcode: Int, since: Int) {
+        if (proxyGetVersion(proxy) >= since) marshal(proxy, opcode)
     }
 
     /**

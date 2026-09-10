@@ -65,8 +65,8 @@ class MultiSurfaceTest {
                     "the OSD is not centred down the space left to it",
                 )
 
-                assertEquals(PANEL_PIXEL, Screen.settledPixel(panel), "the panel is not showing its own content")
-                assertEquals(OSD_PIXEL, Screen.settledPixel(osd), "the OSD is not showing its own content")
+                assertEquals(PANEL_PIXEL, Screen.pixelReaching(panel, PANEL_PIXEL), "the panel is not showing its own content")
+                assertEquals(OSD_PIXEL, Screen.pixelReaching(osd, OSD_PIXEL), "the OSD is not showing its own content")
             }
         }
     }
@@ -97,7 +97,7 @@ class MultiSurfaceTest {
                 )
 
                 val panel = assertNotNull(Screen.geometry(panelNamespace), "the panel went away with the OSD")
-                assertEquals(PANEL_PIXEL, Screen.settledPixel(panel), "the panel stopped showing its content")
+                assertEquals(PANEL_PIXEL, Screen.pixelReaching(panel, PANEL_PIXEL), "the panel stopped showing its content")
             }
         }
     }

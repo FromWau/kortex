@@ -122,9 +122,13 @@ public class WaylandDisplay private constructor(
             // The listener struct and its stubs are handed to the compositor for the life of the
             // registry, so they live in the global arena rather than a scope that could close first.
             val sink = RegistryListener(waylandDisplay)
-            val listener = LibWayland.arena.allocate(ADDRESS.byteSize() * 2)
-            listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(sink, "onGlobal", GLOBAL_DESCRIPTOR))
-            listener.setAtIndex(ADDRESS, 1L, LibWayland.upcall(sink, "onGlobalRemove", GLOBAL_REMOVE_DESCRIPTOR))
+            val arena = LibWayland.arena
+            val listener = arena.allocate(ADDRESS.byteSize() * 2)
+            listener.setAtIndex(ADDRESS, 0L, LibWayland.upcall(arena, sink, "onGlobal", GLOBAL_DESCRIPTOR))
+            listener.setAtIndex(
+                ADDRESS, 1L,
+                LibWayland.upcall(arena, sink, "onGlobalRemove", GLOBAL_REMOVE_DESCRIPTOR),
+            )
             check(LibWayland.proxyAddListener(registry, listener, MemorySegment.NULL) == 0) {
                 "wl_proxy_add_listener rejected the registry listener"
             }

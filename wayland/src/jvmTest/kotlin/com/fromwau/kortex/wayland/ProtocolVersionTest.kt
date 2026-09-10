@@ -134,7 +134,7 @@ class ProtocolVersionTest {
                 .getOrElse { error -> fail("virtual pointer manager bind failed: $error") }
             val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no monitor")
             val offBarX = monitor.logicalWidth / 2
-            val offBarY = monitor.logicalHeight / 2
+            val offBarY = monitor.logicalHeight - 1
             val scrolled = AtomicReference(Offset.Zero)
 
             KortexSurface.create(wayland, CONFIG)
@@ -163,10 +163,7 @@ class ProtocolVersionTest {
 
                     manager.createVirtualPointer().use { wheel ->
                         fun moveTo(x: Int, y: Int) {
-                            // Screen.geometry and the virtual pointer's absolute space agree only
-                            // because this suite runs against a single output pinned at the origin.
-                            wheel.motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
-                            wheel.frame()
+                            wheel.moveTo(monitor, x, y)
                             wayland.roundtrip()
                             bar.pump(timeoutMillis = SETTLE_MILLIS)
                         }
@@ -180,7 +177,8 @@ class ProtocolVersionTest {
                         wheel.axis(AXIS_VERTICAL, SCROLL_FIXED)
                         wheel.frame()
                         wayland.roundtrip()
-                        // Park it off the bar again: the screenshot tests sample the pixel it sits on.
+                        // Off it again: a cursor left on a target would deny the next test's own move
+                        // here an enter, the same hazard the first move above avoids.
                         moveTo(offBarX, offBarY)
                     }
 

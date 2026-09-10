@@ -65,7 +65,7 @@ class KortexShellTest {
 
     private fun assertRendersGrey(namespace: String) {
         val geometry = assertNotNull(Screen.geometry(namespace), "hyprctl did not report $namespace")
-        val pixel = Screen.settledPixel(geometry)
+        val pixel = Screen.pixelReaching(geometry, MID_GREY)
         assertEquals(MID_GREY, pixel, "the surviving surface at $namespace is not showing the composed colour")
     }
 
