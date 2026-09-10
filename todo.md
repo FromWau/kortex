@@ -55,8 +55,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the polish and housekeeping items below; the surface presets, the Foundations they depended on, and
-raising a surface while the host runs are done.
+Next: the open items under Foundations, then Polish and Housekeeping. The surface presets and raising a
+surface while the host runs are done.
 
 ## Foundations
 
@@ -108,23 +108,26 @@ raising a surface while the host runs are done.
       `disposed` to sit beside the public `closed`, which is the compositor's word rather than a
       teardown flag. `wl_compositor.release` carries an opcode and a `since` that are fatal to get wrong
       together, so `releaseCompositor` holds both once, beside `releaseShm`. (`SurfaceLifetimeTest`)
-- [ ] **Every surface leaks about 0.8MB of FFM upcall stubs, permanently.** `LibWayland.arena` is
-      `Arena.global()`, so the roughly 29 stubs `LibWayland.upcall` allocates per surface are never
-      freed. Measured on this machine rather than reasoned about: 2900 stubs cost 80MB of RSS that
-      `malloc_trim` will not return, so 27.8kB each and 0.79MB per surface, and a create/close loop grows
-      RSS by 0.96MB per cycle in a straight line over 150 cycles. This was bounded by monitor events
-      before `KortexHost.open` existed; the demo bar now pays it on every right click.
-      What it does *not* do is retain the composition: a probe whose content remembered a 4MB array saw
-      every one collected after close, because `scene.close()` disposes the composition before the
-      pinned `PointerInput` can hold anything but an emptied shell. The Java side grows about 50kB per
-      surface, which is the stubs' receivers and those shells.
-      The fix is a per-surface `Arena.ofShared()` for that surface's stubs and listener structs, closed
-      last in `KortexSurface.close()` after a final roundtrip, with the registry and interface tables
-      staying global. Getting the order wrong is a jump into freed code inside libwayland's dispatcher.
-      Ruled out by measurement while finding this, so nobody need look again: no fd leak and no mapping
-      leak (both flat from cycle 10 to 150), no thread leak (`dispatcher.close()` leaves no
-      `kortex-frame` behind), and no measurable growth from the cursor theme, the cursor surface, the
-      layer surface or the shm buffers.
+- [x] **A surface's FFM upcall stubs are freed with it.** Every object that installs a listener owns an
+      `Arena.ofShared()` for its stubs and listener struct, and closes it after destroying the proxy that
+      dispatches into them, so no stub outlives its surface and none is freed while a proxy can still
+      reach it. `LibWayland.upcall` takes the arena as a required argument, so a new listener cannot fall
+      back to the global one by leaving it out. A keyboard surface installs 29 stubs at about 27.8kB of
+      RSS each; a create/close loop on one connection grew RSS by about 0.8MB per cycle in a straight
+      line before this, and shows no slope after it over 150 cycles.
+      What stays in `Arena.global()` does so deliberately: the three library lookups, since closing their
+      arena unloads the library under every downcall bound to it; the `wl_interface` tables, which
+      libwayland reads through every proxy made against them; and the registry listener, which lives as
+      long as the connection. No RSS assertion guards this, because a threshold loose enough not to
+      flake would miss one listener put in the wrong arena. `SurfaceLifetimeTest` and
+      `SurfaceTeardownTest` cover the half that can crash, a stub freed before its proxy.
+- [ ] **Three `LibWayland.cString` calls still allocate in the global arena, and are never freed.**
+      `LibC.memfdCreate` allocates its constant name again for every shm buffer (`Shm.kt:43`), two per
+      surface and two more per resize; `WlCursorTheme` allocates each XCursor name it looks up on a
+      cache miss (`WlCursor.kt:154`), again after every rescale; and `WlCursorTheme.load` allocates
+      `$XCURSOR_THEME` once per surface when it is set (`WlCursor.kt:182`). About 300 bytes a surface in
+      all. The first can be one allocation for the life of the process; the theme name belongs to the
+      theme.
 - [ ] **`wl_output.release` is never sent.** `KortexShell` destroys the proxy without it
       (`bindOutput`'s counterpart in `removeOutput` and in `close`). It is opcode 0 since version 3 and
       `WlVersion.OUTPUT` is 4, so it is available; one server-side resource accumulates per hotplug cycle.
