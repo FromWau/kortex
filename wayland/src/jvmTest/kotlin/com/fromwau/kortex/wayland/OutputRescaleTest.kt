@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -83,7 +82,7 @@ class OutputRescaleTest {
             val manager = VirtualPointerManager.bind(wayland)
                 .getOrElse { error -> fail("virtual pointer manager bind failed: $error") }
             val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no monitor")
-            val seen = AtomicReference(Offset.Unspecified)
+            val landedAt = AtomicReference<Offset?>(null)
 
             KortexSurface.create(wayland, CONFIG)
                 .getOrElse { error -> fail("bar creation failed: $error") }
@@ -100,7 +99,9 @@ class OutputRescaleTest {
                                             // wl_pointer.enter carries the position of a cursor that
                                             // arrives from outside; no motion follows it.
                                             if (event.type !in POSITIONED) continue
-                                            seen.set(event.changes.first().position)
+                                            // The first only: every pointer device on the seat moves this
+                                            // one cursor, so a later position need not be this test's.
+                                            landedAt.updateAndGet { it ?: event.changes.first().position }
                                         }
                                     }
                                 },
@@ -126,8 +127,10 @@ class OutputRescaleTest {
                         // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
                         // cursor already parked on these coordinates would never enter the new surface.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
+                        // Whatever reached the bar before this move is not where the move landed.
+                        landedAt.set(null)
                         moveTo(geometry.x + PROBE_LOGICAL_X, geometry.y + PROBE_LOGICAL_Y)
-                        val delivered = bar.pump(timeoutMillis = PUMP_MILLIS) { seen.get().isSpecified }
+                        val delivered = bar.pump(timeoutMillis = PUMP_MILLIS) { landedAt.get() != null }
                         // Off it again: a cursor left on a target would deny the next test's own move
                         // here an enter, the same hazard the first move above avoids.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
@@ -138,7 +141,7 @@ class OutputRescaleTest {
 
                     val expected =
                         Offset((PROBE_LOGICAL_X * newScale).toFloat(), (PROBE_LOGICAL_Y * newScale).toFloat())
-                    val observed = seen.get()
+                    val observed = checkNotNull(landedAt.get())
                     assertTrue(
                         abs(observed.x - expected.x) <= POSITION_TOLERANCE_PX &&
                             abs(observed.y - expected.y) <= POSITION_TOLERANCE_PX,
