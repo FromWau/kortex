@@ -186,10 +186,14 @@ class NamedOutputTest {
             pendingOutput?.let(Hyprctl::removeHeadlessOutput)
             // Closing would race the loop thread if it were still inside libwayland; safe only once it
             // has actually returned, which either a successful join or the mutation's immediate exit prove.
-            if (loopThread?.isAlive != true) {
-                shell?.close()
-                display.close()
+            if (loopThread?.isAlive == true) {
+                fail(
+                    "the event loop thread never returned, so its connection, its surfaces and the thread " +
+                        "itself stay live: every later test in this worker runs against a poisoned session",
+                )
             }
+            shell?.close()
+            display.close()
         }
     }
 
