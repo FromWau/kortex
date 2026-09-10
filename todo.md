@@ -9,7 +9,7 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] `zwlr_layer_shell_v1` surfaces
 - [x] Compose Desktop content with state, animation, interactivity
 - [x] Frame pacing off `wl_surface.frame` — an idle bar draws nothing (`FrameClock`, `IdleFrameTest`).
-      It still wakes on a fixed tick, which is the event-loop item under Polish.
+      Its event loop sleeps until an event, posted work or a key-repeat deadline needs it (`EventLoopWakeTest`).
 - [x] Keyboard through xkbcommon: layout-aware keysyms, modifier state (`KeyboardInput`, `Xkb`)
 - [x] Text input via `TextField` with an IME session (`KortexTextInput`)
 - [x] HiDPI: per-surface scale detection, physical-pixel rendering, logical↔buffer pointer translation
@@ -248,31 +248,18 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       implements `equals`/`hashCode` by cursor type; an icon the lookup does not recognise still resolves to
       `Default`. `WlCursorTheme.resolve` gives each shape a candidate XCursor name, its CSS name, then
       `left_ptr`. (`KortexSceneTest`, `WlCursorThemeTest`)
-- [ ] **Wake the event loop on demand instead of on a fixed tick.** Nothing polls Wayland: events arrive
-      on a socket fd and `wl_display_dispatch_timeout` blocks on it. What is fixed is the *timeout* —
-      `EVENT_LOOP_TIMEOUT_MILLIS = 16`, in both `KortexShell` and `KortexSurface` — so an idle host wakes
-      about 60 times a second to run four "has this changed?" checks and draw nothing, which is enough to
-      keep a laptop out of deep idle.
-      Only one of those checks needs a tick at all. `consumeResize`, `preferredBufferScale` and the retired
-      frames are all set by events, so they can be serviced when an event actually arrives.
-      `KeyboardInput.checkRepeat` is the exception: it is a deadline (`nowNanos < nextRepeatAtNanos`) and no
-      Wayland event announces it, so the constant timeout is standing in for a timer.
-      **Small version:** pass the real next deadline as the timeout instead of the constant — no key held
-      means blocking until an event arrives, so a genuinely idle bar costs nothing at all.
-      That is not safe on its own any more. `KortexHost.open` posts onto `KortexShell.pendingOpens` from a
-      frame thread and cannot wake the loop, since only the loop thread may call libwayland; the fixed
-      16ms tick is the only reason a menu raised from content appears at all. Blocking on a key-repeat
-      deadline instead would leave it unplaced until some unrelated event arrived. That queue therefore
-      needs a wakeup of its own, which is the same second-source problem the next paragraph describes.
-      **Know before starting it:** `dispatch_timeout` can wait on exactly one source, and blocking inside it
-      is being deaf to every other one. A bar that grows a second source — D-Bus for MPRIS, notifications or
-      battery, a timerfd, a config watch — needs `wl_display_get_fd` plus the
-      `prepare_read`/`read_events`/`cancel_read` dance to put the Wayland fd into its own `poll`/`epoll`
-      alongside the others; that dance exists to close the race where one reader decides to sleep just as
-      another drains the socket. libwayland 1.26 exports all of it, and FFM reaches it the same way it
-      reaches everything else, so nothing here is blocked by the binding layer. That design subsumes the
-      key-repeat timer as just another fd, and the small version above does not stand in its way — the
-      whole `dispatch_timeout` call is replaced rather than worked around.
+- [x] **The event loop wakes on demand.** `KortexShell.runEventLoop` and `KortexSurface.runEventLoop` both
+      sleep in `WaylandDisplay.awaitWork` until a Wayland event arrives, another thread posts work, or a held
+      key's next repeat falls due. It does libwayland's read dance itself: it dispatches whatever is already
+      queued, flushes, `poll`s the Wayland fd beside an `eventfd`, reads or cancels, and dispatches what
+      arrived. `WaylandDisplay.wake()` counts that `eventfd` up from any thread, and every post the loop
+      drains calls it after enqueueing: `KortexHost.open`, and the surface queue that invalidations, cursor
+      changes and `KortexSurfaceHandle.close` go through. `KeyboardInput` reports the repeat deadline, a
+      shell takes the earliest across its surfaces, and `poll` gets it rounded up to whole milliseconds;
+      with no key repeating the loop waits indefinitely, so an idle bar does not wake at all. A roundtrip
+      inside a pass makes the next wait return at once, since the events it dispatched can change what that
+      pass already checked, and a shell runs its surfaces' posted work before reaping closed ones. Another
+      source, D-Bus or a timerfd, would be one more fd in that `poll`. (`EventLoopWakeTest`, `KeyRepeatTest`)
 
 ## Housekeeping
 

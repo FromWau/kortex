@@ -38,8 +38,8 @@ public class WaylandDisplay private constructor(
     // Guarded by wakeLock.
     private var wakeClosed = false
 
-    // Events a roundtrip dispatches mid-pass can change what that pass already checked, so the next wait must
-    // not sleep.
+    // Events a roundtrip or dispatch runs mid-pass can change what that pass already checked, so the next wait
+    // must not sleep.
     private var dispatchedOutsideWait = false
 
     /** The registry listener's struct; not private because a test asserts that [close] frees it. */
@@ -77,7 +77,8 @@ public class WaylandDisplay private constructor(
     public fun dispatch(): Int = LibWayland.displayDispatch(display).also { dispatchedOutsideWait = true }
 
     /** Dispatches for at most [timeoutMillis], so a loop can also do other work. */
-    public fun dispatch(timeoutMillis: Long): Int = LibWayland.displayDispatchTimeout(display, timeoutMillis)
+    public fun dispatch(timeoutMillis: Long): Int =
+        LibWayland.displayDispatchTimeout(display, timeoutMillis).also { dispatchedOutsideWait = true }
 
     public fun flush(): Int = LibWayland.displayFlush(display)
 

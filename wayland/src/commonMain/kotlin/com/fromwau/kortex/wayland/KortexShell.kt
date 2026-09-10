@@ -106,11 +106,12 @@ public class KortexShell private constructor(
         while (true) {
             applyPendingChanges()
             if (surfaces.isEmpty() && !awaitingAnOutput) break
-            display.flush()
-            if (display.dispatch(EVENT_LOOP_TIMEOUT_MILLIS) < 0) break
+            if (!display.awaitWork(nextDeadlineNanos())) break
             serviceSurfaces()
         }
     }
+
+    private fun nextDeadlineNanos(): Long? = surfaces.mapNotNull { it.surface.nextDeadlineNanos }.minOrNull()
 
     /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses; mirrors [KortexSurface.pump]. */
     public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
@@ -150,6 +151,8 @@ public class KortexShell private constructor(
     }
 
     private fun serviceSurfaces() {
+        // Before the reap: a close content posts marks its surface only once run, and nothing wakes the loop again.
+        surfaces.forEach { it.surface.drainQueue() }
         // filter copies first: removeSurface mutates the very list this walks.
         val closing = surfaces.filter { it.surface.closed }
         val toReplace = closing.filter(::shouldReplace)
@@ -238,6 +241,7 @@ public class KortexShell private constructor(
         override val output: OutputGeometry? get() = active.geometry
         override fun open(spec: SurfaceSpec) {
             pendingOpens += spec
+            display.wake()
         }
     }
 
@@ -291,6 +295,5 @@ public class KortexShell private constructor(
 
         private const val NANOS_PER_MILLI = 1_000_000L
         private const val PUMP_INTERVAL_MILLIS = 16L
-        private const val EVENT_LOOP_TIMEOUT_MILLIS = 16L
     }
 }

@@ -52,8 +52,8 @@ public class KortexSurface private constructor(
     private val seat: Seat,
 ) : AutoCloseable {
 
-    // Posted by onInvalidate (the frame thread) and drained only on the loop thread, which is the
-    // one thread ever allowed to call into libwayland.
+    // Filled through post() from any thread and drained only on the loop thread, which is the one thread
+    // ever allowed to call into libwayland.
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
 
     // Set once by create() after the seat is bound; null only once close() has released it.
@@ -77,7 +77,7 @@ public class KortexSurface private constructor(
         override fun close() {
             // markClosed() itself needs no thread confinement, but the hop keeps this on setCursor's
             // pattern and stays correct if closing ever grows a real libwayland call.
-            queue += { layer.markClosed() }
+            post { layer.markClosed() }
         }
     }
 
@@ -114,6 +114,9 @@ public class KortexSurface private constructor(
     /** Which side closed this surface, once [closed] is true; null beforehand. */
     internal val closeReason: CloseReason? get() = layer.closeReason
 
+    /** When this surface next needs a loop pass that no Wayland event will announce; null while nothing does. */
+    internal val nextDeadlineNanos: Long? get() = keyboardInput?.nextRepeatDueNanos
+
     /** A test cannot make the compositor close this surface: that needs removing whatever output it chose. */
     internal fun simulateCompositorClose() {
         layer.simulateCompositorClose()
@@ -136,8 +139,7 @@ public class KortexSurface private constructor(
     public fun runEventLoop() {
         while (true) {
             drainQueue()
-            display.flush()
-            if (display.dispatch(EVENT_LOOP_TIMEOUT_MILLIS) < 0) break
+            if (!display.awaitWork(nextDeadlineNanos)) break
             reconcile()
         }
     }
@@ -161,8 +163,13 @@ public class KortexSurface private constructor(
         return predicate()
     }
 
-    private fun drainQueue() {
+    internal fun drainQueue() {
         generateSequence(queue::poll).forEach { it() }
+    }
+
+    private fun post(work: () -> Unit) {
+        queue += work
+        display.wake()
     }
 
     /**
@@ -263,7 +270,7 @@ public class KortexSurface private constructor(
 
     private fun onInvalidate() {
         // Runs on the frame thread, which must never touch libwayland itself, so post the work instead.
-        queue += {
+        post {
             // Answer an invalidation by asking for a frame, never by rendering immediately: the
             // compositor decides when a frame happens.
             clock.request(::renderNow)
@@ -324,7 +331,7 @@ public class KortexSurface private constructor(
             val hostPlatform = object : KortexPlatform {
                 override fun setCursor(cursor: KortexCursor) {
                     // Compose can call this from the frame thread; every libwayland call must run on the loop thread.
-                    surface.queue += { surface.pointerInput?.setCursor(cursor) }
+                    surface.post { surface.pointerInput?.setCursor(cursor) }
                     platform.setCursor(cursor)
                 }
 
@@ -446,6 +453,5 @@ public class KortexSurface private constructor(
         private const val BUFFER_COUNT = 2
         private const val NANOS_PER_MILLI = 1_000_000L
         private const val PUMP_INTERVAL_MILLIS = 16L
-        private const val EVENT_LOOP_TIMEOUT_MILLIS = 16L
     }
 }

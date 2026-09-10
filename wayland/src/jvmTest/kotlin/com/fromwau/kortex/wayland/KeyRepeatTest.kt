@@ -123,11 +123,61 @@ class KeyRepeatTest {
         }
     }
 
+    @Test
+    fun `the loop sleeps until a held key's next repeat is due, and indefinitely while none is`() {
+        withKeyboardSession { keyboard, _, _, _ ->
+            keyboard.onRepeatInfo(NULL, NULL, RATE, DELAY_MILLIS)
+            assertEquals(
+                LibC.POLL_INDEFINITELY, loopTimeout(keyboard, System.nanoTime()),
+                "the loop would wake for a repeat with no key held",
+            )
+
+            val beforePress = System.nanoTime()
+            keyboard.onKey(NULL, NULL, 1, 0, KEY_A, PRESSED)
+            val afterPress = System.nanoTime()
+            val due = assertNotNull(keyboard.nextRepeatDueNanos, "a held key gave the loop no deadline to wake at")
+            val pressMillis = Math.ceilDiv(afterPress - beforePress, NANOS_PER_MILLI).toInt()
+            val atPress = loopTimeout(keyboard, afterPress)
+            assertTrue(
+                atPress in DELAY_MILLIS - pressMillis..DELAY_MILLIS,
+                "right after the press the loop would sleep ${atPress}ms, not the ${DELAY_MILLIS}ms delay",
+            )
+            assertEquals(1, loopTimeout(keyboard, due - 1), "the loop would wake before the repeat is due")
+            assertEquals(
+                0, loopTimeout(keyboard, due + NANOS_PER_MILLI),
+                "an overdue repeat would not wake the loop at once",
+            )
+
+            keyboard.checkRepeat(nowNanos = due)
+            assertEquals(
+                MILLIS_PER_SECOND / RATE, loopTimeout(keyboard, due),
+                "after a repeat the loop would not wake again one repeat interval later",
+            )
+
+            keyboard.onKey(NULL, NULL, 2, 0, KEY_A, RELEASED)
+            assertEquals(
+                LibC.POLL_INDEFINITELY, loopTimeout(keyboard, System.nanoTime()),
+                "the loop would still wake for a released key",
+            )
+
+            keyboard.onRepeatInfo(NULL, NULL, 0, DELAY_MILLIS)
+            keyboard.onKey(NULL, NULL, 3, 0, KEY_A, PRESSED)
+            assertEquals(
+                LibC.POLL_INDEFINITELY, loopTimeout(keyboard, System.nanoTime()),
+                "at rate 0 the loop would wake for a repeat that never comes",
+            )
+        }
+    }
+
+    /** The timeout the loop's wait hands `poll` while [keyboard]'s repeat is the only deadline it has. */
+    private fun loopTimeout(keyboard: KeyboardInput, nowNanos: Long): Int =
+        LibC.pollTimeoutMillis(keyboard.nextRepeatDueNanos, nowNanos)
+
     private fun render(scene: KortexScene, surface: Surface) {
         scene.render(surface.canvas.asComposeCanvas(), System.nanoTime())
     }
 
-    /** Mirrors [KortexSurface]'s real tick: check for a due repeat, then render, once per [TICK_MILLIS]. */
+    /** Mirrors [KortexSurface.pump]: check for a due repeat, then render, once per [TICK_MILLIS]. */
     private fun pollFor(durationMillis: Long, keyboard: KeyboardInput, scene: KortexScene, surface: Surface) {
         val deadline = System.nanoTime() + durationMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
@@ -211,8 +261,9 @@ class KeyRepeatTest {
 
         const val NANOS_PER_MILLI = 1_000_000L
         const val NANOS_PER_SECOND = 1_000_000_000L
+        const val MILLIS_PER_SECOND = 1_000
 
-        // Matches KortexSurface's own tick cadence (PUMP_INTERVAL_MILLIS / EVENT_LOOP_TIMEOUT_MILLIS).
+        // Matches KortexSurface.pump's own cadence, its PUMP_INTERVAL_MILLIS.
         const val TICK_MILLIS = 16L
 
         // Picked so no plausible built-in default (e.g. 25/s after 250ms) could pass this by accident.
