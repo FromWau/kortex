@@ -10,8 +10,7 @@ internal const val PROBE_MARKER_SHELL_CLOSED = "KORTEX-PROBE shell-closed"
 
 /**
  * Binds every output, hotplugs a headless one and drops it again, then closes the shell and the
- * display, so [OutputReleaseWireTest] can read the wl_output.release requests this sends; nothing
- * in-process shows a request leaving the client.
+ * display, so [OutputReleaseWireTest] can read the wl_output.release requests this sends.
  */
 public fun main() {
     val display = WaylandDisplay.connect().getOrElse { error("probe: no compositor answered: $it") }
