@@ -2,9 +2,13 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.LocalKortexSurface
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -128,24 +132,65 @@ class NamedOutputTest {
     }
 
     @Test
-    fun `a shell whose only spec names an output that never connects keeps its event loop running`() {
+    fun `a shell whose only spec names an absent output waits, then stops once it is drawn and closed`() {
+        var pendingOutput: String? = null
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        val shell = KortexShell.create(display, namedSpec(ABSENT_OUTPUT_NAME))
-            .getOrElse { error -> fail("shell creation failed: $error") }
+        var shell: KortexShell? = null
+        var loopThread: Thread? = null
 
-        assertEquals(0, shell.activeSurfaces.size, "a NamedOutput spec for an absent output must place nothing")
+        try {
+            val probe = Hyprctl.createHeadlessOutput()
+            Hyprctl.removeHeadlessOutput(probe)
+            val predictedName = nextHeadlessName(probe)
+            val closeRequested = mutableStateOf(false)
 
-        // Left running as a daemon: closing from here would race this loop's own dispatch on the same
-        // display, corrupting native state (verified: SIGABRT). It runs forever by design in this
-        // scenario, so there is no safe moment to close it from outside; the JVM reclaims it at exit.
-        val loopThread = Thread(shell::runEventLoop, "kortex-named-output-await-test").apply { isDaemon = true }
-        loopThread.start()
+            val created = KortexShell.create(display, namedClosableSpec(predictedName, closeRequested))
+                .getOrElse { error -> fail("shell creation failed: $error") }
+            shell = created
+            assertEquals(0, created.activeSurfaces.size, "a NamedOutput spec for an absent output must place nothing")
 
-        Thread.sleep(LOOP_ALIVE_CHECK_MILLIS)
-        assertTrue(
-            loopThread.isAlive,
-            "the event loop exited even though its only spec is still waiting for its own output to connect",
-        )
+            // Only the loop thread may touch libwayland (constraint 1), so this thread runs the whole
+            // lifecycle: waiting, placing the hotplugged surface, and returning once it closes itself.
+            val thread = Thread(created::runEventLoop, "kortex-named-output-await-test").apply { isDaemon = true }
+            loopThread = thread
+            thread.start()
+
+            Thread.sleep(LOOP_ALIVE_CHECK_MILLIS)
+            assertTrue(
+                thread.isAlive,
+                "the event loop exited even though its only spec is still waiting for its own output to connect",
+            )
+
+            pendingOutput = Hyprctl.createHeadlessOutput()
+            assertEquals(
+                predictedName, pendingOutput,
+                "Hyprland's headless output naming scheme changed: expected the next HEADLESS-N " +
+                    "after $probe was removed, so the prediction this test relies on no longer holds",
+            )
+
+            assertTrue(
+                awaitNamedNamespace(present = true),
+                "hyprctl layers never reported a $NAMED_NAMESPACE- namespace after hotplug",
+            )
+
+            // Only a Compose state write here: the surface's own close() hop, like KortexHost.open(),
+            // queues onto the loop thread instead of touching libwayland from this one.
+            closeRequested.value = true
+
+            thread.join(LOOP_JOIN_TIMEOUT_MILLIS)
+            assertTrue(
+                !thread.isAlive,
+                "the event loop kept running after its only surface closed on a still-connected output",
+            )
+        } finally {
+            pendingOutput?.let(Hyprctl::removeHeadlessOutput)
+            // Closing would race the loop thread if it were still inside libwayland; safe only once it
+            // has actually returned, which either a successful join or the mutation's immediate exit prove.
+            if (loopThread?.isAlive != true) {
+                shell?.close()
+                display.close()
+            }
+        }
     }
 
     private fun panelSpec(): SurfaceSpec =
@@ -153,6 +198,15 @@ class NamedOutputTest {
 
     private fun namedSpec(name: String): SurfaceSpec =
         SurfaceSpec(NAMED_CONFIG, OutputTarget.NamedOutput(name)) { Box(Modifier.fillMaxSize()) }
+
+    /** Its content closes the surface itself once [closeRequested] flips, on the composition's own thread. */
+    private fun namedClosableSpec(name: String, closeRequested: MutableState<Boolean>): SurfaceSpec =
+        SurfaceSpec(NAMED_CONFIG, OutputTarget.NamedOutput(name)) {
+            val surface = LocalKortexSurface.current
+            val requested = closeRequested.value
+            LaunchedEffect(requested) { if (requested) surface.close() }
+            Box(Modifier.fillMaxSize())
+        }
 
     /** Every monitor `hyprctl layers -j` reports [namespace] under. */
     private fun monitorsShowing(namespace: String): Set<String> = Hyprctl.layers()
@@ -164,6 +218,16 @@ class NamedOutputTest {
 
     // A per-output surface's namespace carries the output's registry id as a suffix, like any other.
     private fun namedNamespace(): String? = Hyprctl.namespaces().firstOrNull { it.startsWith("$NAMED_NAMESPACE-") }
+
+    // hyprctl only, never the shell: while a background loop thread runs, it alone may touch the display.
+    private fun awaitNamedNamespace(present: Boolean, timeoutMillis: Long = PUMP_TIMEOUT_MILLIS): Boolean {
+        val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
+        while (System.nanoTime() < deadline) {
+            if ((namedNamespace() != null) == present) return true
+            Thread.sleep(HYPRCTL_POLL_MILLIS)
+        }
+        return (namedNamespace() != null) == present
+    }
 
     // hyprctl's headless names are HEADLESS-<n>; the caller's own assertion catches it if that ever changes.
     private fun nextHeadlessName(name: String): String {
@@ -193,10 +257,7 @@ class NamedOutputTest {
         const val HYPRCTL_POLL_MILLIS = 100L
         const val NANOS_PER_MILLI = 1_000_000L
         const val LOOP_ALIVE_CHECK_MILLIS = 200L
-
-        // Hyprland's own outputs are real connector names (HDMI-A-2) or a HEADLESS-<n> counter; this
-        // string matches neither pattern, so no connected output can ever carry it.
-        const val ABSENT_OUTPUT_NAME = "kortex-test-absent-output"
+        const val LOOP_JOIN_TIMEOUT_MILLIS = 3000L
 
         val PANEL_CONFIG = SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE)
         val NAMED_CONFIG = SurfaceConfig.osd(OSD_SIZE.dp, OSD_SIZE.dp).copy(namespace = NAMED_NAMESPACE)
