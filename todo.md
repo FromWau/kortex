@@ -87,14 +87,18 @@ raising a surface while the host runs are done.
       surface is left and none can return, so a host whose content closed itself stops instead of
       spinning on an empty screen, while an `EveryOutput` spec with no output waits for one.
       (`MultiSurfaceTest`)
-- [ ] **The teardown above is still partial.** `KortexSurface.create` also binds a `wl_shm` for `Shm`
-      (`Shm.kt:171`), a second `wl_shm` inside `WlCursorTheme.load` (`WlCursor.kt:150`), and a
-      `wl_compositor` plus a cursor `wl_surface` in `WlCursorSurface.create` (`WlCursor.kt:187`), along
-      with the native `wl_cursor_theme` handle `wl_cursor_theme_load` hands back. `KortexSurface.close()`
-      destroys none of them, and `Shm`, `WlCursorTheme` and `WlCursorSurface` have no `close()` at all.
-      This matters more now than it did before this branch: `KortexShell.serviceSurfaces` re-places a
-      standing `CompositorChoice` surface every time the compositor takes it away, so a long-lived host
-      leaks all of the above on exactly that close-and-replace path, not just once at shutdown.
+- [x] **The rest of that teardown.** `Shm`, `WlCursorTheme` and `WlCursorSurface` each have a `close()`
+      now, so the `wl_shm` a surface binds, the second `wl_shm` behind its cursor theme, the
+      `wl_compositor` `WlCursorSurface` binds, its cursor `wl_surface` and every `wl_cursor_theme` handle
+      are all given back rather than leaked once per surface on `KortexShell`'s close-and-replace path.
+      Order carries the risk: `wl_cursor_theme_destroy` destroys the `wl_buffer`s the compositor was
+      handed, so the pointer is released and the cursor surface destroyed first, and a round trip proves
+      the compositor has processed both before the theme frees them. `rescale` retains each handle it
+      supersedes instead of leaking it, since the same argument frees them all. `wl_shm.release` and
+      `wl_compositor.release` are sent only when the negotiated version has them, because marshalling an
+      opcode past a proxy's version kills the connection; the proxies themselves are always freed
+      client-side. Each `close()` is idempotent, since the `KortexSurface` latch guarding them is not
+      something a direct caller of those classes has. (`SurfaceLifetimeTest`)
 
 ## Surface presets
 
