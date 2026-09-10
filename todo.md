@@ -99,7 +99,7 @@ raising a surface while the host runs are done.
       opcode past a proxy's version kills the connection; the proxies themselves are always freed
       client-side. Each `close()` is idempotent, since the `KortexSurface` latch guarding them is not
       something a direct caller of those classes has. (`SurfaceLifetimeTest`)
-- [x] **The last of it: `LayerSurface` and the frame clock.** `LayerSurface.create` binds a
+- [x] **Every proxy a surface binds is given back.** `LayerSurface.create` binds a
       `wl_compositor` and a `zwlr_layer_shell_v1` of its own, since `WaylandDisplay.require` caches
       nothing, and kept neither; `FrameClock` released its `wl_callback` only when the frame fired, so a
       surface closed mid-frame leaked one. All four are given back now, the shell and the compositor
@@ -108,6 +108,27 @@ raising a surface while the host runs are done.
       `disposed` to sit beside the public `closed`, which is the compositor's word rather than a
       teardown flag. `wl_compositor.release` carries an opcode and a `since` that are fatal to get wrong
       together, so `releaseCompositor` holds both once, beside `releaseShm`. (`SurfaceLifetimeTest`)
+- [ ] **A closed surface still pins its Compose scene, permanently.** `LibWayland.arena` is
+      `Arena.global()`, and `LibWayland.upcall` binds its receiver into the stub it allocates there, so
+      every upcall outlives the JVM's whole run. A surface allocates about 29 of them, and `PointerInput`
+      and `KeyboardInput` each hold the `KortexScene`, so closing a surface gives back its proxies and
+      keeps its entire composition, recomposer and Skia surfaces reachable. This was bounded by monitor
+      events before `KortexHost.open` existed; the demo bar now takes the path on every right click.
+      The fix is a per-surface `Arena.ofShared()` for that surface's stubs and listener structs, closed
+      last in `KortexSurface.close()` after a final roundtrip, with the registry and the interface tables
+      staying global. The comment at `LibWayland.kt` justifying the global arena says a proxy can outlive
+      any scope we could tie it to, which the per-surface teardown has made untrue for these; it is still
+      true for the rest. Getting the order wrong is a jump into freed code inside libwayland's dispatcher.
+- [ ] **`wl_output.release` is never sent.** `KortexShell` destroys the proxy without it
+      (`bindOutput`'s counterpart in `removeOutput` and in `close`). It is opcode 0 since version 3 and
+      `WlVersion.OUTPUT` is 4, so it is available; one server-side resource accumulates per hotplug cycle.
+- [ ] **`KortexSurface.create`'s failure paths leak whatever they built.** Each `getOrElse { return Err }`
+      returns without closing the shm, cursor theme, cursor surface, seat or layer surface created above
+      it. `runSurfaces`' KDoc no longer promises otherwise, but the paths themselves are unchanged.
+- [ ] **Nothing proves `KortexHost.output` actually recomposes a reader.** It is snapshot state and
+      `OutputGeometryTest` pins the read and the write, but `KortexShell.create` round-trips before
+      placing, so geometry is already there at first composition and every existing test would pass with
+      zero recompositions. A test needs an output to republish geometry under a live reader.
 
 ## Surface presets
 

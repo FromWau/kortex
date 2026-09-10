@@ -239,7 +239,10 @@ public class LayerSurface internal constructor(
                 .getOrElse { return Err(it) }
             val shell = display
                 .require("zwlr_layer_shell_v1", LayerShellProtocol.layerShellInterface, WlVersion.LAYER_SHELL)
-                .getOrElse { return Err(it) }
+                .getOrElse {
+                    releaseCompositor(compositor)
+                    return Err(it)
+                }
 
             val surface = LibWayland.marshal(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,

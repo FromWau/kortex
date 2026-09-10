@@ -82,8 +82,8 @@ private fun Bar() {
                                 // This scope's Density is the very buffer scale the offset was produced
                                 // at, so it converts exactly into the logical space contextMenu wants.
                                 val x = (event.changes.first().position.x / density).roundToInt()
-                                // The bar is anchored Top, Left and Right with no margins, so its own
-                                // top-left is the output's and the menu clears it by opening below it.
+                                // Bar-local is output-local only while nothing else reserves the Top
+                                // edge; a second bar above this one displaces the menu by its height.
                                 val at = IntOffset(x, barSurface.size.height)
                                 openMenuDismissal.value?.value = true
                                 val dismissal = mutableStateOf(false)
@@ -121,7 +121,7 @@ private fun contextMenuSpec(at: IntOffset, output: OutputGeometry, dismissal: St
             menuSize = IntSize(MENU_WIDTH, MENU_HEIGHT),
             outputSize = IntSize(output.width / output.scale, output.height / output.scale),
         )
-        .copy(namespace = "kortex-menu")
+        .copy(namespace = MENU_NAMESPACE)
     return SurfaceSpec(config, OutputTarget.NamedOutput(output.name)) { ContextMenu(dismissal) }
 }
 
@@ -150,6 +150,7 @@ private fun ContextMenu(dismissal: State<Boolean>) {
     }
 }
 
+private const val MENU_NAMESPACE = "kortex-menu"
 private const val MENU_WIDTH = 160
 private const val MENU_HEIGHT = 120
 private val MENU_ITEMS = listOf("Option 1", "Option 2", "Option 3")

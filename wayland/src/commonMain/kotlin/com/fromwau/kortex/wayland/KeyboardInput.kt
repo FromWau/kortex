@@ -177,7 +177,8 @@ internal class KeyboardInput(
 
     /** Gives the keyboard and its compiled keymap back; nothing here may be used afterwards. */
     fun release() {
-        LibWayland.marshal(keyboardProxy, WL_KEYBOARD_RELEASE)
+        if (keyboardProxy.equals(MemorySegment.NULL)) return
+        LibWayland.marshalIfSince(keyboardProxy, WL_KEYBOARD_RELEASE, WL_KEYBOARD_RELEASE_SINCE)
         LibWayland.proxyDestroy(keyboardProxy)
         keyboardProxy = MemorySegment.NULL
         Xkb.releaseState(state)
@@ -186,6 +187,7 @@ internal class KeyboardInput(
 
     private companion object {
         const val WL_KEYBOARD_RELEASE = 0
+        const val WL_KEYBOARD_RELEASE_SINCE = 3
         const val KEY_PRESSED = 1
         const val XKB_V1_FORMAT = 1
         const val FIRST_PRINTABLE = 0x20

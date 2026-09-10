@@ -137,7 +137,8 @@ internal class PointerInput(
 
     /** Gives the pointer back; nothing here may be used afterwards. */
     fun release() {
-        LibWayland.marshal(pointerProxy, WL_POINTER_RELEASE)
+        if (pointerProxy.equals(MemorySegment.NULL)) return
+        LibWayland.marshalIfSince(pointerProxy, WL_POINTER_RELEASE, WL_POINTER_RELEASE_SINCE)
         LibWayland.proxyDestroy(pointerProxy)
         pointerProxy = MemorySegment.NULL
     }
@@ -172,6 +173,7 @@ internal class PointerInput(
         private const val AXIS_VERTICAL = 0
         private const val WL_POINTER_SET_CURSOR = 0
         private const val WL_POINTER_RELEASE = 1
+        private const val WL_POINTER_RELEASE_SINCE = 3
 
         // linux/input-event-codes.h
         private const val BTN_LEFT = 0x110
@@ -224,6 +226,8 @@ internal class Seat private constructor(
     private val seat: MemorySegment,
     private val capabilities: SeatCapabilities,
 ) {
+
+    private var released = false
     val hasPointer: Boolean get() = capabilities.value and CAPABILITY_POINTER != 0
     val hasKeyboard: Boolean get() = capabilities.value and CAPABILITY_KEYBOARD != 0
 
@@ -252,7 +256,9 @@ internal class Seat private constructor(
 
     /** Gives the seat back; every device taken from it must already have been released. */
     fun release() {
-        LibWayland.marshal(seat, WL_SEAT_RELEASE)
+        if (released) return
+        released = true
+        LibWayland.marshalIfSince(seat, WL_SEAT_RELEASE, WL_SEAT_RELEASE_SINCE)
         LibWayland.proxyDestroy(seat)
     }
 
@@ -269,6 +275,7 @@ internal class Seat private constructor(
         private const val CAPABILITY_KEYBOARD = 2
         private const val WL_SEAT_GET_KEYBOARD = 1
         private const val WL_SEAT_RELEASE = 3
+        private const val WL_SEAT_RELEASE_SINCE = 5
     }
 }
 

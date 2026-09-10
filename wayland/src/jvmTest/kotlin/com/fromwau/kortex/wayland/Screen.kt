@@ -4,6 +4,7 @@ import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.fail
 
 /**
  * Moves the pointer to logical ([x], [y]) on [monitor], the space [Screen.geometry] reports in.
@@ -83,7 +84,7 @@ internal object Screen {
                 return value
             }
         }
-        return value
+        fail("the pixel never held one value for $STABLE_WINDOW_MILLIS ms; last read " + "0x%08X".format(value))
     }
 
     private fun readPixel(geometry: LayerGeometry): Int {

@@ -17,9 +17,9 @@ public sealed interface OutputTarget {
      *
      * Two limitations follow. With no output at all connected at the moment the compositor takes the
      * surface, there is nowhere to place the replacement and it stays gone until asked for again.
-     * Should placing the replacement itself fail, the run drops it and carries on rather than ending:
-     * that failure comes from a connection which may already be going down, and taking the host with it
-     * is worse than one surface staying gone.
+     * Should placing the replacement itself fail, the run drops it and carries on rather than taking
+     * the host down with it: that failure comes from a connection which may already be going down. If
+     * the dropped surface was the last one, the run then ends the way an empty screen always ends it.
      */
     public data object CompositorChoice : OutputTarget
 

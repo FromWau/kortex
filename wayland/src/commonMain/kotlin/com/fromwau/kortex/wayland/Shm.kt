@@ -132,30 +132,13 @@ public class ShmBuffer internal constructor(
     }
 }
 
-/** Gives a `wl_compositor` proxy back and frees it; a layer surface and a cursor surface each bind one. */
-internal fun releaseCompositor(compositor: MemorySegment) {
-    LibWayland.marshalIfSince(compositor, WL_COMPOSITOR_RELEASE, WL_COMPOSITOR_RELEASE_SINCE)
-    LibWayland.proxyDestroy(compositor)
-}
-
-private const val WL_COMPOSITOR_RELEASE = 2
-private const val WL_COMPOSITOR_RELEASE_SINCE = 7
-
-/** Gives a `wl_shm` proxy back and frees it; both surfaces and cursor themes bind one of their own. */
-internal fun releaseShm(shm: MemorySegment) {
-    LibWayland.marshalIfSince(shm, WL_SHM_RELEASE, WL_SHM_RELEASE_SINCE)
-    LibWayland.proxyDestroy(shm)
-}
-
-private const val WL_SHM_RELEASE = 1
-private const val WL_SHM_RELEASE_SINCE = 2
-
 /** The compositor's shared-memory buffer factory. */
 public class Shm internal constructor(private val shm: MemorySegment) : AutoCloseable {
 
     private var closed = false
 
     public fun createBuffer(width: Int, height: Int): Result<ShmBuffer, KortexError> {
+        check(!closed) { "createBuffer on a Shm whose wl_shm is already given back" }
         val stride = width * BYTES_PER_PIXEL
         val size = stride.toLong() * height
         val fd = LibC.memfdCreate("kortex-shm").getOrElse { return Err(it) }
