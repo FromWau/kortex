@@ -5,11 +5,13 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.getOrElse
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -39,26 +41,42 @@ class SurfaceCreateFailureTest {
             assertNull(wayland.protocolError(), "giving back a failed create's pieces cost the connection")
 
             wayland.addGlobal(seat)
-            KortexSurface.create(wayland, CONFIG)
+            val surface = KortexSurface.create(wayland, CONFIG)
                 .getOrElse { error -> fail("a create on the connection a failed one used did not succeed: $error") }
-                .close()
+            // Checked before close() and outside use {}: a create that had unwound anyway must fail here,
+            // since closing its pieces twice could close a descriptor number something else now holds.
+            assertTrue(NAMESPACE in Hyprctl.namespaces(), "a create that succeeded gave back its layer surface")
+            assertTrue(
+                openMemfds().any { it.startsWith(SHM_MEMFD) },
+                "a create that succeeded gave back its shm buffers",
+            )
+            surface.close()
             wayland.roundtrip()
             assertNull(wayland.protocolError(), "the create that followed the failed one cost the connection")
         }
     }
 
     /** What every descriptor on a memfd points at: each frame's buffer, and a cursor theme's pool. */
-    private fun openMemfds(): List<String> = File("/proc/self/fd")
-        .listFiles()
-        .orEmpty()
-        // The descriptor that lists the directory is gone by the time its link is read.
-        .mapNotNull { fd -> runCatching { Files.readSymbolicLink(fd.toPath()).toString() }.getOrNull() }
-        .filter { it.startsWith("/memfd:") }
-        .sorted()
+    private fun openMemfds(): List<String> {
+        val fds = checkNotNull(File("/proc/self/fd").listFiles()) { "/proc/self/fd could not be listed" }
+        return fds
+            .mapNotNull { fd -> linkTarget(fd) }
+            .filter { it.startsWith("/memfd:") }
+            .sorted()
+    }
+
+    private fun linkTarget(fd: File): String? =
+        try {
+            Files.readSymbolicLink(fd.toPath()).toString()
+        } catch (vanished: NoSuchFileException) {
+            // The descriptor that listed the directory is gone by the time its link is read.
+            null
+        }
 
     private companion object {
         const val WL_SEAT = "wl_seat"
         const val NAMESPACE = "kortex-create-failure"
+        const val SHM_MEMFD = "/memfd:kortex-shm"
         const val SIDE = 64
 
         val CONFIG = SurfaceConfig.osd(SIDE.dp, SIDE.dp).copy(namespace = NAMESPACE)
