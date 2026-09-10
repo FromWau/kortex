@@ -142,10 +142,9 @@ public class KortexShell private constructor(
         val closing = surfaces.filter { it.surface.closed }
         val toReplace = closing.filter(::shouldReplace)
         closing.forEach(::removeSurface)
-        toReplace.forEach { active ->
-            placeSurfaces(active.spec, standing = true)
-                .getOrElse { error("kortex surface replacement failed for ${active.spec.config.namespace}: $it") }
-        }
+        // Dropped rather than thrown: a replacement fails on a connection already going down, with no
+        // caller left, and taking the host with it is worse than one surface staying gone.
+        toReplace.forEach { active -> placeSurfaces(active.spec, standing = true) }
         surfaces.forEach { it.surface.serviceTick() }
     }
 
