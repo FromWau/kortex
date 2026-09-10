@@ -66,12 +66,12 @@ the host runs are done.
       `SurfaceConfig.contextMenu`. (`OutputGeometryTest`)
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
       composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
-      still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state
-      so a configure can recompose a reader, though no test has shown one doing so yet (see the
-      `KortexHost.output` entry). `close()` posts onto the surface's queue and sets the same flag
-      a real `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceSurfaces` reaps a self-close
-      through the one existing teardown path. No `awaitClose()` — the blocking entry point is already the
-      host's wait, and it returns once content has closed the last surface. (`SurfaceHandleTest`)
+      still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state,
+      and a configure recomposes a reader (`RecompositionTest`). `close()` posts onto the surface's queue
+      and sets the same flag a real `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceSurfaces`
+      reaps a self-close through the one existing teardown path. No `awaitClose()` — the blocking entry
+      point is already the host's wait, and it returns once content has closed the last surface.
+      (`SurfaceHandleTest`)
 - [x] **Several independent surfaces on one connection.** `runSurfaces(vararg SurfaceSpec)` is the general
       entry point and `runBar` is one spec over it. A `SurfaceSpec` pairs a `SurfaceConfig` with an
       `OutputTarget` — `EveryOutput` for one surface per `wl_output`, following hotplug, `CompositorChoice`
@@ -151,15 +151,14 @@ the host runs are done.
       test provokes the latest exit this machine can reach, a withdrawn `wl_seat`; the pointer-less seat,
       `waitForConfigure`, `createFrames`, the cursor theme and the cursor surface cannot be reached on this
       machine and are covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
-- [ ] **Nothing proves `KortexHost.output` actually recomposes a reader.** It is snapshot state and
-      `OutputGeometryTest` pins the read and the write, but `KortexShell.create` round-trips before
-      placing, so geometry is already there at first composition and every existing test would pass with
-      zero recompositions. It is written on the loop thread, straight into the global snapshot, and
-      `KortexSurfaceHandle.size` is written the same way while `SurfaceHandleTest` reads it from the test
-      thread, so neither has been seen to recompose content. A test needs an output to republish geometry
-      under a live reader: on Hyprland 0.56.2, `hyprctl eval` with an `hl.monitor` rule moves a headless
-      output at runtime, while `hyprctl keyword` is refused under a Lua config. Write it `@Hotplug`, like
-      the tests listed in Housekeeping's hotplug entry; running it needs `-Pkortex.hotplugTests=true`.
+- [x] **`KortexHost.output` recomposes a reader.** Content that reads `LocalKortexHost.current.output`
+      during composition, and records every value it composes with, is driven past its first, real
+      composition (already non-null: `KortexShell.create` round-trips before placing) by a fabricated
+      event group, `onGeometry`, `onMode` flagged current, `onScale`, `onName`, `onDescription`, then
+      `onDone`, called directly on the live surface's own `OutputListener` from the test thread, standing
+      in for what a real re-send would dispatch on the loop thread. Content recomposes with the fabricated
+      geometry, which needs no real output added, removed or changed, so this needed neither `@Hotplug`
+      nor `-Pkortex.hotplugTests=true`. (`RecompositionTest`)
 
 ## Surface presets
 
