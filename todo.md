@@ -207,9 +207,10 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       the protocol work, and it is far more frequent than the earlier estimate of one run in eighteen: on one
       machine it failed roughly half the runs of a single assertion, at the same rate on this branch and on
       the commit it was cut from, so it tracks the machine rather than the code. Three drifts have been
-      recorded on the same assertion, all one step up and never an arbitrary colour: `0xFF818080` (red),
-      `0xFF818180` (red and green) and `0xFF818181` (all three). Alpha did not move in any of them, so the
-      pattern such as it is runs over the RGB channels, and three samples is too few to call it a rule.
+      recorded so far, all one step up and never an arbitrary colour: `0xFF818080` (red), `0xFF818180`
+      (red and green) and `0xFF818181` (all three), the last two seen again on a later run and on two
+      different assertions. Alpha did not move in any of them, so the pattern such as it is runs over the
+      RGB channels, and three values is too few to call it a rule.
       Seen in `KortexShellTest`, `KortexSurfaceTest` and `MultiSurfaceTest`, so it is compositing or capture
       timing rather than anything test-specific. Window occlusion is ruled out, since occlusion would not
       land a one-step drift this close to the expected colour, and so is a gamma or night-light daemon: none
