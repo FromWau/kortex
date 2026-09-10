@@ -283,6 +283,11 @@ public class KortexSurface private constructor(
         pointerInput = null
         keyboardInput = null
         seat.release()
+        // Destroyed before the theme, and round-tripped, so the compositor has processed both the released
+        // pointer and this surface's destroy, and holds no cursor buffer the theme is about to free.
+        cursorSurface.close()
+        display.roundtrip()
+        cursorTheme.close()
         scene.close()
         frames.forEach {
             it.surface.close()

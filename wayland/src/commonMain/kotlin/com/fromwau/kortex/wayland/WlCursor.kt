@@ -29,6 +29,8 @@ internal object LibWaylandCursor {
         downcall("wl_cursor_theme_load", FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_INT, ADDRESS))
     private val themeGetCursor =
         downcall("wl_cursor_theme_get_cursor", FunctionDescriptor.of(ADDRESS, ADDRESS, ADDRESS))
+    private val themeDestroy =
+        downcall("wl_cursor_theme_destroy", FunctionDescriptor.ofVoid(ADDRESS))
     private val imageGetBuffer =
         downcall("wl_cursor_image_get_buffer", FunctionDescriptor.of(ADDRESS, ADDRESS))
 
@@ -37,6 +39,11 @@ internal object LibWaylandCursor {
 
     fun themeGetCursor(theme: MemorySegment, name: MemorySegment): MemorySegment =
         themeGetCursor.invoke(theme, name) as MemorySegment
+
+    /** Destroys every `wl_buffer` the theme handed out along with the handle itself. */
+    fun themeDestroy(theme: MemorySegment) {
+        themeDestroy.invoke(theme)
+    }
 
     /** The cursor's first (and, for every shape kortex uses, only) animation frame. */
     fun firstImage(cursor: MemorySegment, scale: Int): CursorImage? {
@@ -104,10 +111,16 @@ internal class WlCursorTheme private constructor(
     private val shm: MemorySegment,
     private val name: MemorySegment,
     private val baseSize: Int,
-) {
+) : AutoCloseable {
     private var theme: MemorySegment? = null
     private var scale = 1
     private val cache = HashMap<KortexCursor, CursorImage?>()
+
+    // Every handle a rescale replaced, kept so [close] can free them all once the cursor surface their
+    // buffers were attached to is gone.
+    private val superseded = mutableListOf<MemorySegment>()
+
+    private var destroyed = false
 
     fun imageFor(cursor: KortexCursor): CursorImage? {
         if (cache.containsKey(cursor)) return cache[cursor]
@@ -120,9 +133,10 @@ internal class WlCursorTheme private constructor(
     fun rescale(scale: Int) {
         if (scale == this.scale && theme != null) return
         val loaded = LibWaylandCursor.themeLoad(name, baseSize * scale, shm)
-        // Every wl_buffer handed out so far belongs to the old theme handle, and the compositor may still be
-        // scanning one out (no release tracking exists for these, unlike ShmBuffer.busy); leak the old theme
-        // handle rather than risk a use-after-free by destroying it.
+        // Every wl_buffer handed out so far belongs to the old handle, and the compositor may still be
+        // scanning one out (no release tracking exists for these, unlike ShmBuffer.busy); retire the handle
+        // rather than risk a use-after-free by destroying it here.
+        theme?.let { superseded += it }
         theme = if (loaded.equals(MemorySegment.NULL)) null else loaded
         this.scale = scale
         cache.clear()
@@ -145,6 +159,23 @@ internal class WlCursorTheme private constructor(
         return null
     }
 
+    /**
+     * Frees every theme handle and the `wl_shm` they were loaded through.
+     *
+     * `wl_cursor_theme_destroy` destroys the buffers the compositor was handed, so the cursor surface they
+     * are attached to must already be destroyed and that destroy already processed; see [KortexSurface.close].
+     */
+    override fun close() {
+        if (destroyed) return
+        destroyed = true
+        cache.clear()
+        superseded.forEach { LibWaylandCursor.themeDestroy(it) }
+        superseded.clear()
+        theme?.let { LibWaylandCursor.themeDestroy(it) }
+        theme = null
+        releaseShm(shm)
+    }
+
     companion object {
         /** Honours `XCURSOR_THEME`/`XCURSOR_SIZE`, falling back to the compositor's default theme at size 24. */
         fun load(display: WaylandDisplay, scale: Int): Result<WlCursorTheme, KortexError> =
@@ -159,8 +190,14 @@ internal class WlCursorTheme private constructor(
 }
 
 /** The dedicated `wl_surface` a cursor image is attached to; created once and reused for every shape. */
-internal class WlCursorSurface private constructor(private val surface: MemorySegment) {
+internal class WlCursorSurface private constructor(
+    // Kept only so close() can give it back: nothing else is made from it after the surface below.
+    private val compositor: MemorySegment,
+    private val surface: MemorySegment,
+) : AutoCloseable {
     val proxy: MemorySegment get() = surface
+
+    private var destroyed = false
 
     /** Double-buffered like every pending surface state: only takes effect on the next [commit]. */
     fun setBufferScale(scale: Int) {
@@ -183,6 +220,20 @@ internal class WlCursorSurface private constructor(private val surface: MemorySe
         commit()
     }
 
+    /** Destroys the cursor surface and gives back the `wl_compositor` it was made from. */
+    override fun close() {
+        if (destroyed) return
+        destroyed = true
+        LibWayland.marshal(surface, WL_SURFACE_DESTROY)
+        LibWayland.proxyDestroy(surface)
+        // wl_compositor.release only exists from version 7; sending it to a proxy bound against an older
+        // compositor is a protocol error that takes the connection down, so that one is only freed here.
+        if (LibWayland.proxyGetVersion(compositor) >= WL_COMPOSITOR_RELEASE_SINCE) {
+            LibWayland.marshal(compositor, WL_COMPOSITOR_RELEASE)
+        }
+        LibWayland.proxyDestroy(compositor)
+    }
+
     companion object {
         fun create(display: WaylandDisplay): Result<WlCursorSurface, KortexError> =
             display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR).map { compositor ->
@@ -190,10 +241,13 @@ internal class WlCursorSurface private constructor(private val surface: MemorySe
                     compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
                     LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),
                 )
-                WlCursorSurface(surface)
+                WlCursorSurface(compositor, surface)
             }
 
         private const val WL_COMPOSITOR_CREATE_SURFACE = 0
+        private const val WL_COMPOSITOR_RELEASE = 2
+        private const val WL_COMPOSITOR_RELEASE_SINCE = 7
+        private const val WL_SURFACE_DESTROY = 0
         private const val WL_SURFACE_ATTACH = 1
         private const val WL_SURFACE_COMMIT = 6
         private const val WL_SURFACE_SET_BUFFER_SCALE = 8
