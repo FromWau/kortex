@@ -18,6 +18,21 @@ internal fun VirtualPointer.moveTo(monitor: Monitor, x: Int, y: Int) {
 }
 
 /**
+ * Clicks the left button at logical ([x], [y]) on [monitor]. The move and both buttons reach the compositor
+ * together, so no other pointer device's motion can come between them and carry the click off its target.
+ */
+internal fun VirtualPointer.clickAt(monitor: Monitor, x: Int, y: Int) {
+    moveTo(monitor, x, y)
+    button(BTN_LEFT, pressed = true)
+    frame()
+    button(BTN_LEFT, pressed = false)
+    frame()
+}
+
+// linux/input-event-codes.h
+private const val BTN_LEFT = 0x110
+
+/**
  * Where the compositor placed a layer surface, and which monitor and [Layer] it landed on.
  *
  * hyprctl reports the geometry in logical (surface-local) pixels, the same space `configure` uses —

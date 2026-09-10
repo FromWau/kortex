@@ -69,13 +69,7 @@ class SurfaceLifetimeTest {
                         // Off the panel first: the compositor re-evaluates pointer focus on motion, so a
                         // cursor already parked on these coordinates would never enter the surface.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-                        moveTo(geometry.x + TARGET_DP / 2, geometry.y + TARGET_DP / 2)
-
-                        pointer.button(BTN_LEFT, pressed = true)
-                        pointer.frame()
-                        panel.pump(SETTLE_MILLIS)
-                        pointer.button(BTN_LEFT, pressed = false)
-                        pointer.frame()
+                        pointer.clickAt(monitor, geometry.x + TARGET_DP / 2, geometry.y + TARGET_DP / 2)
 
                         val landed = panel.pump(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
                         // Off it again: a cursor left on a target would deny the next test's own move
@@ -143,9 +137,6 @@ class SurfaceLifetimeTest {
 
         const val SETTLE_MILLIS = 250L
         const val PUMP_TIMEOUT_MILLIS = 4000L
-
-        // linux/input-event-codes.h
-        const val BTN_LEFT = 0x110
 
         val PANEL_CONFIG = SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE)
 

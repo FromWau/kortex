@@ -320,23 +320,28 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       terminal background, the inactive window border, AGS and dunst all draw, so it is what shows
       through wherever nothing sits on top, and it has not recurred since. These tests read the
       composited screen, so a run needs a desktop nobody opens anything on.
-- [ ] **`OutputRescaleTest`'s pointer case has failed only alongside other test classes.**
-      `a pointer event after a scale change lands at the new scale's scene position` aims at
-      `Offset(80.0, 16.0)`. It failed in three full-suite runs at 4096x2160, landing at
-      `Offset(144.0, 0.0)`, `Offset(34.0, 62.0)` and `Offset(0.0, 58.0)`. Three different points suggest
-      a race rather than a fixed error. Run alone after the first two, it passed both times.
-      At 2560x1440 it failed in a full build that followed heavy hotplugging, alongside
-      `ProtocolVersionTest`'s wheel case. A rerun of just those two failed it again on a scene-position
-      mismatch, while `ProtocolVersionTest` passed. Having failed at both monitor modes, the flake is not
-      specific to one.
-      The test reads the bar's position once, through `Screen.geometry`, before moving the pointer, and
-      whether the bar has settled by then is unconfirmed. A second lead, also unconfirmed:
-      `Screen.geometry` returns the first surface named `kortex` on any monitor and level, and 12 test
-      classes, this one included, list a surface under exactly that name. A previous class's surface that
-      `hyprctl layers` still lists would then be read as the bar, which fits both facts: it fails only
-      alongside other classes, and its landing points vary.
-      The hotplug entry's three failures, under a fullscreen game, are a different failure: no pointer
-      motion reached the bar, and none was a solo run.
+- [x] **`OutputRescaleTest`'s pointer case occasionally landed off its aim**, `Offset(80.0, 16.0)`, in
+      four runs at two monitor modes. Every pointer device on the seat moves the one cursor, and the test
+      kept the last position the bar reported while the cursor sat on it for half a second. All four
+      landing points, `Offset(14.0, 62.0)`, `Offset(144.0, 0.0)`, `Offset(34.0, 62.0)` and
+      `Offset(0.0, 58.0)`, lie on an edge at scale 2: the bar's bottom row twice, its top row, and the
+      screen's left edge, where a cursor stops. Each is where a cursor another device carries off the bar
+      last touches it. The desktop these ran on sets `force_no_accel`, so a mouse moves the cursor in whole
+      device counts, which fits every point being a whole logical pixel. A cursor log settled it.
+      Of 20 repetitions, the one that failed, at `Offset(100.0, 2.0)`, did so as a hand dragged the cursor
+      up out of the bar. Twenty more with the mouse untouched passed, with only the test's own two points
+      on the log. A stale surface named `kortex` in `hyprctl layers` was not the cause: it would have put
+      three of the four landing points left of the screen edge.
+      The test now clears the position right before its own move and keeps the first one after it. A
+      second virtual pointer dragging the cursor out of the bar straight after that move failed the old
+      version three times in three, on the top row, and passes this one. `ProtocolVersionTest`'s wheel
+      case waited half a second on the bar before scrolling, and `SurfaceLifetimeTest` and
+      `SurfaceTeardownTest` waited before pressing and again with the button held. The scroll now goes out
+      with the move onto the bar, and all three click tests click through `clickAt` (`Screen.kt`), which
+      sends the move and both buttons together, so no other device's motion can come between them
+      (`OutputRescaleTest`, `ProtocolVersionTest`, `VirtualPointerClickTest`, `SurfaceLifetimeTest`,
+      `SurfaceTeardownTest`). Each window is now only as long as delivery takes, so the pointer tests
+      still want nobody at the mouse, and a fullscreen game has kept their moves off the bar altogether.
 
 ## Deliberately not doing
 
