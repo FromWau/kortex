@@ -54,14 +54,7 @@ class VirtualPointerClickTest {
                         // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
                         // cursor already parked on these coordinates would never enter the new surface.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-                        moveTo(targetX, targetY)
-
-                        pointer.button(BTN_LEFT, pressed = true)
-                        pointer.frame()
-                        it.roundtrip()
-
-                        pointer.button(BTN_LEFT, pressed = false)
-                        pointer.frame()
+                        pointer.clickAt(monitor, targetX, targetY)
                         it.roundtrip()
 
                         val landed = bar.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
@@ -88,9 +81,6 @@ class VirtualPointerClickTest {
         const val BAR_HEIGHT = 32
         const val TARGET_DP = 16
         const val PUMP_TIMEOUT_MILLIS = 3000L
-
-        // linux/input-event-codes.h
-        const val BTN_LEFT = 0x110
 
         val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }

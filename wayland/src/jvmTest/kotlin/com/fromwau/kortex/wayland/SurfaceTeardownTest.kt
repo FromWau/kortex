@@ -74,13 +74,7 @@ class SurfaceTeardownTest {
 
                         val panel =
                             assertNotNull(Screen.geometry(panelNamespace), "the panel went away with the menu")
-                        moveTo(shell, pointer, monitor, panel.x + TARGET_DP / 2, panel.y + TARGET_DP / 2)
-
-                        pointer.button(BTN_LEFT, pressed = true)
-                        pointer.frame()
-                        shell.pump(SETTLE_MILLIS)
-                        pointer.button(BTN_LEFT, pressed = false)
-                        pointer.frame()
+                        pointer.clickAt(monitor, panel.x + TARGET_DP / 2, panel.y + TARGET_DP / 2)
 
                         val delivered = shell.pump(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
                         val protocolError = wayland.protocolError()
@@ -160,9 +154,6 @@ class SurfaceTeardownTest {
 
         const val PUMP_TIMEOUT_MILLIS = 4000L
         const val SETTLE_MILLIS = 300L
-
-        // linux/input-event-codes.h
-        const val BTN_LEFT = 0x110
 
         val PANEL_CONFIG = SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE)
         val MENU_CONFIG = SurfaceConfig.appMenu(MENU_SIZE.dp, MENU_SIZE.dp).copy(namespace = MENU_NAMESPACE)

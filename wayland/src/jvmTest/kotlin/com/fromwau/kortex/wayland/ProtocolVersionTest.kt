@@ -171,8 +171,13 @@ class ProtocolVersionTest {
                         // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
                         // cursor already parked on these coordinates would never enter the new surface.
                         moveTo(offBarX, offBarY)
-                        moveTo(geometry.x + geometry.logicalWidth / 2, geometry.y + geometry.logicalHeight / 2)
-
+                        // The move onto the bar and the scroll reach the compositor together, so no other
+                        // pointer device's motion can come between them and carry the scroll elsewhere.
+                        wheel.moveTo(
+                            monitor,
+                            geometry.x + geometry.logicalWidth / 2,
+                            geometry.y + geometry.logicalHeight / 2,
+                        )
                         wheel.axisSource(AXIS_SOURCE_WHEEL)
                         wheel.axis(AXIS_VERTICAL, SCROLL_FIXED)
                         wheel.frame()
