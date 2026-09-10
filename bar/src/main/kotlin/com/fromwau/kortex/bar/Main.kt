@@ -17,6 +17,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,32 +57,43 @@ private fun Bar() {
     var clicks by remember { mutableStateOf(0) }
     var text by remember { mutableStateOf("") }
     val host = LocalKortexHost.current
+    val surface = LocalKortexSurface.current
+    // KortexHost.open hands back no handle, so a menu is dismissed through the flag its content watches.
+    val openMenu = remember { mutableStateOf<MutableState<Boolean>?>(null) }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
         Box(
             Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface)
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            if (event.type != PointerEventType.Press || event.button != PointerButton.Secondary) {
-                                continue
-                            }
-                            val output = host.output ?: continue
-                            // The pointer offset arrives in buffer (physical) pixels, the same space the
-                            // scene renders in (PointerInput.toScenePixels); contextMenu wants the logical
-                            // (surface-local) space a configure reports, so divide by the output's scale.
-                            val logical = event.changes.first().position / output.scale.toFloat()
-                            // The bar is anchored Top, Left and Right with no margins, so a bar-local point
-                            // is an output point on both axes for this demo's config.
-                            val at = IntOffset(logical.x.roundToInt(), logical.y.roundToInt())
-                            host.open(contextMenuSpec(at, output))
-                        }
-                    }
-                },
+                .background(MaterialTheme.colorScheme.surface),
         ) {
+            // Under the row, not around it: a right click on the button or the field is theirs alone.
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.type != PointerEventType.Press || event.button != PointerButton.Secondary) {
+                                    continue
+                                }
+                                val output = host.output ?: continue
+                                // This scope's Density is the very buffer scale the offset was produced
+                                // at, so it converts exactly into the logical space contextMenu wants.
+                                val x = (event.changes.first().position.x / density).roundToInt()
+                                // The bar is anchored Top, Left and Right with no margins, so its own
+                                // top-left is the output's and the menu clears it by opening below it.
+                                val at = IntOffset(x, surface.size.height)
+                                openMenu.value?.value = true
+                                val dismissed = mutableStateOf(false)
+                                openMenu.value = dismissed
+                                host.open(contextMenuSpec(at, output, dismissed))
+                            }
+                        }
+                    },
+            )
+
             Row(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -100,7 +114,7 @@ private fun Bar() {
     }
 }
 
-private fun contextMenuSpec(at: IntOffset, output: OutputGeometry): SurfaceSpec {
+private fun contextMenuSpec(at: IntOffset, output: OutputGeometry, dismissed: State<Boolean>): SurfaceSpec {
     val config = SurfaceConfig
         .contextMenu(
             at = at,
@@ -108,12 +122,15 @@ private fun contextMenuSpec(at: IntOffset, output: OutputGeometry): SurfaceSpec 
             outputSize = IntSize(output.width / output.scale, output.height / output.scale),
         )
         .copy(namespace = "kortex-menu")
-    return SurfaceSpec(config, OutputTarget.NamedOutput(output.name)) { ContextMenu() }
+    return SurfaceSpec(config, OutputTarget.NamedOutput(output.name)) { ContextMenu(dismissed) }
 }
 
 @Composable
-private fun ContextMenu() {
+private fun ContextMenu(dismissed: State<Boolean>) {
     val surface = LocalKortexSurface.current
+    val gone = dismissed.value
+
+    LaunchedEffect(gone) { if (gone) surface.close() }
 
     MaterialTheme(colorScheme = darkColorScheme()) {
         Column(
