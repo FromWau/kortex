@@ -223,8 +223,7 @@ internal class WlCursorSurface private constructor(
         closed = true
         LibWayland.marshal(surface, WL_SURFACE_DESTROY)
         LibWayland.proxyDestroy(surface)
-        LibWayland.marshalIfSince(compositor, WL_COMPOSITOR_RELEASE, WL_COMPOSITOR_RELEASE_SINCE)
-        LibWayland.proxyDestroy(compositor)
+        releaseCompositor(compositor)
     }
 
     companion object {
@@ -238,8 +237,6 @@ internal class WlCursorSurface private constructor(
             }
 
         private const val WL_COMPOSITOR_CREATE_SURFACE = 0
-        private const val WL_COMPOSITOR_RELEASE = 2
-        private const val WL_COMPOSITOR_RELEASE_SINCE = 7
         private const val WL_SURFACE_DESTROY = 0
         private const val WL_SURFACE_ATTACH = 1
         private const val WL_SURFACE_COMMIT = 6

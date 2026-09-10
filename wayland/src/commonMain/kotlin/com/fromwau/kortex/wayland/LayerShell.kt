@@ -68,6 +68,10 @@ internal object LayerShellProtocol {
 
     const val GET_LAYER_SURFACE = 0
 
+    /** `zwlr_layer_shell_v1.destroy`, which the interface table declares from version 3. */
+    const val DESTROY = 1
+    const val DESTROY_SINCE = 3
+
     const val SET_SIZE = 0
     const val SET_ANCHOR = 1
     const val SET_EXCLUSIVE_ZONE = 2
@@ -91,7 +95,12 @@ public class LayerSurface internal constructor(
     private val anchor: Set<Edge>,
     private val state: ConfigureState,
     private val surfaceListener: WlSurfaceListener,
+    private val compositor: MemorySegment,
+    private val shell: MemorySegment,
 ) : AutoCloseable {
+
+    // Paired with the public closed, which is the compositor's word rather than this teardown latch.
+    private var disposed = false
 
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
     public val logicalWidth: Int get() = state.width
@@ -170,10 +179,16 @@ public class LayerSurface internal constructor(
     }
 
     override fun close() {
+        if (disposed) return
+        disposed = true
         LibWayland.marshal(layerSurface, LayerShellProtocol.LAYER_SURFACE_DESTROY)
         LibWayland.proxyDestroy(layerSurface)
         LibWayland.marshal(surface, WL_SURFACE_DESTROY)
         LibWayland.proxyDestroy(surface)
+        // Bound per surface like everything else here, so they go with it rather than at disconnect.
+        LibWayland.marshalIfSince(shell, LayerShellProtocol.DESTROY, LayerShellProtocol.DESTROY_SINCE)
+        LibWayland.proxyDestroy(shell)
+        releaseCompositor(compositor)
         display.flush()
     }
 
@@ -282,7 +297,8 @@ public class LayerSurface internal constructor(
                 args = listOf(WlArg.Num(keyboard.wireValue)),
             )
 
-            val result = LayerSurface(display, surface, layerSurface, anchor, state, surfaceListener)
+            val result =
+                LayerSurface(display, surface, layerSurface, anchor, state, surfaceListener, compositor, shell)
             result.commit()
             return Ok(result)
         }

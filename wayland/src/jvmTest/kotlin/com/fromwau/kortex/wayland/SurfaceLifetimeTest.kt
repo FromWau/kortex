@@ -96,7 +96,7 @@ class SurfaceLifetimeTest {
      * the `KortexSurface` latch guarding them there is not something a direct caller of these classes has.
      */
     @Test
-    fun `closing the shm, the cursor theme and the cursor surface twice releases nothing twice`() {
+    fun `closing the shm, the cursor theme, the cursor surface and a layer surface twice releases nothing twice`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
@@ -105,6 +105,12 @@ class SurfaceLifetimeTest {
                 .getOrElse { error -> fail("cursor theme load failed: $error") }
             val cursorSurface = WlCursorSurface.create(wayland)
                 .getOrElse { error -> fail("cursor surface creation failed: $error") }
+            val layer = LayerSurface.create(
+                wayland,
+                namespace = LAYER_NAMESPACE,
+                height = LAYER_HEIGHT,
+                exclusiveZone = ExclusiveZone.Yield,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             cursorSurface.close()
             cursorSurface.close()
@@ -114,6 +120,8 @@ class SurfaceLifetimeTest {
             theme.close()
             shm.close()
             shm.close()
+            layer.close()
+            layer.close()
             wayland.roundtrip()
 
             assertNull(wayland.protocolError(), "a second close gave back something the first already released")
@@ -121,6 +129,8 @@ class SurfaceLifetimeTest {
     }
 
     private companion object {
+        const val LAYER_NAMESPACE = "kortex-lifetime-layer"
+        const val LAYER_HEIGHT = 24
         const val PANEL_NAMESPACE = "kortex-lifetime-panel"
         const val MENU_NAMESPACE = "kortex-lifetime-menu"
 
