@@ -86,6 +86,14 @@ raising a surface while the host runs are done.
       proxy only this module can bind. The shell's loop ends when no surface is left and none can
       return, so a host whose content closed itself stops instead of spinning on an empty screen, while
       an `EveryOutput` spec with no output waits for one. (`MultiSurfaceTest`)
+- [ ] **The teardown above is still partial.** `KortexSurface.create` also binds a `wl_shm` for `Shm`
+      (`Shm.kt:171`), a second `wl_shm` inside `WlCursorTheme.load` (`WlCursor.kt:150`), and a
+      `wl_compositor` plus a cursor `wl_surface` in `WlCursorSurface.create` (`WlCursor.kt:187`), along
+      with the native `wl_cursor_theme` handle `wl_cursor_theme_load` hands back. `KortexSurface.close()`
+      destroys none of them, and `Shm`, `WlCursorTheme` and `WlCursorSurface` have no `close()` at all.
+      This matters more now than it did before this branch: `KortexShell.serviceSurfaces` re-places a
+      standing `CompositorChoice` surface every time the compositor takes it away, so a long-lived host
+      leaks all of the above on exactly that close-and-replace path, not just once at shutdown.
 
 ## Surface presets
 
@@ -147,9 +155,11 @@ raising a surface while the host runs are done.
       still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
       gone either way. With no output at all connected at that moment there is nowhere to place the
       replacement, and it stays gone until asked for again, and a replacement that fails to be placed is
-      dropped rather than ending the run. Both tests reach this through
-      `KortexSurface.simulateCompositorClose`, the shell's own seam; the end-to-end trigger, an output
-      going away under the surface, is not exercised anywhere. (`CompositorChoiceTest`)
+      dropped rather than ending the run. Two of `CompositorChoiceTest`'s three tests reach this through
+      `KortexSurface.simulateCompositorClose`, the shell's own seam: the standing surface being placed
+      again, and an opened surface not being replaced. The third, content closing its own surface, does
+      not need it. The end-to-end trigger, an output going away under the surface, is not exercised
+      anywhere. (`CompositorChoiceTest`)
 
 The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a right click on
 the bar's own background, not on its button or its text field, opens a `SurfaceConfig.contextMenu` through
