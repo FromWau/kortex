@@ -77,6 +77,12 @@ internal object LibWayland {
     private val displayDispatchTimeout =
         downcall("wl_display_dispatch_timeout", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS))
     private val displayFlush = downcall("wl_display_flush", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+    private val displayGetFd = downcall("wl_display_get_fd", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+    private val displayPrepareRead = downcall("wl_display_prepare_read", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+    private val displayReadEvents = downcall("wl_display_read_events", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+    private val displayCancelRead = downcall("wl_display_cancel_read", FunctionDescriptor.ofVoid(ADDRESS))
+    private val displayDispatchPending =
+        downcall("wl_display_dispatch_pending", FunctionDescriptor.of(JAVA_INT, ADDRESS))
     private val displayGetError = downcall("wl_display_get_error", FunctionDescriptor.of(JAVA_INT, ADDRESS))
     private val displayGetProtocolError =
         downcall("wl_display_get_protocol_error", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS))
@@ -116,6 +122,11 @@ internal object LibWayland {
     }
 
     fun displayFlush(display: MemorySegment): Int = displayFlush.invoke(display) as Int
+    fun displayGetFd(display: MemorySegment): Int = displayGetFd.invoke(display) as Int
+    fun displayPrepareRead(display: MemorySegment): Int = displayPrepareRead.invoke(display) as Int
+    fun displayReadEvents(display: MemorySegment): Int = displayReadEvents.invoke(display) as Int
+    fun displayCancelRead(display: MemorySegment) { displayCancelRead.invoke(display) }
+    fun displayDispatchPending(display: MemorySegment): Int = displayDispatchPending.invoke(display) as Int
     fun displayGetError(display: MemorySegment): Int = displayGetError.invoke(display) as Int
 
     /** `wl_display_get_protocol_error(display, &interface, &id)`. */
