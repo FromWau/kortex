@@ -157,7 +157,7 @@ Housekeeping. The surface presets and raising a surface while the host runs are 
       thread, so neither has been seen to recompose content. A test needs an output to republish geometry
       under a live reader: on Hyprland 0.56.2, `hyprctl eval` with an `hl.monitor` rule moves a headless
       output at runtime, while `hyprctl keyword` is refused under a Lua config. Write it `@Hotplug`, like
-      the tests under Housekeeping; running it needs `-Pkortex.hotplugTests=true`.
+      the tests listed in Housekeeping's hotplug entry; running it needs `-Pkortex.hotplugTests=true`.
 
 ## Surface presets
 
@@ -321,15 +321,22 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       through wherever nothing sits on top, and it has not recurred since. These tests read the
       composited screen, so a run needs a desktop nobody opens anything on.
 - [ ] **`OutputRescaleTest`'s pointer case has failed only alongside other test classes.**
-      `a pointer event after a scale change lands at the new scale's scene position` failed in three
-      full-suite runs at 4096x2160, with the pointer landing 32px right and 8px up of its aim
-      (`surface-local 40,8 at scale 2 must reach the scene at Offset(80.0, 16.0), not
-      Offset(144.0, 0.0)`), and once at 2560x1440 in a run of it together with `ProtocolVersionTest`,
-      straight after a full build heavy with hotplugging. Every one of those was followed by running it
-      alone, which passed each time: the flake is not specific to one monitor mode. The test reads the
-      bar's scene position from `hyprctl layers` once, before moving the pointer; whether the surface it
-      reads has settled by then is unconfirmed, for instance while a previous class's surface is still
-      going away.
+      `a pointer event after a scale change lands at the new scale's scene position` aims at
+      `Offset(80.0, 16.0)`. It failed in three full-suite runs at 4096x2160, landing at
+      `Offset(144.0, 0.0)`, `Offset(34.0, 62.0)` and `Offset(0.0, 58.0)`. Three different points suggest
+      a race rather than a fixed error. Run alone after the first two, it passed both times.
+      At 2560x1440 it failed in a full build that followed heavy hotplugging, alongside
+      `ProtocolVersionTest`'s wheel case. A rerun of just those two failed it again on a scene-position
+      mismatch, while `ProtocolVersionTest` passed. Having failed at both monitor modes, the flake is not
+      specific to one.
+      The test reads the bar's position once, through `Screen.geometry`, before moving the pointer, and
+      whether the bar has settled by then is unconfirmed. A second lead, also unconfirmed:
+      `Screen.geometry` returns the first surface named `kortex` on any monitor and level, and 12 test
+      classes, this one included, list a surface under exactly that name. A previous class's surface that
+      `hyprctl layers` still lists would then be read as the bar, which fits both facts: it fails only
+      alongside other classes, and its landing points vary.
+      The hotplug entry's three failures, under a fullscreen game, are a different failure: no pointer
+      motion reached the bar, and none was a solo run.
 
 ## Deliberately not doing
 
