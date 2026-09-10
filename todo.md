@@ -232,25 +232,17 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
-- [ ] **A screenshot pixel occasionally reads a step off** an expected `0xFF808080`. It predates the
-      protocol work, and it is far more frequent than the earlier estimate of one run in eighteen: on one
-      machine it reached both full-suite runs in a row, at the same rate on this branch and on the commit it
-      was cut from, so it tracks the machine rather than the code. The drift is small but not one-directional
-      and not a fixed shape: `0xFF818080`, `0xFF818180` and `0xFF818181` step one up over a growing run of
-      RGB channels, `0xFF828181` steps two up on red, and `0xFF7F7F7F` and `0xFF7E7E7E` step one and two
-      *down* on all three. Alpha has never moved, and the magnitude has reached two in both directions.
-      Anything that reads these as a single pattern is reading too few samples.
-      Seen in `KortexShellTest`, `KortexSurfaceTest` and `MultiSurfaceTest`, so it is compositing or capture
-      rather than anything test-specific. Ruled out: window occlusion, which would not land this close to the
-      expected colour; and a gamma or night-light daemon, since none of `hyprsunset`, `gammastep`, `redshift`
-      or `wlsunset` was running when it was checked.
-      The open lead is the compositor's own colour management. `hyprctl getoption render:cm_enabled` reports
-      true on Hyprland 0.56.2 by default, and a colour-managed render path is exactly the kind of thing that
-      rounds a channel by one either way depending on frame timing. Test it by running the failing assertion
-      with `hyprctl keyword render:cm_enabled false` and putting it back afterwards, which nobody has done
-      yet. Failing that, note that kortex writes `BGRA_8888` into its own buffer while the compared value
-      comes out of grim's PNG through `ImageIO`, so compositing, capture and decode all sit in between.
-      `Screen.settledPixel` samples until two reads agree, which is evidently not enough.
+- [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
+      `KortexSurfaceTest` and `MultiSurfaceTest`, at times two full-suite runs in three. It was never
+      compositing noise. Hyprland ramps a new layer surface from whatever is behind it up to its own
+      colour over roughly 850ms, one step per frame, and a probe that sampled the centre pixel as fast as
+      `grim` allows showed the tail of that ramp is its slowest part: steps 70 to 125ms apart, with the
+      value wobbling a step either way as it lands. `Screen.settledPixel` slept 90ms and returned as soon
+      as two reads agreed, so landing twice on one tail step was likely rather than rare, and every value
+      ever recorded, `0xFF7E7E7E` through `0xFF828181`, is a point on that ramp. It now waits for a value
+      to hold for 400ms, past the widest step measured. Five full-suite runs clean where two in three had
+      failed, and a deliberately wrong expected colour still fails, so the wait did not become a
+      tautology.
 
 ## Deliberately not doing
 
