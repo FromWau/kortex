@@ -55,8 +55,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the polish and housekeeping items below; the surface presets, the Foundations they depended on, and
-raising a surface while the host runs are done.
+Next: the hotplug entry under Housekeeping. Until it lands, a full test run can crash other apps on the
+desktop, and the open `KortexHost.output` test waits on it. Then the rest of Foundations, Polish and
+Housekeeping. The surface presets and raising a surface while the host runs are done.
 
 ## Foundations
 
@@ -67,7 +68,8 @@ raising a surface while the host runs are done.
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
       composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
       still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state
-      so a configure recomposes a reader. `close()` posts onto the surface's queue and sets the same flag
+      so a configure can recompose a reader, though no test has shown one doing so yet (see the
+      `KortexHost.output` entry). `close()` posts onto the surface's queue and sets the same flag
       a real `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceSurfaces` reaps a self-close
       through the one existing teardown path. No `awaitClose()` — the blocking entry point is already the
       host's wait, and it returns once content has closed the last surface. (`SurfaceHandleTest`)
@@ -108,33 +110,54 @@ raising a surface while the host runs are done.
       `disposed` to sit beside the public `closed`, which is the compositor's word rather than a
       teardown flag. `wl_compositor.release` carries an opcode and a `since` that are fatal to get wrong
       together, so `releaseCompositor` holds both once, beside `releaseShm`. (`SurfaceLifetimeTest`)
-- [ ] **Every surface leaks about 0.8MB of FFM upcall stubs, permanently.** `LibWayland.arena` is
-      `Arena.global()`, so the roughly 29 stubs `LibWayland.upcall` allocates per surface are never
-      freed. Measured on this machine rather than reasoned about: 2900 stubs cost 80MB of RSS that
-      `malloc_trim` will not return, so 27.8kB each and 0.79MB per surface, and a create/close loop grows
-      RSS by 0.96MB per cycle in a straight line over 150 cycles. This was bounded by monitor events
-      before `KortexHost.open` existed; the demo bar now pays it on every right click.
-      What it does *not* do is retain the composition: a probe whose content remembered a 4MB array saw
-      every one collected after close, because `scene.close()` disposes the composition before the
-      pinned `PointerInput` can hold anything but an emptied shell. The Java side grows about 50kB per
-      surface, which is the stubs' receivers and those shells.
-      The fix is a per-surface `Arena.ofShared()` for that surface's stubs and listener structs, closed
-      last in `KortexSurface.close()` after a final roundtrip, with the registry and interface tables
-      staying global. Getting the order wrong is a jump into freed code inside libwayland's dispatcher.
-      Ruled out by measurement while finding this, so nobody need look again: no fd leak and no mapping
-      leak (both flat from cycle 10 to 150), no thread leak (`dispatcher.close()` leaves no
-      `kortex-frame` behind), and no measurable growth from the cursor theme, the cursor surface, the
-      layer surface or the shm buffers.
-- [ ] **`wl_output.release` is never sent.** `KortexShell` destroys the proxy without it
-      (`bindOutput`'s counterpart in `removeOutput` and in `close`). It is opcode 0 since version 3 and
-      `WlVersion.OUTPUT` is 4, so it is available; one server-side resource accumulates per hotplug cycle.
-- [ ] **`KortexSurface.create`'s failure paths leak whatever they built.** Each `getOrElse { return Err }`
-      returns without closing the shm, cursor theme, cursor surface, seat or layer surface created above
-      it. `runSurfaces`' KDoc no longer promises otherwise, but the paths themselves are unchanged.
+- [x] **A surface's FFM upcall stubs are freed with it.** Every object that installs a listener owns an
+      `Arena.ofShared()` for its stubs and listener struct, and closes it after destroying the proxy that
+      dispatches into them, so no stub outlives its surface and none is freed while a proxy can still
+      reach it. `LibWayland.upcall` takes the arena as a required argument, so a new listener cannot fall
+      back to the global one by leaving it out. A keyboard surface installs 29 stubs at about 27.8kB of
+      RSS each; a create/close loop on one connection grew RSS by about 0.8MB per cycle in a straight
+      line before this, and shows no slope after it over 150 cycles.
+      What stays in `Arena.global()` does so deliberately: the three library lookups, since closing their
+      arena unloads the library under every downcall bound to it, and the `wl_interface` tables, which
+      libwayland reads through every proxy made against them. The registry listener is there too, and
+      outlives its connection, as the next entry records. No RSS assertion guards this, because a
+      threshold loose enough not to flake would miss one listener put in the wrong arena.
+      `SurfaceLifetimeTest` and `SurfaceTeardownTest` cover the half that can crash, a stub freed before
+      its proxy.
+- [ ] **The registry listener and a few `LibWayland.cString` calls still allocate in the global arena,
+      and are never freed.** `WaylandDisplay.connect` puts the registry listener's struct and both its
+      stubs there (`WaylandDisplay.kt:125-131`), so every connection leaves them behind after `close()`:
+      about 56kB a connection, at 27.8kB a stub. It also allocates the display name there when a caller
+      passes one (`WaylandDisplay.kt:109`); `runSurfaces` passes none. `LibC.memfdCreate` allocates its
+      constant name again for every shm buffer (`Shm.kt:43`), two per surface and two more per resize;
+      `WlCursorTheme` allocates each XCursor name it looks up on a cache miss (`WlCursor.kt:154`), again
+      after every rescale; and `WlCursorTheme.load` allocates `$XCURSOR_THEME` once per surface when it is
+      set (`WlCursor.kt:182`). The strings come to about 300 bytes a surface. The listener can live in an
+      arena `WaylandDisplay` closes after disconnecting, when nothing can dispatch into it any more; the
+      shm name can be one allocation for the life of the process; the theme name belongs to the theme.
+- [x] **`wl_output.release` is sent.** `ShellOutput.destroy()` calls `releaseOutput`, the same
+      `marshalIfSince`-then-`proxyDestroy` shape `releaseCompositor` and `releaseShm` already had, so
+      both `removeOutput`'s hotplug path and `close` give every bound `wl_output` back rather than only
+      destroying the proxy client-side. Nothing in-process shows a request leaving the client, so the
+      covering test drives a child JVM under `WAYLAND_DEBUG=client` and reads the release requests off
+      its wire. (`OutputReleaseWireTest`)
+- [x] **A surface whose creation fails partway gives back what it built.** `KortexSurface.create` pushes
+      a closer for each piece as it builds it, and every exit taken before the `KortexSurface` exists,
+      one added later included, runs them newest first from a `finally`. Once the surface is constructed,
+      its own `close()` is the one owner of every piece. The pointer check comes before that point, which
+      `Seat.bind`'s round trip already allows, so no exit returns an error once the surface exists. The
+      test provokes the latest exit this machine can reach, a withdrawn `wl_seat`; the pointer-less seat,
+      `waitForConfigure`, `createFrames`, the cursor theme and the cursor surface cannot be reached on this
+      machine and are covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
 - [ ] **Nothing proves `KortexHost.output` actually recomposes a reader.** It is snapshot state and
       `OutputGeometryTest` pins the read and the write, but `KortexShell.create` round-trips before
       placing, so geometry is already there at first composition and every existing test would pass with
-      zero recompositions. A test needs an output to republish geometry under a live reader.
+      zero recompositions. It is written on the loop thread, straight into the global snapshot, and
+      `KortexSurfaceHandle.size` is written the same way while `SurfaceHandleTest` reads it from the test
+      thread, so neither has been seen to recompose content. A test needs an output to republish geometry
+      under a live reader: on Hyprland 0.56.2, `hyprctl eval` with an `hl.monitor` rule moves a headless
+      output at runtime, while `hyprctl keyword` is refused under a Lua config. Changing an output is what
+      the hotplug entry under Housekeeping warns against, so this test waits on it.
 
 ## Surface presets
 
@@ -190,8 +213,9 @@ raising a surface while the host runs are done.
       placed and nothing fails, and a standing spec is placed later if the output arrives.
       Hotplug coverage for this rests on a finding checked against the live Hyprland session rather than
       assumed: its headless output names are a monotonically increasing counter that survives removal and
-      is never reused, which is what makes the hotplug path deterministic enough to test. A compositor
-      whose output names are reused is untested. (`NamedOutputTest`)
+      is never reused within one compositor session (it restarts with Hyprland), which is what makes the
+      hotplug path deterministic enough to test. A compositor whose output names are reused is untested.
+      (`NamedOutputTest`)
 - [x] **A `CompositorChoice` surface the compositor takes away is placed again**, as long as an output is
       still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
       gone either way. With no output at all connected at that moment there is nowhere to place the
@@ -259,6 +283,18 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
+- [ ] **Tests that hotplug outputs crash other apps on the desktop they run on.** Seven test classes add
+      and remove headless outputs through `Hyprctl.createHeadlessOutput`. Hyprland (0.56.2) answers every
+      output added or removed by re-sending dmabuf feedback to every client, and GTK 4.22.4 crashes on a
+      re-send roughly one time in 256 (fixed in 4.22.5). Steam's X11 GTK2 crashed too, on X errors about a
+      RandR output that no longer existed. Test runs on the live desktop took down ghostty, AGS and Steam.
+      Two virtual-pointer tests, `OutputRescaleTest` and `ProtocolVersionTest`, failed in a full build
+      that followed heavy hotplugging; `OutputRescaleTest` failed again on a focused rerun, and both
+      passed later.
+      Fix: tag those tests and leave them out of the default build, or run the suite against a nested
+      Hyprland. Only the nested compositor also keeps the virtual pointer and the screenshots out of the
+      user's session: `SurfaceLifetimeTest` has clicked into a fullscreen game, and that game's cursor
+      re-centring failed `OutputRescaleTest` three times.
 - [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
       `KortexSurfaceTest` and `MultiSurfaceTest`, at times two full-suite runs in three. It was never
       compositing noise. Hyprland ramps a new layer surface from whatever is behind it up to its own

@@ -2,8 +2,8 @@ package com.fromwau.kortex.wayland
 
 import java.lang.foreign.MemorySegment
 
-// Destructors for the core globals a surface binds one of its own of, kept together because each pairs
-// an opcode with the version it first exists at, and sending one past that version kills the connection.
+// Destructors for core globals, kept together because each pairs an opcode with the version it first exists
+// at, and sending one past that version kills the connection.
 
 /** Gives a `wl_compositor` proxy back and frees it; a layer surface and a cursor surface each bind one. */
 internal fun releaseCompositor(compositor: MemorySegment) {
@@ -22,3 +22,12 @@ internal fun releaseShm(shm: MemorySegment) {
 
 private const val WL_SHM_RELEASE = 1
 private const val WL_SHM_RELEASE_SINCE = 2
+
+/** Gives a `wl_output` proxy back and frees it; `KortexShell` binds one per connected output. */
+internal fun releaseOutput(output: MemorySegment) {
+    LibWayland.marshalIfSince(output, WL_OUTPUT_RELEASE, WL_OUTPUT_RELEASE_SINCE)
+    LibWayland.proxyDestroy(output)
+}
+
+private const val WL_OUTPUT_RELEASE = 0
+private const val WL_OUTPUT_RELEASE_SINCE = 3
