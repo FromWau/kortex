@@ -270,6 +270,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       to races`** in the output of any test that runs two surfaces. It comes from Compose, not kortex —
       one `kortex-frame` thread per surface provokes it — and predates the branch, but hosting many
       surfaces on one connection makes it routine rather than rare.
+- [ ] **Tests that hotplug outputs crash other apps on the desktop they run on.** Seven test classes add
+      and remove headless outputs through `Hyprctl.createHeadlessOutput`. Hyprland (0.56.2) answers every
+      output added or removed by re-sending dmabuf feedback to every client, and GTK 4.22.4 crashes on a
+      re-send roughly one time in 256 (fixed in 4.22.5). Steam's X11 GTK2 crashed too, on X errors about a
+      RandR output that no longer existed. Test runs on the live desktop took down ghostty, AGS and Steam.
+      Fix: tag those tests and leave them out of the default build, or run the suite against a nested
+      Hyprland.
 - [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
       `KortexSurfaceTest` and `MultiSurfaceTest`, at times two full-suite runs in three. It was never
       compositing noise. Hyprland ramps a new layer surface from whatever is behind it up to its own
