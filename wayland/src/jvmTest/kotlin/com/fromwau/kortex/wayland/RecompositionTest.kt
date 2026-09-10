@@ -44,8 +44,8 @@ class RecompositionTest {
                     output, "the shell's surface has no output to fabricate an event group for",
                 ).listener
 
-                // Stands in for a compositor re-send, straight into the listener nothing else on the wire
-                // reaches: no real wl_output is added, removed or changed (constraint 1).
+                // Stands in for a compositor re-send, straight into the listener: nothing here reaches the
+                // wire, so no real wl_output is added, removed or changed.
                 val strings = Arena.ofAuto()
                 listener.onGeometry(
                     NONE, NONE, X, Y, 0, 0, 0, strings.allocateFrom("make"), strings.allocateFrom("model"), TRANSFORM,
