@@ -56,8 +56,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: the rest of Foundations, Polish and Housekeeping. The surface presets and raising a surface while
-the host runs are done.
+Next: bounding a surface's close drain to its own scene, the one entry still open (Housekeeping). The
+`@Hotplug` tests have not run since the event-loop and threading changes; they run with
+`-Pkortex.hotplugTests=true`, at the risk the hotplug entry under Housekeeping records.
 
 ## Foundations
 
