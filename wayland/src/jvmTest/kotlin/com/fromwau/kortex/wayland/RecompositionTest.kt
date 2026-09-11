@@ -17,9 +17,9 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Every existing test reads `LocalKortexHost.current.output` or `LocalKortexSurface.current.size` once,
- * at first composition, which a plain field behind either would still pass. These drive each value's
- * writer after content has already composed once, and prove the same reader recomposes with the change.
+ * A read of `LocalKortexHost.current.output` or `LocalKortexSurface.current.size` at first composition also
+ * passes with a plain field behind the value. These drive each value's writer after content has already
+ * composed once, and prove the same reader recomposes with the change.
  */
 class RecompositionTest {
     @Test

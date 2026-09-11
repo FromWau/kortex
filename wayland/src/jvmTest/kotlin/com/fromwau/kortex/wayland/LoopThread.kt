@@ -37,7 +37,14 @@ internal object LoopThread {
 
         // Created on the loop thread, as runSurfaces does: a snapshot pump first runs where its surface is created.
         fun createAndRun() {
-            val shell = KortexShell.create(display, *specs).getOrElse { error ->
+            // Caught so a throw reaches the test thread at once, rather than as a bare timeout.
+            val creation = try {
+                KortexShell.create(display, *specs)
+            } catch (thrown: Throwable) {
+                created.completeExceptionally(thrown)
+                return
+            }
+            val shell = creation.getOrElse { error ->
                 created.completeExceptionally(AssertionError("shell creation failed: $error"))
                 return
             }

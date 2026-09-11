@@ -33,8 +33,8 @@ class WlCursorThemeTest {
     fun `a resize, move or wait shape resolves to its own image, not the left_ptr fallback`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
-        // Every candidate list but Default's falls back to "left_ptr" only when the theme lacks the shape;
-        // these ten are core freedesktop cursor-spec names essentially every XCursor theme ships.
+        // Every candidate list but Default's falls back to "left_ptr" only when the theme lacks the shape, so this
+        // needs the default XCursor theme to ship all ten: libwayland-cursor's built-in fallback has no move shape.
         val shapesWithTheirOwnImage = listOf(
             KortexCursor.Move,
             KortexCursor.Wait,

@@ -20,7 +20,7 @@ import kotlin.test.fail
  * A panel and an OSD on one shell, each recording the thread its own `LaunchedEffect` runs on once the
  * shell has settled, while `System.out` is captured for Compose's `GlobalSnapshotManager` warning.
  */
-class SharedFrameThreadTest {
+class EffectsOnLoopThreadTest {
     @Test
     fun `effects under pump run on the pumping thread and GlobalSnapshotManager never warns`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
@@ -111,8 +111,8 @@ class SharedFrameThreadTest {
         Hyprctl.namespaces().filterTo(mutableSetOf()) { it.startsWith("$PANEL_NAMESPACE-") }
 
     private companion object {
-        const val PANEL_NAMESPACE = "kortex-shared-frame-panel"
-        const val OSD_NAMESPACE = "kortex-shared-frame-osd"
+        const val PANEL_NAMESPACE = "kortex-loop-thread-panel"
+        const val OSD_NAMESPACE = "kortex-loop-thread-osd"
         const val PANEL_HEIGHT = 24
         const val OSD_WIDTH = 64
         const val OSD_HEIGHT = 64
