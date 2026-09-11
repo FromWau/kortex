@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexCursor
+import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
 import java.lang.foreign.MemoryLayout
@@ -110,7 +111,7 @@ internal data class CursorImage(
  */
 internal class WlCursorTheme private constructor(
     private val shm: MemorySegment,
-    private val name: MemorySegment,
+    private val themeName: String?,
     private val baseSize: Int,
 ) : AutoCloseable {
     private var theme: MemorySegment? = null
@@ -131,7 +132,11 @@ internal class WlCursorTheme private constructor(
     /** Reloads the theme at `baseSize * scale` physical pixels so cursors match the output's buffer scale. */
     fun rescale(scale: Int) {
         if (scale == this.scale && theme != null) return
-        val loaded = LibWaylandCursor.themeLoad(name, baseSize * scale, shm)
+        // wl_cursor_theme_load reads the name only while it loads, so it has to outlive only the call.
+        val loaded = Arena.ofConfined().use { request ->
+            val name = themeName?.let { request.allocateFrom(it) } ?: MemorySegment.NULL
+            LibWaylandCursor.themeLoad(name, baseSize * scale, shm)
+        }
         // Every wl_buffer handed out so far belongs to the old handle, and the compositor may still be
         // scanning one out (no release tracking exists for these, unlike ShmBuffer.busy); retire the handle
         // rather than risk a use-after-free by destroying it here.
@@ -150,10 +155,13 @@ internal class WlCursorTheme private constructor(
             KortexCursor.Text -> listOf("xterm", "text", "left_ptr")
             KortexCursor.Hand -> listOf("hand2", "pointer", "left_ptr")
         }
-        for (name in candidates) {
-            val native = LibWaylandCursor.themeGetCursor(theme, LibWayland.cString(name))
-            if (native.equals(MemorySegment.NULL)) continue
-            return LibWaylandCursor.firstImage(native, scale) ?: continue
+        // wl_cursor_theme_get_cursor only compares each name with the theme's own, so none outlives the lookup.
+        Arena.ofConfined().use { request ->
+            for (name in candidates) {
+                val native = LibWaylandCursor.themeGetCursor(theme, request.allocateFrom(name))
+                if (native.equals(MemorySegment.NULL)) continue
+                return LibWaylandCursor.firstImage(native, scale) ?: continue
+            }
         }
         return null
     }
@@ -179,9 +187,9 @@ internal class WlCursorTheme private constructor(
         /** Honours `XCURSOR_THEME`/`XCURSOR_SIZE`, falling back to the compositor's default theme at size 24. */
         fun load(display: WaylandDisplay, scale: Int): Result<WlCursorTheme, KortexError> =
             display.require("wl_shm", LibWayland.shmInterface, WlVersion.SHM).map { shm ->
-                val name = System.getenv("XCURSOR_THEME")?.let { LibWayland.cString(it) } ?: MemorySegment.NULL
+                val themeName = System.getenv("XCURSOR_THEME")
                 val baseSize = System.getenv("XCURSOR_SIZE")?.toIntOrNull() ?: DEFAULT_SIZE
-                WlCursorTheme(shm, name, baseSize).also { it.rescale(scale) }
+                WlCursorTheme(shm, themeName, baseSize).also { it.rescale(scale) }
             }
 
         private const val DEFAULT_SIZE = 24

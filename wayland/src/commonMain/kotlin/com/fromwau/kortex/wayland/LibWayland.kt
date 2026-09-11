@@ -153,9 +153,6 @@ internal object LibWayland {
         return linker.upcallStub(handle, descriptor, arena)
     }
 
-    /** Global, so only for a string a proxy or an interface table keeps reading; a request argument is copied. */
-    fun cString(value: String): MemorySegment = arena.allocateFrom(value)
-
     /** The `name` field of a `wl_interface`, which `wl_registry_bind` passes back to the compositor. */
     // A symbol from SymbolLookup is a zero-length segment, so its extent has to be restated before
     // any field can be read out of it.
@@ -223,7 +220,7 @@ internal object LibWayland {
         events: List<WlMessage> = emptyList(),
     ): MemorySegment {
         val iface = arena.allocate(INTERFACE)
-        iface.set(ADDRESS, NAME_OFFSET, cString(name))
+        iface.set(ADDRESS, NAME_OFFSET, arena.allocateFrom(name))
         iface.set(JAVA_INT, VERSION_OFFSET, version)
         iface.set(JAVA_INT, METHOD_COUNT_OFFSET, requests.size)
         iface.set(ADDRESS, METHODS_OFFSET, messageTable(requests))
@@ -237,8 +234,8 @@ internal object LibWayland {
         val table = arena.allocate(MESSAGE, messages.size.toLong())
         messages.forEachIndexed { index, message ->
             val entry = table.asSlice(index * MESSAGE.byteSize(), MESSAGE.byteSize())
-            entry.set(ADDRESS, MESSAGE_NAME_OFFSET, cString(message.name))
-            entry.set(ADDRESS, MESSAGE_SIGNATURE_OFFSET, cString(message.signature))
+            entry.set(ADDRESS, MESSAGE_NAME_OFFSET, arena.allocateFrom(message.name))
+            entry.set(ADDRESS, MESSAGE_SIGNATURE_OFFSET, arena.allocateFrom(message.signature))
             entry.set(ADDRESS, MESSAGE_TYPES_OFFSET, typeTable(message.types))
         }
         return table

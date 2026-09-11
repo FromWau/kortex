@@ -40,7 +40,8 @@ internal object LibC {
     private val close = downcall("close", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
 
     fun memfdCreate(name: String): Result<Int, KortexError> {
-        val fd = memfdCreate.invoke(LibWayland.cString(name), 0) as Int
+        // The kernel copies the name, so it has to outlive only the call.
+        val fd = Arena.ofConfined().use { request -> memfdCreate.invoke(request.allocateFrom(name), 0) as Int }
         if (fd < 0) return Err(KortexError.ShmAllocationFailed(ShmStep.MemfdCreate))
         return Ok(fd)
     }
