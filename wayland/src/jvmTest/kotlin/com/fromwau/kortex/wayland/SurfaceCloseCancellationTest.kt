@@ -214,6 +214,7 @@ class SurfaceCloseCancellationTest {
             assertTrue(gone, "the surface never left hyprctl layers with its finally parked")
 
             val continuation = parked.get() ?: fail("the finally never reached its parked suspension point")
+            // The scene's dispatcher always redispatches, so this only queues the rest of the finally.
             continuation.resume(Unit)
             assertFalse(finished.get(), "the resume ran the finally inline instead of through the queue")
 
