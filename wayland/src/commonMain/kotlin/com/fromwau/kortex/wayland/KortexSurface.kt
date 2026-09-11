@@ -42,6 +42,7 @@ public class KortexSurface private constructor(
     private val scene: KortexScene,
     private val clock: FrameClock,
     private val loop: LoopQueue,
+    private val surfaceWork: SurfaceWork,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
     private val seat: Seat,
@@ -285,7 +286,8 @@ public class KortexSurface private constructor(
         cursorTheme.close()
         scene.close()
         // The scene's recomposer leaves Compose's global snapshot observers only as its cancelled run loop resumes.
-        loop.drain()
+        // Only this scene's work: a sibling whose content keeps yielding would never let the whole queue run out.
+        loop.drain(surfaceWork)
         frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.
         retiring.forEach(Frame::close)
@@ -371,8 +373,9 @@ public class KortexSurface private constructor(
                 frames.forEach { frame -> unwind += frame::close }
 
                 val loop = loopQueue ?: LoopQueue(display::wake)
-                // Added before the scene, so it unwinds after it and can run the scene's cancellation.
-                unwind += loop::drain
+                val surfaceWork = SurfaceWork()
+                // Added before the scene so it unwinds after it, running that scene's cancellation and no other work.
+                unwind += { loop.drain(surfaceWork) }
 
                 val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
                 unwind += cursorTheme::close
@@ -384,7 +387,7 @@ public class KortexSurface private constructor(
                 val scene = KortexScene(
                     size = IntSize(bufferWidth, bufferHeight),
                     density = Density(bufferScale.toFloat()),
-                    frameContext = loop,
+                    frameContext = loop + surfaceWork,
                     onInvalidate = { surface.onInvalidate() },
                     platform = hostPlatform,
                 )
@@ -399,7 +402,7 @@ public class KortexSurface private constructor(
                     return Err(display.protocolError() ?: missingPointer)
                 }
                 surface = KortexSurface(
-                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), loop,
+                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), loop, surfaceWork,
                     cursorTheme, cursorSurface, seat,
                 )
                 // From here the surface's own close() is the one owner of every piece above.
