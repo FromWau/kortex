@@ -286,7 +286,7 @@ public class KortexSurface private constructor(
         cursorTheme.close()
         scene.close()
         // The scene's recomposer leaves Compose's global snapshot observers only as its cancelled run loop resumes.
-        // A sibling's work waits for the next pass instead, since content that keeps yielding never lets it run out.
+        // Only this scene's work: a sibling whose content keeps yielding would never let the whole queue run out.
         loop.drain(surfaceWork)
         frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.

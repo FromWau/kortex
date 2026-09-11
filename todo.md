@@ -296,7 +296,7 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       under a real loop, and while content opens a surface mid-run. (`EffectsOnLoopThreadTest`,
       `EventLoopWakeTest`)
 - [x] **A surface's close runs only its own scene's queued work.** Each `KortexSurface` puts a
-      `SurfaceWork` element of its own into its scene's frame context, so every dispatch that scene makes
+      `SurfaceWork` element of its own into its scene's frame context. Every dispatch that scene makes
       reaches `LoopQueue` carrying it, whether through Compose's trampoline or frame dispatcher or as a
       `delay`'s resume, and the queue keeps it with the work. Closing a surface, and a create that unwinds
       once its scene exists, run only the work carrying that surface's element, in queue order and
