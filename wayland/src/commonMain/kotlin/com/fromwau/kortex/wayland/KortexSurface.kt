@@ -141,7 +141,7 @@ public class KortexSurface private constructor(
     internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
-            ownedLoop?.drain()
+            ownedLoop?.runPass()
             drainQueue()
             if (predicate()) return true
             // roundtrip, not dispatch: dispatch blocks for an event and would sail past the deadline.
@@ -149,7 +149,7 @@ public class KortexSurface private constructor(
             reconcile()
             Thread.sleep(PUMP_INTERVAL_MILLIS)
         }
-        ownedLoop?.drain()
+        ownedLoop?.runPass()
         serviceTick()
         return predicate()
     }

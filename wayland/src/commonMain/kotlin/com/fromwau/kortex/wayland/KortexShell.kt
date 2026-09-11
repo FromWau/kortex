@@ -148,7 +148,7 @@ public class KortexShell private constructor(
 
     private fun serviceSurfaces() {
         // First: content running here posts to the surface queues drained next, its own close among them.
-        loopQueue.drain()
+        loopQueue.runPass()
         // Before the reap: content's posted close marks its surface only when drained, and its wake is already spent.
         surfaces.forEach { it.surface.drainQueue() }
         // filter copies first: removeSurface mutates the very list this walks.

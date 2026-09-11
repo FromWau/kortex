@@ -273,13 +273,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - [x] **A shell's surfaces run their Compose work on its loop thread.** `KortexShell` keeps one
       `LoopQueue` and hands it to every `KortexSurface.create` call it makes; a bare `KortexSurface`
       builds one of its own. Each surface's scene runs on a `SceneDispatcher` over that queue: `dispatch`
-      enqueues and wakes the loop, and the loop drains the queue on every pass, as `pump` does, so
+      enqueues and wakes the loop, and each pass runs what was queued when it began, as `pump` does, so
       composition, effects and the recomposer run on the thread that owns the connection and on no other.
-      A `delay` waits on kotlinx's `DefaultExecutor`, whose resume comes back through `dispatch`. A
+      What that work queues waits for the next pass, so an effect that keeps yielding still leaves the loop
+      a wait between yields. A `delay` waits on kotlinx's `DefaultExecutor`, whose resume comes back
+      through `dispatch`. A
       surface closes its `SceneDispatcher` right after its scene: that runs the queue once, so the scene
       finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers, then drops
       whatever the scene dispatches later. A create that fails once its scene exists unwinds the same way.
-      (`SharedFrameThreadTest`, `SceneDispatcherTest`, `SurfaceCreateFailureTest`)
+      (`SharedFrameThreadTest`, `SceneDispatcherTest`, `SurfaceCreateFailureTest`, `EventLoopWakeTest`)
 - [x] **Compose's snapshot pump runs on one thread, for a shell created on the thread that runs it.**
       `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`
       (b/418800424) when the snapshot pumps its surfaces register run on different threads.
