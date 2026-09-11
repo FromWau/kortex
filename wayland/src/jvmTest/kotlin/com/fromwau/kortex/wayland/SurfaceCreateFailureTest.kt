@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.Recomposer
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.getOrElse
@@ -31,12 +32,17 @@ class SurfaceCreateFailureTest {
             wayland.removeGlobal(seat.name)
 
             val memfdsBefore = openMemfds()
+            val recomposersBefore = Recomposer.runningRecomposers.value
             val failed = KortexSurface.create(wayland, CONFIG)
             // libwayland holds a duplicate of each descriptor it sends until the next flush, which is no leak.
             wayland.roundtrip()
 
             assertEquals(Err(KortexError.MissingGlobal(WL_SEAT)), failed)
             assertEquals(memfdsBefore, openMemfds(), "a failed create left memfd-backed descriptors open")
+            assertEquals(
+                emptySet(), Recomposer.runningRecomposers.value - recomposersBefore,
+                "a failed create left its scene's recomposer running",
+            )
             assertFalse(NAMESPACE in Hyprctl.namespaces(), "a failed create left its layer surface on the compositor")
             assertNull(wayland.protocolError(), "giving back a failed create's pieces cost the connection")
 
