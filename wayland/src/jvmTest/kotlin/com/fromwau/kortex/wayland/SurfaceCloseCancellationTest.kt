@@ -165,19 +165,30 @@ class SurfaceCloseCancellationTest {
                 .create(wayland, quiet(SHELL_QUIET_NAMESPACE), spinning(SHELL_SPINNING_NAMESPACE, spin))
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            // Around the pumps too: this thread runs the spin, so anything that renders its surface is held by it.
-            val heldPastBound = spin.stopIfHeldPast(SPIN_BOUND_MILLIS) {
-                shell.use {
-                    val up = shell.pump(PUMP_TIMEOUT_MILLIS) { Hyprctl.namespaces().containsAll(SHELL_NAMESPACES) }
-                    assertTrue(up, "hyprctl layers never reported all of $SHELL_NAMESPACES")
-                    spin.go.value = true
-                    val yielding = shell.pump(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > 0 }
-                    assertTrue(yielding, "$SHELL_SPINNING_NAMESPACE's content never started yielding")
-                }
+            // Rethrown only once the shell has closed under its own bound, which a failed setup must not skip.
+            val setUp = runCatching { startSpinning(shell, spin) }
+            val closeHeld = try {
+                spin.stopIfHeldPast(CLOSE_BOUND_MILLIS) { shell.close() }
+            } finally {
+                spin.stop.set(true)
             }
 
-            assertFalse(heldPastBound, "the shell's close returned only once the yielding content was made to stop")
+            setUp.getOrThrow()
+            assertFalse(closeHeld, "the shell's close returned only once the yielding content was made to stop")
         }
+    }
+
+    /** Pumps [shell] until both specks are up and [spin] runs, failing if the spin held a pump past the bound. */
+    private fun startSpinning(shell: KortexShell, spin: Spin) {
+        // This thread runs the spin, so a render of its surface during a pump would hold it there.
+        val held = spin.stopIfHeldPast(SET_UP_BOUND_MILLIS) {
+            val up = shell.pump(PUMP_TIMEOUT_MILLIS) { Hyprctl.namespaces().containsAll(SHELL_NAMESPACES) }
+            assertTrue(up, "hyprctl layers never reported all of $SHELL_NAMESPACES")
+            spin.go.value = true
+            val yielding = shell.pump(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > 0 }
+            assertTrue(yielding, "$SHELL_SPINNING_NAMESPACE's content never started yielding")
+        }
+        assertFalse(held, "setting the shell up was held until its yielding content was made to stop")
     }
 
     private fun quiet(
@@ -220,8 +231,11 @@ class SurfaceCloseCancellationTest {
         const val LATE_MILLIS = 300L
         const val PUMP_TIMEOUT_MILLIS = 4000L
 
-        // Far past the fraction of a second that placing both specks, starting the spin and closing them take.
-        const val SPIN_BOUND_MILLIS = 5000L
+        // Past both pumps' own timeouts, so only a pump the spin holds can outlast it.
+        const val SET_UP_BOUND_MILLIS = 2 * PUMP_TIMEOUT_MILLIS + 1000L
+
+        // Far past the fraction of a second a shell of two specks takes to close.
+        const val CLOSE_BOUND_MILLIS = 2000L
 
         val SHELL_NAMESPACES = listOf(SHELL_QUIET_NAMESPACE, SHELL_SPINNING_NAMESPACE)
     }
@@ -233,10 +247,7 @@ private class Spin {
     val stop = AtomicBoolean(false)
     val steps = AtomicLong()
 
-    /**
-     * Runs [block] while a watchdog sets [stop] once [boundMillis] pass, so a [block] the spin holds still returns,
-     * and sets [stop] either way; returns whether the watchdog had to.
-     */
+    /** Runs [block], setting [stop] if it has not returned within [boundMillis]; returns whether it had to. */
     fun stopIfHeldPast(boundMillis: Long, block: () -> Unit): Boolean {
         val returned = CountDownLatch(1)
         val heldPast = AtomicBoolean(false)
@@ -251,7 +262,6 @@ private class Spin {
         } finally {
             returned.countDown()
             watchdog.join()
-            stop.set(true)
         }
         return heldPast.get()
     }

@@ -277,14 +277,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       composition, effects and the recomposer run on the thread that runs the loop; the surfaces
       `KortexShell.create` places compose first on whichever thread calls it. A pass runs one generation of
       the queue, so while its surface does not render, an effect that keeps yielding leaves the loop a wait
-      between yields (`EventLoopWakeTest`). Compose's own frame flush and a surface's close each run a
-      yield chain of their own scene's to completion, and no other surface's. A `delay` waits on kotlinx's
-      `DefaultExecutor`, whose resume comes back through `dispatch`. Closing a surface runs its own scene's
-      queued work right after that scene closes, so the scene finishes cancelling and its recomposer leaves
-      Compose's process-wide snapshot observers before the close returns; a create that fails once its scene
-      exists unwinds the same way. What a closed surface's effects dispatch later, such as a `finally` that
-      suspends, still runs while its shell does. The shell drains the queue once more as it closes, which no
-      test covers.
+      between yields (`EventLoopWakeTest`). Compose's own frame flush and a surface's close each run only
+      their own scene's yield chain to completion. A `delay` waits on kotlinx's `DefaultExecutor`, whose
+      resume comes back through `dispatch`. Closing a surface runs its own scene's queued work right after
+      that scene closes, so the scene finishes cancelling and its recomposer leaves Compose's process-wide
+      snapshot observers before the close returns; a create that fails once its scene exists unwinds the
+      same way. What a closed surface's effects dispatch later, such as a `finally` that suspends, still
+      runs while its shell does. The shell drains the queue once more as it closes, which no test covers.
       (`EffectsOnLoopThreadTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
 - [x] **Compose's snapshot pump runs on one thread, for a shell created on the thread that runs it.**
       `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`
@@ -305,7 +304,7 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       order for the loop's next pass, so a sibling whose content keeps yielding holds neither that close,
       nor the loop thread, nor `KortexShell.close()`. A closing scene whose own content keeps queuing work
       after its cancellation, such as a `NonCancellable` spin, still holds its own close.
-      (`SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
+      (`LoopQueueTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
