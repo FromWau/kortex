@@ -254,6 +254,8 @@ public class KortexShell private constructor(
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
+        // No pass follows a close, so what reached the queue since the last one runs here.
+        loopQueue.drain()
     }
 
     public companion object {

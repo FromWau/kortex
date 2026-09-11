@@ -277,10 +277,11 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       composition, effects and the recomposer run on the thread that owns the connection and on no other.
       What that work queues waits for the next pass, so an effect that keeps yielding still leaves the loop
       a wait between yields. A `delay` waits on kotlinx's `DefaultExecutor`, whose resume comes back
-      through `dispatch`. A
-      surface closes its `SceneDispatcher` right after its scene: that runs the queue once, so the scene
-      finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers, then drops
-      whatever the scene dispatches later. A create that fails once its scene exists unwinds the same way.
+      through `dispatch`. Closing a surface runs the whole queue right after its scene closes, so the scene
+      finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers before the
+      close returns; a create that fails once its scene exists unwinds the same way. What a closed surface's
+      effects dispatch later, such as a `finally` that suspends, still runs while its shell does, and the
+      shell runs the queue once more as it closes.
       (`SharedFrameThreadTest`, `SceneDispatcherTest`, `SurfaceCreateFailureTest`, `EventLoopWakeTest`)
 - [x] **Compose's snapshot pump runs on one thread, for a shell created on the thread that runs it.**
       `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`

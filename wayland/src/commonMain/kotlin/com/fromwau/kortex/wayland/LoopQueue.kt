@@ -30,19 +30,20 @@ internal class LoopQueue(private val wake: () -> Unit) {
     }
 }
 
-/** One surface's Compose dispatcher: every task goes to its loop's [LoopQueue] until [close]. */
+/**
+ * One surface's Compose dispatcher: every task goes to its loop's [LoopQueue], a closed scene's included, since an
+ * effect's `finally` can suspend past its surface's close.
+ *
+ * Work arriving after the loop's owner has closed lands in a queue nobody drains; its `wake()` is a guarded no-op.
+ */
 internal class SceneDispatcher(private val loop: LoopQueue) : CoroutineDispatcher() {
-    @Volatile
-    private var closed = false
-
     override fun dispatch(context: CoroutineContext, block: Runnable) {
-        if (!closed) loop.post(block)
+        loop.post(block)
     }
 
-    /** Call once the scene has closed: runs the loop's queue, so the scene finishes cancelling, then drops the rest. */
+    /** Call once the scene has closed: runs the loop's queue, so the scene finishes cancelling before this returns. */
     fun close() {
         // Compose's recomposer leaves its process-wide snapshot observers only as its cancelled run loop resumes here.
         loop.drain()
-        closed = true
     }
 }
