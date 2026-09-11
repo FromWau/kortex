@@ -169,16 +169,12 @@ class SurfaceCloseCancellationTest {
                 .create(wayland, quiet(SHELL_QUIET_NAMESPACE), spinning(SHELL_SPINNING_NAMESPACE, spin))
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            // Rethrown only once the shell has closed under its own bound, which a failed setup must not skip.
-            val setUp = runCatching { startSpinning(shell, spin) }
-            val closeHeld = try {
-                spin.stopIfHeldPast(CLOSE_BOUND_MILLIS) { shell.close() }
-            } finally {
-                spin.stop.set(true)
-            }
-
-            setUp.getOrThrow()
-            assertFalse(closeHeld, "the shell's close returned only once the yielding content was made to stop")
+            closeAfter(
+                shell,
+                spin,
+                setUp = { startSpinning(shell, spin) },
+                heldMessage = "the shell's close returned only once the yielding content was made to stop",
+            )
         }
     }
 
@@ -241,7 +237,7 @@ class SurfaceCloseCancellationTest {
                 closeCleanup.value = true
                 closeSibling.value = true
             },
-        ) { _, _ ->
+        ) { _, loop ->
             assertTrue(
                 LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = true),
                 "hyprctl layers never reported $CLEANUP_NAMESPACE",
@@ -262,6 +258,12 @@ class SurfaceCloseCancellationTest {
                 LoopThread.waitUntil { spin.steps.get() > stepsOnceClosed },
                 "$CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed",
             )
+            // Checked after the steps: a loop that had ended would have advanced them in its shell's final drain.
+            assertTrue(loop.isAlive, "the loop ended while $CLEANUP_SIBLING_NAMESPACE was still open")
+            assertTrue(
+                CLEANUP_SIBLING_NAMESPACE in Hyprctl.namespaces(),
+                "hyprctl layers stopped reporting $CLEANUP_SIBLING_NAMESPACE once $CLEANUP_NAMESPACE closed",
+            )
         }
     }
 
@@ -276,17 +278,32 @@ class SurfaceCloseCancellationTest {
                 .create(wayland, spinningCleanup(SHELL_CLEANUP_NAMESPACE, spin, close))
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            // Rethrown only once the shell has closed under its own bound, which a failed setup must not skip.
-            val setUp = runCatching { closeWhileCleanupYields(shell, spin, close) }
-            val closeHeld = try {
-                spin.stopIfHeldPast(CLOSE_BOUND_MILLIS) { shell.close() }
-            } finally {
-                spin.stop.set(true)
-            }
-
-            setUp.getOrThrow()
-            assertFalse(closeHeld, "the shell's close returned only once a closed surface's cleanup was made to stop")
+            closeAfter(
+                shell,
+                spin,
+                setUp = { closeWhileCleanupYields(shell, spin, close) },
+                heldMessage = "the shell's close returned only once a closed surface's cleanup was made to stop",
+            )
         }
+    }
+
+    /** Runs [setUp], then closes [shell] under [CLOSE_BOUND_MILLIS], failing with [heldMessage] if [spin] held it. */
+    private fun closeAfter(
+        shell: KortexShell,
+        spin: Spin,
+        setUp: () -> Unit,
+        heldMessage: String,
+    ) {
+        // Rethrown only once the shell has closed under its own bound, which a failed setup must not skip.
+        val setUpResult = runCatching(setUp)
+        val closeHeld = try {
+            spin.stopIfHeldPast(CLOSE_BOUND_MILLIS) { shell.close() }
+        } finally {
+            spin.stop.set(true)
+        }
+
+        setUpResult.getOrThrow()
+        assertFalse(closeHeld, heldMessage)
     }
 
     /** Pumps [shell] until both specks are up and [spin] runs, failing if the spin held a pump past the bound. */
@@ -306,15 +323,21 @@ class SurfaceCloseCancellationTest {
     private fun closeWhileCleanupYields(shell: KortexShell, spin: Spin, close: MutableState<Boolean>) {
         val up = shell.pump(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE in Hyprctl.namespaces() }
         assertTrue(up, "hyprctl layers never reported $SHELL_CLEANUP_NAMESPACE")
-        // This thread runs the close, and with it the cleanup, so a close that waits for the cleanup holds the pump.
+        var gone = false
+        var yielding = false
+        // The close and the passes after it all run on this thread, where a cleanup that never ends could hold them.
         val held = spin.stopIfHeldPast(SET_UP_BOUND_MILLIS) {
             close.value = true
-            val gone = shell.pump(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE !in Hyprctl.namespaces() }
-            assertTrue(gone, "hyprctl layers still reports $SHELL_CLEANUP_NAMESPACE after its content closed it")
+            gone = shell.pump(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE !in Hyprctl.namespaces() }
+            val stepsOnceClosed = spin.steps.get()
+            yielding = shell.pump(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > stepsOnceClosed }
         }
-        assertFalse(held, "closing $SHELL_CLEANUP_NAMESPACE was held until its cleanup was made to stop")
-        val stepsOnceClosed = spin.steps.get()
-        val yielding = shell.pump(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > stepsOnceClosed }
+        // Checked first: a spin the watchdog stopped would otherwise show up as a cleanup that stopped yielding.
+        assertFalse(
+            held,
+            "closing $SHELL_CLEANUP_NAMESPACE, or a pass after it, was held until its cleanup was made to stop",
+        )
+        assertTrue(gone, "hyprctl layers still reports $SHELL_CLEANUP_NAMESPACE after its content closed it")
         assertTrue(yielding, "$SHELL_CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed")
     }
 
@@ -372,7 +395,7 @@ class SurfaceCloseCancellationTest {
         const val LATE_MILLIS = 300L
         const val PUMP_TIMEOUT_MILLIS = 4000L
 
-        // Past the timeouts of up to two pumps, so only a pump the spin holds can outlast it.
+        // Past both pumps' own timeouts, so only a pump the spin holds can outlast it.
         const val SET_UP_BOUND_MILLIS = 2 * PUMP_TIMEOUT_MILLIS + 1000L
 
         // Far past the fraction of a second a shell of two specks takes to close.

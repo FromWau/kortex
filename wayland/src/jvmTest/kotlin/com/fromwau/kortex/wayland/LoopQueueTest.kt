@@ -51,19 +51,19 @@ class LoopQueueTest {
 
     @Test
     fun `draining one surface's work stops after the bound's rounds and leaves the rest to the next pass`() {
-        val chain = chain(closing, links = RUNAWAY_CHAIN)
+        val chains = runawayChains(closing, closing)
 
         queue.drain(closing)
         assertEquals(
-            LoopQueue.DRAIN_BOUND_ROUNDS,
-            chain.runs,
-            "draining one surface's work did not stop after the bound's rounds",
+            listOf(LoopQueue.DRAIN_BOUND_ROUNDS, LoopQueue.DRAIN_BOUND_ROUNDS),
+            chains.map { it.runs },
+            "draining one surface's work did not run each of its chains for exactly the bound's rounds",
         )
 
         queue.runPass()
         assertEquals(
-            LoopQueue.DRAIN_BOUND_ROUNDS + 1,
-            chain.runs,
+            listOf(LoopQueue.DRAIN_BOUND_ROUNDS + 1, LoopQueue.DRAIN_BOUND_ROUNDS + 1),
+            chains.map { it.runs },
             "what a bounded drain of one surface's work left queued did not run in the next pass",
         )
     }
@@ -79,19 +79,19 @@ class LoopQueueTest {
 
     @Test
     fun `draining the whole queue stops after the bound's rounds and leaves the rest to the next pass`() {
-        val chain = chain(closing, links = RUNAWAY_CHAIN)
+        val chains = runawayChains(closing, sibling)
 
         queue.drain()
         assertEquals(
-            LoopQueue.DRAIN_BOUND_ROUNDS,
-            chain.runs,
-            "draining the whole queue did not stop after the bound's rounds",
+            listOf(LoopQueue.DRAIN_BOUND_ROUNDS, LoopQueue.DRAIN_BOUND_ROUNDS),
+            chains.map { it.runs },
+            "draining the whole queue did not run each chain for exactly the bound's rounds",
         )
 
         queue.runPass()
         assertEquals(
-            LoopQueue.DRAIN_BOUND_ROUNDS + 1,
-            chain.runs,
+            listOf(LoopQueue.DRAIN_BOUND_ROUNDS + 1, LoopQueue.DRAIN_BOUND_ROUNDS + 1),
+            chains.map { it.runs },
             "what a bounded drain of the whole queue left queued did not run in the next pass",
         )
     }
@@ -111,6 +111,10 @@ class LoopQueueTest {
 
     private fun chain(owner: CoroutineContext, links: Int): Chain =
         Chain(owner, links).also { queue.dispatch(owner, it) }
+
+    /** A chain far past the bound per owner: with two, a drain that counted runs, not rounds, stops each at half. */
+    private fun runawayChains(vararg owners: CoroutineContext): List<Chain> =
+        owners.map { chain(it, links = RUNAWAY_CHAIN) }
 
     /** Queues itself again under [owner] each time it runs, until it has run [links] times. */
     private inner class Chain(private val owner: CoroutineContext, private val links: Int) : Runnable {

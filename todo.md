@@ -281,11 +281,12 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       chain, to completion; a surface's close runs only its own scene's, for at most
       `LoopQueue.DRAIN_BOUND_ROUNDS` rounds. A `delay` waits on kotlinx's `DefaultExecutor`, whose
       resume comes back through `dispatch`. Closing a surface runs its own scene's queued work right after
-      that scene closes, so the scene finishes cancelling and its recomposer leaves Compose's process-wide
-      snapshot observers before the close returns; a create that fails once its scene exists unwinds the
-      same way. What a closed surface's effects dispatch later, such as a `finally` that suspends, still
-      runs while its shell does. The shell drains the queue once more as it closes, in rounds under the
-      same bound, running whatever reaches it once its last surface is gone.
+      that scene closes, so its recomposer leaves Compose's process-wide snapshot observers before the
+      close returns, and a scene whose cancellation ends within the bound has finished cancelling by then;
+      a create that fails once its scene exists unwinds the same way. What a closed surface's effects
+      dispatch later, such as a `finally` that suspends, still runs while its shell does. The shell drains
+      the queue once more as it closes, in rounds under the same bound, running what has reached the queue
+      by then; what arrives later, or outlasts the bound, never runs.
       (`EffectsOnLoopThreadTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
 - [x] **Compose's snapshot pump runs on one thread, for a shell created on the thread that runs it.**
       `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`

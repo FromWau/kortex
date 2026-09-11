@@ -69,7 +69,7 @@ internal class LoopQueue(private val wake: () -> Unit) : CoroutineDispatcher() {
     private class Queued(val owner: SurfaceWork?, block: Runnable) : Runnable by block
 
     companion object {
-        // Thirty-two times the two rounds a close takes at most, far past what a scene's own cancellation needs.
+        // Thirty-two times two, the most rounds any measured close took, leaving a scene's cancellation wide room.
         const val DRAIN_BOUND_ROUNDS = 64
     }
 }
