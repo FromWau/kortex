@@ -1,10 +1,11 @@
 package com.fromwau.kortex.wayland
 
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** One surface's [LoopQueue.drain] among a sibling's work and unowned work, with plain runnables and no compositor. */
+/** What [LoopQueue]'s drains run and where they stop, with plain runnables and no compositor. */
 class LoopQueueTest {
     private val ran = mutableListOf<String>()
     private val queue = LoopQueue(wake = {})
@@ -39,6 +40,62 @@ class LoopQueueTest {
         )
     }
 
+    @Test
+    fun `draining one surface's work runs a chain shorter than the bound to its end`() {
+        val chain = chain(closing, links = SHORT_CHAIN)
+
+        queue.drain(closing)
+
+        assertEquals(SHORT_CHAIN, chain.runs, "draining one surface's work stopped before its chain ended")
+    }
+
+    @Test
+    fun `draining one surface's work stops after the bound's rounds and leaves the rest to the next pass`() {
+        val chain = chain(closing, links = RUNAWAY_CHAIN)
+
+        queue.drain(closing)
+        assertEquals(
+            LoopQueue.DRAIN_BOUND_ROUNDS,
+            chain.runs,
+            "draining one surface's work did not stop after the bound's rounds",
+        )
+
+        queue.runPass()
+        assertEquals(
+            LoopQueue.DRAIN_BOUND_ROUNDS + 1,
+            chain.runs,
+            "what a bounded drain of one surface's work left queued did not run in the next pass",
+        )
+    }
+
+    @Test
+    fun `draining the whole queue runs a chain shorter than the bound to its end`() {
+        val chain = chain(closing, links = SHORT_CHAIN)
+
+        queue.drain()
+
+        assertEquals(SHORT_CHAIN, chain.runs, "draining the whole queue stopped before its chain ended")
+    }
+
+    @Test
+    fun `draining the whole queue stops after the bound's rounds and leaves the rest to the next pass`() {
+        val chain = chain(closing, links = RUNAWAY_CHAIN)
+
+        queue.drain()
+        assertEquals(
+            LoopQueue.DRAIN_BOUND_ROUNDS,
+            chain.runs,
+            "draining the whole queue did not stop after the bound's rounds",
+        )
+
+        queue.runPass()
+        assertEquals(
+            LoopQueue.DRAIN_BOUND_ROUNDS + 1,
+            chain.runs,
+            "what a bounded drain of the whole queue left queued did not run in the next pass",
+        )
+    }
+
     private fun queueMixedWork() {
         queue.dispatch(closing, record("closing 1"))
         queue.dispatch(sibling, record("sibling 1"))
@@ -50,5 +107,26 @@ class LoopQueueTest {
     private fun record(name: String, then: () -> Unit = {}): Runnable = Runnable {
         ran += name
         then()
+    }
+
+    private fun chain(owner: CoroutineContext, links: Int): Chain =
+        Chain(owner, links).also { queue.dispatch(owner, it) }
+
+    /** Queues itself again under [owner] each time it runs, until it has run [links] times. */
+    private inner class Chain(private val owner: CoroutineContext, private val links: Int) : Runnable {
+        var runs = 0
+            private set
+
+        override fun run() {
+            runs++
+            if (runs < links) queue.dispatch(owner, this)
+        }
+    }
+
+    private companion object {
+        const val SHORT_CHAIN = LoopQueue.DRAIN_BOUND_ROUNDS - 1
+
+        // Far past the bound yet finite, so a drain that ignores the bound fails the count instead of hanging.
+        const val RUNAWAY_CHAIN = 100 * LoopQueue.DRAIN_BOUND_ROUNDS
     }
 }
