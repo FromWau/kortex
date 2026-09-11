@@ -10,9 +10,6 @@ import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.Executors
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 
 /** A bound `wl_output`: the registry name it was announced under, its proxy, and what it publishes. */
 internal class ShellOutput(
@@ -53,20 +50,18 @@ public class KortexShell private constructor(
     private val display: WaylandDisplay,
     private val specs: List<SurfaceSpec>,
     private val platform: KortexPlatform,
-    // Shared so every surface's FrameRecomposer registers with GlobalSnapshotManager from the same
-    // thread; a distinct dispatcher per surface is what provokes its multi-thread warning.
-    private val frameDispatcher: ExecutorCoroutineDispatcher,
 ) : AutoCloseable {
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
     private val surfaces = mutableListOf<ActiveSurface>()
+    private val loopQueue = LoopQueue(display::wake)
 
     // Registry callbacks fire mid-dispatch; touching `outputs` or `surfaces` there would race the loop
     // iterating them.
     private val pendingAdds = mutableListOf<WaylandGlobal>()
     private val pendingRemoves = mutableListOf<Int>()
 
-    // open() is called from a frame thread, unlike the registry callbacks above, which fire on the loop thread.
+    // Queued rather than placed at once: content may call open() from any thread, or mid-pass from the loop's own.
     private val pendingOpens = ConcurrentLinkedQueue<SurfaceSpec>()
 
     /** The surfaces currently live, each with its output; exposed so a caller or test can inspect them. */
@@ -152,6 +147,8 @@ public class KortexShell private constructor(
     }
 
     private fun serviceSurfaces() {
+        // First: content running here posts to the surface queues drained next, its own close among them.
+        loopQueue.drain()
         // Before the reap: content's posted close marks its surface only when drained, and its wake is already spent.
         surfaces.forEach { it.surface.drainQueue() }
         // filter copies first: removeSurface mutates the very list this walks.
@@ -225,7 +222,7 @@ public class KortexShell private constructor(
             spec.config.copy(namespace = namespace),
             platform = platform,
             output = output?.proxy ?: MemorySegment.NULL,
-            frameDispatcher = frameDispatcher,
+            loopQueue = loopQueue,
         ).map { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
@@ -257,9 +254,6 @@ public class KortexShell private constructor(
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
-        // Only after every surface: each surface's own ownedDispatcher is null for this one, so none of
-        // them would ever close it themselves.
-        frameDispatcher.close()
     }
 
     public companion object {
@@ -274,10 +268,7 @@ public class KortexShell private constructor(
             vararg specs: SurfaceSpec,
             platform: KortexPlatform = KortexPlatform.None,
         ): Result<KortexShell, KortexError> {
-            val frameDispatcher = Executors.newSingleThreadExecutor { runnable ->
-                Thread(runnable, "kortex-frame").apply { isDaemon = true }
-            }.asCoroutineDispatcher()
-            val shell = KortexShell(display, specs.toList(), platform, frameDispatcher)
+            val shell = KortexShell(display, specs.toList(), platform)
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)

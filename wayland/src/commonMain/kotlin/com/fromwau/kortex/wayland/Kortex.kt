@@ -28,6 +28,11 @@ import com.fromwau.kortex.compose.KortexPlatform
  * compositor takes it away while an output is still connected. The connection itself is always closed
  * before this returns.
  *
+ * Every surface's composition and effects, and any coroutine they start without a dispatcher of its own,
+ * run on the thread that calls this, the same thread that dispatches Wayland events and draws. Blocking
+ * inside an effect therefore stalls every surface, as blocking the UI thread does in Compose Desktop; move
+ * blocking work off it, e.g. with `withContext(Dispatchers.IO)`.
+ *
  * @param specs what to put on screen and where, created in the order given.
  * @param platform host hooks the compositions drive, e.g. the cursor shape a hover asks for.
  */

@@ -18,7 +18,7 @@ import kotlin.test.fail
  * A surface whose creation fails partway gives back everything it had built.
  *
  * A withdrawn `wl_seat` is the latest failure this machine can produce: by then the shm, the layer surface,
- * both frames, the frame dispatcher, the cursor theme, the cursor surface and the scene all exist.
+ * both frames, the cursor theme, the cursor surface and the scene all exist.
  */
 class SurfaceCreateFailureTest {
     @Test

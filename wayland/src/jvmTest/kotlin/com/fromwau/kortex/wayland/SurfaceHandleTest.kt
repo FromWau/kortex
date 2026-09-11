@@ -38,9 +38,8 @@ class SurfaceHandleTest {
                 handleRef.set(surface)
                 val requested = closeRequested.value
                 LaunchedEffect(requested) {
-                    // Runs on kortex-frame, the composition's own thread; the test below sets the flag
-                    // only once the surface is confirmed visible, so this is the real call site, not a
-                    // stand-in invoked from the test thread. Calling it twice proves a double-close
+                    // The composition's own call site, run by the loop pump drives; the test below sets the
+                    // flag only once the surface is confirmed visible. Calling it twice proves a double-close
                     // content itself triggers is a no-op too.
                     if (requested) {
                         surface.close()
@@ -57,8 +56,8 @@ class SurfaceHandleTest {
                 assertTrue(appeared, "hyprctl never reported a $NAMESPACE- namespace; nothing to prove close() removes")
                 assertNotNull(handleRef.get(), "content never saw a LocalKortexSurface")
 
-                // Nothing on the test thread calls close() here: only this flag flip can make the surface
-                // drop below, so a pass proves the composition's own close() on kortex-frame did it.
+                // Nothing in this test calls close() directly: only this flag flip can make the surface drop
+                // below, so a pass proves the composition's own close() did it.
                 closeRequested.value = true
 
                 val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.isEmpty() }
@@ -67,7 +66,7 @@ class SurfaceHandleTest {
                 val gone = shell.pump(PUMP_TIMEOUT_MILLIS) { kortexNamespace() == null }
                 assertTrue(gone, "hyprctl layers still reports a $NAMESPACE- namespace after close()")
 
-                // A call after teardown (surface removed, dispatcher closed) must be a no-op, not a crash.
+                // A call after teardown (surface removed and closed) must be a no-op, not a crash.
                 handleRef.get().close()
             }
         }

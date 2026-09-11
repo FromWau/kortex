@@ -23,8 +23,8 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] **No helper binary, no socket.** Direct FFM into libwayland; the reference ships a C `wayland-helper`
       and pipes pixels over a Unix socket. Its `BinarySource`, bundled-binary extraction and JVM reflection
       flags have no kortex equivalent and should not get one.
-- [x] **No Swing EDT requirement.** kortex runs its own frame dispatcher; the reference mandates
-      `SwingUtilities.invokeLater` + `Dispatchers.Swing` or it renders blank frames.
+- [x] **No Swing EDT requirement.** Compose runs on the thread that runs kortex's own event loop; the
+      reference mandates `SwingUtilities.invokeLater` + `Dispatchers.Swing` or it renders blank frames.
 - [x] **Multi-monitor.** `KortexShell` puts a per-output spec on every `wl_output` and tracks hotplug. The
       reference lists single-monitor-only as a known limitation.
 
@@ -254,9 +254,10 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       dispatched and the loop goes round again; otherwise it flushes, `poll`s the Wayland fd beside an
       `eventfd`, reads or cancels, and dispatches what arrived. `WaylandDisplay.wake()` counts that
       `eventfd` up from any thread, and every post the loop drains calls it after enqueueing:
-      `KortexHost.open`, and the surface queue that invalidations, cursor changes and
-      `KortexSurfaceHandle.close` go through. `KeyboardInput` reports a held key's next repeat, the same
-      deadline its own `checkRepeat` delivers against. A shell waits for the earliest of those across its
+      `KortexHost.open`, the surface queue that invalidations, cursor changes and
+      `KortexSurfaceHandle.close` go through, and the `LoopQueue` that carries Compose's coroutine work.
+      `KeyboardInput` reports a held key's next repeat, the same deadline its own `checkRepeat` delivers
+      against. A shell waits for the earliest of those across its
       surfaces, rounded up to whole milliseconds for `poll`. With no key repeating the loop waits
       indefinitely, so an idle bar sleeps until something actually happens. A roundtrip or dispatch inside
       a pass makes the next wait return at once, since the events it ran can change what that pass already
@@ -270,22 +271,22 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - [x] **`WlSurfaceListener` has a file of its own.** `wl_surface` is a core interface, not part of the
       wlroots extension, so its listener sits in `WlSurfaceListener.kt` and `LayerShell.kt` keeps the
       `zwlr_layer_shell_v1` tables and `LayerSurface`.
-- [x] **A shell's surfaces share one `kortex-frame` thread.** `KortexShell` builds one daemon dispatcher
-      named `kortex-frame`, hands it to every `KortexSurface.create` call it makes, and closes it in its
-      own `close()` after every surface is closed. `KortexSurface.create` takes that dispatcher as an
-      internal, optional parameter: given one, the surface neither adds it to its create unwind nor
-      closes it; given none, it builds and owns its own, as a bare `KortexSurface` still does. Compose's
-      `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`
-      when the snapshot pumps its surfaces register run on different threads, and with one frame thread
-      per shell a panel and an OSD run their effects on that one thread and it has not printed
-      (`SharedFrameThreadTest`).
-- [ ] **Compose's snapshot pump can still run on two threads.** Every frame,
-      `FrameRecomposer.performFrameDispatch` flushes a surface's pending coroutine work, its
-      `GlobalSnapshotManager` pump included, on the loop thread that renders it. So one surface's pump can
-      run there while another's runs on `kortex-frame`, which is the race (b/418800424) the warning
-      names, narrowed by the shared thread rather than closed. Running the frame dispatcher on the loop
-      thread itself would close it, and needs the loop to wake for posted work first (the event-loop
-      entry under Polish).
+- [x] **A shell's surfaces run their Compose work on its loop thread.** `KortexShell` keeps one
+      `LoopQueue` and hands it to every `KortexSurface.create` call it makes; a bare `KortexSurface`
+      builds one of its own. Each surface's scene runs on a `SceneDispatcher` over that queue: `dispatch`
+      enqueues and wakes the loop, and the loop drains the queue on every pass, as `pump` does, so
+      composition, effects and the recomposer run on the thread that owns the connection and on no other.
+      A `delay` waits on kotlinx's `DefaultExecutor`, whose resume comes back through `dispatch`. A
+      surface closes its `SceneDispatcher` right after its scene: that runs the queue once, so the scene
+      finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers, then drops
+      whatever the scene dispatches later. (`SharedFrameThreadTest`, `SceneDispatcherTest`)
+- [x] **Compose's snapshot pump runs on one thread.** `GlobalSnapshotManager` prints `concurrent
+      registrations on multiple threads might lead to races` (b/418800424) when the snapshot pumps its
+      surfaces register run on different threads. `FrameRecomposer.performFrameDispatch` flushes a
+      surface's pending coroutine work, its pump included, on the loop thread that renders it, and every
+      other path that work takes reaches the same thread through the loop's queue. A panel and an OSD run
+      their effects on that thread, under `pump` and under a real loop, and it has not printed.
+      (`SharedFrameThreadTest`)
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
