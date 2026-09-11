@@ -57,20 +57,28 @@ class EventLoopWakeTest {
             Box(Modifier.fillMaxSize())
         }
 
-        LoopThread.run(opener, end = { closeRequested.value = true }) { _, _ ->
-            assertTrue(
-                LoopThread.awaitNamespace(OPENER_NAMESPACE, present = true),
-                "hyprctl layers never reported $OPENER_NAMESPACE",
-            )
-            assertTrue(
-                LoopThread.awaitNamespace(
-                    OPENED_NAMESPACE,
-                    present = true,
-                    timeoutMillis = QUIET_MILLIS + LoopThread.APPEAR_MILLIS,
-                ),
-                "hyprctl layers never reported $OPENED_NAMESPACE after content opened it",
-            )
+        val printed = capturingStdout {
+            LoopThread.run(opener, end = { closeRequested.value = true }) { _, _ ->
+                assertTrue(
+                    LoopThread.awaitNamespace(OPENER_NAMESPACE, present = true),
+                    "hyprctl layers never reported $OPENER_NAMESPACE",
+                )
+                assertTrue(
+                    LoopThread.awaitNamespace(
+                        OPENED_NAMESPACE,
+                        present = true,
+                        timeoutMillis = QUIET_MILLIS + LoopThread.APPEAR_MILLIS,
+                    ),
+                    "hyprctl layers never reported $OPENED_NAMESPACE after content opened it",
+                )
+            }
         }
+
+        // The opened surface is created mid-run, so its snapshot pump and the opener's must share the loop's thread.
+        assertFalse(
+            printed.contains(SNAPSHOT_PUMP_WARNING),
+            "GlobalSnapshotManager warned about concurrent registrations once content opened a surface",
+        )
     }
 
     @Test

@@ -9,8 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
-import java.io.ByteArrayOutputStream
-import java.io.PrintStream
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -52,7 +50,10 @@ class SharedFrameThreadTest {
             setOf(pumping.threadId()), effects.ids.toSet(),
             "the panel's and the OSD's effects did not all run on the thread pumping their shell: ${effects.names}",
         )
-        assertFalse(printed.contains(WARNING), "GlobalSnapshotManager warned about concurrent registrations")
+        assertFalse(
+            printed.contains(SNAPSHOT_PUMP_WARNING),
+            "GlobalSnapshotManager warned about concurrent registrations",
+        )
     }
 
     @Test
@@ -82,7 +83,10 @@ class SharedFrameThreadTest {
             }
         }
 
-        assertFalse(printed.contains(WARNING), "GlobalSnapshotManager warned about concurrent registrations")
+        assertFalse(
+            printed.contains(SNAPSHOT_PUMP_WARNING),
+            "GlobalSnapshotManager warned about concurrent registrations",
+        )
     }
 
     private fun panel(
@@ -106,21 +110,7 @@ class SharedFrameThreadTest {
     private fun panelNamespaces(): Set<String> =
         Hyprctl.namespaces().filterTo(mutableSetOf()) { it.startsWith("$PANEL_NAMESPACE-") }
 
-    /** Runs [block] with `System.out` captured, and returns what was printed there meanwhile. */
-    private fun capturingStdout(block: () -> Unit): String {
-        val captured = ByteArrayOutputStream()
-        val realOut = System.out
-        System.setOut(PrintStream(captured))
-        try {
-            block()
-        } finally {
-            System.setOut(realOut)
-        }
-        return captured.toString()
-    }
-
     private companion object {
-        const val WARNING = "GlobalSnapshotManager: concurrent registrations"
         const val PANEL_NAMESPACE = "kortex-shared-frame-panel"
         const val OSD_NAMESPACE = "kortex-shared-frame-osd"
         const val PANEL_HEIGHT = 24
@@ -135,8 +125,8 @@ class SharedFrameThreadTest {
 
 /** The threads each surface's `LaunchedEffect` ran on once [requested] turned true. */
 private class EffectThreads {
-    // Turned on only once both surfaces are up: a first composition's effects start on whichever thread
-    // creates the shell, and these tests are about the thread that drives it.
+    // Turned on only once both surfaces are up, so each effect runs again through the snapshot pump and a
+    // recomposition rather than inside the first composition's own flush.
     val requested = mutableStateOf(false)
 
     // Both the id (compared) and the name (reported): a coroutine debug agent suffixes the live thread's own

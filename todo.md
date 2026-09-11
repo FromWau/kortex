@@ -280,13 +280,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers, then drops
       whatever the scene dispatches later. A create that fails once its scene exists unwinds the same way.
       (`SharedFrameThreadTest`, `SceneDispatcherTest`, `SurfaceCreateFailureTest`)
-- [x] **Compose's snapshot pump runs on one thread.** `GlobalSnapshotManager` prints `concurrent
-      registrations on multiple threads might lead to races` (b/418800424) when the snapshot pumps its
-      surfaces register run on different threads. `FrameRecomposer.performFrameDispatch` flushes a
-      surface's pending coroutine work, its pump included, on the loop thread that renders it, and every
-      other path that work takes reaches the same thread through the loop's queue. A panel and an OSD run
-      their effects on that thread, under `pump` and under a real loop, and it has not printed.
-      (`SharedFrameThreadTest`)
+- [x] **Compose's snapshot pump runs on one thread, for a shell created on the thread that runs it.**
+      `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`
+      (b/418800424) when the snapshot pumps its surfaces register run on different threads.
+      `FrameRecomposer.performFrameDispatch` flushes a surface's pending coroutine work, its pump included,
+      on the loop thread that renders it, and every other path that work takes reaches the same thread
+      through the loop's queue. A pump first runs on the thread that creates its surface, so this holds
+      when `KortexShell.create` and `runEventLoop` share a thread, as they do in `runSurfaces`. A panel and
+      an OSD run their effects on that thread, under `pump` and under a real loop, and it has not printed,
+      nor once content opens a surface mid-run. (`SharedFrameThreadTest`, `EventLoopWakeTest`)
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,

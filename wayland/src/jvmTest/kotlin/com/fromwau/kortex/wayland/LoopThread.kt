@@ -5,6 +5,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.LocalKortexSurface
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.fail
 
@@ -17,8 +22,9 @@ internal object LoopThread {
     const val JOIN_MILLIS = 4000L
 
     /**
-     * Runs a shell of [specs] on a loop thread of its own around [block], then calls [end], which has to make
-     * the loop return. The shell and its display are closed only once it has, since until then the loop owns them.
+     * Creates a shell of [specs] on a loop thread of its own and runs it there around [block], then calls [end],
+     * which has to make the loop return. The loop thread closes the shell as it returns, and the display is closed
+     * only once it has, since until then the loop owns it.
      */
     fun run(
         vararg specs: SurfaceSpec,
@@ -26,18 +32,27 @@ internal object LoopThread {
         block: (display: WaylandDisplay, loop: Thread) -> Unit,
     ) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        val shell = KortexShell.create(display, *specs).getOrElse { error ->
-            display.close()
-            fail("shell creation failed: $error")
-        }
+        val created = CompletableFuture<Unit>()
         val loopFailure = AtomicReference<Throwable?>(null)
-        val loop = Thread({ runCatching(shell::runEventLoop).onFailure(loopFailure::set) }, "kortex-test-loop")
+
+        // Created on the loop thread, as runSurfaces does: a snapshot pump first runs where its surface is created.
+        fun createAndRun() {
+            val shell = KortexShell.create(display, *specs).getOrElse { error ->
+                created.completeExceptionally(AssertionError("shell creation failed: $error"))
+                return
+            }
+            created.complete(Unit)
+            runCatching { shell.use(KortexShell::runEventLoop) }.onFailure(loopFailure::set)
+        }
+
+        val loop = Thread(::createAndRun, "kortex-test-loop")
         loop.isDaemon = true
         loop.start()
 
         // Set in catch, read in finally: what finally finds attaches to the failure that surfaced first.
         var primary: Throwable? = null
         try {
+            awaitCreated(created)
             block(display, loop)
         } catch (thrown: Throwable) {
             primary = thrown
@@ -45,10 +60,7 @@ internal object LoopThread {
         } finally {
             end()
             loop.join(JOIN_MILLIS)
-            if (!loop.isAlive) {
-                shell.close()
-                display.close()
-            }
+            if (!loop.isAlive) display.close()
             val trouble = when {
                 loop.isAlive -> AssertionError(
                     "the loop never returned, so its connection, its surfaces and the thread stay live for the " +
@@ -77,6 +89,15 @@ internal object LoopThread {
     fun awaitNamespace(namespace: String, present: Boolean, timeoutMillis: Long = APPEAR_MILLIS): Boolean =
         waitUntil(timeoutMillis) { (namespace in Hyprctl.namespaces()) == present }
 
+    /** Waits for the loop thread to create its shell, and fails with the reason if it could not. */
+    private fun awaitCreated(created: CompletableFuture<Unit>) {
+        try {
+            created.get(APPEAR_MILLIS, TimeUnit.MILLISECONDS)
+        } catch (failed: ExecutionException) {
+            throw failed.cause ?: failed
+        }
+    }
+
     private const val POLL_MILLIS = 50L
     private const val NANOS_PER_MILLI = 1_000_000L
 }
@@ -87,4 +108,20 @@ internal fun CloseWhen(requested: MutableState<Boolean>) {
     val surface = LocalKortexSurface.current
     val close = requested.value
     LaunchedEffect(close) { if (close) surface.close() }
+}
+
+/** What Compose's `GlobalSnapshotManager` prints once its snapshot pumps have run on more than one thread. */
+internal const val SNAPSHOT_PUMP_WARNING = "GlobalSnapshotManager: concurrent registrations"
+
+/** Runs [block] with `System.out` captured, and returns what was printed there meanwhile. */
+internal fun capturingStdout(block: () -> Unit): String {
+    val captured = ByteArrayOutputStream()
+    val realOut = System.out
+    System.setOut(PrintStream(captured))
+    try {
+        block()
+    } finally {
+        System.setOut(realOut)
+    }
+    return captured.toString()
 }
