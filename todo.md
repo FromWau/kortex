@@ -277,14 +277,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       composition, effects and the recomposer run on the thread that runs the loop; the surfaces
       `KortexShell.create` places compose first on whichever thread calls it. A pass runs one generation of
       the queue, so while its surface does not render, an effect that keeps yielding leaves the loop a wait
-      between yields (`EventLoopWakeTest`). Compose's own frame flush and a surface's close each run only
-      their own scene's yield chain to completion. A `delay` waits on kotlinx's `DefaultExecutor`, whose
+      between yields (`EventLoopWakeTest`). Compose's own frame flush runs only its own scene's yield
+      chain, to completion; a surface's close runs only its own scene's, for at most
+      `LoopQueue.DRAIN_BOUND_ROUNDS` rounds. A `delay` waits on kotlinx's `DefaultExecutor`, whose
       resume comes back through `dispatch`. Closing a surface runs its own scene's queued work right after
       that scene closes, so the scene finishes cancelling and its recomposer leaves Compose's process-wide
       snapshot observers before the close returns; a create that fails once its scene exists unwinds the
       same way. What a closed surface's effects dispatch later, such as a `finally` that suspends, still
-      runs while its shell does. The shell drains the queue once more as it closes, running whatever reaches
-      it once its last surface is gone.
+      runs while its shell does. The shell drains the queue once more as it closes, in rounds under the
+      same bound, running whatever reaches it once its last surface is gone.
       (`EffectsOnLoopThreadTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
 - [x] **Compose's snapshot pump runs on one thread, for a shell created on the thread that runs it.**
       `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`
@@ -301,10 +302,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       reaches `LoopQueue` carrying it, whether through Compose's trampoline or frame dispatcher or as a
       `delay`'s resume, and the queue keeps it with the work. Closing a surface, and a create that unwinds
       once its scene exists, run only the work carrying that surface's element, in queue order and
-      including what it queues in turn, until none is left. Every other surface's work stays queued in its
-      order for the loop's next pass, so a sibling whose content keeps yielding holds neither that close,
-      nor the loop thread, nor `KortexShell.close()`. A closing scene whose own content keeps queuing work
-      after its cancellation, such as a `NonCancellable` spin, still holds its own close.
+      including what it queues in turn, a round at a time, each round what was queued as it began. They
+      stop once a round finds none, or once `LoopQueue.DRAIN_BOUND_ROUNDS` rounds have run. Every other
+      surface's work stays queued in its order for the loop's next pass, so a sibling whose content keeps
+      yielding holds neither that close, nor the loop thread, nor `KortexShell.close()`. Neither does a
+      closing scene whose own cleanup keeps queuing work, such as a `NonCancellable` spin in a `finally`:
+      its close returns once the bound's rounds have run, the shell's passes run the rest beside every
+      other surface's work, and the shell's final drain stops at the same bound.
       (`LoopQueueTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
