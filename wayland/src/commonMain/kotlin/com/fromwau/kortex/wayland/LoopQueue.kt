@@ -6,20 +6,21 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Runnable
 
 /**
- * Compose's coroutine work for every surface one loop drives. Any thread may [post]; only the thread that owns
- * the connection may run it.
+ * Compose's coroutine work for every surface one loop drives: any thread may dispatch it, and only the thread that
+ * owns the connection runs it.
+ *
+ * Work arriving after the loop's owner has closed lands in a queue nobody drains; its `wake()` is a guarded no-op.
  */
-internal class LoopQueue(private val wake: () -> Unit) {
+internal class LoopQueue(private val wake: () -> Unit) : CoroutineDispatcher() {
     private val work = ConcurrentLinkedQueue<Runnable>()
 
-    fun post(task: Runnable) {
-        work += task
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        work += block
         wake()
     }
 
-    /** Runs what is queued now; what that work queues waits for the next pass, which its post has already woken. */
     fun runPass() {
-        // Taken before any runs: content that keeps yielding re-posts itself and would hold the pass forever.
+        // Taken before any runs: content that keeps yielding dispatches itself again, and would hold the pass forever.
         val queued = generateSequence(work::poll).toList()
         queued.forEach(Runnable::run)
     }
@@ -27,23 +28,5 @@ internal class LoopQueue(private val wake: () -> Unit) {
     /** Runs everything queued, and whatever that work queues in turn, for a close that no further pass follows. */
     fun drain() {
         generateSequence(work::poll).forEach(Runnable::run)
-    }
-}
-
-/**
- * One surface's Compose dispatcher: every task goes to its loop's [LoopQueue], a closed scene's included, since an
- * effect's `finally` can suspend past its surface's close.
- *
- * Work arriving after the loop's owner has closed lands in a queue nobody drains; its `wake()` is a guarded no-op.
- */
-internal class SceneDispatcher(private val loop: LoopQueue) : CoroutineDispatcher() {
-    override fun dispatch(context: CoroutineContext, block: Runnable) {
-        loop.post(block)
-    }
-
-    /** Call once the scene has closed: runs the loop's queue, so the scene finishes cancelling before this returns. */
-    fun close() {
-        // Compose's recomposer leaves its process-wide snapshot observers only as its cancelled run loop resumes here.
-        loop.drain()
     }
 }

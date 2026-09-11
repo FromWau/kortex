@@ -54,6 +54,7 @@ public class KortexShell private constructor(
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
     private val surfaces = mutableListOf<ActiveSurface>()
+    // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
     private val loopQueue = LoopQueue(display::wake)
 
     // Registry callbacks fire mid-dispatch; touching `outputs` or `surfaces` there would race the loop

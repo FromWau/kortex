@@ -18,8 +18,8 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-/** What a surface's Compose dispatcher runs as its surface closes, and what it still runs after. */
-class SceneDispatcherTest {
+/** Which of a surface's Compose work has run by the time its close returns, and what still runs after. */
+class SurfaceCloseCancellationTest {
     @Test
     fun `a surface's effects and recomposer have finished cancelling by the time its close returns`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
@@ -112,9 +112,9 @@ class SceneDispatcherTest {
     )
 
     private companion object {
-        const val BARE_NAMESPACE = "kortex-scene-dispatcher"
-        const val FIRST_NAMESPACE = "kortex-scene-dispatcher-first"
-        const val SECOND_NAMESPACE = "kortex-scene-dispatcher-second"
+        const val BARE_NAMESPACE = "kortex-close-cancel"
+        const val FIRST_NAMESPACE = "kortex-close-cancel-first"
+        const val SECOND_NAMESPACE = "kortex-close-cancel-second"
         const val SPECK_SIZE = 8
         const val LATE_MILLIS = 300L
         const val PUMP_TIMEOUT_MILLIS = 4000L

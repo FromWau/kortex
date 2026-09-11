@@ -41,9 +41,7 @@ public class KortexSurface private constructor(
     private var frames: List<Frame>,
     private val scene: KortexScene,
     private val clock: FrameClock,
-    private val sceneDispatcher: SceneDispatcher,
-    // Non-null only for a surface created without a shell; a shell runs the queue it passed in itself.
-    private val ownedLoop: LoopQueue?,
+    private val loop: LoopQueue,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
     private val seat: Seat,
@@ -141,7 +139,7 @@ public class KortexSurface private constructor(
     internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
-            ownedLoop?.runPass()
+            loop.runPass()
             drainQueue()
             if (predicate()) return true
             // roundtrip, not dispatch: dispatch blocks for an event and would sail past the deadline.
@@ -149,7 +147,7 @@ public class KortexSurface private constructor(
             reconcile()
             Thread.sleep(PUMP_INTERVAL_MILLIS)
         }
-        ownedLoop?.runPass()
+        loop.runPass()
         serviceTick()
         return predicate()
     }
@@ -286,7 +284,8 @@ public class KortexSurface private constructor(
         display.roundtrip()
         cursorTheme.close()
         scene.close()
-        sceneDispatcher.close()
+        // The scene's recomposer leaves Compose's global snapshot observers only as its cancelled run loop resumes.
+        loop.drain()
         frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.
         retiring.forEach(Frame::close)
@@ -372,10 +371,8 @@ public class KortexSurface private constructor(
                 frames.forEach { frame -> unwind += frame::close }
 
                 val loop = loopQueue ?: LoopQueue(display::wake)
-                val ownedLoop = if (loopQueue == null) loop else null
-                val sceneDispatcher = SceneDispatcher(loop)
                 // Added before the scene, so it unwinds after it and can run the scene's cancellation.
-                unwind += sceneDispatcher::close
+                unwind += loop::drain
 
                 val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
                 unwind += cursorTheme::close
@@ -387,7 +384,7 @@ public class KortexSurface private constructor(
                 val scene = KortexScene(
                     size = IntSize(bufferWidth, bufferHeight),
                     density = Density(bufferScale.toFloat()),
-                    frameContext = sceneDispatcher,
+                    frameContext = loop,
                     onInvalidate = { surface.onInvalidate() },
                     platform = hostPlatform,
                 )
@@ -402,8 +399,8 @@ public class KortexSurface private constructor(
                     return Err(display.protocolError() ?: missingPointer)
                 }
                 surface = KortexSurface(
-                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), sceneDispatcher,
-                    ownedLoop, cursorTheme, cursorSurface, seat,
+                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), loop,
+                    cursorTheme, cursorSurface, seat,
                 )
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true
