@@ -281,9 +281,9 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       chain, to completion; a surface's close runs only its own scene's, for at most
       `LoopQueue.DRAIN_BOUND_ROUNDS` rounds. A `delay` waits on kotlinx's `DefaultExecutor`, whose
       resume comes back through `dispatch`. Closing a surface runs its own scene's queued work right after
-      that scene closes, so its recomposer leaves Compose's process-wide snapshot observers before the
-      close returns, and a scene whose cancellation ends within the bound has finished cancelling by then;
-      a create that fails once its scene exists unwinds the same way. What a closed surface's effects
+      that scene closes. Its recomposer leaves Compose's process-wide snapshot observers before the close
+      returns, and a scene whose cancellation ends within the bound has finished cancelling by then. A
+      create that fails once its scene exists unwinds the same way. What a closed surface's effects
       dispatch later, such as a `finally` that suspends, still runs while its shell does. The shell drains
       the queue once more as it closes, in rounds under the same bound, running what has reached the queue
       by then; what arrives later, or outlasts the bound, never runs.
@@ -307,8 +307,8 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       stop once a round finds none, or once `LoopQueue.DRAIN_BOUND_ROUNDS` rounds have run. Every other
       surface's work stays queued in its order for the loop's next pass, so a sibling whose content keeps
       yielding holds neither that close, nor the loop thread, nor `KortexShell.close()`. Neither does a
-      closing scene whose own cleanup keeps queuing work, such as a `NonCancellable` spin in a `finally`:
-      its close returns once the bound's rounds have run, the shell's passes run the rest beside every
+      closing scene whose own cleanup keeps queuing work, such as a `NonCancellable` spin in a `finally`.
+      Its close returns once the bound's rounds have run, the shell's passes run the rest beside every
       other surface's work, and the shell's final drain stops at the same bound.
       (`LoopQueueTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**

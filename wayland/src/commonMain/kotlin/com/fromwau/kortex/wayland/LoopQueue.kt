@@ -17,8 +17,7 @@ internal class SurfaceWork : AbstractCoroutineContextElement(SurfaceWork) {
  * run its own and leave the rest where it is.
  *
  * Work runs in rounds, each one what was queued as it began, so work that keeps queuing itself waits for the next
- * round. A pass runs one round. A drain runs rounds until one finds nothing, or until [DRAIN_BOUND_ROUNDS] have run,
- * and leaves the rest queued for the next pass.
+ * round. A pass runs one round; a drain runs several, up to [DRAIN_BOUND_ROUNDS].
  *
  * Once the loop's owner has closed, no pass follows: what its last drain left, and work arriving after, stays in a
  * queue nobody drains, and that work's `wake()` is a guarded no-op.
@@ -69,7 +68,7 @@ internal class LoopQueue(private val wake: () -> Unit) : CoroutineDispatcher() {
     private class Queued(val owner: SurfaceWork?, block: Runnable) : Runnable by block
 
     companion object {
-        // Thirty-two times two, the most rounds any measured close took, leaving a scene's cancellation wide room.
+        // Thirty-two times the two rounds the longest measured close took, leaving a scene's cancellation wide room.
         const val DRAIN_BOUND_ROUNDS = 64
     }
 }
