@@ -279,7 +279,8 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       A `delay` waits on kotlinx's `DefaultExecutor`, whose resume comes back through `dispatch`. A
       surface closes its `SceneDispatcher` right after its scene: that runs the queue once, so the scene
       finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers, then drops
-      whatever the scene dispatches later. (`SharedFrameThreadTest`, `SceneDispatcherTest`)
+      whatever the scene dispatches later. A create that fails once its scene exists unwinds the same way.
+      (`SharedFrameThreadTest`, `SceneDispatcherTest`, `SurfaceCreateFailureTest`)
 - [x] **Compose's snapshot pump runs on one thread.** `GlobalSnapshotManager` prints `concurrent
       registrations on multiple threads might lead to races` (b/418800424) when the snapshot pumps its
       surfaces register run on different threads. `FrameRecomposer.performFrameDispatch` flushes a

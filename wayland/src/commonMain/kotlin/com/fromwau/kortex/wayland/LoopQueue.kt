@@ -13,7 +13,6 @@ internal class LoopQueue(private val wake: () -> Unit) {
     private val work = ConcurrentLinkedQueue<Runnable>()
 
     fun post(task: Runnable) {
-        // Queued before the wake, or the loop can drain the wake, find nothing, and sleep through this post.
         work += task
         wake()
     }
