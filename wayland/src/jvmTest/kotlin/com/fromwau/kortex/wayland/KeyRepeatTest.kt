@@ -1,5 +1,7 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -13,6 +15,7 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
@@ -24,6 +27,7 @@ import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -123,11 +127,126 @@ class KeyRepeatTest {
         }
     }
 
+    @Test
+    fun `the loop sleeps until a held key's next repeat is due, and indefinitely while none is`() {
+        withKeyboardSession { keyboard, _, _, _ ->
+            keyboard.onRepeatInfo(NULL, NULL, RATE, DELAY_MILLIS)
+            assertEquals(
+                LibC.POLL_INDEFINITELY, loopTimeout(keyboard, System.nanoTime()),
+                "the loop would wake for a repeat with no key held",
+            )
+
+            val beforePress = System.nanoTime()
+            keyboard.onKey(NULL, NULL, 1, 0, KEY_A, PRESSED)
+            val afterPress = System.nanoTime()
+            val due = assertNotNull(keyboard.nextRepeatDueNanos, "a held key gave the loop no deadline to wake at")
+            val pressMillis = Math.ceilDiv(afterPress - beforePress, NANOS_PER_MILLI).toInt()
+            val atPress = loopTimeout(keyboard, afterPress)
+            assertTrue(
+                atPress in DELAY_MILLIS - pressMillis..DELAY_MILLIS,
+                "right after the press the loop would sleep ${atPress}ms, not the ${DELAY_MILLIS}ms delay",
+            )
+            assertEquals(1, loopTimeout(keyboard, due - 1), "the loop would wake before the repeat is due")
+            assertEquals(
+                0, loopTimeout(keyboard, due + NANOS_PER_MILLI),
+                "an overdue repeat would not wake the loop at once",
+            )
+
+            keyboard.checkRepeat(nowNanos = due)
+            assertEquals(
+                MILLIS_PER_SECOND / RATE, loopTimeout(keyboard, due),
+                "after a repeat the loop would not wake again one repeat interval later",
+            )
+
+            keyboard.onKey(NULL, NULL, 2, 0, KEY_A, RELEASED)
+            assertEquals(
+                LibC.POLL_INDEFINITELY, loopTimeout(keyboard, System.nanoTime()),
+                "the loop would still wake for a released key",
+            )
+
+            keyboard.onRepeatInfo(NULL, NULL, 0, DELAY_MILLIS)
+            keyboard.onKey(NULL, NULL, 3, 0, KEY_A, PRESSED)
+            assertEquals(
+                LibC.POLL_INDEFINITELY, loopTimeout(keyboard, System.nanoTime()),
+                "at rate 0 the loop would wake for a repeat that never comes",
+            )
+        }
+    }
+
+    /** The timeout the loop's wait hands `poll` while [keyboard]'s repeat is the only deadline it has. */
+    private fun loopTimeout(keyboard: KeyboardInput, nowNanos: Long): Int =
+        LibC.pollTimeoutMillis(keyboard.nextRepeatDueNanos, nowNanos)
+
+    @Test
+    fun `a shell's loop deadline is the earliest key repeat due on any of its surfaces`() {
+        withShellKeyboards { shell, first, second ->
+            assertNull(shell.nextDeadlineNanos(), "the shell's loop has a deadline with no key held anywhere")
+
+            first.onRepeatInfo(NULL, NULL, RATE, LATE_DELAY_MILLIS)
+            first.onKey(NULL, NULL, 1, 0, KEY_A, PRESSED)
+            assertEquals(
+                first.nextRepeatDueNanos, shell.nextDeadlineNanos(),
+                "the shell's loop would not wake for a key held on one of its surfaces",
+            )
+
+            second.onRepeatInfo(NULL, NULL, RATE, DELAY_MILLIS)
+            second.onKey(NULL, NULL, 2, 0, KEY_S, PRESSED)
+            assertEquals(
+                second.nextRepeatDueNanos, shell.nextDeadlineNanos(),
+                "the shell's loop would sleep past the earliest repeat among its surfaces",
+            )
+
+            second.onKey(NULL, NULL, 3, 0, KEY_S, RELEASED)
+            first.onKey(NULL, NULL, 4, 0, KEY_A, RELEASED)
+            assertNull(shell.nextDeadlineNanos(), "the shell's loop still has a deadline once every key is up")
+        }
+    }
+
+    /**
+     * Runs [block] on a shell of two specks, each handed a keyboard bound here rather than one of its own: a
+     * keyboard-interactive surface would take the user's focus as it maps.
+     */
+    private fun withShellKeyboards(block: (shell: KortexShell, first: KeyboardInput, second: KeyboardInput) -> Unit) {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "kortex-repeat-test").apply { isDaemon = true }
+        }.asCoroutineDispatcher()
+        val scene = KortexScene(IntSize(SIDE, SIDE), Density(1f), frameContext = dispatcher, onInvalidate = {})
+        try {
+            val seat = Seat.bind(display).getOrElse { error -> fail("seat bind failed: $error") }
+            try {
+                val shell = KortexShell.create(display, speckSpec(FIRST_NAMESPACE), speckSpec(SECOND_NAMESPACE))
+                    .getOrElse { error -> fail("shell creation failed: $error") }
+                shell.use {
+                    val (first, second) = shell.activeSurfaces.map { active ->
+                        assertNotNull(seat.attachKeyboard(scene), "the seat announced no keyboard")
+                            .also { active.surface.keyboardInput = it }
+                    }
+                    // The compositor sends each new keyboard its keymap, without which no key is understood.
+                    display.roundtrip()
+                    assertTrue(first.hasKeymap && second.hasKeymap, "the compositor never delivered a keymap")
+                    block(shell, first, second)
+                }
+            } finally {
+                // After the shell, whose close released the keyboards taken from this seat.
+                seat.release()
+            }
+        } finally {
+            scene.close()
+            dispatcher.close()
+            display.close()
+        }
+    }
+
+    private fun speckSpec(namespace: String): SurfaceSpec = SurfaceSpec(SPECK_CONFIG.copy(namespace = namespace)) {
+        Box(Modifier.fillMaxSize())
+    }
+
     private fun render(scene: KortexScene, surface: Surface) {
         scene.render(surface.canvas.asComposeCanvas(), System.nanoTime())
     }
 
-    /** Mirrors [KortexSurface]'s real tick: check for a due repeat, then render, once per [TICK_MILLIS]. */
+    /** Mirrors [KortexSurface.pump]: check for a due repeat, then render, once per [TICK_MILLIS]. */
     private fun pollFor(durationMillis: Long, keyboard: KeyboardInput, scene: KortexScene, surface: Surface) {
         val deadline = System.nanoTime() + durationMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
@@ -211,8 +330,9 @@ class KeyRepeatTest {
 
         const val NANOS_PER_MILLI = 1_000_000L
         const val NANOS_PER_SECOND = 1_000_000_000L
+        const val MILLIS_PER_SECOND = 1_000
 
-        // Matches KortexSurface's own tick cadence (PUMP_INTERVAL_MILLIS / EVENT_LOOP_TIMEOUT_MILLIS).
+        // Matches KortexSurface.pump's own cadence, its PUMP_INTERVAL_MILLIS.
         const val TICK_MILLIS = 16L
 
         // Picked so no plausible built-in default (e.g. 25/s after 250ms) could pass this by accident.
@@ -226,5 +346,20 @@ class KeyRepeatTest {
         const val REPLACE_RATE = 5
         const val REPLACE_DELAY_MILLIS = 20
         const val FAR_FUTURE_NANOS = 10_000_000_000L
+
+        // Held first but due after DELAY_MILLIS's key pressed later, so only the earliest wins.
+        const val LATE_DELAY_MILLIS = 1000
+        const val FIRST_NAMESPACE = "kortex-repeat-first"
+        const val SECOND_NAMESPACE = "kortex-repeat-second"
+        const val SPECK_SIZE = 8
+
+        // A speck in the corner, where the pointer is least likely to be.
+        val SPECK_CONFIG = SurfaceConfig(
+            layer = Layer.Overlay,
+            anchor = setOf(Edge.Bottom, Edge.Right),
+            width = SPECK_SIZE.dp,
+            height = SPECK_SIZE.dp,
+            exclusiveZone = ExclusiveZone.Yield,
+        )
     }
 }

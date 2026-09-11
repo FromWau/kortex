@@ -21,10 +21,7 @@ import com.fromwau.kortex.compose.KortexTextInput
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
-import kotlinx.coroutines.ExecutorCoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
@@ -44,24 +41,25 @@ public class KortexSurface private constructor(
     private var frames: List<Frame>,
     private val scene: KortexScene,
     private val clock: FrameClock,
-    private val dispatcher: ExecutorCoroutineDispatcher,
+    private val loop: LoopQueue,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
     private val seat: Seat,
 ) : AutoCloseable {
 
-    // Posted by onInvalidate (the frame thread) and drained only on the loop thread, which is the
-    // one thread ever allowed to call into libwayland.
+    // Filled through post() from any thread and drained only on the loop thread, which is the one thread
+    // ever allowed to call into libwayland.
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
 
     // Set once by create() after the seat is bound; null only once close() has released it.
     @Volatile
     private var pointerInput: PointerInput? = null
 
-    // Set once by create() after the seat is bound; null when config.keyboard is None or the seat announced
-    // no keyboard, and once close() has released it.
+    // Null when config.keyboard is None, when the seat announced no keyboard, and once close() has released it.
+    // Settable here so a test can hand one to a surface without keyboard interactivity, since Hyprland gives an
+    // interactive surface the user's focus as it maps.
     @Volatile
-    private var keyboardInput: KeyboardInput? = null
+    internal var keyboardInput: KeyboardInput? = null
 
     private var logicalWidth: Int = layer.logicalWidth
     private var logicalHeight: Int = layer.logicalHeight
@@ -75,7 +73,7 @@ public class KortexSurface private constructor(
         override fun close() {
             // markClosed() itself needs no thread confinement, but the hop keeps this on setCursor's
             // pattern and stays correct if closing ever grows a real libwayland call.
-            queue += { layer.markClosed() }
+            post { layer.markClosed() }
         }
     }
 
@@ -112,6 +110,9 @@ public class KortexSurface private constructor(
     /** Which side closed this surface, once [closed] is true; null beforehand. */
     internal val closeReason: CloseReason? get() = layer.closeReason
 
+    /** When this surface next needs a loop pass that no Wayland event will announce; null while nothing does. */
+    internal val nextDeadlineNanos: Long? get() = keyboardInput?.nextRepeatDueNanos
+
     /** A test cannot make the compositor close this surface: that needs removing whatever output it chose. */
     internal fun simulateCompositorClose() {
         layer.simulateCompositorClose()
@@ -130,24 +131,15 @@ public class KortexSurface private constructor(
     public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
         layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
-    /** Runs this surface until the connection dies. Blocks, and owns the connection for as long as it does. */
-    public fun runEventLoop() {
-        while (true) {
-            drainQueue()
-            display.flush()
-            if (display.dispatch(EVENT_LOOP_TIMEOUT_MILLIS) < 0) break
-            reconcile()
-        }
-    }
-
     /**
      * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
      *
      * @return whether [predicate] held.
      */
-    public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
+    internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
+            loop.runPass()
             drainQueue()
             if (predicate()) return true
             // roundtrip, not dispatch: dispatch blocks for an event and would sail past the deadline.
@@ -155,18 +147,24 @@ public class KortexSurface private constructor(
             reconcile()
             Thread.sleep(PUMP_INTERVAL_MILLIS)
         }
+        loop.runPass()
         serviceTick()
         return predicate()
     }
 
-    private fun drainQueue() {
+    internal fun drainQueue() {
         generateSequence(queue::poll).forEach { it() }
+    }
+
+    private fun post(work: () -> Unit) {
+        queue += work
+        display.wake()
     }
 
     /**
      * Services this surface for one tick, for a driver running several surfaces on one connection.
      *
-     * Unlike [runEventLoop] and [pump], this does not dispatch; the driver owns the connection.
+     * Unlike [pump], this does not dispatch; the driver owns the connection.
      */
     internal fun serviceTick() {
         drainQueue()
@@ -260,8 +258,8 @@ public class KortexSurface private constructor(
     }
 
     private fun onInvalidate() {
-        // Runs on the frame thread, which must never touch libwayland itself, so post the work instead.
-        queue += {
+        // Posted, never run here: Compose also invalidates from inside renderNow, ahead of that frame's own commit.
+        post {
             // Answer an invalidation by asking for a frame, never by rendering immediately: the
             // compositor decides when a frame happens.
             clock.request(::renderNow)
@@ -286,6 +284,8 @@ public class KortexSurface private constructor(
         display.roundtrip()
         cursorTheme.close()
         scene.close()
+        // The scene's recomposer leaves Compose's global snapshot observers only as its cancelled run loop resumes.
+        loop.drain()
         frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.
         retiring.forEach(Frame::close)
@@ -293,7 +293,6 @@ public class KortexSurface private constructor(
         clock.close()
         layer.close()
         shm.close()
-        dispatcher.close()
     }
 
     private class Frame(val buffer: ShmBuffer, val surface: Surface) {
@@ -311,6 +310,8 @@ public class KortexSurface private constructor(
             platform: KortexPlatform = KortexPlatform.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
+            // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
+            loopQueue: LoopQueue? = null,
         ): Result<KortexSurface, KortexError> {
             // The surface tracks the open text-input session itself so a host does not have to; keys the
             // composition does not consume are turned into edits on it.
@@ -318,8 +319,7 @@ public class KortexSurface private constructor(
             lateinit var surface: KortexSurface
             val hostPlatform = object : KortexPlatform {
                 override fun setCursor(cursor: KortexCursor) {
-                    // Compose can call this from the frame thread; every libwayland call must run on the loop thread.
-                    surface.queue += { surface.pointerInput?.setCursor(cursor) }
+                    surface.post { surface.pointerInput?.setCursor(cursor) }
                     platform.setCursor(cursor)
                 }
 
@@ -370,10 +370,9 @@ public class KortexSurface private constructor(
                 val frames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }
                 frames.forEach { frame -> unwind += frame::close }
 
-                val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-                    Thread(runnable, "kortex-frame").apply { isDaemon = true }
-                }.asCoroutineDispatcher()
-                unwind += dispatcher::close
+                val loop = loopQueue ?: LoopQueue(display::wake)
+                // Added before the scene, so it unwinds after it and can run the scene's cancellation.
+                unwind += loop::drain
 
                 val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
                 unwind += cursorTheme::close
@@ -385,7 +384,7 @@ public class KortexSurface private constructor(
                 val scene = KortexScene(
                     size = IntSize(bufferWidth, bufferHeight),
                     density = Density(bufferScale.toFloat()),
-                    frameContext = dispatcher,
+                    frameContext = loop,
                     onInvalidate = { surface.onInvalidate() },
                     platform = hostPlatform,
                 )
@@ -400,7 +399,7 @@ public class KortexSurface private constructor(
                     return Err(display.protocolError() ?: missingPointer)
                 }
                 surface = KortexSurface(
-                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), dispatcher,
+                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), loop,
                     cursorTheme, cursorSurface, seat,
                 )
                 // From here the surface's own close() is the one owner of every piece above.
@@ -439,6 +438,5 @@ public class KortexSurface private constructor(
         private const val BUFFER_COUNT = 2
         private const val NANOS_PER_MILLI = 1_000_000L
         private const val PUMP_INTERVAL_MILLIS = 16L
-        private const val EVENT_LOOP_TIMEOUT_MILLIS = 16L
     }
 }

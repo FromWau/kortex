@@ -54,13 +54,15 @@ public class KortexShell private constructor(
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
     private val surfaces = mutableListOf<ActiveSurface>()
+    // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
+    private val loopQueue = LoopQueue(display::wake)
 
     // Registry callbacks fire mid-dispatch; touching `outputs` or `surfaces` there would race the loop
     // iterating them.
     private val pendingAdds = mutableListOf<WaylandGlobal>()
     private val pendingRemoves = mutableListOf<Int>()
 
-    // open() is called from a frame thread, unlike the registry callbacks above, which fire on the loop thread.
+    // Queued rather than placed at once: content may call open() from any thread, or mid-pass from the loop's own.
     private val pendingOpens = ConcurrentLinkedQueue<SurfaceSpec>()
 
     /** The surfaces currently live, each with its output; exposed so a caller or test can inspect them. */
@@ -94,19 +96,22 @@ public class KortexShell private constructor(
      * itself closes it, rather than content, it is placed again as long as any output remains connected,
      * so that case keeps the loop running too.
      *
-     * Blocks, and owns the connection for as long as it does.
+     * Blocks, and owns the connection for as long as it does. Content runs on the thread that runs the loop,
+     * so create the shell on that same thread.
      */
     public fun runEventLoop() {
         while (true) {
             applyPendingChanges()
             if (surfaces.isEmpty() && !awaitingAnOutput) break
-            display.flush()
-            if (display.dispatch(EVENT_LOOP_TIMEOUT_MILLIS) < 0) break
+            if (!display.awaitWork(nextDeadlineNanos())) break
             serviceSurfaces()
         }
     }
 
-    /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses; mirrors [KortexSurface.pump]. */
+    /** The earliest deadline across the surfaces that no event announces; not private because a test asserts it. */
+    internal fun nextDeadlineNanos(): Long? = surfaces.mapNotNull { it.surface.nextDeadlineNanos }.minOrNull()
+
+    /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses. */
     public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
@@ -144,6 +149,10 @@ public class KortexShell private constructor(
     }
 
     private fun serviceSurfaces() {
+        // First: content running here posts to the surface queues drained next, its own close among them.
+        loopQueue.runPass()
+        // Before the reap: content's posted close marks its surface only when drained, and its wake is already spent.
+        surfaces.forEach { it.surface.drainQueue() }
         // filter copies first: removeSurface mutates the very list this walks.
         val closing = surfaces.filter { it.surface.closed }
         val toReplace = closing.filter(::shouldReplace)
@@ -215,6 +224,7 @@ public class KortexShell private constructor(
             spec.config.copy(namespace = namespace),
             platform = platform,
             output = output?.proxy ?: MemorySegment.NULL,
+            loopQueue = loopQueue,
         ).map { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
@@ -231,6 +241,7 @@ public class KortexShell private constructor(
         override val output: OutputGeometry? get() = active.geometry
         override fun open(spec: SurfaceSpec) {
             pendingOpens += spec
+            display.wake()
         }
     }
 
@@ -245,6 +256,8 @@ public class KortexShell private constructor(
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
+        // No pass follows a close, so what reached the queue since the last one runs here.
+        loopQueue.drain()
     }
 
     public companion object {
@@ -278,6 +291,5 @@ public class KortexShell private constructor(
 
         private const val NANOS_PER_MILLI = 1_000_000L
         private const val PUMP_INTERVAL_MILLIS = 16L
-        private const val EVENT_LOOP_TIMEOUT_MILLIS = 16L
     }
 }

@@ -9,13 +9,16 @@ import com.fromwau.kern.result.map
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
+import java.lang.foreign.MemoryLayout
 import java.lang.foreign.MemorySegment
+import java.lang.foreign.StructLayout
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
+import java.lang.foreign.ValueLayout.JAVA_SHORT
 
 /**
- * The libc calls behind a shared-memory buffer.
+ * The libc calls behind a shared-memory buffer and the event loop's wait.
  *
  * Passing the fd is the reason kortex binds libwayland rather than speaking the wire protocol
  * directly: libwayland does the SCM_RIGHTS dance, and the JDK's Unix socket channels cannot.
@@ -24,10 +27,11 @@ internal object LibC {
     private val linker = Linker.nativeLinker()
     private val lookup = linker.defaultLookup()
 
-    private fun downcall(name: String, descriptor: FunctionDescriptor) =
+    private fun downcall(name: String, descriptor: FunctionDescriptor, vararg options: Linker.Option) =
         linker.downcallHandle(
             lookup.find(name).orElseThrow { UnsatisfiedLinkError("libc exports no $name") },
             descriptor,
+            *options,
         )
 
     private val memfdCreate = downcall("memfd_create", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
@@ -38,6 +42,30 @@ internal object LibC {
     )
     private val munmap = downcall("munmap", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG))
     private val close = downcall("close", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
+    private val eventfd = downcall(
+        "eventfd",
+        FunctionDescriptor.of(JAVA_INT, JAVA_INT, JAVA_INT),
+        Linker.Option.captureCallState(ERRNO),
+    )
+    private val read = downcall("read", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
+    private val write = downcall("write", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
+    private val poll = downcall(
+        "poll",
+        FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT),
+        Linker.Option.captureCallState(ERRNO),
+    )
+
+    private val callState: StructLayout = Linker.Option.captureStateLayout()
+    private val errnoOffset: Long = callState.byteOffset(MemoryLayout.PathElement.groupElement(ERRNO))
+
+    private val POLLFD: StructLayout = MemoryLayout.structLayout(
+        JAVA_INT.withName("fd"),
+        JAVA_SHORT.withName("events"),
+        JAVA_SHORT.withName("revents"),
+    )
+    private val pollFdOffset: Long = POLLFD.byteOffset(MemoryLayout.PathElement.groupElement("fd"))
+    private val pollEventsOffset: Long = POLLFD.byteOffset(MemoryLayout.PathElement.groupElement("events"))
+    private val pollReventsOffset: Long = POLLFD.byteOffset(MemoryLayout.PathElement.groupElement("revents"))
 
     fun memfdCreate(name: String): Result<Int, KortexError> {
         // The kernel copies the name, so it has to outlive only the call.
@@ -73,11 +101,78 @@ internal object LibC {
         close.invoke(fd)
     }
 
+    /** A close-on-exec, non-blocking `eventfd` whose counter starts at 0. */
+    fun eventfd(): Result<Int, KortexError> {
+        Arena.ofConfined().use { call ->
+            val state = call.allocate(callState)
+            val fd = eventfd.invoke(state, 0, EFD_CLOEXEC or EFD_NONBLOCK) as Int
+            if (fd < 0) return Err(KortexError.ConnectionError(state.get(JAVA_INT, errnoOffset)))
+            return Ok(fd)
+        }
+    }
+
+    fun read(fd: Int, buffer: MemorySegment) {
+        read.invoke(fd, buffer, buffer.byteSize())
+    }
+
+    fun write(fd: Int, buffer: MemorySegment) {
+        write.invoke(fd, buffer, buffer.byteSize())
+    }
+
+    /**
+     * `poll(2)` until one of [fds] is ready or [deadlineNanos] passes; null waits indefinitely.
+     *
+     * @param events what to wait for on the fd at the same index of [fds], e.g. [POLLIN].
+     * @return each fd's `revents`, all 0 once the deadline has passed.
+     */
+    fun poll(fds: IntArray, events: IntArray, deadlineNanos: Long?): IntArray {
+        Arena.ofConfined().use { call ->
+            val entries = call.allocate(POLLFD, fds.size.toLong())
+            fds.forEachIndexed { index, fd ->
+                entries.set(JAVA_INT, index * POLLFD.byteSize() + pollFdOffset, fd)
+                entries.set(JAVA_SHORT, index * POLLFD.byteSize() + pollEventsOffset, events[index].toShort())
+            }
+            val state = call.allocate(callState)
+            while (true) {
+                val timeout = pollTimeoutMillis(deadlineNanos, System.nanoTime())
+                val ready = poll.invoke(state, entries, fds.size.toLong(), timeout) as Int
+                if (ready >= 0) break
+                val errno = state.get(JAVA_INT, errnoOffset)
+                // A signal cut the wait short, which says nothing about the fds; wait out what is left of it.
+                check(errno == EINTR) { "poll failed with errno $errno" }
+            }
+            return IntArray(fds.size) { index ->
+                entries.get(JAVA_SHORT, index * POLLFD.byteSize() + pollReventsOffset).toInt()
+            }
+        }
+    }
+
+    /** [poll]'s timeout for [deadlineNanos], rounded up so the wait never ends before it; null never ends. */
+    fun pollTimeoutMillis(deadlineNanos: Long?, nowNanos: Long): Int {
+        if (deadlineNanos == null) return POLL_INDEFINITELY
+        val remaining = (deadlineNanos - nowNanos).coerceAtLeast(0L)
+        return Math.ceilDiv(remaining, NANOS_PER_MILLI)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+    }
+
+    const val POLLIN = 0x001
+    const val POLLOUT = 0x004
+
+    /** `poll(2)`'s own timeout for a wait with no deadline. */
+    const val POLL_INDEFINITELY = -1
+
     private const val PROT_READ = 1
     private const val PROT_WRITE = 2
     private const val MAP_SHARED = 1
     private const val MAP_PRIVATE = 2
     private const val MAP_FAILED = -1L
+
+    private const val EFD_CLOEXEC = 0x80000
+    private const val EFD_NONBLOCK = 0x800
+    private const val ERRNO = "errno"
+    private const val EINTR = 4
+    private const val NANOS_PER_MILLI = 1_000_000L
 }
 
 /**

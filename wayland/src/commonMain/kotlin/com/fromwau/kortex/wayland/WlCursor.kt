@@ -154,6 +154,16 @@ internal class WlCursorTheme private constructor(
             KortexCursor.Crosshair -> listOf("crosshair", "left_ptr")
             KortexCursor.Text -> listOf("xterm", "text", "left_ptr")
             KortexCursor.Hand -> listOf("hand2", "pointer", "left_ptr")
+            KortexCursor.Move -> listOf("fleur", "move", "left_ptr")
+            KortexCursor.Wait -> listOf("watch", "wait", "left_ptr")
+            KortexCursor.ResizeNorth -> listOf("top_side", "n-resize", "left_ptr")
+            KortexCursor.ResizeNorthEast -> listOf("top_right_corner", "ne-resize", "left_ptr")
+            KortexCursor.ResizeEast -> listOf("right_side", "e-resize", "left_ptr")
+            KortexCursor.ResizeSouthEast -> listOf("bottom_right_corner", "se-resize", "left_ptr")
+            KortexCursor.ResizeSouth -> listOf("bottom_side", "s-resize", "left_ptr")
+            KortexCursor.ResizeSouthWest -> listOf("bottom_left_corner", "sw-resize", "left_ptr")
+            KortexCursor.ResizeWest -> listOf("left_side", "w-resize", "left_ptr")
+            KortexCursor.ResizeNorthWest -> listOf("top_left_corner", "nw-resize", "left_ptr")
         }
         // wl_cursor_theme_get_cursor only compares each name with the theme's own, so none outlives the lookup.
         Arena.ofConfined().use { request ->

@@ -43,6 +43,11 @@ internal class KeyboardInput(
     /** When the next repeat is due, in [System.nanoTime] units; meaningless while [repeatingKey] is null. */
     private var nextRepeatAtNanos: Long = 0L
 
+    /** When [checkRepeat] next has a repeat to deliver, in [System.nanoTime] units; null while none is coming. */
+    val nextRepeatDueNanos: Long?
+        // rate == 0 means the compositor asked for no repeat at all.
+        get() = if (repeatingKey == null || repeatRate == 0) null else nextRepeatAtNanos
+
     fun onKeymap(data: MemorySegment, proxy: MemorySegment, format: Int, fd: Int, size: Int) {
         try {
             if (format != XKB_V1_FORMAT) return
@@ -86,11 +91,12 @@ internal class KeyboardInput(
         }
     }
 
-    /** Delivers a due repeat for the held key; call every loop tick. Never touches libwayland itself. */
+    /** Delivers a due repeat for the held key; call it on every loop pass. Never touches libwayland itself. */
     internal fun checkRepeat(nowNanos: Long = System.nanoTime()) {
         val key = repeatingKey ?: return
-        // rate == 0 means the compositor asked for no repeat at all; it must never reach the division.
-        if (repeatRate == 0 || nowNanos < nextRepeatAtNanos) return
+        // The deadline the loop sleeps until, so the two never disagree; null at rate 0, sparing the division.
+        val due = nextRepeatDueNanos ?: return
+        if (nowNanos < due) return
         nextRepeatAtNanos += NANOS_PER_SECOND / repeatRate
         deliverKey(key, KeyEventType.KeyDown)
     }
