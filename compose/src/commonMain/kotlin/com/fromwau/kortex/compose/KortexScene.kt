@@ -174,8 +174,7 @@ private class KortexPlatformContext(
     }
 }
 
-// AwtCursor (what PointerIcon(Cursor(...)) constructs) implements equals/hashCode by cursor type, so this
-// lookup is built once rather than allocating a fresh PointerIcon to compare against on every hover.
+// AwtCursor's equals and hashCode go by cursor type, so content's own PointerIcon(Cursor(type)) finds its entry.
 private val CURSOR_ICONS: Map<PointerIcon, KortexCursor> = mapOf(
     PointerIcon.Default to KortexCursor.Default,
     PointerIcon.Crosshair to KortexCursor.Crosshair,

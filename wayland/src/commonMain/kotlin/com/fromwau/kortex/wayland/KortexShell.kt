@@ -96,7 +96,8 @@ public class KortexShell private constructor(
      * itself closes it, rather than content, it is placed again as long as any output remains connected,
      * so that case keeps the loop running too.
      *
-     * Blocks, and owns the connection for as long as it does.
+     * Blocks, and owns the connection for as long as it does. Content runs on the thread that runs the loop,
+     * so create the shell on that same thread.
      */
     public fun runEventLoop() {
         while (true) {

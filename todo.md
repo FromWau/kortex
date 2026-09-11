@@ -70,7 +70,7 @@ the host runs are done.
       still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state,
       and a configure recomposes a reader (`RecompositionTest`). `close()` posts onto the surface's queue
       and sets the same flag a real `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceSurfaces`
-      reaps a self-close through the one existing teardown path. No `awaitClose()` — the blocking entry
+      reaps a self-close through the one existing teardown path. No `awaitClose()`: the blocking entry
       point is already the host's wait, and it returns once content has closed the last surface.
       (`SurfaceHandleTest`)
 - [x] **Several independent surfaces on one connection.** `runSurfaces(vararg SurfaceSpec)` is the general
@@ -152,14 +152,14 @@ the host runs are done.
       test provokes the latest exit this machine can reach, a withdrawn `wl_seat`; the pointer-less seat,
       `waitForConfigure`, `createFrames`, the cursor theme and the cursor surface cannot be reached on this
       machine and are covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
-- [x] **`KortexHost.output` recomposes a reader.** Content that reads `LocalKortexHost.current.output`
-      during composition, and records every value it composes with, is driven past its first, real
-      composition (already non-null: `KortexShell.create` round-trips before placing) by a fabricated
-      event group, `onGeometry`, `onMode` flagged current, `onScale`, `onName`, `onDescription`, then
-      `onDone`, called directly on the live surface's own `OutputListener` from the test thread, standing
-      in for what a real re-send would dispatch on the loop thread. Content recomposes with the fabricated
-      geometry, which needs no real output added, removed or changed, so this needed neither `@Hotplug`
-      nor `-Pkortex.hotplugTests=true`. (`RecompositionTest`)
+- [x] **`KortexHost.output` recomposes a reader.** Content reads `LocalKortexHost.current.output` during
+      composition and records every value it composes with. Its first, real composition already sees a
+      non-null value, since `KortexShell.create` round-trips before placing. The test then drives it past
+      that with a fabricated event group, called directly on the live surface's own `OutputListener` from
+      the test thread: `onGeometry`, `onMode` flagged current, `onScale`, `onName`, `onDescription`, then
+      `onDone`. That stands in for what a real re-send would dispatch on the loop thread. Content
+      recomposes with the fabricated geometry, which needs no real output added, removed or changed, so it
+      runs untagged in the default build. (`RecompositionTest`)
 
 ## Surface presets
 
@@ -241,13 +241,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 
 ## Polish
 
-- [x] **Cursor shapes.** kortex maps all 14 shapes Compose can ask for: `Default`, `Crosshair`, `Text`,
-      `Hand`, `Move`, `Wait` and all eight resize directions, more than the reference's 10. No caller-supplied
-      path through `KortexPlatform` is needed: `PointerIcon(java.awt.Cursor(type))` reaches its `KortexCursor`
-      through one `PointerIcon`-keyed lookup built once in `KortexScene`, since Compose's `AwtCursor`
-      implements `equals`/`hashCode` by cursor type; an icon the lookup does not recognise still resolves to
-      `Default`. `WlCursorTheme.resolve` gives each shape a candidate XCursor name, its CSS name, then
-      `left_ptr`. (`KortexSceneTest`, `WlCursorThemeTest`)
+- [x] **Cursor shapes.** kortex maps all 14 of `java.awt.Cursor`'s predefined types: `Default`, `Crosshair`,
+      `Text`, `Hand`, `Move`, `Wait` and all eight resize directions, more than the reference's 10.
+      `PointerIcon(java.awt.Cursor(type))` reaches its `KortexCursor` through one `PointerIcon`-keyed lookup
+      built once in `KortexScene`, since Compose's `AwtCursor` implements `equals`/`hashCode` by cursor type;
+      any other icon, a custom AWT cursor included, resolves to `Default`. `WlCursorTheme.resolve` gives
+      each shape a candidate XCursor name, its CSS name, then `left_ptr`. (`KortexSceneTest`,
+      `WlCursorThemeTest`)
 - [x] **The event loop wakes on demand.** `KortexShell.runEventLoop` sleeps in `WaylandDisplay.awaitWork`
       until a Wayland event arrives, another thread posts work, or a held key's next repeat falls due. It
       does libwayland's read dance itself: events already queued are dispatched and the loop goes round
@@ -257,12 +257,11 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       invalidations, cursor changes and `KortexSurfaceHandle.close` go through, and the `LoopQueue` that
       carries Compose's coroutine work. `KeyboardInput` reports a held key's next repeat, the same deadline
       its own `checkRepeat` delivers against. A shell waits for the earliest of those across its surfaces,
-      rounded up to whole milliseconds for `poll`. With no key repeating the loop waits
-      indefinitely, so an idle bar sleeps until something actually happens. A roundtrip or dispatch inside
-      a pass makes the next wait return at once, since the events it ran can change what that pass already
-      checked. A shell runs its surfaces' posted work before reaping closed ones, so a close that content
-      posts is reaped in the pass it wakes. Another source, D-Bus or a timerfd, would be one more fd in that
-      `poll`.
+      rounded up to whole milliseconds for `poll`. With no key repeating the loop waits indefinitely, so an
+      idle bar sleeps until something actually happens. A roundtrip or dispatch inside a pass makes the next
+      wait return at once, since the events it ran can change what that pass already checked. A shell runs
+      its surfaces' posted work before reaping closed ones, so a close that content posts is reaped in the
+      pass it wakes. Another source, D-Bus or a timerfd, would be one more fd in that `poll`.
       (`EventLoopWakeTest`, `KeyRepeatTest`, `WaylandDisplayTest`)
 
 ## Housekeeping
@@ -271,27 +270,35 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       wlroots extension, so its listener sits in `WlSurfaceListener.kt` and `LayerShell.kt` keeps the
       `zwlr_layer_shell_v1` tables and `LayerSurface`.
 - [x] **A shell's surfaces run their Compose work on its loop thread.** `KortexShell` keeps one
-      `LoopQueue` and hands it to every `KortexSurface.create` call it makes; a bare `KortexSurface`
-      builds one of its own. Each surface's scene runs on a `SceneDispatcher` over that queue: `dispatch`
-      enqueues and wakes the loop, and each pass runs what was queued when it began, as `pump` does, so
-      composition, effects and the recomposer run on the thread that owns the connection and on no other.
-      What that work queues waits for the next pass, so an effect that keeps yielding still leaves the loop
-      a wait between yields. A `delay` waits on kotlinx's `DefaultExecutor`, whose resume comes back
-      through `dispatch`. Closing a surface runs the whole queue right after its scene closes, so the scene
-      finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers before the
-      close returns; a create that fails once its scene exists unwinds the same way. What a closed surface's
-      effects dispatch later, such as a `finally` that suspends, still runs while its shell does, and the
-      shell runs the queue once more as it closes.
-      (`SharedFrameThreadTest`, `SceneDispatcherTest`, `SurfaceCreateFailureTest`, `EventLoopWakeTest`)
+      `LoopQueue`, a `CoroutineDispatcher`, and hands it to every `KortexSurface.create` call it makes; a
+      bare `KortexSurface` builds one of its own. Every surface's scene dispatches onto it: a dispatch
+      enqueues and wakes the loop, and each pass runs what was queued when it began, as `pump` does. So
+      composition, effects and the recomposer run on the thread that runs the loop; the surfaces
+      `KortexShell.create` places compose first on whichever thread calls it. A pass runs one generation of
+      the queue, so while its surface does not render, an effect that keeps yielding leaves the loop a wait
+      between yields (`EventLoopWakeTest`). Compose's own frame flush and a surface's close still run a
+      yield chain to completion. A `delay` waits on kotlinx's `DefaultExecutor`, whose resume comes back
+      through `dispatch`. Closing a surface drains the whole queue right after its scene closes, so the
+      scene finishes cancelling and its recomposer leaves Compose's process-wide snapshot observers before
+      the close returns; a create that fails once its scene exists unwinds the same way. What a closed
+      surface's effects dispatch later, such as a `finally` that suspends, still runs while its shell does.
+      The shell drains the queue once more as it closes, which no test covers.
+      (`EffectsOnLoopThreadTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
 - [x] **Compose's snapshot pump runs on one thread, for a shell created on the thread that runs it.**
       `GlobalSnapshotManager` prints `concurrent registrations on multiple threads might lead to races`
       (b/418800424) when the snapshot pumps its surfaces register run on different threads.
       `FrameRecomposer.performFrameDispatch` flushes a surface's pending coroutine work, its pump included,
       on the loop thread that renders it, and every other path that work takes reaches the same thread
       through the loop's queue. A pump first runs on the thread that creates its surface, so this holds
-      when `KortexShell.create` and `runEventLoop` share a thread, as they do in `runSurfaces`. A panel and
-      an OSD run their effects on that thread, under `pump` and under a real loop, and it has not printed,
-      nor once content opens a surface mid-run. (`SharedFrameThreadTest`, `EventLoopWakeTest`)
+      when `KortexShell.create` and `runEventLoop` share a thread, as they do in `runSurfaces`. The tests
+      assert it prints nothing while a panel and an OSD run their effects on that thread, under `pump` and
+      under a real loop, and while content opens a surface mid-run. (`EffectsOnLoopThreadTest`,
+      `EventLoopWakeTest`)
+- [ ] **Bound a surface's close drain to its own scene.** Closing a surface drains the whole loop queue
+      until it is empty, so a sibling surface's endless yield loop hangs that close, and
+      `KortexShell.close()` with it. Running passes only until the closing scene's recomposer has left
+      `Recomposer.runningRecomposers` would stop at that scene's own cancellation. That needs `KortexScene`
+      to expose which `RecomposerInfo` is its own.
 - [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
@@ -358,5 +365,5 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - The two JVM reflection flags — kortex reaches `PlatformContext` directly.
 - JitPack publishing — publishing is out of scope for now.
 - A per-surface density override. The reference takes `density = Density(2f)` and reads
-  `GDK_SCALE`/`QT_SCALE_FACTOR` because it cannot tell a surface's scale; kortex takes density from each
-  surface's `preferred_buffer_scale`, so an override would only zoom content its dp values already size.
+  `GDK_SCALE`/`QT_SCALE_FACTOR`; kortex takes density from each surface's `preferred_buffer_scale`, so an
+  override would only zoom content its dp values already size.

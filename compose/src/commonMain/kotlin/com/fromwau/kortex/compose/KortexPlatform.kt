@@ -6,7 +6,10 @@ import androidx.compose.ui.text.input.BackspaceCommand
 import androidx.compose.ui.text.input.CommitTextCommand
 import androidx.compose.ui.text.input.DeleteSurroundingTextCommand
 
-/** The cursor shapes Compose can ask for. */
+/**
+ * The cursor shapes kortex shows: `java.awt.Cursor`'s 14 predefined types. Any other pointer icon, a custom
+ * AWT cursor included, shows as [Default].
+ */
 public enum class KortexCursor {
     Default,
     Crosshair,
