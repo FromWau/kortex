@@ -286,6 +286,7 @@ public class KortexSurface private constructor(
         cursorTheme.close()
         scene.close()
         // The scene's recomposer leaves Compose's global snapshot observers only as its cancelled run loop resumes.
+        // A sibling's work waits for the next pass instead, since content that keeps yielding never lets it run out.
         loop.drain(surfaceWork)
         frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.
@@ -373,7 +374,7 @@ public class KortexSurface private constructor(
 
                 val loop = loopQueue ?: LoopQueue(display::wake)
                 val surfaceWork = SurfaceWork()
-                // Added before the scene, so it unwinds after it and can run the scene's cancellation.
+                // Added before the scene so it unwinds after it, running that scene's cancellation and no other work.
                 unwind += { loop.drain(surfaceWork) }
 
                 val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }

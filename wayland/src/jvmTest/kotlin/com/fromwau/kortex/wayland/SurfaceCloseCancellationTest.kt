@@ -220,7 +220,7 @@ class SurfaceCloseCancellationTest {
         const val LATE_MILLIS = 300L
         const val PUMP_TIMEOUT_MILLIS = 4000L
 
-        // Far past what placing both specks and closing them takes, and short of Gradle's patience.
+        // Far past the fraction of a second that placing both specks, starting the spin and closing them take.
         const val SPIN_BOUND_MILLIS = 5000L
 
         val SHELL_NAMESPACES = listOf(SHELL_QUIET_NAMESPACE, SHELL_SPINNING_NAMESPACE)
@@ -234,10 +234,8 @@ private class Spin {
     val steps = AtomicLong()
 
     /**
-     * Runs [block] on this thread while a watchdog sets [stop] once [boundMillis] pass, so a [block] the spin holds
-     * still returns; [stop] is set as this returns either way.
-     *
-     * @return whether [block] was still running when the bound passed, and returned only once the spin stopped.
+     * Runs [block] while a watchdog sets [stop] once [boundMillis] pass, so a [block] the spin holds still returns,
+     * and sets [stop] either way; returns whether the watchdog had to.
      */
     fun stopIfHeldPast(boundMillis: Long, block: () -> Unit): Boolean {
         val returned = CountDownLatch(1)

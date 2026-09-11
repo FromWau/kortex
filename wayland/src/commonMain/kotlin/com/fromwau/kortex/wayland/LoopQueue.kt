@@ -13,7 +13,8 @@ internal class SurfaceWork : AbstractCoroutineContextElement(SurfaceWork) {
 
 /**
  * Compose's coroutine work for every surface one loop drives: any thread may dispatch it, and only the thread that
- * owns the connection runs it.
+ * owns the connection runs it. Each piece keeps the [SurfaceWork] it was dispatched under, so a closing surface can
+ * run its own and leave the rest where it is.
  *
  * Work arriving after the loop's owner has closed lands in a queue nobody drains; its `wake()` is a guarded no-op.
  */
@@ -31,12 +32,15 @@ internal class LoopQueue(private val wake: () -> Unit) : CoroutineDispatcher() {
         queued.forEach(Runnable::run)
     }
 
-    /** Runs everything queued, and whatever that work queues in turn, for a close that no further pass follows. */
+    /** Runs every surface's work, and whatever it queues in turn, for the shell's close, which no pass follows. */
     fun drain() {
         generateSequence(work::poll).forEach(Runnable::run)
     }
 
-    /** Runs [owner]'s work in queue order, and whatever that work queues in turn, until none of it is left. */
+    /**
+     * Runs [owner]'s work in queue order, and whatever that work queues in turn, until none of it is left.
+     * Every other surface's work stays queued, in its order, for the next pass.
+     */
     fun drain(owner: SurfaceWork) {
         generateSequence { pollFirst(owner) }.forEach(Runnable::run)
     }
