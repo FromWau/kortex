@@ -63,6 +63,9 @@ internal object LibC {
         JAVA_SHORT.withName("events"),
         JAVA_SHORT.withName("revents"),
     )
+    private val pollFdOffset: Long = POLLFD.byteOffset(MemoryLayout.PathElement.groupElement("fd"))
+    private val pollEventsOffset: Long = POLLFD.byteOffset(MemoryLayout.PathElement.groupElement("events"))
+    private val pollReventsOffset: Long = POLLFD.byteOffset(MemoryLayout.PathElement.groupElement("revents"))
 
     fun memfdCreate(name: String): Result<Int, KortexError> {
         // The kernel copies the name, so it has to outlive only the call.
@@ -126,8 +129,8 @@ internal object LibC {
         Arena.ofConfined().use { call ->
             val entries = call.allocate(POLLFD, fds.size.toLong())
             fds.forEachIndexed { index, fd ->
-                entries.set(JAVA_INT, index * POLLFD.byteSize() + POLLFD_FD, fd)
-                entries.set(JAVA_SHORT, index * POLLFD.byteSize() + POLLFD_EVENTS, events[index].toShort())
+                entries.set(JAVA_INT, index * POLLFD.byteSize() + pollFdOffset, fd)
+                entries.set(JAVA_SHORT, index * POLLFD.byteSize() + pollEventsOffset, events[index].toShort())
             }
             val state = call.allocate(callState)
             while (true) {
@@ -139,7 +142,7 @@ internal object LibC {
                 check(errno == EINTR) { "poll failed with errno $errno" }
             }
             return IntArray(fds.size) { index ->
-                entries.get(JAVA_SHORT, index * POLLFD.byteSize() + POLLFD_REVENTS).toInt()
+                entries.get(JAVA_SHORT, index * POLLFD.byteSize() + pollReventsOffset).toInt()
             }
         }
     }
@@ -148,7 +151,9 @@ internal object LibC {
     fun pollTimeoutMillis(deadlineNanos: Long?, nowNanos: Long): Int {
         if (deadlineNanos == null) return POLL_INDEFINITELY
         val remaining = (deadlineNanos - nowNanos).coerceAtLeast(0L)
-        return Math.ceilDiv(remaining, NANOS_PER_MILLI).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        return Math.ceilDiv(remaining, NANOS_PER_MILLI)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
     }
 
     const val POLLIN = 0x001
@@ -167,9 +172,6 @@ internal object LibC {
     private const val EFD_NONBLOCK = 0x800
     private const val ERRNO = "errno"
     private const val EINTR = 4
-    private const val POLLFD_FD = 0L
-    private const val POLLFD_EVENTS = 4L
-    private const val POLLFD_REVENTS = 6L
     private const val NANOS_PER_MILLI = 1_000_000L
 }
 
