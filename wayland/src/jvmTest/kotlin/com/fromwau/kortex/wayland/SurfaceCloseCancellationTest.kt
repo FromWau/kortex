@@ -15,16 +15,20 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlin.coroutines.resume
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
@@ -178,6 +182,49 @@ class SurfaceCloseCancellationTest {
         }
     }
 
+    @Test
+    fun `a shell's final drain runs work that reaches the queue after its last surface closed`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val close = mutableStateOf(false)
+        val parked = AtomicReference<CancellableContinuation<Unit>?>(null)
+        val finished = AtomicBoolean(false)
+
+        display.use { wayland ->
+            val spec = SurfaceSpec(speckConfig(DRAIN_NAMESPACE), OutputTarget.CompositorChoice) {
+                LaunchedEffect(Unit) {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        withContext(NonCancellable) { suspendCancellableCoroutine { parked.set(it) } }
+                        finished.set(true)
+                    }
+                }
+                CloseWhen(close)
+                Box(Modifier.fillMaxSize())
+            }
+            val shell = KortexShell.create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
+
+            val up = shell.pump(PUMP_TIMEOUT_MILLIS) { DRAIN_NAMESPACE in Hyprctl.namespaces() }
+            assertTrue(up, "hyprctl layers never reported $DRAIN_NAMESPACE")
+
+            close.value = true
+            val gone = shell.pump(PUMP_TIMEOUT_MILLIS) {
+                DRAIN_NAMESPACE !in Hyprctl.namespaces() && parked.get() != null
+            }
+            assertTrue(gone, "the surface never left hyprctl layers with its finally parked")
+
+            val continuation = parked.get() ?: fail("the finally never reached its parked suspension point")
+            continuation.resume(Unit)
+            assertFalse(finished.get(), "the resume ran the finally inline instead of through the queue")
+
+            shell.close()
+            assertTrue(
+                finished.get(),
+                "the shell's final drain never ran what reached the queue after its last surface closed",
+            )
+        }
+    }
+
     /** Pumps [shell] until both specks are up and [spin] runs, failing if the spin held a pump past the bound. */
     private fun startSpinning(shell: KortexShell, spin: Spin) {
         // This thread runs the spin, so a render of its surface during a pump would hold it there.
@@ -227,6 +274,7 @@ class SurfaceCloseCancellationTest {
         const val SPINNING_NAMESPACE = "kortex-close-cancel-spinning"
         const val SHELL_QUIET_NAMESPACE = "kortex-close-cancel-shell-quiet"
         const val SHELL_SPINNING_NAMESPACE = "kortex-close-cancel-shell-spinning"
+        const val DRAIN_NAMESPACE = "kortex-close-cancel-drain"
         const val SPECK_SIZE = 8
         const val LATE_MILLIS = 300L
         const val PUMP_TIMEOUT_MILLIS = 4000L
