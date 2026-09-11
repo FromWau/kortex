@@ -248,22 +248,21 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       implements `equals`/`hashCode` by cursor type; an icon the lookup does not recognise still resolves to
       `Default`. `WlCursorTheme.resolve` gives each shape a candidate XCursor name, its CSS name, then
       `left_ptr`. (`KortexSceneTest`, `WlCursorThemeTest`)
-- [x] **The event loop wakes on demand.** `KortexShell.runEventLoop` and `KortexSurface.runEventLoop` both
-      sleep in `WaylandDisplay.awaitWork` until a Wayland event arrives, another thread posts work, or a held
-      key's next repeat falls due. It does libwayland's read dance itself: events already queued are
-      dispatched and the loop goes round again; otherwise it flushes, `poll`s the Wayland fd beside an
-      `eventfd`, reads or cancels, and dispatches what arrived. `WaylandDisplay.wake()` counts that
-      `eventfd` up from any thread, and every post the loop drains calls it after enqueueing:
-      `KortexHost.open`, the surface queue that invalidations, cursor changes and
-      `KortexSurfaceHandle.close` go through, and the `LoopQueue` that carries Compose's coroutine work.
-      `KeyboardInput` reports a held key's next repeat, the same deadline its own `checkRepeat` delivers
-      against. A shell waits for the earliest of those across its
-      surfaces, rounded up to whole milliseconds for `poll`. With no key repeating the loop waits
+- [x] **The event loop wakes on demand.** `KortexShell.runEventLoop` sleeps in `WaylandDisplay.awaitWork`
+      until a Wayland event arrives, another thread posts work, or a held key's next repeat falls due. It
+      does libwayland's read dance itself: events already queued are dispatched and the loop goes round
+      again; otherwise it flushes, `poll`s the Wayland fd beside an `eventfd`, reads or cancels, and
+      dispatches what arrived. `WaylandDisplay.wake()` counts that `eventfd` up from any thread, and every
+      post the loop drains calls it after enqueueing: `KortexHost.open`, the surface queue that
+      invalidations, cursor changes and `KortexSurfaceHandle.close` go through, and the `LoopQueue` that
+      carries Compose's coroutine work. `KeyboardInput` reports a held key's next repeat, the same deadline
+      its own `checkRepeat` delivers against. A shell waits for the earliest of those across its surfaces,
+      rounded up to whole milliseconds for `poll`. With no key repeating the loop waits
       indefinitely, so an idle bar sleeps until something actually happens. A roundtrip or dispatch inside
       a pass makes the next wait return at once, since the events it ran can change what that pass already
       checked. A shell runs its surfaces' posted work before reaping closed ones, so a close that content
-      posts is reaped in the pass it wakes. A bare `KortexSurface`'s own loop runs under no test. Another
-      source, D-Bus or a timerfd, would be one more fd in that `poll`.
+      posts is reaped in the pass it wakes. Another source, D-Bus or a timerfd, would be one more fd in that
+      `poll`.
       (`EventLoopWakeTest`, `KeyRepeatTest`, `WaylandDisplayTest`)
 
 ## Housekeeping

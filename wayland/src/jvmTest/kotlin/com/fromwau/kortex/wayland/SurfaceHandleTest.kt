@@ -38,7 +38,7 @@ class SurfaceHandleTest {
                 handleRef.set(surface)
                 val requested = closeRequested.value
                 LaunchedEffect(requested) {
-                    // The composition's own call site, run by the loop pump drives; the test below sets the
+                    // The composition's own call site, run by the loop that `pump` drives; the test below sets the
                     // flag only once the surface is confirmed visible. Calling it twice proves a double-close
                     // content itself triggers is a no-op too.
                     if (requested) {

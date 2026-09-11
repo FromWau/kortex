@@ -42,8 +42,7 @@ public class KortexSurface private constructor(
     private val scene: KortexScene,
     private val clock: FrameClock,
     private val sceneDispatcher: SceneDispatcher,
-    // Non-null only when this surface drives its own loop rather than a shell's; only then is draining it this
-    // surface's job.
+    // Non-null only for a surface created without a shell; a shell runs the queue it passed in itself.
     private val ownedLoop: LoopQueue?,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
@@ -134,22 +133,12 @@ public class KortexSurface private constructor(
     public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
         layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
-    /** Runs this surface until the connection dies. Blocks, and owns the connection for as long as it does. */
-    public fun runEventLoop() {
-        while (true) {
-            ownedLoop?.drain()
-            drainQueue()
-            if (!display.awaitWork(nextDeadlineNanos)) break
-            reconcile()
-        }
-    }
-
     /**
      * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
      *
      * @return whether [predicate] held.
      */
-    public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
+    internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
             ownedLoop?.drain()
@@ -177,7 +166,7 @@ public class KortexSurface private constructor(
     /**
      * Services this surface for one tick, for a driver running several surfaces on one connection.
      *
-     * Unlike [runEventLoop] and [pump], this does not dispatch; the driver owns the connection.
+     * Unlike [pump], this does not dispatch; the driver owns the connection.
      */
     internal fun serviceTick() {
         drainQueue()

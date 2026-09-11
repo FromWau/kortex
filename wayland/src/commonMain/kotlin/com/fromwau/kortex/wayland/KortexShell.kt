@@ -109,7 +109,7 @@ public class KortexShell private constructor(
     /** The earliest deadline across the surfaces that no event announces; not private because a test asserts it. */
     internal fun nextDeadlineNanos(): Long? = surfaces.mapNotNull { it.surface.nextDeadlineNanos }.minOrNull()
 
-    /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses; mirrors [KortexSurface.pump]. */
+    /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses. */
     public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
