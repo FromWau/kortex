@@ -15,16 +15,20 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
+import kotlin.coroutines.resume
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
@@ -165,17 +169,141 @@ class SurfaceCloseCancellationTest {
                 .create(wayland, quiet(SHELL_QUIET_NAMESPACE), spinning(SHELL_SPINNING_NAMESPACE, spin))
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            // Rethrown only once the shell has closed under its own bound, which a failed setup must not skip.
-            val setUp = runCatching { startSpinning(shell, spin) }
-            val closeHeld = try {
-                spin.stopIfHeldPast(CLOSE_BOUND_MILLIS) { shell.close() }
-            } finally {
-                spin.stop.set(true)
-            }
-
-            setUp.getOrThrow()
-            assertFalse(closeHeld, "the shell's close returned only once the yielding content was made to stop")
+            closeAfter(
+                shell,
+                spin,
+                setUp = { startSpinning(shell, spin) },
+                heldMessage = "the shell's close returned only once the yielding content was made to stop",
+            )
         }
+    }
+
+    @Test
+    fun `a shell's final drain runs work that reaches the queue after its last surface closed`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val close = mutableStateOf(false)
+        val parked = AtomicReference<CancellableContinuation<Unit>?>(null)
+        val finished = AtomicBoolean(false)
+
+        display.use { wayland ->
+            val spec = SurfaceSpec(speckConfig(DRAIN_NAMESPACE), OutputTarget.CompositorChoice) {
+                LaunchedEffect(Unit) {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        withContext(NonCancellable) { suspendCancellableCoroutine { parked.set(it) } }
+                        finished.set(true)
+                    }
+                }
+                CloseWhen(close)
+                Box(Modifier.fillMaxSize())
+            }
+            val shell = KortexShell.create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
+
+            val up = shell.pump(PUMP_TIMEOUT_MILLIS) { DRAIN_NAMESPACE in Hyprctl.namespaces() }
+            assertTrue(up, "hyprctl layers never reported $DRAIN_NAMESPACE")
+
+            close.value = true
+            val gone = shell.pump(PUMP_TIMEOUT_MILLIS) {
+                DRAIN_NAMESPACE !in Hyprctl.namespaces() && parked.get() != null
+            }
+            assertTrue(gone, "the surface never left hyprctl layers with its finally parked")
+
+            val continuation = parked.get() ?: fail("the finally never reached its parked suspension point")
+            // The scene's dispatcher always redispatches, so this only queues the rest of the finally.
+            continuation.resume(Unit)
+            assertFalse(finished.get(), "the resume ran the finally inline instead of through the queue")
+
+            shell.close()
+            assertTrue(
+                finished.get(),
+                "the shell's final drain never ran what reached the queue after its last surface closed",
+            )
+        }
+    }
+
+    @Test
+    fun `closing a surface returns while its own cleanup keeps yielding, and its shell's passes run the rest`() {
+        val closeCleanup = mutableStateOf(false)
+        val closeSibling = mutableStateOf(false)
+        val spin = Spin()
+
+        LoopThread.run(
+            spinningCleanup(CLEANUP_NAMESPACE, spin, closeCleanup),
+            // Keeps the loop running once the other surface is gone, so its passes are all that can run the cleanup.
+            quiet(CLEANUP_SIBLING_NAMESPACE, closeSibling),
+            end = {
+                spin.stop.set(true)
+                closeCleanup.value = true
+                closeSibling.value = true
+            },
+        ) { _, loop ->
+            assertTrue(
+                LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = true),
+                "hyprctl layers never reported $CLEANUP_NAMESPACE",
+            )
+            assertTrue(
+                LoopThread.awaitNamespace(CLEANUP_SIBLING_NAMESPACE, present = true),
+                "hyprctl layers never reported $CLEANUP_SIBLING_NAMESPACE",
+            )
+
+            closeCleanup.value = true
+
+            assertTrue(
+                LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = false),
+                "hyprctl layers still reports $CLEANUP_NAMESPACE after its content closed it, its cleanup yielding",
+            )
+            val stepsOnceClosed = spin.steps.get()
+            assertTrue(
+                LoopThread.waitUntil { spin.steps.get() > stepsOnceClosed },
+                "$CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed",
+            )
+            // Checked after the steps: a loop that had ended would have advanced them in its shell's final drain.
+            assertTrue(loop.isAlive, "the loop ended while $CLEANUP_SIBLING_NAMESPACE was still open")
+            assertTrue(
+                CLEANUP_SIBLING_NAMESPACE in Hyprctl.namespaces(),
+                "hyprctl layers stopped reporting $CLEANUP_SIBLING_NAMESPACE once $CLEANUP_NAMESPACE closed",
+            )
+        }
+    }
+
+    @Test
+    fun `a shell's close returns while a closed surface's cleanup keeps yielding`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val close = mutableStateOf(false)
+        val spin = Spin()
+
+        display.use { wayland ->
+            val shell = KortexShell
+                .create(wayland, spinningCleanup(SHELL_CLEANUP_NAMESPACE, spin, close))
+                .getOrElse { error -> fail("shell creation failed: $error") }
+
+            closeAfter(
+                shell,
+                spin,
+                setUp = { closeWhileCleanupYields(shell, spin, close) },
+                heldMessage = "the shell's close returned only once a closed surface's cleanup was made to stop",
+            )
+        }
+    }
+
+    /** Runs [setUp], then closes [shell] under [CLOSE_BOUND_MILLIS], failing with [heldMessage] if [spin] held it. */
+    private fun closeAfter(
+        shell: KortexShell,
+        spin: Spin,
+        setUp: () -> Unit,
+        heldMessage: String,
+    ) {
+        // Rethrown only once the shell has closed under its own bound, which a failed setup must not skip.
+        val setUpResult = runCatching(setUp)
+        val closeHeld = try {
+            spin.stopIfHeldPast(CLOSE_BOUND_MILLIS) { shell.close() }
+        } finally {
+            spin.stop.set(true)
+        }
+
+        setUpResult.getOrThrow()
+        assertFalse(closeHeld, heldMessage)
     }
 
     /** Pumps [shell] until both specks are up and [spin] runs, failing if the spin held a pump past the bound. */
@@ -189,6 +317,28 @@ class SurfaceCloseCancellationTest {
             assertTrue(yielding, "$SHELL_SPINNING_NAMESPACE's content never started yielding")
         }
         assertFalse(held, "setting the shell up was held until its yielding content was made to stop")
+    }
+
+    /** Pumps [shell] until its surface is up, closes it through [close], and checks [spin] still yields after. */
+    private fun closeWhileCleanupYields(shell: KortexShell, spin: Spin, close: MutableState<Boolean>) {
+        val up = shell.pump(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE in Hyprctl.namespaces() }
+        assertTrue(up, "hyprctl layers never reported $SHELL_CLEANUP_NAMESPACE")
+        var gone = false
+        var yielding = false
+        // The close and the passes after it all run on this thread, where a cleanup that never ends could hold them.
+        val held = spin.stopIfHeldPast(SET_UP_BOUND_MILLIS) {
+            close.value = true
+            gone = shell.pump(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE !in Hyprctl.namespaces() }
+            val stepsOnceClosed = spin.steps.get()
+            yielding = shell.pump(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > stepsOnceClosed }
+        }
+        // Checked first: a spin the watchdog stopped would otherwise show up as a cleanup that stopped yielding.
+        assertFalse(
+            held,
+            "closing $SHELL_CLEANUP_NAMESPACE, or a pass after it, was held until its cleanup was made to stop",
+        )
+        assertTrue(gone, "hyprctl layers still reports $SHELL_CLEANUP_NAMESPACE after its content closed it")
+        assertTrue(yielding, "$SHELL_CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed")
     }
 
     private fun quiet(
@@ -205,6 +355,16 @@ class SurfaceCloseCancellationTest {
         close: MutableState<Boolean> = mutableStateOf(false),
     ): SurfaceSpec = SurfaceSpec(speckConfig(namespace), OutputTarget.CompositorChoice) {
         Spinning(spin)
+        CloseWhen(close)
+        Box(Modifier.fillMaxSize())
+    }
+
+    private fun spinningCleanup(
+        namespace: String,
+        spin: Spin,
+        close: MutableState<Boolean>,
+    ): SurfaceSpec = SurfaceSpec(speckConfig(namespace), OutputTarget.CompositorChoice) {
+        SpinningCleanup(spin)
         CloseWhen(close)
         Box(Modifier.fillMaxSize())
     }
@@ -227,6 +387,10 @@ class SurfaceCloseCancellationTest {
         const val SPINNING_NAMESPACE = "kortex-close-cancel-spinning"
         const val SHELL_QUIET_NAMESPACE = "kortex-close-cancel-shell-quiet"
         const val SHELL_SPINNING_NAMESPACE = "kortex-close-cancel-shell-spinning"
+        const val DRAIN_NAMESPACE = "kortex-close-cancel-drain"
+        const val CLEANUP_NAMESPACE = "kortex-close-cancel-cleanup"
+        const val CLEANUP_SIBLING_NAMESPACE = "kortex-close-cancel-cleanup-sibling"
+        const val SHELL_CLEANUP_NAMESPACE = "kortex-close-cancel-shell-cleanup"
         const val SPECK_SIZE = 8
         const val LATE_MILLIS = 300L
         const val PUMP_TIMEOUT_MILLIS = 4000L
@@ -241,7 +405,7 @@ class SurfaceCloseCancellationTest {
     }
 }
 
-/** An effect's endless yield loop: [go] starts it, [stop] ends it, and [steps] counts the yields it has made. */
+/** An endless yield loop: [stop] ends it, [steps] counts the yields it has made, and [go] starts [Spinning]'s. */
 private class Spin {
     val go = mutableStateOf(false)
     val stop = AtomicBoolean(false)
@@ -276,6 +440,23 @@ private fun Spinning(spin: Spin) {
         while (!spin.stop.get()) {
             spin.steps.incrementAndGet()
             yield()
+        }
+    }
+}
+
+/** Yields from once its effect is cancelled, under [NonCancellable], for as long as [spin] runs. */
+@Composable
+private fun SpinningCleanup(spin: Spin) {
+    LaunchedEffect(Unit) {
+        try {
+            awaitCancellation()
+        } finally {
+            withContext(NonCancellable) {
+                while (!spin.stop.get()) {
+                    spin.steps.incrementAndGet()
+                    yield()
+                }
+            }
         }
     }
 }
