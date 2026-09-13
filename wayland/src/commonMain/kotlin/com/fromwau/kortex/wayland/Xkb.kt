@@ -194,16 +194,6 @@ internal object Xkb {
     private const val XK_INSERT = 0xFF63
     private const val XK_KP_ENTER = 0xFF8D
     private const val XK_F1 = 0xFFBE
-    private const val XK_F2 = 0xFFBF
-    private const val XK_F3 = 0xFFC0
-    private const val XK_F4 = 0xFFC1
-    private const val XK_F5 = 0xFFC2
-    private const val XK_F6 = 0xFFC3
-    private const val XK_F7 = 0xFFC4
-    private const val XK_F8 = 0xFFC5
-    private const val XK_F9 = 0xFFC6
-    private const val XK_F10 = 0xFFC7
-    private const val XK_F11 = 0xFFC8
     private const val XK_F12 = 0xFFC9
     private const val XK_DELETE = 0xFFFF
 }

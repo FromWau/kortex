@@ -314,7 +314,6 @@ class KeyboardDeliveryTest {
 
         const val MULTILINE_TEXT = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten"
 
-        // In the order Xkb.composeKey's table names them.
         val NAMED_KEYS = listOf(
             KEY_PAGEUP to Key.PageUp,
             KEY_PAGEDOWN to Key.PageDown,
