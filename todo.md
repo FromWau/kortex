@@ -57,7 +57,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
 Next: four entries are open. Under Keyboard and clipboard, shortcuts that ignore the layout and the
-clipboard; under Foundations, a surface lifecycle state; under Polish, the reference's gradient crash.
+clipboard; under Foundations, a surface lifecycle state; under Polish, a state change read only while
+drawing, which never redraws.
 
 ## Foundations
 
@@ -225,8 +226,9 @@ clipboard; under Foundations, a surface lifecycle state; under Polish, the refer
       still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
       gone either way. With no output at all connected at that moment there is nowhere to place the
       replacement, and it stays gone until asked for again, and a replacement that fails to be placed is
-      dropped rather than ending the run. Two of `CompositorChoiceTest`'s three tests reach this through
-      `KortexSurface.simulateCompositorClose`, the shell's own seam: the standing surface being placed
+      dropped rather than ending the run, unless its content threw, which ends the run as a crash. Two of
+      `CompositorChoiceTest`'s three tests reach this through `KortexSurface.simulateCompositorClose`, the
+      shell's own seam: the standing surface being placed
       again, and an opened surface not being replaced. The third, content closing its own surface, does
       not need it. The end-to-end trigger, an output going away under the surface, is not exercised
       anywhere. (`CompositorChoiceTest`)
@@ -266,10 +268,23 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       its surfaces' posted work before reaping closed ones, so a close that content posts is reaped in the
       pass it wakes. Another source, D-Bus or a timerfd, would be one more fd in that `poll`.
       (`EventLoopWakeTest`, `KeyRepeatTest`, `WaylandDisplayTest`)
-- [ ] **Check the reference's gradient crash against kortex.** The reference records that desktop Skia
-      returns a null shader for `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`
-      and throws `Can't wrap nullptr` at draw time. kortex draws with the same Skia. Whether a kortex
-      surface hits it, and what a throw from content during a frame does to a running shell, is untested.
+- [x] **Content that throws ends the run with a typed error, not the process.** The reference's gradient, a
+      `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`, does throw
+      `Can't wrap nullptr` from the desktop Skia kortex draws with. Frames after the first are drawn inside a
+      libwayland callback, and an exception escaping one made the JDK end the process with status 1, past any
+      handler the host had. Now `KortexScene` catches whatever content throws at every call into it, and
+      recomposition and effects through a `CoroutineExceptionHandler`, as a typed `ContentFailure`:
+      `Composition`, `KeyInput` or `PointerInput`. A failed scene runs no more content, and the shell ends the
+      run with `KortexError.SurfaceCrashed`: out of `KortexShell.create` for a first frame, out of
+      `runEventLoop`, `pump` and `runSurfaces` otherwise. A surface that fails to open or to be placed on
+      hotplug, and a failed shm reallocation on resize, now return their `KortexError` the same way instead of
+      throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
+- [ ] **A state change read only while drawing never redraws.** A counter read only inside a `Canvas` draw
+      lambda was bumped five times and the surface drew once, since nothing asked for a frame. A change read
+      during composition does redraw (`InvalidationRenderTest`), so it is draw-phase invalidation that never
+      reaches kortex's frame request. Animations often read state only while drawing, in `drawBehind` or a
+      `graphicsLayer` block, to skip recomposition; a `graphicsLayer` read has not been tried. Not yet
+      root-caused.
 
 ## Keyboard and clipboard
 
