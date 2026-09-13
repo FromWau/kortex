@@ -59,7 +59,6 @@ class KeyboardDeliveryTest {
     @Test
     fun `a letter pressed with Ctrl held reaches the composition as that letter's key`() {
         val received = CopyOnWriteArrayList<KeyEvent>()
-        // Consuming every key keeps Ctrl+C away from a text field's copy, and so off the user's clipboard.
         withKeyboard(
             content = { focus ->
                 Box(
