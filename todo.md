@@ -56,7 +56,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: no entry here is open.
+Next: four entries are open. Under Keyboard and clipboard, shortcuts that ignore the layout and the
+clipboard; under Foundations, a surface lifecycle state; under Polish, the reference's gradient crash.
 
 ## Foundations
 
@@ -159,6 +160,9 @@ Next: no entry here is open.
       `onDone`. That stands in for what a real re-send would dispatch on the loop thread. Content
       recomposes with the fabricated geometry, which needs no real output added, removed or changed, so it
       runs untagged in the default build. (`RecompositionTest`)
+- [ ] **Decide on a surface lifecycle state.** The reference exposes a `StateFlow<BridgeState>` that runs
+      from `IDLE` through `CONFIGURED` and `RUNNING` to `CLOSED` or `ERROR`. `KortexSurfaceHandle` has only
+      `size` and `close()`, and unlike `awaitClose()`, nothing records whether kortex wants one.
 
 ## Surface presets
 
@@ -262,6 +266,30 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       its surfaces' posted work before reaping closed ones, so a close that content posts is reaped in the
       pass it wakes. Another source, D-Bus or a timerfd, would be one more fd in that `poll`.
       (`EventLoopWakeTest`, `KeyRepeatTest`, `WaylandDisplayTest`)
+- [ ] **Check the reference's gradient crash against kortex.** The reference records that desktop Skia
+      returns a null shader for `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`
+      and throws `Can't wrap nullptr` at draw time. kortex draws with the same Skia. Whether a kortex
+      surface hits it, and what a throw from content during a frame does to a running shell, is untested.
+
+## Keyboard and clipboard
+
+- [x] **Ctrl and a letter reach Compose as that letter's key.** Two faults kept every Ctrl shortcut from
+      firing, a text field's own select all included. `xkb_state_key_get_utf32` turns Ctrl+C into 0x03,
+      which `KeyboardInput` rightly never types, and the key was named from that codepoint, so it arrived
+      as `Key.Unknown`. A key is now named after its keysym's character, which Ctrl never changes, through
+      `xkb_keysym_to_utf32`. And a letter's key was built from a `Long`, which Compose's desktop `Key` takes
+      as already packed with a key location, so no letter kortex delivered ever equalled `Key.A`; it goes
+      through `Key`'s `Int` form now. (`KeyboardDeliveryTest`)
+- [ ] **Shortcuts that ignore the layout.** A letter's `Key` comes from its keysym, so it follows the
+      active layout. Under a Cyrillic layout Ctrl+C reaches Compose as a Cyrillic letter's key and no
+      `Key.C` shortcut fires; on AZERTY, `Key.A` is the key QWERTY calls Q. The reference hands content the
+      raw evdev keycode for shortcuts that ignore the layout, and kortex hands content only Compose's
+      `KeyEvent`. Undecided: fall back to a Latin layout's keysym when the active one is not Latin, or give
+      content the physical key.
+- [ ] **Clipboard.** kortex binds no `wl_data_device`, so copy and paste fall to Compose's desktop default,
+      AWT's system clipboard. That reaches the X clipboard through XWayland when `DISPLAY` is set, and
+      Compose turns AWT's `HeadlessException` into no clipboard at all; any other failure to start AWT is
+      not caught. None of it is tested, and a copy through XWayland has not been checked by hand.
 
 ## Housekeeping
 
