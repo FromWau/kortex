@@ -143,6 +143,28 @@ class KortexSceneTest {
     }
 
     @Test
+    fun `a clickable's default press indication asks for a frame`() {
+        val signalled = CountDownLatch(1)
+        val signals = AtomicInteger()
+
+        withScene(onInvalidate = { signals.incrementAndGet(); signalled.countDown() }) { scene, surface ->
+            scene.setContent { Box(Modifier.size(BOX_DP.dp).clickable {}) }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+            assertEquals(0, signals.get(), "composing and rendering must not ask for a frame on its own")
+
+            scene.sendPointerEvent(
+                PointerEventType.Press,
+                Offset(BOX_DP / 2f, BOX_DP / 2f),
+                timeMillis = 0L,
+                buttons = PointerButtons(isPrimaryPressed = true),
+                button = PointerButton.Primary,
+            )
+
+            assertTrue(signalled.await(5, TimeUnit.SECONDS), "the press never asked for a frame")
+        }
+    }
+
+    @Test
     fun `a draw that invalidates itself asks for the next frame`() {
         val signals = AtomicInteger()
 

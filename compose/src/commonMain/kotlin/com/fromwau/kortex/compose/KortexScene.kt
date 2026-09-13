@@ -69,10 +69,9 @@ public class KortexScene(
 
     private val recomposer = FrameRecomposer(frameContext + coroutineFailures) { onInvalidate() }
 
-    // A scene phase ends by asking a frame for any work left; within setContent and render, that frame is the render
-    // under way or the host's first render after setContent. Volatile, as content may invalidate from another thread.
+    // Volatile: content can invalidate from another thread while this postpones asking for a frame.
     @Volatile
-    private var rendering = false
+    private var postponingSceneInvalidations = false
 
     private val scene =
         CanvasLayersComposeScene(
@@ -117,17 +116,17 @@ public class KortexScene(
 
     public fun setContent(content: @Composable () -> Unit): EmptyResult<ContentFailure> =
         runContent(ContentFailure::Composition) {
-            whileRendering { scene.setContent(recomposer.compositionContext, content) }
+            postponeSceneInvalidations { scene.setContent(recomposer.compositionContext, content) }
         }
 
     public fun render(canvas: Canvas, frameTimeNanos: Long): EmptyResult<ContentFailure> =
         runContent(ContentFailure::Composition) {
-            whileRendering {
+            postponeSceneInvalidations {
                 recomposer.performFrame(frameTimeNanos)
                 scene.measureAndLayout()
                 scene.draw(canvas)
             }
-            // What content invalidated while this frame drew it has missed the frame.
+            // Ask again for whatever invalidated while postponingSceneInvalidations was suppressing it.
             if (scene.hasInvalidations()) onInvalidate()
         }
 
@@ -231,15 +230,15 @@ public class KortexScene(
     }
 
     private fun onSceneInvalidated() {
-        if (!rendering) onInvalidate()
+        if (!postponingSceneInvalidations) onInvalidate()
     }
 
-    private inline fun whileRendering(block: () -> Unit) {
-        rendering = true
+    private inline fun postponeSceneInvalidations(block: () -> Unit) {
+        postponingSceneInvalidations = true
         try {
             block()
         } finally {
-            rendering = false
+            postponingSceneInvalidations = false
         }
     }
 }
