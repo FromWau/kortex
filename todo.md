@@ -289,15 +289,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       That covers a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
       `Modifier.offset { }` lambda, and the press indication `clickable` draws by default. `KortexScene`
       passes both to `CanvasLayersComposeScene`, and each asks the host for a frame from whichever thread
-      noticed the change; `KortexSurface` posts that to its loop. A scene phase ends by asking a frame for
-      any work left, so the asks raised inside `setContent` and `render` are dropped: the render under way,
-      or the host's first render after `setContent`, is that frame. Content that invalidates while a render draws
-      it has missed that frame, so `render` then asks for the next one, as Compose's own
-      `SingleComposeSceneRenderingScope` does. An unchanged surface still asks for nothing.
+      noticed the change; `KortexSurface` posts that to its loop. A scene phase ends by asking for a frame
+      if it still needs one, so the asks raised inside `setContent` and `render` are dropped: the render
+      under way, or the host's first render after `setContent`, is that frame. Content that invalidates
+      while a render draws it has missed that frame, so `render` then asks for the next one, as Compose's
+      own `SingleComposeSceneRenderingScope` does. An unchanged surface still asks for nothing.
       (`KortexSceneTest`, `InvalidationRenderTest`, `IdleFrameTest`)
 - [x] **A wayland-level test for a pointer handler that throws.** `VirtualPointerCrashTest` drives a real
       click through the compositor into `CrashedPointerProbe`, a surface whose `clickable` throws, run in a
-      child JVM the way `ContentFailureTest` runs `CrashedSurfaceProbe`, both now through one shared
+      child JVM the way `ContentFailureTest` runs `CrashedSurfaceProbe`, both through one shared
       `runProbe` helper, since a throw escaping a real `wl_pointer` callback would otherwise end the JVM
       running the tests. The click reaches it through `VirtualPointer.clickAt`, the same path
       `VirtualPointerClickTest` drives; the run ends with `KortexError.SurfaceCrashed` whose failure is
@@ -311,8 +311,8 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       directories are created as needed. `CrashLog.kt`'s `crashLogPath` is a pure function of the
       environment it is handed, and `appendCrash` catches the write's own failure as a typed
       `CrashLogWriteFailed` rather than throwing it; the hook prints the crash and a write failure to
-      stderr instead. `main` prints the run's own error to stderr
-      and exits with status 1. (`CrashLogTest`)
+      stderr instead. `main` prints the run's own error to stderr and exits with status 1, which the test
+      suite never runs and is covered by the mechanism rather than by a test. (`CrashLogTest`)
 
 ## Keyboard and clipboard
 
@@ -324,11 +324,11 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       and still types through its codepoint. The keypad's navigation keysyms stay unnamed on purpose: at the
       base level they are what a keypad digit is, and a text field would move its caret instead of typing
       the digit. (`KeyboardDeliveryTest`)
-- [x] **Page Up, Page Down, Insert and the F-keys reach Compose by name.** `Xkb.composeKey` now names
+- [x] **Page Up, Page Down, Insert and the F-keys reach Compose by name.** `Xkb.composeKey` names
       `Page_Up`, `Page_Down`, `Insert` and `F1` through `F12`, so a text field's own Page Up, Page Down and
       Insert handling fires and Compose's F-key shortcuts resolve instead of arriving as `Key.Unknown`. The
-      F-keys index into a table the way `DIGIT_KEYS` and `LETTER_KEYS` already did; the keypad's own
-      navigation keysyms stay unnamed, since at the base level they are what a keypad digit is.
+      F-keys index into a table the way `DIGIT_KEYS` and `LETTER_KEYS` do; the keypad's own navigation
+      keysyms stay unnamed, since at the base level they are what a keypad digit is.
       (`KeyboardDeliveryTest`)
 - [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
       Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
