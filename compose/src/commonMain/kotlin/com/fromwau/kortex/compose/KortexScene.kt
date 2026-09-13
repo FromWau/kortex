@@ -117,7 +117,7 @@ public class KortexScene(
     public fun sendKeyEvent(keyEvent: KeyEvent): Boolean = scene.sendKeyEvent(keyEvent)
 
     /**
-     * Sends a key from its parts, for a host that has a keysym rather than a Compose [KeyEvent].
+     * Sends a key from its parts, for a host that has no Compose [KeyEvent] of its own to hand over.
      *
      * @param codePoint the character the key produces under the current layout and modifiers, and what a
      *   text field inserts; 0 for a key that produces none.

@@ -103,12 +103,12 @@ internal class KeyboardInput(
 
     /** Translates [key] through xkbcommon and delivers it as [type], the same path a real press takes. */
     private fun deliverKey(key: Int, type: KeyEventType) {
-        val sym = Xkb.keysym(state, key)
+        val composeKey = Xkb.key(state, key)
         // Control characters come back from xkb as codepoints below space; a text field must not insert
         // them, and Compose distinguishes them by Key rather than by codepoint.
         val codePoint = Xkb.codePoint(state, key).takeIf { it >= FIRST_PRINTABLE } ?: 0
         val consumed = scene.sendKey(
-            key = sym.toComposeKey(),
+            key = composeKey,
             type = type,
             codePoint = codePoint,
             isCtrlPressed = ctrl,
@@ -122,8 +122,8 @@ internal class KeyboardInput(
         // composition did not consume has to be turned into an edit on the open session.
         val session = textInput() ?: return
         when {
-            sym == XK_BACKSPACE -> session.backspace()
-            sym == XK_DELETE -> session.delete()
+            composeKey == Key.Backspace -> session.backspace()
+            composeKey == Key.Delete -> session.delete()
             codePoint >= FIRST_PRINTABLE -> session.commit(String(Character.toChars(codePoint)))
         }
     }
@@ -144,37 +144,6 @@ internal class KeyboardInput(
         repeatRate = rate
         repeatDelayMillis = delay
     }
-
-    /**
-     * Maps an X11 keysym onto Compose's [Key].
-     *
-     * Only keys a text field acts on are named, and letters and digits after their keysym's character
-     * rather than the codepoint they type, which Ctrl turns into a control code: Ctrl+C is still [Key.C].
-     */
-    private fun Int.toComposeKey(): Key = when (this) {
-        XK_BACKSPACE -> Key.Backspace
-        XK_DELETE -> Key.Delete
-        XK_RETURN, XK_KP_ENTER -> Key.Enter
-        XK_TAB -> Key.Tab
-        XK_ESCAPE -> Key.Escape
-        XK_LEFT -> Key.DirectionLeft
-        XK_RIGHT -> Key.DirectionRight
-        XK_UP -> Key.DirectionUp
-        XK_DOWN -> Key.DirectionDown
-        XK_HOME -> Key.MoveHome
-        XK_END -> Key.MoveEnd
-        XK_SPACE -> Key.Spacebar
-        else -> {
-            val virtualKey = Xkb.keysymCodePoint(this).letterOrDigitVirtualKey()
-            if (virtualKey == null) Key.Unknown else Key(virtualKey)
-        }
-    }
-
-    // Compose's desktop Key wraps AWT virtual-key codes, and a letter's or digit's is its uppercase ASCII
-    // value. Other characters' values can be other keys' codes, an apostrophe's the right arrow's, so they
-    // stay unnamed. An Int, not a Long: only Key's Int form adds the key location Compose's constants carry.
-    private fun Int.letterOrDigitVirtualKey(): Int? =
-        Character.toUpperCase(this).takeIf { it in 'A'.code..'Z'.code || it in '0'.code..'9'.code }
 
     fun install(keyboard: MemorySegment) {
         keyboardProxy = keyboard
@@ -220,20 +189,6 @@ internal class KeyboardInput(
         const val MOD_CTRL = 1 shl 2
         const val MOD_ALT = 1 shl 3
         const val MOD_LOGO = 1 shl 6
-
-        const val XK_BACKSPACE = 0xFF08
-        const val XK_TAB = 0xFF09
-        const val XK_RETURN = 0xFF0D
-        const val XK_ESCAPE = 0xFF1B
-        const val XK_HOME = 0xFF50
-        const val XK_LEFT = 0xFF51
-        const val XK_UP = 0xFF52
-        const val XK_RIGHT = 0xFF53
-        const val XK_DOWN = 0xFF54
-        const val XK_END = 0xFF57
-        const val XK_KP_ENTER = 0xFF8D
-        const val XK_DELETE = 0xFFFF
-        const val XK_SPACE = 0x020
 
         // wl_keyboard v11 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
