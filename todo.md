@@ -56,11 +56,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: seven entries are open, three of them decided and waiting to be built. Under Foundations, a typed
-surface lifecycle state; under Polish, a state change read only while drawing, which never redraws, a
-wayland-level test for a throwing pointer handler, and crash logging in the bar demo; under Keyboard and
-clipboard, Page Up, Page Down, Insert and the F-keys, a Latin fallback for shortcuts under a non-Latin
-layout, and a native clipboard.
+Next: six entries are open, three of them decided and waiting to be built. Under Foundations, a typed
+surface lifecycle state; under Polish, a wayland-level test for a throwing pointer handler and crash
+logging in the bar demo; under Keyboard and clipboard, Page Up, Page Down, Insert and the F-keys, a Latin
+fallback for shortcuts under a non-Latin layout, and a native clipboard.
 
 ## Foundations
 
@@ -286,6 +285,17 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       stack trace; `runSurfaces`, `runBar` and `KortexShell.create` take it. A surface that fails to open or
       to be placed on hotplug, and a failed shm reallocation on resize, return their `KortexError` the same way
       instead of throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
+- [x] **A state change read only while drawing or placing redraws.** Compose reports a change that
+      recomposes nothing through the scene's `invalidateDraw` and `invalidateLayout`, not the recomposer:
+      a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
+      `Modifier.offset { }` lambda, and the press indication `clickable` draws by default. `KortexScene`
+      passes both to `CanvasLayersComposeScene`, and each asks the host for a frame from whichever thread
+      noticed the change; `KortexSurface` posts that to its loop. Every scene phase ends by asking for a
+      frame, so the asks raised inside `setContent` and `render` are dropped: the render under way, or the
+      host's first render after `setContent`, is that frame. Content that invalidates while a render draws
+      it has missed that frame, so `render` then asks for the next one, as Compose's own
+      `SingleComposeSceneRenderingScope` does. An unchanged surface still asks for nothing.
+      (`KortexSceneTest`, `InvalidationRenderTest`, `IdleFrameTest`)
 - [ ] **A wayland-level test for a pointer handler that throws.** `KortexSceneTest` covers `sendPointerEvent`
       turning the throw into a `PointerInput` failure, and the pointer listener passes events straight to the
       scene, which keeps the failure for the shell to report. Nothing drives such a crash through a real
@@ -293,12 +303,6 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - [ ] **The bar demo logs its crashes.** `Main.kt` passes `runBar` no `onCrashSurface` and turns the run's
       error into `error("kortex: $it")`. As the worked example it should show the host's side of a crash:
       log each one's message and stack trace to a file from the hook, instead of only throwing the error.
-- [ ] **A state change read only while drawing never redraws.** A counter read only inside a `Canvas` draw
-      lambda was bumped five times and the surface drew once, since nothing asked for a frame. A change read
-      during composition does redraw (`InvalidationRenderTest`), so it is draw-phase invalidation that never
-      reaches kortex's frame request. Animations often read state only while drawing, in `drawBehind` or a
-      `graphicsLayer` block, to skip recomposition; a `graphicsLayer` read has not been tried. Not yet
-      root-caused.
 
 ## Keyboard and clipboard
 
