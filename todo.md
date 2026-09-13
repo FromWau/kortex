@@ -306,7 +306,7 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       directories are created as needed. `CrashLog.kt`'s `crashLogPath` is a pure function of the
       environment it is handed, and `appendCrash` catches the write's own failure as a typed
       `CrashLogWriteFailed` rather than throwing it; the hook prints the crash and a write failure to
-      stderr instead. `main` no longer turns the run's own error into an exception: it prints it to stderr
+      stderr instead. `main` prints the run's own error to stderr
       and exits with status 1. (`CrashLogTest`)
 
 ## Keyboard and clipboard
