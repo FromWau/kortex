@@ -35,9 +35,21 @@ class VirtualPointerCrashTest {
                         Screen.awaitGeometry(POINTER_PROBE_NAMESPACE),
                         "hyprctl layers never reported $POINTER_PROBE_NAMESPACE",
                     )
+                    // hyprctl lists a layer before it has a buffer, so a click here could still land on
+                    // the desktop beneath; wait for the probe's own colour the way a screenshot test does.
+                    assertEquals(
+                        POINTER_PROBE_PIXEL,
+                        Screen.pixelReaching(geometry, POINTER_PROBE_PIXEL),
+                        "the probe never drew its own colour",
+                    )
                     pointer.clickAt(
                         monitor, geometry.x + geometry.logicalWidth / 2, geometry.y + geometry.logicalHeight / 2,
                     )
+                    it.roundtrip()
+
+                    // Off it again: a cursor left on a target would deny the next test's own move here an
+                    // enter, the same hazard the first move above avoids.
+                    pointer.moveTo(monitor, monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                     it.roundtrip()
                 }
             }
@@ -54,9 +66,11 @@ class VirtualPointerCrashTest {
                 crashLine in probe.output,
                 "the click did not end the run in the click handler's crash; output:\n$raw",
             )
-            assertTrue(
-                "$PROBE_MARKER hook crashed=$POINTER_PROBE_NAMESPACE cause=$POINTER_PROBE_FAILURE" in probe.output,
-                "the click handler's crash never reached onCrashSurface; output:\n$raw",
+            val hookLine = "$PROBE_MARKER hook crashed=$POINTER_PROBE_NAMESPACE cause=$POINTER_PROBE_FAILURE"
+            assertEquals(
+                1,
+                probe.output.count { it == hookLine },
+                "the click handler's crash must reach onCrashSurface exactly once; output:\n$raw",
             )
         }
     }

@@ -1,11 +1,13 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kortex.compose.LocalKortexSurface
@@ -15,6 +17,9 @@ import kotlinx.coroutines.delay
 // callback would otherwise end the JVM running the tests.
 internal const val POINTER_PROBE_NAMESPACE = "kortex-crash-pointer-probe"
 internal const val POINTER_PROBE_FAILURE = "a click handler threw"
+
+// What Screen.pixelReaching waits for before a click: proof the probe has its first buffer on screen.
+internal const val POINTER_PROBE_PIXEL = 0xFFFF00FF.toInt()
 
 /** Runs one clickable surface whose content throws when clicked, and reports how the run ended. */
 object CrashedPointerProbe {
@@ -41,10 +46,16 @@ private fun ThrowOnClick() {
         delay(NO_CLICK_TIMEOUT_MILLIS)
         handle.close()
     }
-    Box(Modifier.fillMaxSize().clickable { error(POINTER_PROBE_FAILURE) })
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(POINTER_PROBE_PIXEL))
+            .clickable { error(POINTER_PROBE_FAILURE) },
+    )
 }
 
-// Comfortably past Screen.awaitGeometry's own 5s budget, so a real click still lands well within it.
+// Comfortably past the ~1s a surface takes to get its first buffer and the ~850ms fade after it, so a
+// real click still lands well within it.
 private const val NO_CLICK_TIMEOUT_MILLIS = 8_000L
 
 // Anchored so a virtual pointer can find and click it; unlike CrashedSurfaceProbe's speck, this one must

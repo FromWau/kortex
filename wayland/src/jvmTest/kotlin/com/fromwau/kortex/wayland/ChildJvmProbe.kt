@@ -30,7 +30,12 @@ internal fun runProbe(mainClass: String, whileRunning: () -> Unit = {}): ProbeRe
 
     var finished = false
     try {
-        whileRunning()
+        try {
+            whileRunning()
+        } catch (cause: Throwable) {
+            cause.addSuppressed(AssertionError("the probe's output so far:\n${output.joinToString("\n")}"))
+            throw cause
+        }
         finished = process.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
     } finally {
         if (!finished) process.destroyForcibly().waitFor()
