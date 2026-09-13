@@ -28,11 +28,14 @@ internal fun runProbe(mainClass: String, whileRunning: () -> Unit = {}): ProbeRe
     val reader = Thread { process.inputStream.bufferedReader().forEachLine { output += it } }
     reader.start()
 
-    whileRunning()
-
-    val finished = process.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-    if (!finished) process.destroyForcibly().waitFor()
-    reader.join(READER_JOIN_MILLIS)
+    var finished = false
+    try {
+        whileRunning()
+        finished = process.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    } finally {
+        if (!finished) process.destroyForcibly().waitFor()
+        reader.join(READER_JOIN_MILLIS)
+    }
     assertTrue(
         finished,
         "the probe did not exit within ${PROBE_TIMEOUT_SECONDS}s; output:\n${output.joinToString("\n")}",
