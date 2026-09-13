@@ -65,6 +65,7 @@ fun main() {
 private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
     appendCrash(path, crash).onError { writeFailure ->
         System.err.println("kortex: surface crashed: $crash")
+        System.err.println(crash.failure.cause.stackTraceToString())
         System.err.println("kortex: could not write the crash log: $writeFailure")
     }
 }

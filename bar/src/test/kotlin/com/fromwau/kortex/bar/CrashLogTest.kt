@@ -8,6 +8,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -42,35 +43,61 @@ class CrashLogTest {
 
     @Test
     fun `appending two crashes keeps both, each with its own stack trace`() {
-        val path = Files.createTempDirectory("kortex-bar-test").resolve("crash.log")
-        val first = KortexError.SurfaceCrashed("bar", ContentFailure.Composition(RuntimeException("first boom")))
-        val second = KortexError.SurfaceCrashed("menu", ContentFailure.KeyInput(RuntimeException("second boom")))
+        val dir = Files.createTempDirectory("kortex-bar-test")
+        try {
+            val path = dir.resolve("crash.log")
+            val first = KortexError.SurfaceCrashed("bar", ContentFailure.Composition(RuntimeException("first boom")))
+            val second = KortexError.SurfaceCrashed("menu", ContentFailure.KeyInput(RuntimeException("second boom")))
 
-        appendCrash(path, first).getOrElse { failure -> fail("appendCrash failed unexpectedly: $failure") }
-        appendCrash(path, second).getOrElse { failure -> fail("appendCrash failed unexpectedly: $failure") }
+            appendCrash(path, first).getOrElse { failure -> fail("appendCrash failed unexpectedly: $failure") }
+            appendCrash(path, second).getOrElse { failure -> fail("appendCrash failed unexpectedly: $failure") }
 
-        val log = Files.readString(path)
-        assertTrue(log.contains("bar") && log.contains("Composition") && log.contains("first boom"))
-        assertTrue(log.contains("menu") && log.contains("KeyInput") && log.contains("second boom"))
+            val log = Files.readString(path)
+            val headers = log.lineSequence().mapNotNull { CRASH_HEADER.matchEntire(it) }.toList()
+
+            assertEquals(2, headers.size, "expected one ISO-8601-headed entry per crash; log:\n$log")
+            assertEquals("bar", headers[0].groups["namespace"]?.value)
+            assertEquals("Composition", headers[0].groups["kind"]?.value)
+            assertTrue("first boom" in log)
+            assertEquals("menu", headers[1].groups["namespace"]?.value)
+            assertEquals("KeyInput", headers[1].groups["kind"]?.value)
+            assertTrue("second boom" in log)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
     }
 
     @Test
     fun `appending a crash creates missing parent directories`() {
-        val path = Files.createTempDirectory("kortex-bar-test").resolve("nested/sub/crash.log")
-        val crash = KortexError.SurfaceCrashed("bar", ContentFailure.PointerInput(RuntimeException("boom")))
+        val dir = Files.createTempDirectory("kortex-bar-test")
+        try {
+            val path = dir.resolve("nested/sub/crash.log")
+            val crash = KortexError.SurfaceCrashed("bar", ContentFailure.PointerInput(RuntimeException("boom")))
 
-        appendCrash(path, crash).getOrElse { failure -> fail("appendCrash failed unexpectedly: $failure") }
+            appendCrash(path, crash).getOrElse { failure -> fail("appendCrash failed unexpectedly: $failure") }
 
-        assertTrue(Files.exists(path))
+            assertTrue(Files.exists(path))
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
     }
 
     @Test
     fun `appending a crash to a path that is a directory returns an Err instead of throwing`() {
-        val path = Files.createTempDirectory("kortex-bar-test")
-        val crash = KortexError.SurfaceCrashed("bar", ContentFailure.Composition(RuntimeException("boom")))
+        val dir = Files.createTempDirectory("kortex-bar-test")
+        try {
+            val crash = KortexError.SurfaceCrashed("bar", ContentFailure.Composition(RuntimeException("boom")))
 
-        val result = appendCrash(path, crash)
+            val result = appendCrash(dir, crash)
 
-        assertTrue(result is Err<CrashLogWriteFailed>)
+            assertIs<Err<CrashLogWriteFailed>>(result)
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
+    }
+
+    private companion object {
+        // The header crashLogEntry writes for each crash: an ISO-8601 instant, the namespace, then the kind.
+        val CRASH_HEADER = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z (?<namespace>\S+) (?<kind>\w+)""")
     }
 }

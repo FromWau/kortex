@@ -23,7 +23,11 @@ fun crashLogPath(env: Map<String, String>): Path {
     val stateHome = env["XDG_STATE_HOME"]
         ?.let(Path::of)
         ?.takeIf(Path::isAbsolute)
-        ?: Path.of(env.getValue("HOME"), ".local", "state")
+        ?: Path.of(
+            checkNotNull(env["HOME"]) { "HOME is not set; cannot resolve the crash log's default directory" },
+            ".local",
+            "state",
+        )
     return stateHome.resolve("kortex-bar").resolve("crash.log")
 }
 
