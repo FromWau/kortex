@@ -83,7 +83,7 @@ drawing, which never redraws.
       surface already paired with the spec it came from and its output's geometry rather than a second
       list parallel by naming convention. Closing one surface releases the `wl_pointer`, `wl_keyboard` and
       `wl_seat` it bound before its scene goes, so a sibling on the same connection keeps taking input
-      instead of the closed scene taking the process down (`SurfaceTeardownTest`).
+      instead of the closed scene ending the run as a crash (`SurfaceTeardownTest`).
       `runSurfaces`, `runBar` and `KortexShell.create` are how a host opens a surface up front, and
       `KortexHost.open` is how its content opens one later. `KortexSurface.create` is internal, since
       filling its `wl_output` needs a proxy only this module can bind. The shell's loop ends when no
@@ -272,13 +272,16 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`, does throw
       `Can't wrap nullptr` from the desktop Skia kortex draws with. Frames after the first are drawn inside a
       libwayland callback, and an exception escaping one made the JDK end the process with status 1, past any
-      handler the host had. Now `KortexScene` catches whatever content throws at every call into it, and
-      recomposition and effects through a `CoroutineExceptionHandler`, as a typed `ContentFailure`:
-      `Composition`, `KeyInput` or `PointerInput`. A failed scene runs no more content, and the shell ends the
-      run with `KortexError.SurfaceCrashed`: out of `KortexShell.create` for a first frame, out of
-      `runEventLoop`, `pump` and `runSurfaces` otherwise. A surface that fails to open or to be placed on
-      hotplug, and a failed shm reallocation on resize, now return their `KortexError` the same way instead of
-      throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
+      handler the host had. Now `KortexScene` catches anything content throws, `Error`s included, at every
+      call into it, and recomposition and effects through a `CoroutineExceptionHandler`, as a typed
+      `ContentFailure`: `Composition`, `KeyInput` or `PointerInput`. A failed scene runs no more content, and
+      the shell ends the run with `KortexError.SurfaceCrashed`: out of `KortexShell.create` for a first frame,
+      out of `runEventLoop`, `pump` and `runSurfaces` otherwise. `KortexShell.close()` returns one too when
+      content's cleanup throws as the shell closes, having closed everything else regardless. Every crash,
+      those while closing included, reaches the host's `onCrashSurface` once, so the host can log its cause's
+      stack trace; `runSurfaces`, `runBar` and `KortexShell.create` take it. A surface that fails to open or
+      to be placed on hotplug, and a failed shm reallocation on resize, return their `KortexError` the same way
+      instead of throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
 - [ ] **A state change read only while drawing never redraws.** A counter read only inside a `Canvas` draw
       lambda was bumped five times and the surface drew once, since nothing asked for a frame. A change read
       during composition does redraw (`InvalidationRenderTest`), so it is draw-phase invalidation that never
