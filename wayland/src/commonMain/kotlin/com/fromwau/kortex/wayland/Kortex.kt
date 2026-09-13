@@ -5,7 +5,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.flatMap
-import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexPlatform
 
 /**
@@ -25,8 +24,8 @@ import com.fromwau.kortex.compose.KortexPlatform
  * keeps it going with nothing on screen: an [OutputTarget.EveryOutput] spec waiting for any output, or
  * an [OutputTarget.NamedOutput] spec waiting for the one output it names. A standing
  * [OutputTarget.CompositorChoice] surface keeps it going a third way, by being placed again whenever the
- * compositor takes it away while an output is still connected. The connection itself is always closed
- * before this returns.
+ * compositor takes it away while an output is still connected. Content that throws ends the run early, as
+ * [KortexError.SurfaceCrashed]. The connection itself is always closed before this returns.
  *
  * Every surface's composition and effects, and any coroutine they start without a dispatcher of its own,
  * run on the thread that calls this, the same thread that dispatches Wayland events and draws. Blocking
@@ -43,7 +42,7 @@ public fun runSurfaces(
     WaylandDisplay.connect().flatMap { display ->
         display.use {
             KortexShell.create(display, *specs, platform = platform)
-                .map { shell -> shell.use { it.runEventLoop() } }
+                .flatMap { shell -> shell.use { it.runEventLoop() } }
         }
     }
 

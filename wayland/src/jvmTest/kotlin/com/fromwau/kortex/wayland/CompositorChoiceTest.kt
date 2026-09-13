@@ -30,7 +30,7 @@ class CompositorChoiceTest {
 
             shell.use {
                 assertTrue(
-                    shell.pump(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
+                    shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
                     "hyprctl layers never reported $OSD_NAMESPACE",
                 )
                 val before = shell.activeSurfaces.size
@@ -44,7 +44,7 @@ class CompositorChoiceTest {
 
                 // Identity, not just count: removal and replacement can land in the same tick, so the
                 // count never visibly dips, and a same-count check would pass even if nothing replaced it.
-                val replaced = shell.pump(PUMP_TIMEOUT_MILLIS) {
+                val replaced = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) {
                     shell.activeSurfaces
                         .firstOrNull { it.spec.target == OutputTarget.CompositorChoice }
                         ?.surface
@@ -53,7 +53,7 @@ class CompositorChoiceTest {
                 assertTrue(replaced, "the shell never replaced the surface the compositor took away")
                 assertEquals(before, shell.activeSurfaces.size, "replacement left a different surface count")
                 assertTrue(
-                    shell.pump(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
+                    shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
                     "hyprctl layers never reported $OSD_NAMESPACE again after replacement",
                 )
             }
@@ -76,7 +76,7 @@ class CompositorChoiceTest {
 
             shell.use {
                 assertTrue(
-                    shell.pump(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
+                    shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
                     "hyprctl layers never reported $OSD_NAMESPACE",
                 )
 
@@ -85,7 +85,7 @@ class CompositorChoiceTest {
                 closeRequested.value = true
                 // Removal and any replacement both happen inside the same serviceSurfaces() tick (see
                 // KortexShell), so this single wait already proves no replacement followed the removal.
-                val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.isEmpty() }
+                val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.isEmpty() }
                 assertTrue(dropped, "the shell never dropped the surface after its content called close()")
                 assertTrue(
                     Screen.geometry(OSD_NAMESPACE) == null,
@@ -112,14 +112,14 @@ class CompositorChoiceTest {
 
             shell.use {
                 assertTrue(
-                    shell.pump(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() },
+                    shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() },
                     "hyprctl layers never reported a $PANEL_NAMESPACE- namespace",
                 )
                 val panelsAlone = shell.activeSurfaces.size
 
                 openRequested.value = true
                 assertTrue(
-                    shell.pump(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OPENED_NAMESPACE) != null },
+                    shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OPENED_NAMESPACE) != null },
                     "hyprctl layers never reported $OPENED_NAMESPACE after host.open()",
                 )
 
@@ -131,7 +131,8 @@ class CompositorChoiceTest {
 
                 // Removal and any replacement both happen inside the same serviceSurfaces() tick (see
                 // KortexShell), so this single wait already proves the opened surface was not replaced.
-                val droppedToPanelAlone = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == panelsAlone }
+                val droppedToPanelAlone =
+                    shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == panelsAlone }
                 assertTrue(droppedToPanelAlone, "the opened surface the compositor took away never went away")
                 assertTrue(
                     Screen.geometry(OPENED_NAMESPACE) == null,

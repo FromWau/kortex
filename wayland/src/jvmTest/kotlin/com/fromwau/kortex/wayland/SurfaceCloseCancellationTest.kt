@@ -59,7 +59,10 @@ class SurfaceCloseCancellationTest {
                     }
                     Box(Modifier.fillMaxSize())
                 }
-                assertTrue(surface.pump(PUMP_TIMEOUT_MILLIS) { started.get() }, "the surface's effect never started")
+                assertTrue(
+                    surface.pumpOrFail(PUMP_TIMEOUT_MILLIS) { started.get() },
+                    "the surface's effect never started",
+                )
             }
 
             assertEquals(1, ours.size, "the surface did not run exactly one recomposer")
@@ -200,11 +203,11 @@ class SurfaceCloseCancellationTest {
             }
             val shell = KortexShell.create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
 
-            val up = shell.pump(PUMP_TIMEOUT_MILLIS) { DRAIN_NAMESPACE in Hyprctl.namespaces() }
+            val up = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { DRAIN_NAMESPACE in Hyprctl.namespaces() }
             assertTrue(up, "hyprctl layers never reported $DRAIN_NAMESPACE")
 
             close.value = true
-            val gone = shell.pump(PUMP_TIMEOUT_MILLIS) {
+            val gone = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) {
                 DRAIN_NAMESPACE !in Hyprctl.namespaces() && parked.get() != null
             }
             assertTrue(gone, "the surface never left hyprctl layers with its finally parked")
@@ -310,10 +313,10 @@ class SurfaceCloseCancellationTest {
     private fun startSpinning(shell: KortexShell, spin: Spin) {
         // This thread runs the spin, so a render of its surface during a pump would hold it there.
         val held = spin.stopIfHeldPast(SET_UP_BOUND_MILLIS) {
-            val up = shell.pump(PUMP_TIMEOUT_MILLIS) { Hyprctl.namespaces().containsAll(SHELL_NAMESPACES) }
+            val up = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Hyprctl.namespaces().containsAll(SHELL_NAMESPACES) }
             assertTrue(up, "hyprctl layers never reported all of $SHELL_NAMESPACES")
             spin.go.value = true
-            val yielding = shell.pump(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > 0 }
+            val yielding = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > 0 }
             assertTrue(yielding, "$SHELL_SPINNING_NAMESPACE's content never started yielding")
         }
         assertFalse(held, "setting the shell up was held until its yielding content was made to stop")
@@ -321,16 +324,16 @@ class SurfaceCloseCancellationTest {
 
     /** Pumps [shell] until its surface is up, closes it through [close], and checks [spin] still yields after. */
     private fun closeWhileCleanupYields(shell: KortexShell, spin: Spin, close: MutableState<Boolean>) {
-        val up = shell.pump(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE in Hyprctl.namespaces() }
+        val up = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE in Hyprctl.namespaces() }
         assertTrue(up, "hyprctl layers never reported $SHELL_CLEANUP_NAMESPACE")
         var gone = false
         var yielding = false
         // The close and the passes after it all run on this thread, where a cleanup that never ends could hold them.
         val held = spin.stopIfHeldPast(SET_UP_BOUND_MILLIS) {
             close.value = true
-            gone = shell.pump(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE !in Hyprctl.namespaces() }
+            gone = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { SHELL_CLEANUP_NAMESPACE !in Hyprctl.namespaces() }
             val stepsOnceClosed = spin.steps.get()
-            yielding = shell.pump(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > stepsOnceClosed }
+            yielding = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > stepsOnceClosed }
         }
         // Checked first: a spin the watchdog stopped would otherwise show up as a cleanup that stopped yielding.
         assertFalse(

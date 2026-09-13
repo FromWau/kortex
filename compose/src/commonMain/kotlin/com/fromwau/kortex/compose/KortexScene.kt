@@ -24,8 +24,14 @@ import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import java.awt.Cursor
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.awaitCancellation
 
 @OptIn(InternalComposeUiApi::class)
@@ -39,11 +45,26 @@ public class KortexScene(
 ) : AutoCloseable {
     private val windowInfo = KortexWindowInfo()
 
-    private val recomposer = FrameRecomposer(frameContext) { onInvalidate() }
+    // Atomic because an effect can resume, and fail, on the host dispatcher's thread.
+    private val firstFailure = AtomicReference<ContentFailure?>(null)
+
+    // What the scene is running, so a coroutine failing meanwhile is named after it; null between calls.
+    @Volatile
+    private var running: ((Throwable) -> ContentFailure)? = null
+
+    // Recomposition and effects fail inside coroutines, never out of a call, so they report through here.
+    private val coroutineFailures = CoroutineExceptionHandler { _, cause ->
+        firstFailure.compareAndSet(null, (running ?: ContentFailure::Composition)(cause))
+    }
+
+    private val recomposer = FrameRecomposer(frameContext + coroutineFailures) { onInvalidate() }
     private val scene =
         CanvasLayersComposeScene(
             recomposer, density, layoutDirection, size, KortexPlatformContext(platform, windowInfo),
         )
+
+    /** The first failure content caused. Once it is set, every call below returns it and runs no more content. */
+    public val failure: ContentFailure? get() = firstFailure.get()
 
     // ComposeScene.size is nullable and this one is not, so it is written through rather than delegated.
     public var size: IntSize = size
@@ -76,14 +97,15 @@ public class KortexScene(
             scene.layoutDirection = value
         }
 
-    public fun setContent(content: @Composable () -> Unit): Unit =
-        scene.setContent(recomposer.compositionContext, content)
+    public fun setContent(content: @Composable () -> Unit): EmptyResult<ContentFailure> =
+        runContent(ContentFailure::Composition) { scene.setContent(recomposer.compositionContext, content) }
 
-    public fun render(canvas: Canvas, frameTimeNanos: Long) {
-        recomposer.performFrame(frameTimeNanos)
-        scene.measureAndLayout()
-        scene.draw(canvas)
-    }
+    public fun render(canvas: Canvas, frameTimeNanos: Long): EmptyResult<ContentFailure> =
+        runContent(ContentFailure::Composition) {
+            recomposer.performFrame(frameTimeNanos)
+            scene.measureAndLayout()
+            scene.draw(canvas)
+        }
 
     /**
      * Delivers a pointer event to the composition.
@@ -101,7 +123,7 @@ public class KortexScene(
         buttons: PointerButtons? = null,
         keyboardModifiers: PointerKeyboardModifiers? = null,
         button: PointerButton? = null,
-    ) {
+    ): EmptyResult<ContentFailure> = runContent(ContentFailure::PointerInput) {
         scene.sendPointerEvent(
             eventType = eventType,
             position = position,
@@ -114,7 +136,9 @@ public class KortexScene(
         )
     }
 
-    public fun sendKeyEvent(keyEvent: KeyEvent): Boolean = scene.sendKeyEvent(keyEvent)
+    /** @return whether the composition consumed the key. */
+    public fun sendKeyEvent(keyEvent: KeyEvent): Result<Boolean, ContentFailure> =
+        runContent(ContentFailure::KeyInput) { scene.sendKeyEvent(keyEvent) }
 
     /**
      * Sends a key from its parts, for a host that has no Compose [KeyEvent] of its own to hand over.
@@ -131,7 +155,7 @@ public class KortexScene(
         isMetaPressed: Boolean = false,
         isAltPressed: Boolean = false,
         isShiftPressed: Boolean = false,
-    ): Boolean = scene.sendKeyEvent(
+    ): Result<Boolean, ContentFailure> = sendKeyEvent(
         KeyEvent(
             key = key,
             type = type,
@@ -144,12 +168,37 @@ public class KortexScene(
     )
 
     /** Ends the current pointer interaction. Call it when the pointer leaves, or a hover sticks. */
-    public fun cancelPointerInput(): Unit = scene.cancelPointerInput()
+    public fun cancelPointerInput(): EmptyResult<ContentFailure> =
+        runContent(ContentFailure::PointerInput) { scene.cancelPointerInput() }
 
-    // Scene first: it holds the recomposer, whose coroutine scope would otherwise outlive it.
+    /** Disposes the composition, even a failed one; content's own cleanup failing becomes [failure]. */
     override fun close() {
-        scene.close()
+        // Scene first: it holds the recomposer, whose coroutine scope would otherwise outlive it.
+        try {
+            scene.close()
+        } catch (cause: Exception) {
+            firstFailure.compareAndSet(null, ContentFailure.Composition(cause))
+        }
         recomposer.close()
+    }
+
+    // A throw from content, out of [call] or out of a coroutine it runs, becomes the scene's failure.
+    private inline fun <T> runContent(
+        noinline kind: (Throwable) -> ContentFailure,
+        call: () -> T,
+    ): Result<T, ContentFailure> {
+        firstFailure.get()?.let { return Err(it) }
+        running = kind
+        val value = try {
+            call()
+        } catch (cause: Exception) {
+            val failure = kind(cause)
+            firstFailure.compareAndSet(null, failure)
+            return Err(failure)
+        } finally {
+            running = null
+        }
+        return firstFailure.get()?.let { Err(it) } ?: Ok(value)
     }
 }
 

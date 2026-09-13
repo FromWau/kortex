@@ -36,7 +36,7 @@ class OutputRescaleTest {
 
             bar.use {
                 bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
-                bar.pump(timeoutMillis = PUMP_MILLIS)
+                bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
 
                 val initialScale = bar.currentBufferScale
                 val logicalWidth = bar.bufferSize.width / initialScale
@@ -44,7 +44,7 @@ class OutputRescaleTest {
                 val newScale = if (initialScale == 1) 2 else 1
 
                 bar.scaleOverride = newScale
-                val rescaled = bar.pump(timeoutMillis = PUMP_MILLIS) { bar.currentBufferScale == newScale }
+                val rescaled = bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { bar.currentBufferScale == newScale }
                 assertTrue(rescaled, "the observed scale change never reached bufferScale")
 
                 assertEquals(
@@ -107,12 +107,12 @@ class OutputRescaleTest {
                                 },
                         )
                     }
-                    bar.pump(timeoutMillis = PUMP_MILLIS)
+                    bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
 
                     val newScale = if (bar.currentBufferScale == 1) 2 else 1
                     bar.scaleOverride = newScale
                     assertTrue(
-                        bar.pump(timeoutMillis = PUMP_MILLIS) { bar.currentBufferScale == newScale },
+                        bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { bar.currentBufferScale == newScale },
                         "the observed scale change never reached bufferScale",
                     )
 
@@ -121,7 +121,7 @@ class OutputRescaleTest {
                         fun moveTo(x: Int, y: Int) {
                             pointer.moveTo(monitor, x, y)
                             wayland.roundtrip()
-                            bar.pump(timeoutMillis = SETTLE_MILLIS)
+                            bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
                         }
 
                         // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
@@ -130,7 +130,7 @@ class OutputRescaleTest {
                         // Whatever reached the bar before this move is not where the move landed.
                         landedAt.set(null)
                         moveTo(geometry.x + PROBE_LOGICAL_X, geometry.y + PROBE_LOGICAL_Y)
-                        val delivered = bar.pump(timeoutMillis = PUMP_MILLIS) { landedAt.get() != null }
+                        val delivered = bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { landedAt.get() != null }
                         // Off it again: a cursor left on a target would deny the next test's own move
                         // here an enter, the same hazard the first move above avoids.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)

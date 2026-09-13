@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
 import java.lang.foreign.Arena
@@ -115,7 +116,7 @@ internal class KeyboardInput(
             isMetaPressed = meta,
             isAltPressed = alt,
             isShiftPressed = shift,
-        )
+        ).getOrElse { return }
         if (consumed || type != KeyEventType.KeyDown) return
 
         // A focused text field inserts through the input method, not through key events, so a key the

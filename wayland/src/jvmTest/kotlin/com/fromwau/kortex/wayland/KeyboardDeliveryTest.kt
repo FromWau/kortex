@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
@@ -37,6 +38,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -100,6 +102,28 @@ class KeyboardDeliveryTest {
             typist.tap(KEY_APOSTROPHE)
 
             assertEquals("'", typed.get(), "the apostrophe did not reach the text field")
+        }
+    }
+
+    @Test
+    fun `a key handler that throws becomes the scene's failure instead of leaving the keyboard`() {
+        withKeyboard(
+            content = { focus ->
+                Box(
+                    focus
+                        .onKeyEvent { error(KEY_FAILURE) }
+                        .focusable()
+                        .fillMaxSize(),
+                )
+            },
+        ) { typist ->
+            typist.tap(KEY_C)
+
+            val failure = assertIs<ContentFailure.KeyInput>(
+                typist.failure,
+                "a throwing key handler must fail the scene",
+            )
+            assertEquals(KEY_FAILURE, failure.cause.message)
         }
     }
 
@@ -199,6 +223,8 @@ class KeyboardDeliveryTest {
     ) {
         private var serial = 0
 
+        val failure: ContentFailure? get() = scene.failure
+
         fun tap(code: Int) {
             keyboard.onKey(NULL, NULL, ++serial, 0, code, PRESSED)
             keyboard.onKey(NULL, NULL, ++serial, 1, code, RELEASED)
@@ -221,6 +247,7 @@ class KeyboardDeliveryTest {
         const val FRAME_MILLIS = 60L
         const val PRESSED = 1
         const val RELEASED = 0
+        const val KEY_FAILURE = "a key handler threw"
 
         // Shift's and Control's bits in wl_keyboard.modifiers, the ones KeyboardInput reads.
         const val SHIFT_MASK = 1 shl 0

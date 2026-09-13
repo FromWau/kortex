@@ -37,7 +37,7 @@ class KortexShellTest {
                     val outputName = Hyprctl.createHeadlessOutput()
                     pending = outputName
 
-                    val grew = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == 2 }
+                    val grew = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == 2 }
                     assertTrue(grew, "shell never grew a second surface after hyprctl output create headless")
 
                     val namespaces = awaitKortexLayerCount(2)
@@ -49,7 +49,7 @@ class KortexShellTest {
                     Hyprctl.removeHeadlessOutput(outputName)
                     pending = null
 
-                    val shrank = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == 1 }
+                    val shrank = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == 1 }
                     assertTrue(shrank, "shell never dropped back to one surface after hyprctl output remove")
 
                     // A torn-down sibling must not take the surviving surface with it.

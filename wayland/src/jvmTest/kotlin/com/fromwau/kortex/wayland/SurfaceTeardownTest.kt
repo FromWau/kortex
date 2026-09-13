@@ -63,20 +63,20 @@ class SurfaceTeardownTest {
                         // Asserts the premise the comment above only states: without this, a layout change
                         // that moved the menu off the pointer would silently degrade this into a test that
                         // closes a surface nobody was pointing at, and it would keep passing.
-                        val entered = shell.pump(PUMP_TIMEOUT_MILLIS) { menuHovers.get() > 0 }
+                        val entered = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { menuHovers.get() > 0 }
                         assertTrue(entered, "the menu never received the pointer enter this test's premise needs")
 
                         // Nothing on the test thread calls close(): only this flag can drop the menu, and it
                         // does so from the composition's own thread.
                         closeRequested.value = true
-                        val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before - 1 }
+                        val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before - 1 }
                         assertTrue(dropped, "the shell never dropped the menu after its content called close()")
 
                         val panel =
                             assertNotNull(Screen.geometry(panelNamespace), "the panel went away with the menu")
                         pointer.clickAt(monitor, panel.x + TARGET_DP / 2, panel.y + TARGET_DP / 2)
 
-                        val delivered = shell.pump(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
+                        val delivered = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
                         val protocolError = wayland.protocolError()
                         if (protocolError != null) {
                             fail("wayland protocol error after the menu was torn down: $protocolError")
@@ -96,7 +96,7 @@ class SurfaceTeardownTest {
     /** Moves the pointer and lets the compositor deliver the enter and leave the move produces. */
     private fun moveTo(shell: KortexShell, pointer: VirtualPointer, monitor: Monitor, x: Int, y: Int) {
         pointer.moveTo(monitor, x, y)
-        shell.pump(SETTLE_MILLIS)
+        shell.pumpOrFail(SETTLE_MILLIS)
     }
 
     private fun panelSpec(clicks: AtomicInteger): SurfaceSpec =
@@ -129,14 +129,14 @@ class SurfaceTeardownTest {
 
     /** Pumps [shell] until the panel reaches `hyprctl layers`, and returns the namespace it was filed under. */
     private fun awaitPanel(shell: KortexShell): String {
-        val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() }
+        val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() }
         assertTrue(appeared, "hyprctl layers never reported a $PANEL_NAMESPACE- namespace")
         return panelNamespaces().first()
     }
 
     /** Pumps [shell] until the menu reaches `hyprctl layers`, and returns where it landed. */
     private fun awaitMenu(shell: KortexShell): LayerGeometry {
-        val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { Screen.geometry(MENU_NAMESPACE) != null }
+        val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(MENU_NAMESPACE) != null }
         assertTrue(appeared, "hyprctl layers never reported $MENU_NAMESPACE")
         return assertNotNull(Screen.geometry(MENU_NAMESPACE))
     }

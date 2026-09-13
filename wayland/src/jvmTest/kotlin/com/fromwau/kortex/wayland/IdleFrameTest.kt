@@ -30,14 +30,14 @@ class IdleFrameTest {
             bar.use {
                 bar.setContent { Box(Modifier.fillMaxSize().background(colour.value)) }
                 // Lets any transient renders from the initial configure/rescale settle before baselining.
-                bar.pump(timeoutMillis = SETTLE_MILLIS)
+                bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
 
                 val baseline = bar.renders
-                bar.pump(timeoutMillis = IDLE_WINDOW_MILLIS)
+                bar.pumpOrFail(timeoutMillis = IDLE_WINDOW_MILLIS)
                 assertEquals(baseline, bar.renders, "a static composition must not render any further frames")
 
                 colour.value = Color.Blue
-                bar.pump(timeoutMillis = SETTLE_MILLIS) { bar.renders > baseline }
+                bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS) { bar.renders > baseline }
                 assertTrue(bar.renders > baseline, "a state change never produced a rendered frame")
             }
         }

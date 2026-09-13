@@ -39,18 +39,18 @@ class SurfaceLifetimeTest {
                 .getOrElse { error -> fail("panel creation failed: $error") }
                 .use { panel ->
                     panel.setContent { Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() }) }
-                    panel.pump(SETTLE_MILLIS)
+                    panel.pumpOrFail(SETTLE_MILLIS)
 
                     repeat(CYCLES) { cycle ->
                         val menu = KortexSurface.create(wayland, MENU_CONFIG)
                             .getOrElse { error -> fail("menu creation failed on cycle $cycle: $error") }
                         menu.setContent { Box(Modifier.fillMaxSize()) }
-                        menu.pump(SETTLE_MILLIS)
+                        menu.pumpOrFail(SETTLE_MILLIS)
                         // The sibling drives the connection while the menu goes, so its own queue and any
                         // event the teardown produces are serviced on exactly the path a running host uses.
                         panel.serviceTick()
                         menu.close()
-                        panel.pump(SETTLE_MILLIS)
+                        panel.pumpOrFail(SETTLE_MILLIS)
                         assertNull(
                             wayland.protocolError(),
                             "the connection reported a protocol error on teardown cycle $cycle",
@@ -63,7 +63,7 @@ class SurfaceLifetimeTest {
                     val delivered = manager.createVirtualPointer().use { pointer ->
                         fun moveTo(x: Int, y: Int) {
                             pointer.moveTo(monitor, x, y)
-                            panel.pump(SETTLE_MILLIS)
+                            panel.pumpOrFail(SETTLE_MILLIS)
                         }
 
                         // Off the panel first: the compositor re-evaluates pointer focus on motion, so a
@@ -71,7 +71,7 @@ class SurfaceLifetimeTest {
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
                         pointer.clickAt(monitor, geometry.x + TARGET_DP / 2, geometry.y + TARGET_DP / 2)
 
-                        val landed = panel.pump(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
+                        val landed = panel.pumpOrFail(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
                         // Off it again: a cursor left on a target would deny the next test's own move
                         // here an enter, the same hazard the first move above avoids.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)

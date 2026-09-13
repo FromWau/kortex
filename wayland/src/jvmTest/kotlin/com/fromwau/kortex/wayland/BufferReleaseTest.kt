@@ -33,7 +33,7 @@ class BufferReleaseTest {
                 // buffer the compositor has to give back.
                 repeat(FRAMES) { frame ->
                     colour.value = if (frame % 2 == 0) Color.Blue else Color.Red
-                    bar.pump(timeoutMillis = PUMP_MILLIS)
+                    bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
                 }
 
                 assertTrue(

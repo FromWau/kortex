@@ -54,13 +54,13 @@ private fun hotplugAndDrop(
     try {
         val headless = Hyprctl.createHeadlessOutput()
         pendingHeadless = headless
-        check(shell.pump(PROBE_PUMP_TIMEOUT_MILLIS) { outputGlobalCount() > before }) {
+        check(shell.pumpOrFail(PROBE_PUMP_TIMEOUT_MILLIS) { outputGlobalCount() > before }) {
             "probe: shell never bound the headless output"
         }
 
         Hyprctl.removeHeadlessOutput(headless)
         pendingHeadless = null
-        check(shell.pump(PROBE_PUMP_TIMEOUT_MILLIS) { outputGlobalCount() == before }) {
+        check(shell.pumpOrFail(PROBE_PUMP_TIMEOUT_MILLIS) { outputGlobalCount() == before }) {
             "probe: shell never applied removal of $headless"
         }
     } finally {

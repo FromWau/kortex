@@ -41,7 +41,7 @@ class InvalidationRenderTest {
                 colour.value = Color.Blue
                 // Pumps the connection only; nothing here renders, so the frame has to be driven by the
                 // composition asking for one.
-                bar.pump(timeoutMillis = PUMP_MILLIS)
+                bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
 
                 assertEquals(AFTER, Screen.pixelReaching(geometry, AFTER), "the state change never reached the screen")
             }

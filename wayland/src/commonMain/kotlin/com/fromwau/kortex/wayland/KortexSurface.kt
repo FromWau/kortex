@@ -11,6 +11,7 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexCursor
@@ -34,6 +35,7 @@ import org.jetbrains.skia.Surface
  * surface costs nothing.
  */
 public class KortexSurface private constructor(
+    private val namespace: String,
     private val display: WaylandDisplay,
     private val layer: LayerSurface,
     private val shm: Shm,
@@ -111,6 +113,10 @@ public class KortexSurface private constructor(
     /** Which side closed this surface, once [closed] is true; null beforehand. */
     internal val closeReason: CloseReason? get() = layer.closeReason
 
+    /** What this surface's content threw, once it has; the scene then runs none of it. */
+    internal val crash: KortexError.SurfaceCrashed?
+        get() = scene.failure?.let { KortexError.SurfaceCrashed(namespace, it) }
+
     /** When this surface next needs a loop pass that no Wayland event will announce; null while nothing does. */
     internal val nextDeadlineNanos: Long? get() = keyboardInput?.nextRepeatDueNanos
 
@@ -119,9 +125,11 @@ public class KortexSurface private constructor(
         layer.simulateCompositorClose()
     }
 
-    public fun setContent(content: @Composable () -> Unit) {
+    /** Composes [content] and draws its first frame, failing as [KortexError.SurfaceCrashed] if content throws. */
+    public fun setContent(content: @Composable () -> Unit): EmptyResult<KortexError> {
         scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
-        renderNow(frameTimeNanos = 0L)
+            .onSuccess { renderNow(frameTimeNanos = 0L) }
+        return crash?.let { Err(it) } ?: Ok(Unit)
     }
 
     /**
@@ -135,22 +143,23 @@ public class KortexSurface private constructor(
     /**
      * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
      *
-     * @return whether [predicate] held.
+     * @return whether [predicate] held, or why the surface failed first.
      */
-    internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
+    internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Result<Boolean, KortexError> {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
             loop.runPass()
             drainQueue()
-            if (predicate()) return true
+            crash?.let { return Err(it) }
+            if (predicate()) return Ok(true)
             // roundtrip, not dispatch: dispatch blocks for an event and would sail past the deadline.
             display.roundtrip()
-            reconcile()
+            reconcile().getOrElse { return Err(it) }
             Thread.sleep(PUMP_INTERVAL_MILLIS)
         }
         loop.runPass()
-        serviceTick()
-        return predicate()
+        serviceTick().getOrElse { return Err(it) }
+        return crash?.let { Err(it) } ?: Ok(predicate())
     }
 
     internal fun drainQueue() {
@@ -167,33 +176,32 @@ public class KortexSurface private constructor(
      *
      * Unlike [pump], this does not dispatch; the driver owns the connection.
      */
-    internal fun serviceTick() {
+    internal fun serviceTick(): EmptyResult<KortexError> {
         drainQueue()
-        reconcile()
+        return reconcile()
     }
 
-    private fun reconcile() {
+    private fun reconcile(): EmptyResult<KortexError> {
         keyboardInput?.checkRepeat()
         reapRetiredFrames()
-        maybeResize()
-        maybeRescale()
+        return maybeResize().flatMap { maybeRescale() }
     }
 
     /** Acts on a later configure, coalesced to whatever size is current by the time this runs. */
-    private fun maybeResize() {
-        if (!layer.consumeResize()) return
+    private fun maybeResize(): EmptyResult<KortexError> {
+        if (!layer.consumeResize()) return Ok(Unit)
         val newWidth = layer.logicalWidth
         val newHeight = layer.logicalHeight
         // Zero means "you choose", per the layer-shell protocol; it is never a real dimension.
-        if (newWidth == 0 || newHeight == 0) return
-        if (newWidth == logicalWidth && newHeight == logicalHeight) return
-        resizeTo(newWidth, newHeight)
+        if (newWidth == 0 || newHeight == 0) return Ok(Unit)
+        if (newWidth == logicalWidth && newHeight == logicalHeight) return Ok(Unit)
+        return resizeTo(newWidth, newHeight)
     }
 
     /** Acts on a later `wl_surface.preferred_buffer_scale`, coalesced to the scale current when this runs. */
-    private fun maybeRescale() {
+    private fun maybeRescale(): EmptyResult<KortexError> {
         val newScale = scaleOverride ?: layer.preferredBufferScale
-        if (newScale == bufferScale) return
+        if (newScale == bufferScale) return Ok(Unit)
         bufferScale = newScale
         cursorTheme.rescale(bufferScale)
         cursorSurface.setBufferScale(bufferScale)
@@ -206,15 +214,13 @@ public class KortexSurface private constructor(
         }
         // set_buffer_scale is double-buffered; without a commit it waits for a shape change that may never come.
         cursorSurface.commit()
-        resizeTo(logicalWidth, logicalHeight)
+        return resizeTo(logicalWidth, logicalHeight)
     }
 
-    private fun resizeTo(newLogicalWidth: Int, newLogicalHeight: Int) {
+    private fun resizeTo(newLogicalWidth: Int, newLogicalHeight: Int): EmptyResult<KortexError> {
         val bufferWidth = newLogicalWidth * bufferScale
         val bufferHeight = newLogicalHeight * bufferScale
-        // A resize runs long after create() returned, with no Result channel left to report through.
-        val newFrames = createFrames(shm, bufferWidth, bufferHeight)
-            .getOrElse { failure -> error("shm buffer allocation failed: $failure") }
+        val newFrames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }
 
         frames.forEach { frame ->
             // Freeing a buffer the compositor is still scanning out is a use-after-free on its side.
@@ -229,6 +235,7 @@ public class KortexSurface private constructor(
         scene.density = Density(bufferScale.toFloat())
         layer.setBufferScale(bufferScale)
         renderNow(frameTimeNanos = 0L)
+        return Ok(Unit)
     }
 
     private fun reapRetiredFrames() {
@@ -250,7 +257,8 @@ public class KortexSurface private constructor(
             layer.commit()
             return
         }
-        scene.render(frame.surface.canvas.asComposeCanvas(), frameTimeNanos)
+        // A frame content failed to draw is never shown; the scene keeps the failure for the loop to report.
+        scene.render(frame.surface.canvas.asComposeCanvas(), frameTimeNanos).getOrElse { return }
         frame.surface.flushAndSubmit()
         layer.attach(frame.buffer)
         frame.buffer.markAttached()
@@ -272,8 +280,8 @@ public class KortexSurface private constructor(
     override fun close() {
         if (disposed) return
         disposed = true
-        // Before scene.close(): the seat this surface owns keeps delivering, and a leave still in flight
-        // would otherwise reach a closed scene, where the throw happens inside an upcall and ends the process.
+        // Before scene.close(): the seat this surface owns keeps delivering, and a leave still in flight would
+        // otherwise reach a closed scene, which throws, and the scene would report its own close as a crash.
         pointerInput?.release()
         keyboardInput?.release()
         pointerInput = null
@@ -402,8 +410,8 @@ public class KortexSurface private constructor(
                     return Err(display.protocolError() ?: missingPointer)
                 }
                 surface = KortexSurface(
-                    display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface), loop, surfaceWork,
-                    cursorTheme, cursorSurface, seat,
+                    config.namespace, display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface),
+                    loop, surfaceWork, cursorTheme, cursorSurface, seat,
                 )
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true

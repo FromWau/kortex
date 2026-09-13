@@ -89,10 +89,10 @@ class MultiSurfaceTest {
                 // so from the composition's own thread.
                 closeRequested.value = true
 
-                val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == panelsAlone }
+                val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == panelsAlone }
                 assertTrue(dropped, "the shell never dropped the OSD after its content called close()")
                 assertTrue(
-                    shell.pump(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) == null },
+                    shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) == null },
                     "hyprctl layers still reports $OSD_NAMESPACE after close()",
                 )
 
@@ -121,7 +121,7 @@ class MultiSurfaceTest {
                 try {
                     pending = Hyprctl.createHeadlessOutput()
 
-                    val grew = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before + 1 }
+                    val grew = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before + 1 }
                     assertTrue(grew, "the per-output spec did not follow the new output")
 
                     val panels = awaitPanelCount(panelsBefore + 1)
@@ -134,7 +134,7 @@ class MultiSurfaceTest {
                     Hyprctl.removeHeadlessOutput(pending)
                     pending = null
 
-                    val shrank = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before }
+                    val shrank = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before }
                     assertTrue(shrank, "the removed output's panel outlived it")
                     assertEquals(1, osdCount(), "the compositor-placed surface went with the output")
                 } finally {
@@ -159,14 +159,14 @@ class MultiSurfaceTest {
 
     /** Pumps [shell] until a panel reaches `hyprctl layers`, and returns the namespace it was filed under. */
     private fun awaitPanel(shell: KortexShell): String {
-        val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() }
+        val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() }
         assertTrue(appeared, "hyprctl layers never reported a $PANEL_NAMESPACE- namespace")
         return panelNamespaces().first()
     }
 
     /** Pumps [shell] until the OSD reaches `hyprctl layers`, and returns where it landed. */
     private fun awaitOsd(shell: KortexShell): LayerGeometry {
-        val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null }
+        val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null }
         assertTrue(appeared, "hyprctl layers never reported $OSD_NAMESPACE")
         return assertNotNull(Screen.geometry(OSD_NAMESPACE))
     }
