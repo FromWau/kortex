@@ -56,9 +56,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: five entries are open. Under Keyboard and clipboard, shortcuts on punctuation, shortcuts that
-ignore the layout, and the clipboard; under Foundations, a surface lifecycle state; under Polish, the
-reference's gradient crash.
+Next: four entries are open. Under Keyboard and clipboard, shortcuts that ignore the layout and the
+clipboard; under Foundations, a surface lifecycle state; under Polish, the reference's gradient crash.
 
 ## Foundations
 
@@ -274,25 +273,18 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 
 ## Keyboard and clipboard
 
-- [x] **Ctrl and a letter reach Compose as that letter's key.** Two faults kept every Ctrl shortcut from
-      firing, a text field's own select all included. `xkb_state_key_get_utf32` turns Ctrl+C into 0x03,
-      which `KeyboardInput` rightly never types, and the key was named from that codepoint, so it arrived
-      as `Key.Unknown`. A key is now named after its keysym's character, which Ctrl never changes, through
-      `xkb_keysym_to_utf32`. And a letter's key was built from a `Long`, which Compose's desktop `Key` takes
-      as already packed with a key location, so no letter kortex delivered ever equalled `Key.A`; it goes
-      through `Key`'s `Int` form now. Only letters and digits are named that way. AWT gives several other
-      characters' ASCII values to other keys, so an apostrophe named by its value would be the right arrow
-      and move a text field's caret. (`KeyboardDeliveryTest`)
-- [ ] **Shortcuts on punctuation.** Any character but a letter or digit reaches Compose as `Key.Unknown`,
-      so a shortcut such as Ctrl+/ or Ctrl+= never fires. Naming them takes a table: AWT names `,` `/` `=`
-      and a few others by their ASCII value, but gives the apostrophe and backquote codes of their own
-      (`VK_QUOTE`, `VK_BACK_QUOTE`).
-- [ ] **Shortcuts that ignore the layout.** A letter's `Key` comes from its keysym, so it follows the
-      active layout. Under a Cyrillic layout Ctrl+C reaches Compose as a Cyrillic letter's key and no
-      `Key.C` shortcut fires; on AZERTY, `Key.A` is the key QWERTY calls Q. The reference hands content the
-      raw evdev keycode for shortcuts that ignore the layout, and kortex hands content only Compose's
-      `KeyEvent`. Undecided: fall back to a Latin layout's keysym when the active one is not Latin, or give
-      content the physical key.
+- [x] **A key reaches Compose as one of Compose's own keys.** `Xkb.key` maps the keysym a key has with no
+      modifiers, in the active layout, onto Compose's named `Key` constants. Ctrl+C is `Key.C`, Ctrl+/ is
+      `Key.Slash`, and Shift+1 is `Key.One` with Shift held: AWT names a key, not the character it types,
+      and Compose's shortcuts expect that. Keysyms never leave `Xkb`, the FFM layer, so `KeyboardInput` and
+      everything above it handle only typed keys. A keysym Compose has no name for arrives as `Key.Unknown`
+      and still types through its codepoint. The keypad's navigation keysyms stay unnamed on purpose: at the
+      base level they are what a keypad digit is, and a text field would move its caret instead of typing
+      the digit. (`KeyboardDeliveryTest`)
+- [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
+      Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
+      QWERTY calls Q. The reference hands content the raw evdev keycode for this. Undecided: fall back to a
+      Latin layout's keysym when the active one is not Latin, or hand content a typed physical key.
 - [ ] **Clipboard.** kortex binds no `wl_data_device`, so copy and paste fall to Compose's desktop default,
       AWT's system clipboard. That reaches the X clipboard through XWayland when `DISPLAY` is set, and
       Compose turns AWT's `HeadlessException` into no clipboard at all; any other failure to start AWT is
