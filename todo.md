@@ -56,8 +56,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: four entries are open. Under Keyboard and clipboard, shortcuts that ignore the layout and the
-clipboard; under Foundations, a surface lifecycle state; under Polish, the reference's gradient crash.
+Next: five entries are open. Under Keyboard and clipboard, shortcuts on punctuation, shortcuts that
+ignore the layout, and the clipboard; under Foundations, a surface lifecycle state; under Polish, the
+reference's gradient crash.
 
 ## Foundations
 
@@ -279,7 +280,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       as `Key.Unknown`. A key is now named after its keysym's character, which Ctrl never changes, through
       `xkb_keysym_to_utf32`. And a letter's key was built from a `Long`, which Compose's desktop `Key` takes
       as already packed with a key location, so no letter kortex delivered ever equalled `Key.A`; it goes
-      through `Key`'s `Int` form now. (`KeyboardDeliveryTest`)
+      through `Key`'s `Int` form now. Only letters and digits are named that way. AWT gives several other
+      characters' ASCII values to other keys, so an apostrophe named by its value would be the right arrow
+      and move a text field's caret. (`KeyboardDeliveryTest`)
+- [ ] **Shortcuts on punctuation.** Any character but a letter or digit reaches Compose as `Key.Unknown`,
+      so a shortcut such as Ctrl+/ or Ctrl+= never fires. Naming them takes a table: AWT names `,` `/` `=`
+      and a few others by their ASCII value, but gives the apostrophe and backquote codes of their own
+      (`VK_QUOTE`, `VK_BACK_QUOTE`).
 - [ ] **Shortcuts that ignore the layout.** A letter's `Key` comes from its keysym, so it follows the
       active layout. Under a Cyrillic layout Ctrl+C reaches Compose as a Cyrillic letter's key and no
       `Key.C` shortcut fires; on AZERTY, `Key.A` is the key QWERTY calls Q. The reference hands content the
