@@ -18,6 +18,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
@@ -58,29 +59,25 @@ class KeyboardDeliveryTest {
 
     @Test
     fun `a letter pressed with Ctrl held reaches the composition as that letter's key`() {
-        val received = CopyOnWriteArrayList<KeyEvent>()
-        withKeyboard(
-            content = { focus ->
-                Box(
-                    focus
-                        .onKeyEvent { event ->
-                            received.add(event)
-                            true
-                        }
-                        .focusable()
-                        .fillMaxSize(),
-                )
-            },
-        ) { typist ->
-            typist.holdingCtrl { typist.tap(KEY_C) }
+        val press = firstKeyDown { typist -> typist.holding(CTRL_MASK) { typist.tap(KEY_C) } }
 
-            val press = assertNotNull(
-                received.firstOrNull { it.type == KeyEventType.KeyDown },
-                "Ctrl+C never reached the composition",
-            )
-            assertTrue(press.isCtrlPressed, "Ctrl+C reached the composition without Ctrl")
-            assertEquals(Key.C, press.key, "Ctrl+C reached the composition as the wrong key")
-        }
+        assertTrue(press.isCtrlPressed, "Ctrl+C reached the composition without Ctrl")
+        assertEquals(Key.C, press.key, "Ctrl+C reached the composition as the wrong key")
+    }
+
+    @Test
+    fun `a punctuation key pressed with Ctrl held reaches the composition as that key`() {
+        val press = firstKeyDown { typist -> typist.holding(CTRL_MASK) { typist.tap(KEY_SLASH) } }
+
+        assertEquals(Key.Slash, press.key, "Ctrl+/ reached the composition as the wrong key")
+    }
+
+    @Test
+    fun `a digit pressed with Shift held reaches the composition as the digit's key`() {
+        val press = firstKeyDown { typist -> typist.holding(SHIFT_MASK) { typist.tap(KEY_1) } }
+
+        assertTrue(press.isShiftPressed, "Shift+1 reached the composition without Shift")
+        assertEquals(Key.One, press.key, "Shift+1 reached the composition as the wrong key")
     }
 
     @Test
@@ -89,7 +86,7 @@ class KeyboardDeliveryTest {
         withKeyboard(content = { focus -> RecordingTextField(focus, typed) }) { typist ->
             typist.tap(KEY_H)
             typist.tap(KEY_I)
-            typist.holdingCtrl { typist.tap(KEY_A) }
+            typist.holding(CTRL_MASK) { typist.tap(KEY_A) }
             typist.tap(KEY_X)
 
             assertEquals("x", typed.get(), "Ctrl+A did not select the text typed before it")
@@ -118,6 +115,29 @@ class KeyboardDeliveryTest {
                 typed.set(it)
             },
             modifier = focus,
+        )
+    }
+
+    /** The first key-down [press] delivers to a focused composition. */
+    private fun firstKeyDown(press: (Typist) -> Unit): KeyEvent {
+        val received = CopyOnWriteArrayList<KeyEvent>()
+        withKeyboard(
+            content = { focus ->
+                Box(
+                    focus
+                        .onKeyEvent { event ->
+                            received.add(event)
+                            true
+                        }
+                        .focusable()
+                        .fillMaxSize(),
+                )
+            },
+            block = press,
+        )
+        return assertNotNull(
+            received.firstOrNull { it.type == KeyEventType.KeyDown },
+            "no key reached the composition",
         )
     }
 
@@ -186,9 +206,9 @@ class KeyboardDeliveryTest {
             Thread.sleep(FRAME_MILLIS)
         }
 
-        /** Holds Ctrl as a compositor reports it: as modifier state, not as a key. */
-        fun holdingCtrl(block: () -> Unit) {
-            keyboard.onModifiers(NULL, NULL, ++serial, CTRL_MASK, 0, 0, 0)
+        /** Holds [modifiers] as a compositor reports them: as modifier state, not as keys. */
+        fun holding(modifiers: Int, block: () -> Unit) {
+            keyboard.onModifiers(NULL, NULL, ++serial, modifiers, 0, 0, 0)
             block()
             keyboard.onModifiers(NULL, NULL, ++serial, 0, 0, 0, 0)
         }
@@ -202,15 +222,18 @@ class KeyboardDeliveryTest {
         const val PRESSED = 1
         const val RELEASED = 0
 
-        // Control's bit in wl_keyboard.modifiers, the one KeyboardInput reads.
+        // Shift's and Control's bits in wl_keyboard.modifiers, the ones KeyboardInput reads.
+        const val SHIFT_MASK = 1 shl 0
         const val CTRL_MASK = 1 shl 2
 
         // linux/input-event-codes.h
+        const val KEY_1 = 2
         const val KEY_I = 23
         const val KEY_A = 30
         const val KEY_H = 35
         const val KEY_APOSTROPHE = 40
         const val KEY_X = 45
         const val KEY_C = 46
+        const val KEY_SLASH = 53
     }
 }
