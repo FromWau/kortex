@@ -56,9 +56,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: no entry here is open. The `@Hotplug` tests have not run since the event-loop and threading
-changes; they run with `-Pkortex.hotplugTests=true`, at the risk the hotplug entry under Housekeeping
-records.
+Next: no entry here is open.
 
 ## Foundations
 
@@ -323,6 +321,11 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       feedback to every client on every output added or removed, and GTK 4.22.4 crashes on a re-send
       roughly one time in 256 (fixed in 4.22.5); Steam's X11 GTK2 crashed too, on X errors about a RandR
       output that no longer existed. Test runs on the live desktop took down ghostty, AGS and Steam.
+      GTK's NEWS lists the fix: 4.22.5 unmaps the right pointer in the dmabuf format table (!10166,
+      !10305), and the desktop has run 4.22.5 since 2026-09-10. An opt-in run on it at `36abdb7` passed
+      all 117 wayland tests with ghostty, AGS and Firefox open, and none of them crashed; Steam was not
+      running. One run has too few re-sends to show a one-in-256 crash gone, so it backs the fix without
+      proving it.
       The pointer and screenshot tests still need a desktop nobody is using regardless of the tag:
       `SurfaceLifetimeTest` has clicked into a fullscreen game, and that game's cursor re-centring failed
       `OutputRescaleTest` three times.
