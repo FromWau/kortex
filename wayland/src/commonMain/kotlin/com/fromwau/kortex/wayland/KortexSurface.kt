@@ -322,6 +322,8 @@ public class KortexSurface private constructor(
             output: MemorySegment = MemorySegment.NULL,
             // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
             loopQueue: LoopQueue? = null,
+            // Where every crash of this surface's content goes, the first and any after it, cleanup included.
+            onCrash: (KortexError.SurfaceCrashed) -> Unit = {},
         ): Result<KortexSurface, KortexError> {
             // The surface tracks the open text-input session itself so a host does not have to; keys the
             // composition does not consume are turned into edits on it.
@@ -398,6 +400,7 @@ public class KortexSurface private constructor(
                     frameContext = loop + surfaceWork,
                     onInvalidate = { surface.onInvalidate() },
                     platform = hostPlatform,
+                    onFailure = { failure -> onCrash(KortexError.SurfaceCrashed(config.namespace, failure)) },
                 )
                 unwind += scene::close
                 // Bound per surface, and never cached: each surface releases the seat it owns when it closes.

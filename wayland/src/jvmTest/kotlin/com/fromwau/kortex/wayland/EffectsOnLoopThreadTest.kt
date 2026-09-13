@@ -32,7 +32,7 @@ class EffectsOnLoopThreadTest {
                 val shell = KortexShell.create(wayland, panel(effects), osd(effects))
                     .getOrElse { error -> fail("shell creation failed: $error") }
 
-                shell.use {
+                shell.useOrFail {
                     val panelUp = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() }
                     assertTrue(panelUp, "hyprctl layers never reported a $PANEL_NAMESPACE- namespace")
                     val osdUp = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null }

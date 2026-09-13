@@ -38,7 +38,7 @@ class NamedOutputTest {
                 val shell = KortexShell.create(wayland, namedSpec(outputName), panelSpec())
                     .getOrElse { error -> fail("shell creation failed: $error") }
 
-                shell.use {
+                shell.useOrFail {
                     val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
                     assertTrue(appeared, "hyprctl layers never reported a $NAMED_NAMESPACE- namespace")
 
@@ -69,7 +69,7 @@ class NamedOutputTest {
                 val shell = KortexShell.create(wayland, namedSpec(outputName), panelSpec())
                     .getOrElse { error -> fail("shell creation failed: $error") }
 
-                shell.use {
+                shell.useOrFail {
                     val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
                     assertTrue(appeared, "hyprctl layers never reported a $NAMED_NAMESPACE- namespace")
                     val panelsBefore = awaitPanelCount(expectedPanels)
@@ -108,7 +108,7 @@ class NamedOutputTest {
                 val shell = KortexShell.create(wayland, namedSpec(predictedName))
                     .getOrElse { error -> fail("shell creation failed: $error") }
 
-                shell.use {
+                shell.useOrFail {
                     pending = Hyprctl.createHeadlessOutput()
                     assertEquals(
                         predictedName, pending,

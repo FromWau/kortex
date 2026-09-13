@@ -28,7 +28,7 @@ class CompositorChoiceTest {
             val osd = SurfaceSpec(OSD_CONFIG, OutputTarget.CompositorChoice) { Box(Modifier.fillMaxSize()) }
             val shell = KortexShell.create(wayland, osd).getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 assertTrue(
                     shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
                     "hyprctl layers never reported $OSD_NAMESPACE",
@@ -74,7 +74,7 @@ class CompositorChoiceTest {
             }
             val shell = KortexShell.create(wayland, osd).getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 assertTrue(
                     shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) != null },
                     "hyprctl layers never reported $OSD_NAMESPACE",
@@ -110,7 +110,7 @@ class CompositorChoiceTest {
             val shell = KortexShell.create(wayland, panel)
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 assertTrue(
                     shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { panelNamespaces().isNotEmpty() },
                     "hyprctl layers never reported a $PANEL_NAMESPACE- namespace",

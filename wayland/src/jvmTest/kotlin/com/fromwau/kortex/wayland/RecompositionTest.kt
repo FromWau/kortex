@@ -35,7 +35,7 @@ class RecompositionTest {
             }
             val shell = KortexShell.create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 val sawRealGeometry = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { composed.any { it != null } }
                 assertTrue(sawRealGeometry, "content never composed with the output's real geometry")
 

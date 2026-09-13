@@ -49,7 +49,9 @@ internal object LoopThread {
                 return
             }
             created.complete(Unit)
-            runCatching { shell.use(KortexShell::runEventLoop) }.onFailure(loopFailure::set)
+            runCatching {
+                shell.useOrFail { it.runEventLoop().getOrElse { error -> fail("the run ended in $error") } }
+            }.onFailure(loopFailure::set)
         }
 
         val loop = Thread(::createAndRun, "kortex-test-loop")

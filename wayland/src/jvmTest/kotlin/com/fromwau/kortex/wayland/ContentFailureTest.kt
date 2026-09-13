@@ -15,11 +15,13 @@ import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.LocalKortexSurface
 import kotlinx.coroutines.delay
 import java.util.Collections
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -27,11 +29,12 @@ import kotlin.test.fail
 class ContentFailureTest {
     @Test
     fun `content that throws while drawing its first frame fails the shell's creation`() {
+        val reported = CopyOnWriteArrayList<KortexError.SurfaceCrashed>()
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use {
             val spec = crashingSpec { Canvas(Modifier.fillMaxSize()) { error(DRAW_FAILURE) } }
-            val error = KortexShell.create(display, spec)
-                .onSuccess(KortexShell::close)
+            val error = KortexShell.create(display, spec, onCrashSurface = { reported += it })
+                .onSuccess { it.close() }
                 .errorOrNull()
 
             val crash = assertIs<KortexError.SurfaceCrashed>(
@@ -41,23 +44,48 @@ class ContentFailureTest {
             assertEquals(NAMESPACE, crash.namespace)
             assertIs<ContentFailure.Composition>(crash.failure)
             assertEquals(DRAW_FAILURE, crash.failure.cause.message)
+            assertEquals(listOf(crash), reported, "the first frame's crash must reach onCrashSurface exactly once")
         }
     }
 
     @Test
     fun `an effect that throws ends the run with the surface it crashed`() {
+        val reported = CopyOnWriteArrayList<KortexError.SurfaceCrashed>()
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use {
-            val shell = KortexShell.create(display, crashingSpec { ThrowingEffect() })
+            val shell = KortexShell
+                .create(display, crashingSpec { ThrowingEffect() }, onCrashSurface = { reported += it })
                 .getOrElse { error -> fail("shell creation failed: $error") }
-            shell.use {
-                val error = shell.pump(PUMP_MILLIS).errorOrNull()
+            val error = shell.pump(PUMP_MILLIS).errorOrNull()
+            shell.close()
 
-                val crash = assertIs<KortexError.SurfaceCrashed>(error, "an effect that throws must end the run")
-                assertEquals(NAMESPACE, crash.namespace)
-                assertIs<ContentFailure.Composition>(crash.failure)
-                assertEquals(EFFECT_FAILURE, crash.failure.cause.message)
-            }
+            val crash = assertIs<KortexError.SurfaceCrashed>(error, "an effect that throws must end the run")
+            assertEquals(NAMESPACE, crash.namespace)
+            assertIs<ContentFailure.Composition>(crash.failure)
+            assertEquals(EFFECT_FAILURE, crash.failure.cause.message)
+            assertEquals(listOf(crash), reported, "the crash that ended the run must reach onCrashSurface exactly once")
+        }
+    }
+
+    @Test
+    fun `content whose cleanup throws as the shell closes fails the close and reaches onCrashSurface`() {
+        val reported = CopyOnWriteArrayList<KortexError.SurfaceCrashed>()
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        display.use {
+            val shell = KortexShell
+                .create(display, crashingSpec { ThrowingOnClose() }, onCrashSurface = { reported += it })
+                .getOrElse { error -> fail("shell creation failed: $error") }
+            assertNull(
+                shell.pump(SETTLE_MILLIS).errorOrNull(),
+                "content that only throws in its cleanup must keep running",
+            )
+
+            val crash = assertIs<KortexError.SurfaceCrashed>(
+                shell.close().errorOrNull(),
+                "cleanup that throws as the shell closes must fail the close",
+            )
+            assertEquals(SHELL_CLOSE_FAILURE, crash.failure.cause.message)
+            assertEquals(listOf(crash), reported, "the crash while closing must reach onCrashSurface exactly once")
         }
     }
 
@@ -68,7 +96,7 @@ class ContentFailureTest {
         display.use {
             val shell = KortexShell.create(display, crashingSpec { ThrowingOnReplacement(placements) })
                 .getOrElse { error -> fail("shell creation failed: $error") }
-            shell.use {
+            shell.useOrFail {
                 shell.activeSurfaces.single().surface.simulateCompositorClose()
                 val error = shell.pump(PUMP_MILLIS).errorOrNull()
 
@@ -84,7 +112,7 @@ class ContentFailureTest {
         display.use {
             val shell = KortexShell.create(display, crashingSpec { ThrowingCleanup() })
                 .getOrElse { error -> fail("shell creation failed: $error") }
-            shell.use {
+            shell.useOrFail {
                 val error = shell.pump(PUMP_MILLIS).errorOrNull()
 
                 val crash = assertIs<KortexError.SurfaceCrashed>(
@@ -105,6 +133,10 @@ class ContentFailureTest {
         assertTrue(
             "$PROBE_MARKER crashed=$PROBE_NAMESPACE failure=Composition cause=$PROBE_FAILURE" in output,
             "the run did not end in the later frame's crash; output:\n$raw",
+        )
+        assertTrue(
+            "$PROBE_MARKER hook crashed=$PROBE_NAMESPACE cause=$PROBE_FAILURE" in output,
+            "the later frame's crash never reached onCrashSurface; output:\n$raw",
         )
     }
 
@@ -152,6 +184,11 @@ class ContentFailureTest {
     }
 
     @Composable
+    private fun ThrowingOnClose() {
+        DisposableEffect(Unit) { onDispose { error(SHELL_CLOSE_FAILURE) } }
+    }
+
+    @Composable
     private fun ThrowingEffect() {
         LaunchedEffect(Unit) {
             delay(EFFECT_DELAY_MILLIS)
@@ -164,6 +201,8 @@ class ContentFailureTest {
         const val DRAW_FAILURE = "content threw while drawing"
         const val EFFECT_FAILURE = "an effect threw"
         const val CLEANUP_FAILURE = "cleanup threw as the surface closed"
+        const val SHELL_CLOSE_FAILURE = "cleanup threw as the shell closed"
+        const val SETTLE_MILLIS = 300L
         const val EFFECT_DELAY_MILLIS = 50L
         const val CLOSE_AFTER_MILLIS = 50L
         const val PUMP_MILLIS = 2_000L

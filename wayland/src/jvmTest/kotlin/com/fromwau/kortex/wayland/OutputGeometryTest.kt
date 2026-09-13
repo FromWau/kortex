@@ -72,7 +72,7 @@ class OutputGeometryTest {
             val shell = KortexShell.create(wayland, SurfaceSpec(CONFIG) { })
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 val active = shell.activeSurfaces
                 assertTrue(active.isNotEmpty(), "shell has no surfaces to read geometry through")
 

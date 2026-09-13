@@ -23,7 +23,12 @@ internal const val PROBE_FAILURE = "content threw while drawing a later frame"
 object CrashedSurfaceProbe {
     @JvmStatic
     fun main(args: Array<String>) {
-        val result = runSurfaces(SurfaceSpec(PROBE_CONFIG, OutputTarget.CompositorChoice) { ThrowOnLaterFrame() })
+        val result = runSurfaces(
+            SurfaceSpec(PROBE_CONFIG, OutputTarget.CompositorChoice) { ThrowOnLaterFrame() },
+            onCrashSurface = { crash ->
+                System.err.println("$PROBE_MARKER hook crashed=${crash.namespace} cause=${crash.failure.cause.message}")
+            },
+        )
         val crash = result.errorOrNull() as? KortexError.SurfaceCrashed
         val kind = crash?.failure?.let { it::class.simpleName }
         val cause = crash?.failure?.cause?.message

@@ -43,7 +43,7 @@ class SurfaceTeardownTest {
             val shell = KortexShell.create(wayland, panelSpec(clicks), menuSpec(closeRequested, menuHovers))
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 val panelNamespace = awaitPanel(shell)
                 val menu = awaitMenu(shell)
                 val before = shell.activeSurfaces.size

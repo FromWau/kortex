@@ -33,7 +33,7 @@ class MultiSurfaceTest {
             val shell = KortexShell.create(wayland, panelSpec(), osdSpec())
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 awaitPanel(shell)
                 val osd = awaitOsd(shell)
                 val panelNamespace = assertNotNull(
@@ -80,7 +80,7 @@ class MultiSurfaceTest {
             val shell = KortexShell.create(wayland, panelSpec(), osdSpec(closeRequested))
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 val panelNamespace = awaitPanel(shell)
                 awaitOsd(shell)
                 val panelsAlone = shell.activeSurfaces.size - 1
@@ -111,7 +111,7 @@ class MultiSurfaceTest {
             val shell = KortexShell.create(wayland, panelSpec(), osdSpec())
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 awaitPanel(shell)
                 awaitOsd(shell)
                 val before = shell.activeSurfaces.size

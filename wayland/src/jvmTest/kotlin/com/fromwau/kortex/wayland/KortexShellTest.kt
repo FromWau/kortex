@@ -29,7 +29,7 @@ class KortexShellTest {
             val shell = KortexShell.create(wayland, panel)
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 assertEquals(1, shell.activeSurfaces.size, "expected exactly one surface before any hotplug")
 
                 var pending: String? = null

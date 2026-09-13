@@ -51,7 +51,7 @@ class SurfaceHandleTest {
             val shell = KortexShell.create(wayland, spec)
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
+            shell.useOrFail {
                 val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { kortexNamespace() != null }
                 assertTrue(appeared, "hyprctl never reported a $NAMESPACE- namespace; nothing to prove close() removes")
                 assertNotNull(handleRef.get(), "content never saw a LocalKortexSurface")

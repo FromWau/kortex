@@ -34,6 +34,12 @@ import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.awaitCancellation
 
+/**
+ * A Compose scene a host drives: the host renders it into a canvas of its own and hands it input.
+ *
+ * @param onFailure called with every failure content causes, the first and any after it, cleanup on close
+ *   included, on whichever thread content failed.
+ */
 @OptIn(InternalComposeUiApi::class)
 public class KortexScene(
     size: IntSize,
@@ -42,6 +48,7 @@ public class KortexScene(
     frameContext: CoroutineContext,
     onInvalidate: () -> Unit,
     platform: KortexPlatform = KortexPlatform.None,
+    private val onFailure: (ContentFailure) -> Unit = {},
 ) : AutoCloseable {
     private val windowInfo = KortexWindowInfo()
 
@@ -54,7 +61,7 @@ public class KortexScene(
 
     // Recomposition and effects fail inside coroutines, never out of a call, so they report through here.
     private val coroutineFailures = CoroutineExceptionHandler { _, cause ->
-        firstFailure.compareAndSet(null, (running ?: ContentFailure::Composition)(cause))
+        record((running ?: ContentFailure::Composition)(cause))
     }
 
     private val recomposer = FrameRecomposer(frameContext + coroutineFailures) { onInvalidate() }
@@ -176,8 +183,8 @@ public class KortexScene(
         // Scene first: it holds the recomposer, whose coroutine scope would otherwise outlive it.
         try {
             scene.close()
-        } catch (cause: Exception) {
-            firstFailure.compareAndSet(null, ContentFailure.Composition(cause))
+        } catch (cause: Throwable) {
+            record(ContentFailure.Composition(cause))
         }
         recomposer.close()
     }
@@ -191,14 +198,19 @@ public class KortexScene(
         running = kind
         val value = try {
             call()
-        } catch (cause: Exception) {
+        } catch (cause: Throwable) {
             val failure = kind(cause)
-            firstFailure.compareAndSet(null, failure)
+            record(failure)
             return Err(failure)
         } finally {
             running = null
         }
         return firstFailure.get()?.let { Err(it) } ?: Ok(value)
+    }
+
+    private fun record(failure: ContentFailure) {
+        firstFailure.compareAndSet(null, failure)
+        onFailure(failure)
     }
 }
 

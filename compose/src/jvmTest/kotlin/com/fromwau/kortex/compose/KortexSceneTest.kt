@@ -7,6 +7,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +36,7 @@ import kotlinx.coroutines.delay
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Surface
 import java.awt.Cursor
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -334,6 +336,34 @@ class KortexSceneTest {
         }
     }
 
+    @Test
+    fun `content that throws an Error is a composition failure too`() {
+        withScene { scene, surface ->
+            scene.setContent { Canvas(Modifier.fillMaxSize()) { throw StackOverflowError(ERROR_FAILURE) } }
+
+            val failure = scene.render(surface.canvas.asComposeCanvas(), 0L).errorOrNull()
+
+            assertIs<ContentFailure.Composition>(failure, "an Error thrown by content must fail the composition")
+            assertIs<StackOverflowError>(failure.cause)
+        }
+    }
+
+    @Test
+    fun `every failure reaches onFailure, cleanup on close included`() {
+        val reported = CopyOnWriteArrayList<ContentFailure>()
+
+        withScene(onFailure = { reported += it }) { scene, surface ->
+            scene.setContent {
+                DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
+                Canvas(Modifier.fillMaxSize()) { error(DRAW_FAILURE) }
+            }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+        }
+
+        // withScene has closed the scene by now, running content's cleanup.
+        assertEquals(listOf(DRAW_FAILURE, CLEANUP_FAILURE), reported.map { it.cause.message })
+    }
+
     private fun KortexScene.click(position: Offset, from: Long) {
         sendPointerEvent(PointerEventType.Press, position, timeMillis = from,
             buttons = PointerButtons(isPrimaryPressed = true), button = PointerButton.Primary)
@@ -356,6 +386,7 @@ class KortexSceneTest {
         surfaceSize: IntSize = size,
         onInvalidate: () -> Unit = {},
         platform: KortexPlatform = KortexPlatform.None,
+        onFailure: (ContentFailure) -> Unit = {},
         block: (KortexScene, Surface) -> Unit,
     ) {
         // FrameRecomposer rejects a context with no ContinuationInterceptor, and Dispatchers.Unconfined
@@ -375,6 +406,7 @@ class KortexSceneTest {
                 frameContext = dispatcher,
                 onInvalidate = onInvalidate,
                 platform = platform,
+                onFailure = onFailure,
             ).use { scene -> block(scene, surface) }
         }
     }
@@ -405,5 +437,7 @@ class KortexSceneTest {
         const val KEY_FAILURE = "a key handler threw"
         const val POINTER_FAILURE = "a click handler threw"
         const val EFFECT_FAILURE = "an effect threw"
+        const val ERROR_FAILURE = "content threw an Error"
+        const val CLEANUP_FAILURE = "cleanup threw as the scene closed"
     }
 }

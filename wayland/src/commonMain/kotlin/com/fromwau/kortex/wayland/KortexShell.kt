@@ -52,10 +52,14 @@ public class KortexShell private constructor(
     private val display: WaylandDisplay,
     private val specs: List<SurfaceSpec>,
     private val platform: KortexPlatform,
-) : AutoCloseable {
+    private val onCrashSurface: (KortexError.SurfaceCrashed) -> Unit,
+) {
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
     private val surfaces = mutableListOf<ActiveSurface>()
+
+    // Filled by each surface's scene, on whichever thread its content fails, and emptied by reportCrashes.
+    private val crashes = ConcurrentLinkedQueue<KortexError.SurfaceCrashed>()
     // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
     private val loopQueue = LoopQueue(display::wake)
 
@@ -99,7 +103,7 @@ public class KortexShell private constructor(
      * so that case keeps the loop running too.
      *
      * Ends early with the error when content throws, as [KortexError.SurfaceCrashed], or when a surface cannot be
-     * placed; closing the shell afterwards is still the caller's.
+     * placed; each crash also reaches `onCrashSurface`, and closing the shell afterwards is still the caller's.
      *
      * Blocks, and owns the connection for as long as it does. Content runs on the thread that runs the loop,
      * so create the shell on that same thread.
@@ -166,16 +170,15 @@ public class KortexShell private constructor(
         val toReplace = closing.filter(::shouldReplace)
         closing.forEach(::removeSurface)
         // A replacement that cannot be placed is dropped, as on a connection going down: one surface staying gone
-        // beats ending the run. One whose content crashed ends it, like any other crash.
-        toReplace.forEach { active ->
-            placeSurfaces(active.spec, standing = true).onError { error ->
-                if (error is KortexError.SurfaceCrashed) return Err(error)
-            }
-        }
+        // beats ending the run. One whose content crashed has queued that crash, which ends the run below.
+        toReplace.forEach { active -> placeSurfaces(active.spec, standing = true) }
         surfaces.forEach { active -> active.surface.serviceTick().getOrElse { return Err(it) } }
-        // closing is out of surfaces by now, and its own cleanup can be what crashed.
-        return (closing + surfaces).firstNotNullOfOrNull { it.surface.crash }?.let { Err(it) } ?: Ok(Unit)
+        return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
+
+    // Every crash since the last report goes to the host once; the first is what ends the run.
+    private fun reportCrashes(): KortexError.SurfaceCrashed? =
+        generateSequence(crashes::poll).toList().onEach(onCrashSurface).firstOrNull()
 
     // Exactly what OutputTarget.CompositorChoice's own KDoc promises: replaced only here, gone otherwise.
     private fun shouldReplace(active: ActiveSurface): Boolean =
@@ -236,6 +239,7 @@ public class KortexShell private constructor(
             platform = platform,
             output = output?.proxy ?: MemorySegment.NULL,
             loopQueue = loopQueue,
+            onCrash = crashes::add,
         ).flatMap { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
@@ -261,7 +265,11 @@ public class KortexShell private constructor(
         active.surface.close()
     }
 
-    override fun close() {
+    /**
+     * Closes every surface and output and runs what is left on the queue, whatever content throws meanwhile.
+     * Each crash not yet handed to `onCrashSurface` goes to it now, and the first is returned.
+     */
+    public fun close(): EmptyResult<KortexError> {
         display.onGlobalAdded = null
         display.onGlobalRemoved = null
         surfaces.toList().forEach(::removeSurface)
@@ -269,6 +277,8 @@ public class KortexShell private constructor(
         outputs.clear()
         // No pass follows a close, so what reached the queue since the last one runs here.
         loopQueue.drain()
+        // After the drain, since a closed scene's late work can be what crashed.
+        return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
 
     public companion object {
@@ -277,13 +287,17 @@ public class KortexShell private constructor(
          *
          * A per-output surface takes the output's registry name as a namespace suffix, so one spec's
          * surfaces stay distinguishable to the compositor and to whoever reads its layer list.
+         *
+         * @param onCrashSurface called on the loop thread with every crash of a surface's content, once each,
+         *   those while closing included.
          */
         public fun create(
             display: WaylandDisplay,
             vararg specs: SurfaceSpec,
             platform: KortexPlatform = KortexPlatform.None,
+            onCrashSurface: (KortexError.SurfaceCrashed) -> Unit = {},
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, specs.toList(), platform)
+            val shell = KortexShell(display, specs.toList(), platform, onCrashSurface)
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)
@@ -291,6 +305,7 @@ public class KortexShell private constructor(
             display.roundtrip()
             for (spec in specs) {
                 shell.placeSurfaces(spec, standing = true).getOrElse {
+                    // Its crashes reach onCrashSurface; what this returns is why placing failed.
                     shell.close()
                     return Err(it)
                 }
