@@ -117,6 +117,9 @@ internal object Xkb {
         XK_UP -> Key.DirectionUp
         XK_RIGHT -> Key.DirectionRight
         XK_DOWN -> Key.DirectionDown
+        XK_PAGE_UP -> Key.PageUp
+        XK_PAGE_DOWN -> Key.PageDown
+        XK_INSERT -> Key.Insert
         XK_SPACE -> Key.Spacebar
         XK_APOSTROPHE -> Key.Apostrophe
         XK_PLUS -> Key.Plus
@@ -132,16 +135,20 @@ internal object Xkb {
         XK_GRAVE -> Key.Grave
         in XK_0..XK_9 -> DIGIT_KEYS[keysym - XK_0]
         in XK_SMALL_A..XK_SMALL_Z -> LETTER_KEYS[keysym - XK_SMALL_A]
+        in XK_F1..XK_F12 -> F_KEYS[keysym - XK_F1]
         else -> Key.Unknown
     }
 
-    // In keysym order, which is the order the two ranges above index them in.
+    // In keysym order, which is the order the three ranges above index them in.
     private val DIGIT_KEYS = listOf(
         Key.Zero, Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine,
     )
     private val LETTER_KEYS = listOf(
         Key.A, Key.B, Key.C, Key.D, Key.E, Key.F, Key.G, Key.H, Key.I, Key.J, Key.K, Key.L, Key.M,
         Key.N, Key.O, Key.P, Key.Q, Key.R, Key.S, Key.T, Key.U, Key.V, Key.W, Key.X, Key.Y, Key.Z,
+    )
+    private val F_KEYS = listOf(
+        Key.F1, Key.F2, Key.F3, Key.F4, Key.F5, Key.F6, Key.F7, Key.F8, Key.F9, Key.F10, Key.F11, Key.F12,
     )
 
     private const val KEYMAP_FORMAT_TEXT_V1 = 1
@@ -181,7 +188,22 @@ internal object Xkb {
     private const val XK_UP = 0xFF52
     private const val XK_RIGHT = 0xFF53
     private const val XK_DOWN = 0xFF54
+    private const val XK_PAGE_UP = 0xFF55
+    private const val XK_PAGE_DOWN = 0xFF56
     private const val XK_END = 0xFF57
+    private const val XK_INSERT = 0xFF63
     private const val XK_KP_ENTER = 0xFF8D
+    private const val XK_F1 = 0xFFBE
+    private const val XK_F2 = 0xFFBF
+    private const val XK_F3 = 0xFFC0
+    private const val XK_F4 = 0xFFC1
+    private const val XK_F5 = 0xFFC2
+    private const val XK_F6 = 0xFFC3
+    private const val XK_F7 = 0xFFC4
+    private const val XK_F8 = 0xFFC5
+    private const val XK_F9 = 0xFFC6
+    private const val XK_F10 = 0xFFC7
+    private const val XK_F11 = 0xFFC8
+    private const val XK_F12 = 0xFFC9
     private const val XK_DELETE = 0xFFFF
 }

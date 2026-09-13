@@ -56,10 +56,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: six entries are open, three of them decided and waiting to be built. Under Foundations, a typed
+Next: five entries are open, three of them decided and waiting to be built. Under Foundations, a typed
 surface lifecycle state; under Polish, a wayland-level test for a throwing pointer handler and crash
-logging in the bar demo; under Keyboard and clipboard, Page Up, Page Down, Insert and the F-keys, a Latin
-fallback for shortcuts under a non-Latin layout, and a native clipboard.
+logging in the bar demo; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin
+layout, and a native clipboard.
 
 ## Foundations
 
@@ -314,10 +314,12 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       and still types through its codepoint. The keypad's navigation keysyms stay unnamed on purpose: at the
       base level they are what a keypad digit is, and a text field would move its caret instead of typing
       the digit. (`KeyboardDeliveryTest`)
-- [ ] **Page Up, Page Down, Insert and the F-keys.** `Xkb`'s key table has no entry for them, so they reach
-      Compose as `Key.Unknown`, though Compose names each (`Key.PageUp`, `Key.PageDown`, `Key.Insert`,
-      `Key.F1` to `Key.F12`) and its text fields act on Page Up, Page Down and Insert. Their keysyms are
-      `Page_Up` 0xff55, `Page_Down` 0xff56, `Insert` 0xff63, and `F1` to `F12` 0xffbe to 0xffc9.
+- [x] **Page Up, Page Down, Insert and the F-keys reach Compose by name.** `Xkb.composeKey` now names
+      `Page_Up`, `Page_Down`, `Insert` and `F1` through `F12`, so a text field's own Page Up, Page Down and
+      Insert handling fires and Compose's F-key shortcuts resolve instead of arriving as `Key.Unknown`. The
+      F-keys index into a table the way `DIGIT_KEYS` and `LETTER_KEYS` already did; the keypad's own
+      navigation keysyms stay unnamed, since at the base level they are what a keypad digit is.
+      (`KeyboardDeliveryTest`)
 - [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
       Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
       QWERTY calls Q. The reference hands content the raw evdev keycode for this. Decided: a Latin fallback

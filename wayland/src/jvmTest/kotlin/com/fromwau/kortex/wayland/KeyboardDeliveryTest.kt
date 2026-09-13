@@ -22,6 +22,7 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
@@ -106,6 +107,25 @@ class KeyboardDeliveryTest {
     }
 
     @Test
+    fun `Page Up, Page Down, Insert and the F-keys reach the composition as their own Key`() {
+        val downs = keyDownsFrom { typist -> NAMED_KEYS.forEach { (code, _) -> typist.tap(code) } }
+
+        NAMED_KEYS.forEachIndexed { index, (code, key) ->
+            assertEquals(key, downs.getOrNull(index)?.key, "evdev code $code reached the composition as the wrong key")
+        }
+    }
+
+    @Test
+    fun `Page Down moves a multi-line text field's caret`() {
+        val caret = AtomicReference(0)
+        withKeyboard(content = { focus -> MultiLineTextField(focus, caret) }) { typist ->
+            typist.tap(KEY_PAGEDOWN)
+
+            assertTrue(caret.get() > 0, "Page Down did not move the caret")
+        }
+    }
+
+    @Test
     fun `a key handler that throws becomes the scene's failure instead of leaving the keyboard`() {
         withKeyboard(
             content = { focus ->
@@ -142,8 +162,21 @@ class KeyboardDeliveryTest {
         )
     }
 
-    /** The first key-down [press] delivers to a focused composition. */
-    private fun firstKeyDown(press: (Typist) -> Unit): KeyEvent {
+    @Composable
+    private fun MultiLineTextField(focus: Modifier, caret: AtomicReference<Int>) {
+        var value by remember { mutableStateOf(TextFieldValue(MULTILINE_TEXT)) }
+        BasicTextField(
+            value = value,
+            onValueChange = {
+                value = it
+                caret.set(it.selection.start)
+            },
+            modifier = focus,
+        )
+    }
+
+    /** The key-down events [press] delivers to a focused composition, in delivery order. */
+    private fun keyDownsFrom(press: (Typist) -> Unit): List<KeyEvent> {
         val received = CopyOnWriteArrayList<KeyEvent>()
         withKeyboard(
             content = { focus ->
@@ -159,11 +192,12 @@ class KeyboardDeliveryTest {
             },
             block = press,
         )
-        return assertNotNull(
-            received.firstOrNull { it.type == KeyEventType.KeyDown },
-            "no key reached the composition",
-        )
+        return received.filter { it.type == KeyEventType.KeyDown }
     }
+
+    /** The first key-down [press] delivers to a focused composition. */
+    private fun firstKeyDown(press: (Typist) -> Unit): KeyEvent =
+        assertNotNull(keyDownsFrom(press).firstOrNull(), "no key reached the composition")
 
     /** Runs [block] against a keyboard on the compositor's keymap, delivering into [content] once it has focus. */
     private fun withKeyboard(content: @Composable (focus: Modifier) -> Unit, block: (Typist) -> Unit) {
@@ -262,5 +296,41 @@ class KeyboardDeliveryTest {
         const val KEY_X = 45
         const val KEY_C = 46
         const val KEY_SLASH = 53
+        const val KEY_F1 = 59
+        const val KEY_F2 = 60
+        const val KEY_F3 = 61
+        const val KEY_F4 = 62
+        const val KEY_F5 = 63
+        const val KEY_F6 = 64
+        const val KEY_F7 = 65
+        const val KEY_F8 = 66
+        const val KEY_F9 = 67
+        const val KEY_F10 = 68
+        const val KEY_F11 = 87
+        const val KEY_F12 = 88
+        const val KEY_PAGEUP = 104
+        const val KEY_PAGEDOWN = 109
+        const val KEY_INSERT = 110
+
+        const val MULTILINE_TEXT = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten"
+
+        // In the order Xkb.composeKey's table names them.
+        val NAMED_KEYS = listOf(
+            KEY_PAGEUP to Key.PageUp,
+            KEY_PAGEDOWN to Key.PageDown,
+            KEY_INSERT to Key.Insert,
+            KEY_F1 to Key.F1,
+            KEY_F2 to Key.F2,
+            KEY_F3 to Key.F3,
+            KEY_F4 to Key.F4,
+            KEY_F5 to Key.F5,
+            KEY_F6 to Key.F6,
+            KEY_F7 to Key.F7,
+            KEY_F8 to Key.F8,
+            KEY_F9 to Key.F9,
+            KEY_F10 to Key.F10,
+            KEY_F11 to Key.F11,
+            KEY_F12 to Key.F12,
+        )
     }
 }
