@@ -148,8 +148,8 @@ internal class KeyboardInput(
     /**
      * Maps an X11 keysym onto Compose's [Key].
      *
-     * Only keys a text field acts on are named. Any other key is named after its keysym's character, not
-     * the codepoint it types, which Ctrl turns into a control code: Ctrl+C is still [Key.C].
+     * Only keys a text field acts on are named, and letters and digits after their keysym's character
+     * rather than the codepoint they type, which Ctrl turns into a control code: Ctrl+C is still [Key.C].
      */
     private fun Int.toComposeKey(): Key = when (this) {
         XK_BACKSPACE -> Key.Backspace
@@ -165,15 +165,16 @@ internal class KeyboardInput(
         XK_END -> Key.MoveEnd
         XK_SPACE -> Key.Spacebar
         else -> {
-            val character = Xkb.keysymCodePoint(this)
-            if (character >= FIRST_PRINTABLE) Key(character.uppercaseVirtualKey()) else Key.Unknown
+            val virtualKey = Xkb.keysymCodePoint(this).letterOrDigitVirtualKey()
+            if (virtualKey == null) Key.Unknown else Key(virtualKey)
         }
     }
 
-    // Compose's desktop Key wraps AWT virtual-key codes, which for letters and digits are the ASCII
-    // values of their uppercase form. An Int, not a Long: only Key's Int form adds the key location
-    // Compose's own constants carry, so a Key built from a Long never equals Key.A.
-    private fun Int.uppercaseVirtualKey(): Int = Character.toUpperCase(this)
+    // Compose's desktop Key wraps AWT virtual-key codes, and a letter's or digit's is its uppercase ASCII
+    // value. Other characters' values can be other keys' codes, an apostrophe's the right arrow's, so they
+    // stay unnamed. An Int, not a Long: only Key's Int form adds the key location Compose's constants carry.
+    private fun Int.letterOrDigitVirtualKey(): Int? =
+        Character.toUpperCase(this).takeIf { it in 'A'.code..'Z'.code || it in '0'.code..'9'.code }
 
     fun install(keyboard: MemorySegment) {
         keyboardProxy = keyboard

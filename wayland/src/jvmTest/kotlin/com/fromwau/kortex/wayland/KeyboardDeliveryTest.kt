@@ -96,6 +96,16 @@ class KeyboardDeliveryTest {
         }
     }
 
+    @Test
+    fun `an apostrophe types into a text field instead of moving its caret`() {
+        val typed = AtomicReference("")
+        withKeyboard(content = { focus -> RecordingTextField(focus, typed) }) { typist ->
+            typist.tap(KEY_APOSTROPHE)
+
+            assertEquals("'", typed.get(), "the apostrophe did not reach the text field")
+        }
+    }
+
     @Composable
     private fun RecordingTextField(focus: Modifier, typed: AtomicReference<String>) {
         // The field has to be driven by Compose state, not by the AtomicReference: an unobservable value
@@ -199,6 +209,7 @@ class KeyboardDeliveryTest {
         const val KEY_I = 23
         const val KEY_A = 30
         const val KEY_H = 35
+        const val KEY_APOSTROPHE = 40
         const val KEY_X = 45
         const val KEY_C = 46
     }
