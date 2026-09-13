@@ -1,8 +1,10 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -13,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -48,10 +51,33 @@ class InvalidationRenderTest {
         }
     }
 
+    @Test
+    fun `a counter read only while drawing is drawn again each time it changes`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val counter = mutableIntStateOf(0)
+        val drawn = mutableListOf<Int>()
+
+        display.use {
+            val bar = KortexSurface.create(display, CONFIG)
+                .getOrElse { error -> fail("bar creation failed: $error") }
+
+            bar.use {
+                bar.setContent { Canvas(Modifier.fillMaxSize()) { drawn += counter.intValue } }
+
+                repeat(BUMPS) {
+                    val value = ++counter.intValue
+                    val redrawn = bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { value in drawn }
+                    assertTrue(redrawn, "the bar never drew the counter at $value; it drew $drawn")
+                }
+            }
+        }
+    }
+
     private companion object {
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
         const val PUMP_MILLIS = 1500L
+        const val BUMPS = 5
         val BEFORE = Color.Red.toArgb()
         val AFTER = Color.Blue.toArgb()
 

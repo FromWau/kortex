@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
+import androidx.compose.ui.scene.hasInvalidations
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
@@ -37,6 +38,8 @@ import kotlinx.coroutines.awaitCancellation
 /**
  * A Compose scene a host drives: the host renders it into a canvas of its own and hands it input.
  *
+ * @param onInvalidate called when content needs another [render], on whichever thread noticed; hand it to your
+ *   own loop rather than rendering from inside it. It is not called for the first frame after [setContent].
  * @param onFailure called with every failure content causes, the first and any after it, cleanup on close
  *   included, on whichever thread content failed.
  */
@@ -46,7 +49,7 @@ public class KortexScene(
     density: Density,
     layoutDirection: LayoutDirection = LayoutDirection.Ltr,
     frameContext: CoroutineContext,
-    onInvalidate: () -> Unit,
+    private val onInvalidate: () -> Unit,
     platform: KortexPlatform = KortexPlatform.None,
     private val onFailure: (ContentFailure) -> Unit = {},
 ) : AutoCloseable {
@@ -65,9 +68,17 @@ public class KortexScene(
     }
 
     private val recomposer = FrameRecomposer(frameContext + coroutineFailures) { onInvalidate() }
+
+    // Scene phases end by asking for a frame; within setContent and render, that frame is the render under way or the
+    // host's first render after setContent. Volatile, as content may invalidate from another thread.
+    @Volatile
+    private var rendering = false
+
     private val scene =
         CanvasLayersComposeScene(
             recomposer, density, layoutDirection, size, KortexPlatformContext(platform, windowInfo),
+            invalidateLayout = ::onSceneInvalidated,
+            invalidateDraw = ::onSceneInvalidated,
         )
 
     /** The first failure content caused. Once it is set, every call below returns it and runs no more content. */
@@ -105,13 +116,19 @@ public class KortexScene(
         }
 
     public fun setContent(content: @Composable () -> Unit): EmptyResult<ContentFailure> =
-        runContent(ContentFailure::Composition) { scene.setContent(recomposer.compositionContext, content) }
+        runContent(ContentFailure::Composition) {
+            whileRendering { scene.setContent(recomposer.compositionContext, content) }
+        }
 
     public fun render(canvas: Canvas, frameTimeNanos: Long): EmptyResult<ContentFailure> =
         runContent(ContentFailure::Composition) {
-            recomposer.performFrame(frameTimeNanos)
-            scene.measureAndLayout()
-            scene.draw(canvas)
+            whileRendering {
+                recomposer.performFrame(frameTimeNanos)
+                scene.measureAndLayout()
+                scene.draw(canvas)
+            }
+            // What content invalidated while this frame drew it has missed the frame.
+            if (scene.hasInvalidations()) onInvalidate()
         }
 
     /**
@@ -211,6 +228,19 @@ public class KortexScene(
     private fun record(failure: ContentFailure) {
         firstFailure.compareAndSet(null, failure)
         onFailure(failure)
+    }
+
+    private fun onSceneInvalidated() {
+        if (!rendering) onInvalidate()
+    }
+
+    private inline fun <T> whileRendering(block: () -> T): T {
+        rendering = true
+        try {
+            return block()
+        } finally {
+            rendering = false
+        }
     }
 }
 

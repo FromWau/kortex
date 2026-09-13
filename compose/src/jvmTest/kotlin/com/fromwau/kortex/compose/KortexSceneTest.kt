@@ -6,9 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -17,6 +21,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -26,7 +32,11 @@ import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.node.DrawModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -92,6 +102,55 @@ class KortexSceneTest {
             Thread.sleep(IDLE_WINDOW_MILLIS)
 
             assertEquals(0, signals.get(), "an idle composition must never ask for a frame")
+        }
+    }
+
+    @Test
+    fun `a change read only while drawing asks for a frame`() {
+        val radius = mutableIntStateOf(1)
+
+        assertChangeAsksForFrame(radius) {
+            Canvas(Modifier.fillMaxSize()) { drawCircle(Color.Red, radius = radius.intValue.toFloat()) }
+        }
+    }
+
+    @Test
+    fun `a change read only in a graphicsLayer block asks for a frame`() {
+        val shift = mutableIntStateOf(0)
+
+        assertChangeAsksForFrame(shift) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { translationX = shift.intValue.toFloat() }
+                    .background(Color.Red),
+            )
+        }
+    }
+
+    @Test
+    fun `a change read only while placing asks for a frame`() {
+        val shift = mutableIntStateOf(0)
+
+        assertChangeAsksForFrame(shift) {
+            Box(
+                Modifier
+                    .offset { IntOffset(shift.intValue, 0) }
+                    .size(BOX_DP.dp)
+                    .background(Color.Red),
+            )
+        }
+    }
+
+    @Test
+    fun `a draw that invalidates itself asks for the next frame`() {
+        val signals = AtomicInteger()
+
+        withScene(onInvalidate = { signals.incrementAndGet() }) { scene, surface ->
+            scene.setContent { Box(Modifier.fillMaxSize().then(InvalidateOnFirstDraw)) }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+            assertEquals(1, signals.get(), "a draw that invalidated itself must ask for the frame that redraws it")
         }
     }
 
@@ -381,6 +440,26 @@ class KortexSceneTest {
         return scene.failure
     }
 
+    /** Renders [content], then changes [state], which [content] reads, and waits for that change to ask for a frame. */
+    private fun assertChangeAsksForFrame(state: MutableIntState, content: @Composable () -> Unit) {
+        val signalled = CountDownLatch(1)
+        val signals = AtomicInteger()
+        val onInvalidate = {
+            signals.incrementAndGet()
+            signalled.countDown()
+        }
+
+        withScene(onInvalidate = onInvalidate) { scene, surface ->
+            scene.setContent(content)
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+            assertEquals(0, signals.get(), "composing and rendering must not ask for a frame on its own")
+
+            state.intValue++
+
+            assertTrue(signalled.await(5, TimeUnit.SECONDS), "the change never asked for a frame")
+        }
+    }
+
     private fun withScene(
         size: IntSize = IntSize(SIDE, SIDE),
         surfaceSize: IntSize = size,
@@ -439,5 +518,23 @@ class KortexSceneTest {
         const val EFFECT_FAILURE = "an effect threw"
         const val ERROR_FAILURE = "content threw an Error"
         const val CLEANUP_FAILURE = "cleanup threw as the scene closed"
+    }
+}
+
+/** Asks to be drawn again from inside its first draw, as content animating from its own draw does. */
+private data object InvalidateOnFirstDraw : ModifierNodeElement<InvalidateOnFirstDrawNode>() {
+    override fun create(): InvalidateOnFirstDrawNode = InvalidateOnFirstDrawNode()
+
+    override fun update(node: InvalidateOnFirstDrawNode) = Unit
+}
+
+private class InvalidateOnFirstDrawNode : Modifier.Node(), DrawModifierNode {
+    private var drawn = false
+
+    override fun ContentDrawScope.draw() {
+        drawContent()
+        if (drawn) return
+        drawn = true
+        invalidateDraw()
     }
 }
