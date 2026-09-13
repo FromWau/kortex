@@ -286,13 +286,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       to be placed on hotplug, and a failed shm reallocation on resize, return their `KortexError` the same way
       instead of throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
 - [x] **A state change read only while drawing or placing redraws.** Compose reports a change that
-      recomposes nothing through the scene's `invalidateDraw` and `invalidateLayout`, not the recomposer:
-      a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
+      recomposes nothing through the scene's `invalidateDraw` and `invalidateLayout`, not the recomposer.
+      That covers a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
       `Modifier.offset { }` lambda, and the press indication `clickable` draws by default. `KortexScene`
       passes both to `CanvasLayersComposeScene`, and each asks the host for a frame from whichever thread
-      noticed the change; `KortexSurface` posts that to its loop. Every scene phase ends by asking for a
-      frame, so the asks raised inside `setContent` and `render` are dropped: the render under way, or the
-      host's first render after `setContent`, is that frame. Content that invalidates while a render draws
+      noticed the change; `KortexSurface` posts that to its loop. A scene phase ends by asking a frame for
+      any work left, so the asks raised inside `setContent` and `render` are dropped: the render under way,
+      or the host's first render after `setContent`, is that frame. Content that invalidates while a render draws
       it has missed that frame, so `render` then asks for the next one, as Compose's own
       `SingleComposeSceneRenderingScope` does. An unchanged surface still asks for nothing.
       (`KortexSceneTest`, `InvalidationRenderTest`, `IdleFrameTest`)

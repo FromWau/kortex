@@ -69,8 +69,8 @@ public class KortexScene(
 
     private val recomposer = FrameRecomposer(frameContext + coroutineFailures) { onInvalidate() }
 
-    // Scene phases end by asking for a frame; within setContent and render, that frame is the render under way or the
-    // host's first render after setContent. Volatile, as content may invalidate from another thread.
+    // A scene phase ends by asking a frame for any work left; within setContent and render, that frame is the render
+    // under way or the host's first render after setContent. Volatile, as content may invalidate from another thread.
     @Volatile
     private var rendering = false
 
@@ -234,10 +234,10 @@ public class KortexScene(
         if (!rendering) onInvalidate()
     }
 
-    private inline fun <T> whileRendering(block: () -> T): T {
+    private inline fun whileRendering(block: () -> Unit) {
         rendering = true
         try {
-            return block()
+            block()
         } finally {
             rendering = false
         }
