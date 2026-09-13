@@ -72,6 +72,17 @@ internal object Screen {
         return null
     }
 
+    /** [geometry], polled at the same interval and within the same budget [pixelReaching] settles for. */
+    fun awaitGeometry(namespace: String): LayerGeometry? {
+        val deadline = System.nanoTime() + SETTLE_TIMEOUT_MILLIS * NANOS_PER_MILLI
+        var found = geometry(namespace)
+        while (found == null && System.nanoTime() < deadline) {
+            Thread.sleep(SETTLE_INTERVAL_MILLIS)
+            found = geometry(namespace)
+        }
+        return found
+    }
+
     private fun layerAt(level: String): Layer =
         Layer.entries.firstOrNull { it.wireValue == level.toInt() }
             ?: error("hyprctl layers reported level $level, which is no Layer")

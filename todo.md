@@ -56,9 +56,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: four entries are open, three of them decided and waiting to be built. Under Foundations, a typed
-surface lifecycle state; under Polish, a wayland-level test for a throwing pointer handler; under Keyboard
-and clipboard, a Latin fallback for shortcuts under a non-Latin layout, and a native clipboard.
+Next: three entries are open, all of them decided and waiting to be built. Under Foundations, a typed
+surface lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin
+layout, and a native clipboard.
 
 ## Foundations
 
@@ -295,10 +295,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       it has missed that frame, so `render` then asks for the next one, as Compose's own
       `SingleComposeSceneRenderingScope` does. An unchanged surface still asks for nothing.
       (`KortexSceneTest`, `InvalidationRenderTest`, `IdleFrameTest`)
-- [ ] **A wayland-level test for a pointer handler that throws.** `KortexSceneTest` covers `sendPointerEvent`
-      turning the throw into a `PointerInput` failure, and the pointer listener passes events straight to the
-      scene, which keeps the failure for the shell to report. Nothing drives such a crash through a real
-      `wl_pointer`; that takes the virtual pointer, and with it a desktop nobody is using.
+- [x] **A wayland-level test for a pointer handler that throws.** `VirtualPointerCrashTest` drives a real
+      click through the compositor into `CrashedPointerProbe`, a surface whose `clickable` throws, run in a
+      child JVM the way `ContentFailureTest` runs `CrashedSurfaceProbe`, both now through one shared
+      `runProbe` helper, since a throw escaping a real `wl_pointer` callback would otherwise end the JVM
+      running the tests. The click reaches it through `VirtualPointer.clickAt`, the same path
+      `VirtualPointerClickTest` drives; the run ends with `KortexError.SurfaceCrashed` whose failure is
+      `ContentFailure.PointerInput`, reaching `onCrashSurface` once, while the probe's own process exits
+      cleanly. Its content closes its own surface if no click ever lands, so a missed click fails the test
+      on the probe's own output instead of a kill. (`VirtualPointerCrashTest`)
 - [x] **The bar demo logs its crashes.** `Main.kt`'s `onCrashSurface` appends each crash's ISO-8601 instant,
       namespace and failure kind (`Composition`, `KeyInput` or `PointerInput`), then the cause's full stack
       trace, to `$XDG_STATE_HOME/kortex-bar/crash.log`, or `$HOME/.local/state/kortex-bar/crash.log` when
