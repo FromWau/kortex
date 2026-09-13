@@ -29,6 +29,8 @@ internal object Xkb {
         downcall("xkb_state_key_get_one_sym", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
     private val keyGetUtf32 =
         downcall("xkb_state_key_get_utf32", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
+    private val keysymToUtf32 =
+        downcall("xkb_keysym_to_utf32", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
     private val stateUpdateMask = downcall(
         "xkb_state_update_mask",
         FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT),
@@ -65,6 +67,9 @@ internal object Xkb {
     /** The character this key produces right now, or 0 for keys that produce none. */
     fun codePoint(state: MemorySegment, waylandKey: Int): Int =
         keyGetUtf32.invoke(state, waylandKey + EVDEV_OFFSET) as Int
+
+    /** The character [keysym] stands for, or 0 if none; unlike [codePoint], Ctrl never changes it. */
+    fun keysymCodePoint(keysym: Int): Int = keysymToUtf32.invoke(keysym) as Int
 
     /** Whether the layout marks this key as one that repeats while held; modifiers and locks do not. */
     fun keyRepeats(state: MemorySegment, waylandKey: Int): Boolean {

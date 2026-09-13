@@ -108,7 +108,7 @@ internal class KeyboardInput(
         // them, and Compose distinguishes them by Key rather than by codepoint.
         val codePoint = Xkb.codePoint(state, key).takeIf { it >= FIRST_PRINTABLE } ?: 0
         val consumed = scene.sendKey(
-            key = sym.toComposeKey(codePoint),
+            key = sym.toComposeKey(),
             type = type,
             codePoint = codePoint,
             isCtrlPressed = ctrl,
@@ -148,9 +148,10 @@ internal class KeyboardInput(
     /**
      * Maps an X11 keysym onto Compose's [Key].
      *
-     * Only keys a text field acts on are named; anything printable still types through its codepoint.
+     * Only keys a text field acts on are named. Any other key is named after its keysym's character, not
+     * the codepoint it types, which Ctrl turns into a control code: Ctrl+C is still [Key.C].
      */
-    private fun Int.toComposeKey(codePoint: Int): Key = when (this) {
+    private fun Int.toComposeKey(): Key = when (this) {
         XK_BACKSPACE -> Key.Backspace
         XK_DELETE -> Key.Delete
         XK_RETURN, XK_KP_ENTER -> Key.Enter
@@ -163,12 +164,16 @@ internal class KeyboardInput(
         XK_HOME -> Key.MoveHome
         XK_END -> Key.MoveEnd
         XK_SPACE -> Key.Spacebar
-        else -> if (codePoint >= FIRST_PRINTABLE) Key(codePoint.uppercaseVirtualKey()) else Key.Unknown
+        else -> {
+            val character = Xkb.keysymCodePoint(this)
+            if (character >= FIRST_PRINTABLE) Key(character.uppercaseVirtualKey()) else Key.Unknown
+        }
     }
 
     // Compose's desktop Key wraps AWT virtual-key codes, which for letters and digits are the ASCII
-    // values of their uppercase form.
-    private fun Int.uppercaseVirtualKey(): Long = Character.toUpperCase(this).toLong()
+    // values of their uppercase form. An Int, not a Long: only Key's Int form adds the key location
+    // Compose's own constants carry, so a Key built from a Long never equals Key.A.
+    private fun Int.uppercaseVirtualKey(): Int = Character.toUpperCase(this)
 
     fun install(keyboard: MemorySegment) {
         keyboardProxy = keyboard
