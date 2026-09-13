@@ -56,10 +56,11 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: seven entries are open. Under Foundations, a surface lifecycle state; under Polish, a state change
-read only while drawing, which never redraws, a wayland-level test for a throwing pointer handler, and crash
-logging in the bar demo; under Keyboard and clipboard, Page Up, Page Down, Insert and the F-keys, shortcuts
-that ignore the layout, and the clipboard.
+Next: seven entries are open, three of them decided and waiting to be built. Under Foundations, a typed
+surface lifecycle state; under Polish, a state change read only while drawing, which never redraws, a
+wayland-level test for a throwing pointer handler, and crash logging in the bar demo; under Keyboard and
+clipboard, Page Up, Page Down, Insert and the F-keys, a Latin fallback for shortcuts under a non-Latin
+layout, and a native clipboard.
 
 ## Foundations
 
@@ -162,9 +163,11 @@ that ignore the layout, and the clipboard.
       `onDone`. That stands in for what a real re-send would dispatch on the loop thread. Content
       recomposes with the fabricated geometry, which needs no real output added, removed or changed, so it
       runs untagged in the default build. (`RecompositionTest`)
-- [ ] **Decide on a surface lifecycle state.** The reference exposes a `StateFlow<BridgeState>` that runs
-      from `IDLE` through `CONFIGURED` and `RUNNING` to `CLOSED` or `ERROR`. `KortexSurfaceHandle` has only
-      `size` and `close()`, and unlike `awaitClose()`, nothing records whether kortex wants one.
+- [ ] **A typed surface lifecycle state.** The reference exposes a `StateFlow<BridgeState>` that runs from
+      `IDLE` through `CONFIGURED` and `RUNNING` to `CLOSED` or `ERROR`. `KortexSurfaceHandle` has only `size`
+      and `close()`. Decided: a sealed `SurfaceState`, backed by Compose state, that runs from `Running` to
+      `Closed` or `Crashed(failure)`, readable by the host on `ActiveSurface` and by content through
+      `KortexSurfaceHandle`.
 
 ## Surface presets
 
@@ -313,12 +316,17 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       `Page_Up` 0xff55, `Page_Down` 0xff56, `Insert` 0xff63, and `F1` to `F12` 0xffbe to 0xffc9.
 - [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
       Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
-      QWERTY calls Q. The reference hands content the raw evdev keycode for this. Undecided: fall back to a
-      Latin layout's keysym when the active one is not Latin, or hand content a typed physical key.
+      QWERTY calls Q. The reference hands content the raw evdev keycode for this. Decided: a Latin fallback
+      inside `Xkb`, not a typed physical key. A key whose base keysym in the active layout has no Compose
+      name takes the same key's base keysym from the keymap's first other layout that has one, so Compose's
+      own text field shortcuts work too; with no such layout configured it stays `Key.Unknown`.
 - [ ] **Clipboard.** kortex binds no `wl_data_device`, so copy and paste fall to Compose's desktop default,
       AWT's system clipboard. That reaches the X clipboard through XWayland when `DISPLAY` is set, and
       Compose turns AWT's `HeadlessException` into no clipboard at all; any other failure to start AWT is
-      not caught. None of it is tested, and a copy through XWayland has not been checked by hand.
+      not caught. None of it is tested, and a copy through XWayland has not been checked by hand. Decided: a
+      native clipboard. kortex binds `wl_data_device_manager` and backs Compose's `LocalClipboard` with
+      `wl_data_source` and `wl_data_offer`, UTF-8 text, on the loop thread. The protocol hands a client the
+      selection only while one of its surfaces has keyboard focus.
 
 ## Housekeeping
 
