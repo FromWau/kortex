@@ -56,10 +56,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: five entries are open, three of them decided and waiting to be built. Under Foundations, a typed
-surface lifecycle state; under Polish, a wayland-level test for a throwing pointer handler and crash
-logging in the bar demo; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin
-layout, and a native clipboard.
+Next: four entries are open, three of them decided and waiting to be built. Under Foundations, a typed
+surface lifecycle state; under Polish, a wayland-level test for a throwing pointer handler; under Keyboard
+and clipboard, a Latin fallback for shortcuts under a non-Latin layout, and a native clipboard.
 
 ## Foundations
 
@@ -300,9 +299,15 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       turning the throw into a `PointerInput` failure, and the pointer listener passes events straight to the
       scene, which keeps the failure for the shell to report. Nothing drives such a crash through a real
       `wl_pointer`; that takes the virtual pointer, and with it a desktop nobody is using.
-- [ ] **The bar demo logs its crashes.** `Main.kt` passes `runBar` no `onCrashSurface` and turns the run's
-      error into `error("kortex: $it")`. As the worked example it should show the host's side of a crash:
-      log each one's message and stack trace to a file from the hook, instead of only throwing the error.
+- [x] **The bar demo logs its crashes.** `Main.kt`'s `onCrashSurface` appends each crash's ISO-8601 instant,
+      namespace and failure kind (`Composition`, `KeyInput` or `PointerInput`), then the cause's full stack
+      trace, to `$XDG_STATE_HOME/kortex-bar/crash.log`, or `$HOME/.local/state/kortex-bar/crash.log` when
+      `XDG_STATE_HOME` is unset, empty or relative, per the XDG Base Directory spec; missing parent
+      directories are created as needed. `CrashLog.kt`'s `crashLogPath` is a pure function of the
+      environment it is handed, and `appendCrash` catches the write's own failure as a typed
+      `CrashLogWriteFailed` rather than throwing it; the hook prints the crash and a write failure to
+      stderr instead. `main` no longer turns the run's own error into an exception: it prints it to stderr
+      and exits with status 1. (`CrashLogTest`)
 
 ## Keyboard and clipboard
 
