@@ -20,6 +20,7 @@ import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexSurfaceHandle
 import com.fromwau.kortex.compose.KortexTextInput
 import com.fromwau.kortex.compose.LocalKortexSurface
+import com.fromwau.kortex.compose.SurfaceState
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
@@ -70,8 +71,16 @@ public class KortexSurface private constructor(
     // Snapshot state, not a plain var: a configure must recompose whatever content reads handle.size.
     private val sizeState = mutableStateOf(IntSize(logicalWidth, logicalHeight))
 
+    // Snapshot state, not a plain var: content and the host follow it through composition and snapshotFlow.
+    private val lifecycle = mutableStateOf<SurfaceState>(SurfaceState.Running)
+
+    // Held across the teardown's check and its write, so a crash another thread records cannot land between them.
+    private val lifecycleLock = Any()
+
     private val surfaceHandle: KortexSurfaceHandle = object : KortexSurfaceHandle {
         override val size: IntSize get() = sizeState.value
+
+        override val state: SurfaceState get() = lifecycle.value
 
         override fun close() {
             // markClosed() itself needs no thread confinement, but the hop keeps this on setCursor's
@@ -116,6 +125,9 @@ public class KortexSurface private constructor(
     /** What this surface's content threw, once it has; the scene then runs none of it. */
     internal val crash: KortexError.SurfaceCrashed?
         get() = scene.failure?.let { KortexError.SurfaceCrashed(namespace, it) }
+
+    /** Where this surface is in its life: the one value its handle and its [ActiveSurface] read. */
+    internal val state: SurfaceState get() = lifecycle.value
 
     /** When this surface next needs a loop pass that no Wayland event will announce; null while nothing does. */
     internal val nextDeadlineNanos: Long? get() = keyboardInput?.nextRepeatDueNanos
@@ -303,6 +315,20 @@ public class KortexSurface private constructor(
         clock.close()
         layer.close()
         shm.close()
+        // Last, once content's cleanup above has had its chance to fail: a failure recorded by now keeps it Crashed.
+        onTornDown()
+    }
+
+    // Called with each failure the scene records, from any thread; scene.failure is already the first of them.
+    private fun onContentFailure() {
+        val first = checkNotNull(scene.failure) { "the scene reported a failure it had not recorded" }
+        synchronized(lifecycleLock) { lifecycle.value = SurfaceState.Crashed(first) }
+    }
+
+    private fun onTornDown() {
+        synchronized(lifecycleLock) {
+            if (scene.failure == null) lifecycle.value = SurfaceState.Closed
+        }
     }
 
     private class Frame(val buffer: ShmBuffer, val surface: Surface) {
@@ -404,7 +430,11 @@ public class KortexSurface private constructor(
                     frameContext = loop + surfaceWork,
                     onInvalidate = { surface.onInvalidate() },
                     platform = hostPlatform,
-                    onFailure = { failure -> onCrash(KortexError.SurfaceCrashed(config.namespace, failure)) },
+                    onFailure = { failure ->
+                        // Before onCrash, so the host reads Crashed by the time the crash reaches it.
+                        surface.onContentFailure()
+                        onCrash(KortexError.SurfaceCrashed(config.namespace, failure))
+                    },
                 )
                 unwind += scene::close
                 // Bound per surface, and never cached: each surface releases the seat it owns when it closes.

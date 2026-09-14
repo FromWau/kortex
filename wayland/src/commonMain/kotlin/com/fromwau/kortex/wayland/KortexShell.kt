@@ -10,6 +10,7 @@ import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
 import com.fromwau.kern.result.onError
 import com.fromwau.kortex.compose.KortexPlatform
+import com.fromwau.kortex.compose.SurfaceState
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -45,6 +46,9 @@ public class ActiveSurface internal constructor(
 ) {
     /** What the output published about itself; null before its first `done`, and with no output at all. */
     public val geometry: OutputGeometry? get() = output?.listener?.geometry
+
+    /** Where this surface is in its life: the same value its content reads through its handle. */
+    public val state: SurfaceState get() = surface.state
 }
 
 /**

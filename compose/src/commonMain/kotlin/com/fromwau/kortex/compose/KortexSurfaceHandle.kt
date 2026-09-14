@@ -14,6 +14,9 @@ public interface KortexSurfaceHandle {
     /** Reading it during composition recomposes the reader on the next configure that changes it. */
     public val size: IntSize
 
+    /** Where this surface is in its life. [close] leaves it [SurfaceState.Running] until the surface is torn down. */
+    public val state: SurfaceState
+
     /** Dismisses the surface. Safe to call more than once, and after it has already gone away. */
     public fun close()
 }
