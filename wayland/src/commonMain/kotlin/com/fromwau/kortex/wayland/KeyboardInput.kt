@@ -26,14 +26,14 @@ internal class KeyboardInput(
 ) {
     private val arena: Arena = Arena.ofShared()
 
-    private var state: MemorySegment = MemorySegment.NULL
+    private var state: XkbState? = null
 
     /** The bound `wl_keyboard`, kept only so a test can read the version it negotiated. */
     var keyboardProxy: MemorySegment = MemorySegment.NULL
         private set
 
     /** Whether a keymap has arrived; until it does there is no way to interpret a keycode. */
-    val hasKeymap: Boolean get() = !state.equals(MemorySegment.NULL)
+    val hasKeymap: Boolean get() = state != null
     private var shift = false
     private var ctrl = false
     private var alt = false
@@ -59,8 +59,8 @@ internal class KeyboardInput(
             // The compositor hands over a read-only fd; map it, compile it, and let the mapping go.
             val text = LibC.mmapPrivateRead(fd, size.toLong())
             // A keymap may be re-sent at any time, and the state compiled from the last one is ours.
-            Xkb.releaseState(state)
-            state = Xkb.stateFromKeymap(text) ?: MemorySegment.NULL
+            state?.let(Xkb::releaseState)
+            state = Xkb.stateFromKeymap(text)
             LibC.munmap(text, size.toLong())
         } finally {
             LibC.close(fd)
@@ -85,7 +85,7 @@ internal class KeyboardInput(
 
     fun onKey(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, key: Int, keyState: Int) {
         onInputSerial(serial)
-        if (state.equals(MemorySegment.NULL)) return
+        val state = state ?: return
         if (keyState == KEY_PRESSED) {
             // A second repeatable key going down replaces whichever key was repeating; only the most
             // recent one does. A modifier neither repeats nor displaces the key that does.
@@ -112,6 +112,7 @@ internal class KeyboardInput(
 
     /** Translates [key] through xkbcommon and delivers it as [type], the same path a real press takes. */
     private fun deliverKey(key: Int, type: KeyEventType) {
+        val state = state ?: return
         val composeKey = Xkb.key(state, key)
         // Control characters come back from xkb as codepoints below space; a text field must not insert
         // them, and Compose distinguishes them by Key rather than by codepoint.
@@ -141,7 +142,7 @@ internal class KeyboardInput(
         data: MemorySegment, proxy: MemorySegment, serial: Int,
         depressed: Int, latched: Int, locked: Int, group: Int,
     ) {
-        if (!state.equals(MemorySegment.NULL)) Xkb.updateMask(state, depressed, latched, locked, group)
+        state?.let { Xkb.updateMask(it, depressed, latched, locked, group) }
         val active = depressed or latched
         shift = active and MOD_SHIFT != 0
         ctrl = active and MOD_CTRL != 0
@@ -182,8 +183,8 @@ internal class KeyboardInput(
         // After the destroy, never before: closing the arena frees the code the six stubs above are, and
         // libwayland drops the events queued for a destroyed proxy rather than dispatching them.
         arena.close()
-        Xkb.releaseState(state)
-        state = MemorySegment.NULL
+        state?.let(Xkb::releaseState)
+        state = null
     }
 
     private companion object {
