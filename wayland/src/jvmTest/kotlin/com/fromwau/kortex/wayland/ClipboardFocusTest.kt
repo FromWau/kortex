@@ -59,6 +59,10 @@ class ClipboardFocusTest {
     @Test
     fun `a selection offered only as an image reads back as NoText`() = withFocusedShell { shell, _ ->
         try {
+            // A text first, read back: an image the desktop held before the test cannot then pass for this one.
+            runWlCopy(MARKER)
+            val marked = shell.retryUntil({ it == Ok(MARKER) }) { shell.clipboard.readText() }
+            assertEquals(Ok(MARKER), marked, "the clipboard never read back the marker wl-copy set")
             runWlCopy("--type", "image/png", stdin = PNG_SIGNATURE)
             val read = shell.retryUntil({ it == Err(ClipboardError.NoText) }) { shell.clipboard.readText() }
             assertEquals(Err(ClipboardError.NoText), read, "a selection with no text type did not read as NoText")
@@ -99,13 +103,19 @@ class ClipboardFocusTest {
 
     /** Runs `wl-copy` until it has handed the selection to the copy of itself it forks to serve it. */
     private fun runWlCopy(vararg args: String, stdin: ByteArray = ByteArray(0)) {
+        // Both discarded: the copy it forks keeps them open for as long as it serves the selection.
         val copy = ProcessBuilder("wl-copy", *args)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-            .redirectError(ProcessBuilder.Redirect.INHERIT)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
             .start()
-        copy.outputStream.use { it.write(stdin) }
-        assertTrue(copy.waitFor(PROCESS_MILLIS, TimeUnit.MILLISECONDS), "wl-copy ${args.toList()} never exited")
-        assertEquals(0, copy.exitValue(), "wl-copy ${args.toList()} failed")
+        try {
+            copy.outputStream.use { it.write(stdin) }
+            assertTrue(copy.waitFor(PROCESS_MILLIS, TimeUnit.MILLISECONDS), "wl-copy ${args.toList()} never exited")
+            assertEquals(0, copy.exitValue(), "wl-copy ${args.toList()} failed")
+        } finally {
+            // Ends only a wl-copy that never exited; the copy it forked is a process of its own.
+            copy.destroyForcibly()
+        }
     }
 
     private companion object {
@@ -113,6 +123,7 @@ class ClipboardFocusTest {
         const val SPECK_SIZE = 8
         const val COPIED = "Grüße aus kortex"
         const val PASTED = "kortex hat kopiert"
+        const val MARKER = "kortex vor dem Bild"
 
         // A PNG file's signature: bytes that are no text, under the type wl-copy is told they are.
         val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
