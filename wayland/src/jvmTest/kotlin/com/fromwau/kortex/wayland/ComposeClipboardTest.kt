@@ -257,10 +257,10 @@ class ComposeClipboardTest {
         ) { shell ->
             assertTrue(shell.pumpOrFail(PUMP_MILLIS) { typed.get() != null }, "the Popup's content never composed")
             val popupClipboard = assertNotNull(typed.get(), "the Popup's content was handed no typed clipboard")
-            assertEquals(
-                Ok(OTHER_CLIENTS), runBlocking { popupClipboard.readText() },
-                "the Popup's typed clipboard did not reach the shell's",
-            )
+            // Pumped rather than awaited: a clipboard whose read hops onto the loop would wait on this very thread.
+            val read = CoroutineScope(Dispatchers.Unconfined).future { popupClipboard.readText() }
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { read.isDone }, "the read never returned while the shell was pumped")
+            assertEquals(Ok(OTHER_CLIENTS), read.get(), "the Popup's typed clipboard did not reach the shell's")
         }
     }
 
