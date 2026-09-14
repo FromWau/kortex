@@ -39,6 +39,9 @@ internal class WaylandClipboard private constructor(
     var inputSerial: Int? = null
         private set
 
+    // Each of the shell's keyboards that has focus now, since each surface binds its own; loop thread only.
+    private val focusedKeyboards = mutableSetOf<Any>()
+
     override val ownedText: String? get() = source?.ownedText
 
     override val hasText: Boolean get() = ownedText != null || bound?.device?.selectionHasText == true
@@ -47,9 +50,6 @@ internal class WaylandClipboard private constructor(
     fun recordInputSerial(serial: Int) {
         inputSerial = serial
     }
-
-    // Each of the shell's keyboards that has focus now, since each surface binds its own; loop thread only.
-    private val focusedKeyboards = mutableSetOf<Any>()
 
     /**
      * Keeps whether [keyboard] has focus. Once none of the shell's keyboards has, the selection's offer is given
@@ -63,7 +63,7 @@ internal class WaylandClipboard private constructor(
         }
     }
 
-    /** Makes [source] this client's own copy, or none, without telling the compositor: a test's seam onto [hasText]. */
+    /** Makes [source] this client's own copy, or none, without telling the compositor: a test's seam onto its text. */
     fun recordOwnedSource(source: DataSource?) {
         this.source = source
     }
@@ -86,7 +86,7 @@ internal class WaylandClipboard private constructor(
         return readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
     }
 
-    // Before any hop: no loop runs once the shell has closed, so a call waiting on one would never return.
+    // No loop runs once the shell has closed: a caller would wait on one forever, and a late pass reach freed proxies.
     private fun checkOpen() = check(!closed) { "the clipboard's shell has closed" }
 
     // A null text clears the selection.

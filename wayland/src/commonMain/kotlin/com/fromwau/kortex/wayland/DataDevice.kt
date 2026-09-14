@@ -18,7 +18,7 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
     // Introduced by data_offer and not yet named by a selection, by proxy address.
     private val introduced = mutableMapOf<Long, DataOffer>()
 
-    /** The offer that is the selection; null while nothing is selected, and while the shell has no keyboard focus. */
+    /** The offer that is the selection; null while nothing is selected, and once the shell has lost keyboard focus. */
     var selection: DataOffer? = null
         private set
 

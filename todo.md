@@ -37,8 +37,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       2 → 3, `wl_compositor` 6 → 7, `wl_data_device_manager` 3 → 4. Listener arrays grew with them, because
       libwayland indexes a listener array by event opcode and calls straight through an empty slot:
       `wl_pointer` 5 → 12 slots, `wl_output` 4 → 6, `wl_keyboard` 5 → 6, `wl_seat` 1 → 2.
-      `wl_data_device_manager` v4 adds only its own `release`, sent where the compositor offers v4, so no
-      listener grew with it. (`ProtocolVersionTest`; `ClipboardTest` for `wl_data_device_manager`)
+      `wl_data_device_manager` v4 adds only its own `release`, so no listener grew with it. The release goes
+      out only where a compositor offers v4; Hyprland offers v3, so it is covered by the mechanism rather
+      than by a test. (`ProtocolVersionTest`; `ClipboardTest` for `wl_data_device_manager`)
 - [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
       and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
       `get_layer_surface` with the event, so the first frame already has it — and nothing depends on that
