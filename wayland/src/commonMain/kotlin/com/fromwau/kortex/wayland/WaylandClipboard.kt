@@ -57,7 +57,7 @@ internal class WaylandClipboard private constructor(
         val readFd = withContext(loop + NonCancellable) { receiveSelection() }.getOrElse { return Err(it) }
         return withContext(Dispatchers.IO + NonCancellable) {
             try {
-                readPipeToEnd(readFd, READ_TIMEOUT_MILLIS)
+                readPipeToEnd(readFd, TRANSFER_TIMEOUT_MILLIS)
             } finally {
                 LibC.close(readFd)
             }
@@ -113,8 +113,6 @@ internal class WaylandClipboard private constructor(
             }
             return Ok(WaylandClipboard(display, loop, seat, manager, DataDevice.create(manager, seat)))
         }
-
-        private const val READ_TIMEOUT_MILLIS = 1000L
     }
 }
 
@@ -164,7 +162,7 @@ internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, Clip
     val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
     val read = ByteArrayOutputStream()
     Arena.ofConfined().use { arena ->
-        val chunk = arena.allocate(PIPE_CHUNK_BYTES)
+        val chunk = arena.allocate(READ_CHUNK_BYTES)
         while (System.nanoTime() < deadline) {
             // Polled first: a read blocks for as long as the writer keeps its end open.
             if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLIN), deadline).single() == 0) continue
@@ -179,14 +177,19 @@ internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, Clip
     return Err(ClipboardError.ReadTimedOut)
 }
 
-/** Writes all of [bytes] into [fd] and closes it; a reader that goes away first only cuts the write short. */
-internal fun writePipeAndClose(fd: Int, bytes: ByteArray) {
+/**
+ * Writes [bytes] into [fd] and closes it. A reader that goes away first, or has not taken everything by the time
+ * [timeoutMillis] have passed, gets the text cut short.
+ */
+internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
+    val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
     try {
         Arena.ofConfined().use { arena ->
             val buffer: MemorySegment = arena.allocateFrom(JAVA_BYTE, *bytes)
             var offset = 0L
-            while (offset < buffer.byteSize()) {
-                val written = LibC.write(fd, buffer.asSlice(offset))
+            while (offset < buffer.byteSize() && System.nanoTime() < deadline) {
+                if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLOUT), deadline).single() == 0) continue
+                val written = LibC.write(fd, buffer.asSlice(offset, minOf(WRITE_CHUNK_BYTES, buffer.byteSize() - offset)))
                 if (written <= 0L) return
                 offset += written
             }
@@ -196,5 +199,11 @@ internal fun writePipeAndClose(fd: Int, bytes: ByteArray) {
     }
 }
 
+/** How long either end of a clipboard transfer waits on the other before giving the transfer up. */
+internal const val TRANSFER_TIMEOUT_MILLIS = 1000L
+
 private const val NANOS_PER_MILLI = 1_000_000L
-private const val PIPE_CHUNK_BYTES = 65_536L
+private const val READ_CHUNK_BYTES = 65_536L
+
+// A pipe polls writable while a page of it is free, so a write no larger than a page never blocks.
+private const val WRITE_CHUNK_BYTES = 4_096L

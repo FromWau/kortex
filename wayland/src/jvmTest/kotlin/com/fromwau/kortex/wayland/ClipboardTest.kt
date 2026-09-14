@@ -41,9 +41,9 @@ class ClipboardTest {
         val pipe = pipeOrFail()
         val sent = ByteArray(PIPE_BYTES) { index -> (index % BYTE_PATTERN).toByte() }
         // On a thread of its own: more than a pipe holds, so it has to be written while it is read.
-        val writer = thread(name = "kortex-pipe-writer") { writePipeAndClose(pipe.writeFd, sent) }
+        val writer = thread(name = "kortex-pipe-writer") { writePipeAndClose(pipe.writeFd, sent, LONG_TIMEOUT_MILLIS) }
         try {
-            val read = readPipeToEnd(pipe.readFd, READ_TIMEOUT_MILLIS)
+            val read = readPipeToEnd(pipe.readFd, LONG_TIMEOUT_MILLIS)
                 .getOrElse { error -> fail("the read failed with $error") }
             assertContentEquals(sent, read, "the read did not return every byte the writer sent")
         } finally {
@@ -111,6 +111,41 @@ class ClipboardTest {
     }
 
     @Test
+    fun `a write no reader drains gives up at its timeout and closes the fd`() {
+        val pipe = pipeOrFail()
+        // More than the pipe holds, so the write has to wait on a reader that never reads.
+        val write = CompletableFuture.runAsync {
+            writePipeAndClose(pipe.writeFd, ByteArray(PIPE_BYTES), SHORT_TIMEOUT_MILLIS)
+        }
+        try {
+            try {
+                write.get(TEST_BOUND_MILLIS, TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
+                fail("the write was still waiting ${TEST_BOUND_MILLIS}ms into a ${SHORT_TIMEOUT_MILLIS}ms timeout")
+            }
+            // Only a closed writer lets the read reach the end of what was written.
+            val drained = readPipeToEnd(pipe.readFd, SHORT_TIMEOUT_MILLIS)
+            assertTrue(drained is Ok<*>, "the write gave up without closing its fd: $drained")
+        } finally {
+            // Breaks the pipe under a write still waiting on it, which ends that write.
+            LibC.close(pipe.readFd)
+            runCatching { write.get(TEST_BOUND_MILLIS, TimeUnit.MILLISECONDS) }
+        }
+    }
+
+    @Test
+    fun `a write whose time is up puts nothing into a pipe that has room`() {
+        val pipe = pipeOrFail()
+        try {
+            writePipeAndClose(pipe.writeFd, COPIED.encodeToByteArray(), timeoutMillis = 0L)
+            val drained = readPipeToEnd(pipe.readFd, SHORT_TIMEOUT_MILLIS).map { it.decodeToString() }
+            assertEquals(Ok(""), drained, "the write put text into the pipe after its time was up")
+        } finally {
+            LibC.close(pipe.readFd)
+        }
+    }
+
+    @Test
     fun `a source's send writes its text to the fd and closes it`() {
         val pipe = pipeOrFail()
         try {
@@ -119,7 +154,7 @@ class ClipboardTest {
                 DataSource(COPIED).onSend(NULL, NULL, mimeType, pipe.writeFd)
             }
             // Only a closed fd ends the read before its timeout, so Ok also says the source closed it.
-            val read = readPipeToEnd(pipe.readFd, READ_TIMEOUT_MILLIS).map { it.decodeToString() }
+            val read = readPipeToEnd(pipe.readFd, LONG_TIMEOUT_MILLIS).map { it.decodeToString() }
             assertEquals(Ok(COPIED), read, "the source did not write its text and close the fd")
         } finally {
             LibC.close(pipe.readFd)
@@ -186,7 +221,7 @@ class ClipboardTest {
         const val PIPE_BYTES = 1024 * 1024
         const val BYTE_PATTERN = 251
 
-        const val READ_TIMEOUT_MILLIS = 2000L
+        const val LONG_TIMEOUT_MILLIS = 2000L
         const val SHORT_TIMEOUT_MILLIS = 200L
         const val TEST_BOUND_MILLIS = 5000L
         const val JOIN_MILLIS = 2000L

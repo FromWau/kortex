@@ -209,7 +209,7 @@ internal class DataSource(text: String) {
 
     fun onSend(data: MemorySegment, source: MemorySegment, mimeType: MemorySegment, fd: Int) {
         // Off the loop thread: a write into a full pipe waits for the receiver to drain it, stalling every surface.
-        Dispatchers.IO.asExecutor().execute { writePipeAndClose(fd, bytes) }
+        Dispatchers.IO.asExecutor().execute { writePipeAndClose(fd, bytes, TRANSFER_TIMEOUT_MILLIS) }
     }
 
     // Replaced as the selection. The next copy or the clipboard's close destroys it, never this event, which
