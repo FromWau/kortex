@@ -56,10 +56,11 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: four entries are open. Two are decided and waiting to be built: under Foundations, a typed surface
-lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin layout. Two
+Next: five entries are open. Two are decided and waiting to be built: under Foundations, a typed surface
+lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin layout. Three
 wait for a decision: under Foundations, AWT's toolkit, which Compose starts in a scene with a text field; under
-Keyboard and clipboard, the clipboard that content inside a `Popup` or `Dialog` reaches.
+Keyboard and clipboard, the clipboard that content inside a `Popup` or `Dialog` reaches, and the harness gap
+that leaves `KeyboardDeliveryTest` proving only a value-based field.
 
 ## Foundations
 
@@ -358,15 +359,24 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       a public, sealed `ClipboardError`: `NoSelection`, `NoText`, `NoInputSerial`, `NoClipboard`,
       `PipeFailed`, `ReadTimedOut` or `TooLarge`. Compose's locals keep Compose's contract over the same
       clipboard: a failed paste gets no entry, and a failed copy does nothing and throws nothing. A value-based
-      `BasicTextField`'s Ctrl+C, Ctrl+X and Ctrl+V go through `LocalClipboard`. The AWT clipboard a text
-      field's right-click Paste asks answers from a snapshot and never reads: there is text while this
-      client's own copy stands, or while the compositor's last selection offer lists a text type. The
-      deprecated `ClipboardManager.getText` never waits on a read, since reading this client's own selection
-      needs the loop it runs on. It answers with the text this client set, until another selection or a clear
-      replaces it, and with nothing otherwise. The protocol hands a client the selection only while one of its
-      surfaces has keyboard focus, so the tests that need it take the keyboard and run only while the desktop
-      is free. (`ClipboardTest`, `ComposeClipboardTest`, `KeyboardDeliveryTest`, and `ClipboardFocusTest`
-      with the desktop free)
+      `BasicTextField`'s Ctrl+C, Ctrl+X and Ctrl+V go through `LocalClipboard`, and so does a state-based
+      one's Ctrl+C and Ctrl+V. The AWT clipboard a text field's right-click Paste asks answers from a
+      snapshot and never reads: there is text while this client's own copy stands, no offer needed for that,
+      or while the compositor's last selection offer lists a text type. The deprecated
+      `ClipboardManager.getText` never waits on a read, since reading this client's own selection needs the
+      loop it runs on. It answers with the text this client set, until another selection or a clear replaces
+      it, and with nothing otherwise. The protocol hands a client the selection only while one of its surfaces
+      has keyboard focus, so the tests that need it take the keyboard and run only while the desktop is free.
+      (`ClipboardTest` and `ComposeClipboardTest`; `KeyboardDeliveryTest` for the value-based field;
+      `ClipboardFocusTest`, with the desktop free, for both)
+- [ ] **`KeyboardDeliveryTest` proves keyboard delivery for a value-based field only.** Its harness drives a
+      scene's `render` and key delivery from the test thread but hands the scene a separate single-thread
+      executor as its `frameContext`; a real shell's own loop thread does both instead. A
+      `BasicTextField(TextFieldState)` put through it fails as multithreaded access to `SnapshotStateObserver`,
+      from `FocusTargetNode.invalidateFocus` running on that executor while the test thread drives the scene,
+      so typing, the named and modified keys, Page Down and a throwing key handler are proven for a
+      value-based field only. `ClipboardFocusTest` proves a state-based field's Ctrl+C and Ctrl+V instead,
+      through a real shell whose one loop thread the harness problem does not reach.
 - [ ] **Content inside a `Popup` or `Dialog` copies and pastes through AWT's clipboard.** Each runs in a
       scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
       inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
