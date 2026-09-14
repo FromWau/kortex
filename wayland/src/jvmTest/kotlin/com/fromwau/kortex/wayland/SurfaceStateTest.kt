@@ -46,8 +46,16 @@ class SurfaceStateTest {
             shell.useOrFail {
                 shell.pumpOrFail(SETTLE_MILLIS)
 
-                assertEquals(SurfaceState.Running, firstRead.get(), "content's first read of its handle was not Running")
-                assertEquals(SurfaceState.Running, shell.activeSurfaces.single().state, "the ActiveSurface did not read Running")
+                assertEquals(
+                    SurfaceState.Running,
+                    firstRead.get(),
+                    "content's first read of its handle was not Running",
+                )
+                assertEquals(
+                    SurfaceState.Running,
+                    shell.activeSurfaces.single().state,
+                    "the ActiveSurface did not read Running",
+                )
                 assertEquals(
                     SurfaceState.Running,
                     assertNotNull(handle.get(), "content never saw a LocalKortexSurface").state,
@@ -83,7 +91,11 @@ class SurfaceStateTest {
 
                 assertTrue(dropped, "the shell never dropped the surface its content closed")
                 assertEquals(SurfaceState.Running, afterRequest.get(), "content's close() moved the state by itself")
-                assertEquals(SurfaceState.Closed, active.state, "the ActiveSurface kept from before did not read Closed")
+                assertEquals(
+                    SurfaceState.Closed,
+                    active.state,
+                    "the ActiveSurface kept from before did not read Closed",
+                )
                 assertEquals(
                     SurfaceState.Closed,
                     assertNotNull(handle.get(), "content never saw a LocalKortexSurface").state,
@@ -94,7 +106,7 @@ class SurfaceStateTest {
     }
 
     @Test
-    fun `a CompositorChoice surface the compositor closes reads Closed and the one placed in its stead reads Running`() {
+    fun `a CompositorChoice surface the compositor closes reads Closed and its replacement reads Running`() {
         onShell(stateSpec {}) { shell ->
             shell.useOrFail {
                 val original = shell.activeSurfaces.single()
@@ -104,8 +116,15 @@ class SurfaceStateTest {
                     shell.activeSurfaces.singleOrNull()?.let { it !== original } ?: false
                 }
 
-                assertTrue(replaced, "the shell never placed a surface in the stead of the one the compositor closed")
-                assertEquals(SurfaceState.Closed, original.state, "the surface the compositor closed did not read Closed")
+                assertTrue(
+                    replaced,
+                    "the shell never placed a surface in the stead of the one the compositor closed",
+                )
+                assertEquals(
+                    SurfaceState.Closed,
+                    original.state,
+                    "the surface the compositor closed did not read Closed",
+                )
                 assertEquals(
                     SurfaceState.Running,
                     shell.activeSurfaces.single().state,
@@ -175,7 +194,10 @@ class SurfaceStateTest {
     @Test
     fun `a surface whose cleanup throws as the shell closes reads Crashed, not Closed`() {
         onShell(stateSpec { ThrowingOnClose() }) { shell ->
-            assertNull(shell.pump(SETTLE_MILLIS).errorOrNull(), "content that only throws in its cleanup must keep running")
+            assertNull(
+                shell.pump(SETTLE_MILLIS).errorOrNull(),
+                "content that only throws in its cleanup must keep running",
+            )
             val active = shell.activeSurfaces.single()
 
             val crash = assertIs<KortexError.SurfaceCrashed>(
@@ -252,9 +274,19 @@ class SurfaceStateTest {
 
                     val error = shell.pump(PUMP_MILLIS).errorOrNull()
 
-                    assertIs<SurfaceState.Crashed>(active.state, "a failure recorded inside a read-only snapshot was lost")
-                    val crash = assertIs<KortexError.SurfaceCrashed>(error, "a failure inside a snapshot must end the run")
-                    assertEquals(SurfaceState.Crashed(crash.failure), active.state)
+                    assertIs<SurfaceState.Crashed>(
+                        active.state,
+                        "a failure recorded inside a read-only snapshot was lost",
+                    )
+                    val crash = assertIs<KortexError.SurfaceCrashed>(
+                        error,
+                        "a failure inside a read-only snapshot must end the run",
+                    )
+                    assertEquals(
+                        SurfaceState.Crashed(crash.failure),
+                        active.state,
+                        "the surface did not read Crashed with the failure that ended the run",
+                    )
                 }
             } finally {
                 snapshot.get()?.dispose()

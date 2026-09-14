@@ -20,7 +20,7 @@ public sealed interface SurfaceState {
      * The surface's content failed and runs no more. It moves here from [Running], or from [Closed] when content
      * fails after the teardown, and never leaves.
      *
-     * @property failure the first failure its content caused, the same one its host is told of.
+     * @property failure the first failure its content caused; its host is told of it as well.
      */
     public data class Crashed(public val failure: ContentFailure) : SurfaceState
 }
