@@ -28,6 +28,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
@@ -35,8 +36,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.future
 
 /**
- * Copies and pastes against the desktop's own clipboard, through `wl-copy` and `wl-paste`, directly and through a
- * focused text field's keys.
+ * Copies and pastes against the desktop's own clipboard, through `wl-copy` and `wl-paste`, directly, through a
+ * focused text field's keys, and as keyboard focus leaves the shell.
  *
  * The compositor hands a client the selection only while one of its surfaces has keyboard focus, so each
  * test puts up a small [KeyboardInteractivity.Exclusive] surface, which takes the keyboard from whatever the
@@ -66,6 +67,23 @@ class ClipboardFocusTest {
         assertEquals(0, paste.exitCode, "wl-paste failed: ${paste.complaint}")
         assertEquals(PASTED, paste.printed, "wl-paste printed something other than the text the clipboard set")
     }
+
+    @Test
+    fun `a text the clipboard sets is offered under exactly the five text types`() =
+        withFocusedShell { shell, display ->
+            val set = shell.retryUntil({ it is Ok }) { shell.clipboard.setText(PASTED) }
+            assertEquals(Ok(Unit), set, "the clipboard never set the selection")
+            // So the compositor has taken the selection before wl-paste asks it for one.
+            display.roundtrip()
+
+            val listed = shell.runWlPaste("--list-types")
+            assertEquals(0, listed.exitCode, "wl-paste failed: ${listed.complaint}")
+            val types = listed.printed
+                .lines()
+                .filter { it.isNotEmpty() }
+                .toSet()
+            assertEquals(OFFERED_TYPES, types, "the selection was not offered under exactly the five text types")
+        }
 
     @Test
     fun `a selection offered only as an image reads back as NoText`() = withFocusedShell { shell, _ ->
@@ -151,7 +169,7 @@ class ClipboardFocusTest {
             val surface = shell.activeSurfaces.single().surface
             val before = surface.renders
             shell.pressWithCtrl(KEY_A)
-            // The value-based field applies Ctrl+A's selection at its next recomposition, which a frame runs.
+            // Either field kind holds Ctrl+A's selection after a frame; the value-based one applies it only then.
             assertTrue(shell.pumpOrFail(PROCESS_MILLIS) { surface.renders > before }, "Ctrl+A never drew a frame")
             shell.pressWithCtrl(KEY_C)
             // Compose copies in a coroutine on the shell's loop, which a roundtrip alone never runs.
@@ -177,7 +195,7 @@ class ClipboardFocusTest {
             val surface = shell.activeSurfaces.single().surface
             val before = surface.renders
             shell.pressWithCtrl(KEY_A)
-            // The value-based field applies Ctrl+A's selection at its next recomposition, which a frame runs.
+            // Either field kind holds Ctrl+A's selection after a frame; the value-based one applies it only then.
             assertTrue(shell.pumpOrFail(PROCESS_MILLIS) { surface.renders > before }, "Ctrl+A never drew a frame")
             shell.pressWithCtrl(KEY_C)
             // Compose copies in a coroutine on the shell's loop, which a roundtrip alone never runs.
@@ -229,6 +247,54 @@ class ClipboardFocusTest {
             runWlCopy("--clear")
         }
     }
+
+    @Test
+    fun `a text the clipboard sets stops being its own as it clears the selection`() = withFocusedShell { shell, _ ->
+        val set = shell.retryUntil({ it is Ok }) { shell.clipboard.setText(PASTED) }
+        assertEquals(Ok(Unit), set, "the clipboard never set the selection")
+        assertEquals(PASTED, shell.clipboard.ownedText, "the clipboard did not hold the text it set as its own")
+
+        val cleared = shell.awaitCall { shell.clipboard.clear() }
+        assertEquals(Ok(Unit), cleared, "the clipboard did not clear the selection")
+        assertNull(shell.clipboard.ownedText, "the clipboard still held its own text after clearing the selection")
+    }
+
+    @Test
+    fun `another client's text reads as NoSelection once the last of the shell's keyboards loses focus`() =
+        withFocusedShell { shell, _ ->
+            try {
+                runWlCopy(COPIED)
+                val read = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
+                assertEquals(Ok(COPIED), read, "the clipboard never read back the text wl-copy set")
+                val keyboard = assertNotNull(
+                    shell.activeSurfaces.single().surface.keyboardInput,
+                    "the focused surface has no keyboard",
+                )
+                val serial = assertNotNull(
+                    shell.clipboard.inputSerial,
+                    "no input event has reached the shell's surface",
+                )
+
+                // A second focused keyboard, as a second surface of the shell's would bring.
+                val sibling = Any()
+                shell.clipboard.recordKeyboardFocus(sibling, focused = true)
+                // Made up on this side only: the compositor still has the surface focused.
+                keyboard.onLeave(NULL, NULL, serial, NULL)
+                assertEquals(
+                    Ok(COPIED), shell.awaitCall { shell.clipboard.readText() },
+                    "focus leaving one keyboard lost the selection while another keyboard still had focus",
+                )
+
+                shell.clipboard.recordKeyboardFocus(sibling, focused = false)
+                assertEquals(
+                    Err(ClipboardError.NoSelection), shell.awaitCall { shell.clipboard.readText() },
+                    "an unfocused read of another client's text did not read as NoSelection",
+                )
+                assertFalse(shell.clipboard.hasText, "another client's text was still text to paste without focus")
+            } finally {
+                runWlCopy("--clear")
+            }
+        }
 
     private fun withFocusedShell(
         content: @Composable () -> Unit = { Box(Modifier.fillMaxSize()) },
@@ -286,9 +352,9 @@ class ClipboardFocusTest {
         keyboard.onModifiers(NULL, NULL, serial, 0, 0, 0, 0)
     }
 
-    /** Runs `wl-paste` while pumping: it may read this client's own source, which only a pump serves. */
-    private fun KortexShell.runWlPaste(): Pasted {
-        val paste = ProcessBuilder("wl-paste", "--no-newline").start()
+    /** Runs `wl-paste` with [args] while pumping: it may read this client's own source, which only a pump serves. */
+    private fun KortexShell.runWlPaste(vararg args: String = arrayOf("--no-newline")): Pasted {
+        val paste = ProcessBuilder("wl-paste", *args).start()
         try {
             assertTrue(pumpOrFail(PROCESS_MILLIS) { !paste.isAlive }, "wl-paste never exited")
             return Pasted(
@@ -365,6 +431,9 @@ class ClipboardFocusTest {
 
         // A PNG file's signature: bytes that are no text, under the type wl-copy is told they are.
         val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+        // Spelled out rather than read off TextMime, so dropping one of its entries fails here.
+        val OFFERED_TYPES = setOf("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT")
 
         const val RETRY_MILLIS = 5000L
         const val RETRY_INTERVAL_MILLIS = 100L

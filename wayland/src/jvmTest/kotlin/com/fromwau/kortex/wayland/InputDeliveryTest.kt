@@ -136,7 +136,10 @@ class InputDeliveryTest {
     fun `a keyboard tells the clipboard as focus arrives and as it leaves`() {
         val reports = CopyOnWriteArrayList<Pair<KeyboardInput, Boolean>>()
         withScene { scene, _ ->
-            val keyboard = KeyboardInput(scene, onKeyboardFocus = { reported, focused -> reports += reported to focused })
+            val keyboard = KeyboardInput(
+                scene,
+                onKeyboardFocus = { reported, focused -> reports += reported to focused },
+            )
             keyboard.onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
             keyboard.onLeave(NULL, NULL, LEAVE_SERIAL, NULL)
             assertEquals(
@@ -150,7 +153,10 @@ class InputDeliveryTest {
     fun `a keyboard released while focused tells the clipboard its focus is gone`() {
         val reports = CopyOnWriteArrayList<Pair<KeyboardInput, Boolean>>()
         withScene { scene, _ ->
-            val keyboard = KeyboardInput(scene, onKeyboardFocus = { reported, focused -> reports += reported to focused })
+            val keyboard = KeyboardInput(
+                scene,
+                onKeyboardFocus = { reported, focused -> reports += reported to focused },
+            )
             keyboard.onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
             keyboard.release()
             assertEquals(keyboard to false, reports.last(), "a released keyboard left the clipboard counting its focus")
