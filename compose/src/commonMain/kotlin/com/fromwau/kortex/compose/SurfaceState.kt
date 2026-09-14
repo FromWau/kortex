@@ -1,11 +1,6 @@
 package com.fromwau.kortex.compose
 
-/**
- * Where a surface is in its life: [Running] from the moment its content can see it, then [Closed] or [Crashed].
- *
- * It is Compose state. Content that reads it in composition recomposes when it changes, and a `snapshotFlow` over
- * it, collected anywhere, sees each change.
- */
+/** Where a surface is in its life: [Running] from the moment its content can see it, then [Closed] or [Crashed]. */
 public sealed interface SurfaceState {
     /** The surface is up and its content runs. */
     public data object Running : SurfaceState

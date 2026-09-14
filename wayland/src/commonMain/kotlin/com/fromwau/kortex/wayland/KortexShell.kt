@@ -47,7 +47,13 @@ public class ActiveSurface internal constructor(
     /** What the output published about itself; null before its first `done`, and with no output at all. */
     public val geometry: OutputGeometry? get() = output?.listener?.geometry
 
-    /** Where this surface is in its life: the same value its content reads through its handle. */
+    /**
+     * Where this surface is in its life, the same value its content reads through its handle. Reading it during
+     * composition recomposes the reader when it changes, and a `snapshotFlow` over it, collected anywhere, follows it.
+     *
+     * An [ActiveSurface] kept after [KortexShell.activeSurfaces] drops it still answers, with [SurfaceState.Closed]
+     * or [SurfaceState.Crashed].
+     */
     public val state: SurfaceState get() = surface.state
 }
 
