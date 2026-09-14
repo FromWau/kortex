@@ -59,11 +59,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: six entries are open. One is decided and waiting to be built: under Keyboard and clipboard, a Latin
-fallback for shortcuts under a non-Latin layout. Five wait for a decision: under Foundations, AWT's toolkit,
-which Compose starts in a scene with a text field; under Keyboard and clipboard, the clipboard that content
-inside a `Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a
-value-based field, images on the clipboard as PNG and JPEG, and drag and drop.
+Next: five entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+starts in a scene with a text field; under Keyboard and clipboard, the clipboard that content inside a
+`Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based
+field, images on the clipboard as PNG and JPEG, and drag and drop.
 
 ## Foundations
 
@@ -352,13 +351,17 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       F-keys index into a table the way `DIGIT_KEYS` and `LETTER_KEYS` do; the keypad's own navigation
       keysyms stay unnamed, since at the base level they are what a keypad digit is.
       (`KeyboardDeliveryTest`)
-- [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
-      Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
-      QWERTY calls Q. The reference hands content the raw evdev keycode for this. Decided: a Latin fallback
-      inside `Xkb`, not a typed physical key, and only while the active layout has no Latin letters, as a
-      Cyrillic, Greek or Arabic one does. Then a key takes its base keysym from the keymap's first Latin
-      layout, so Compose's own text field shortcuts work too. A Latin layout keeps its own keys: German `ü`
-      stays `Key.Unknown` rather than borrowing US `[`. With no Latin layout configured, nothing changes.
+- [x] **Shortcuts that ignore the layout.** While the active layout has no Latin letters, as a Cyrillic, Greek
+      or Arabic one does, `Xkb.key` names a key after its base keysym in the keymap's first Latin layout, so
+      Ctrl+C under a Cyrillic layout is `Key.C` and a text field's own Ctrl+A and Ctrl+C work. Punctuation
+      follows too: under `ru` the slash key types a period and is `Key.Slash`. A layout has Latin letters when
+      some key's one base-level keysym is `a` to `z`. `Xkb.stateFromKeymap` works out once per keymap which
+      layouts have them and which comes first, and keeps that beside the state in an `XkbState` only `Xkb`
+      can read. A key with no single keysym in that layout, Escape among them, keeps its own layout's name.
+      What a key types still follows the active layout, so Cyrillic types Cyrillic. A Latin layout keeps its
+      own keys: German `ü` stays `Key.Unknown` rather than borrowing US `[`, and AZERTY's `Key.A` is the key
+      QWERTY calls Q. With no Latin layout configured, nothing changes. (`LatinFallbackTest`,
+      `KeyboardDeliveryTest`)
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
       clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
       of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
