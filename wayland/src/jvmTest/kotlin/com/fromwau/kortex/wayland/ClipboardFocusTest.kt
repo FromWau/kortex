@@ -148,8 +148,17 @@ class ClipboardFocusTest {
         val focused = AtomicBoolean(false)
         withFocusedShell(content = { FocusedTextField(field, focused) }) { shell, display ->
             shell.awaitFocus(focused)
+            val surface = shell.activeSurfaces.single().surface
+            val before = surface.renders
             shell.pressWithCtrl(KEY_A)
+            // The value-based field applies Ctrl+A's selection at its next recomposition, which a frame runs.
+            assertTrue(shell.pumpOrFail(PROCESS_MILLIS) { surface.renders > before }, "Ctrl+A never drew a frame")
             shell.pressWithCtrl(KEY_C)
+            // Compose copies in a coroutine on the shell's loop, which a roundtrip alone never runs.
+            assertTrue(
+                shell.pumpOrFail(PROCESS_MILLIS) { shell.clipboard.ownedText == FIELD_TEXT },
+                "Ctrl+C never made the field's text the clipboard's own",
+            )
             // So the compositor has taken the selection before wl-paste asks it for one.
             display.roundtrip()
 
@@ -165,8 +174,17 @@ class ClipboardFocusTest {
         val focused = AtomicBoolean(false)
         withFocusedShell(content = { FocusedStateTextField(field, focused) }) { shell, display ->
             shell.awaitFocus(focused)
+            val surface = shell.activeSurfaces.single().surface
+            val before = surface.renders
             shell.pressWithCtrl(KEY_A)
+            // The value-based field applies Ctrl+A's selection at its next recomposition, which a frame runs.
+            assertTrue(shell.pumpOrFail(PROCESS_MILLIS) { surface.renders > before }, "Ctrl+A never drew a frame")
             shell.pressWithCtrl(KEY_C)
+            // Compose copies in a coroutine on the shell's loop, which a roundtrip alone never runs.
+            assertTrue(
+                shell.pumpOrFail(PROCESS_MILLIS) { shell.clipboard.ownedText == FIELD_TEXT },
+                "Ctrl+C never made the field's text the clipboard's own",
+            )
             // So the compositor has taken the selection before wl-paste asks it for one.
             display.roundtrip()
 
