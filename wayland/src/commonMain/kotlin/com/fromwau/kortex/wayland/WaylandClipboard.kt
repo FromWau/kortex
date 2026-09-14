@@ -17,7 +17,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 /**
- * The shell's clipboard: makes a text the selection, and reads the selection as text.
+ * The shell's clipboard: makes a text the selection or clears it, and reads the selection as text.
  *
  * Any thread may call it. Its requests run on [loop], which dispatches onto the thread that owns the connection,
  * and a read waits for its text on [Dispatchers.IO]: the text may come from this very client, whose loop has to
@@ -28,13 +28,22 @@ internal class WaylandClipboard private constructor(
     private val loop: CoroutineDispatcher,
     // Null when the compositor offers no clipboard.
     private val bound: BoundDevice?,
-) : AutoCloseable {
-    // Each of these is the loop thread's alone.
-    private var inputSerial: Int? = null
-    private var source: DataSource? = null
+) : AutoCloseable, TextClipboard {
+    // The loop thread's alone.
     private var closed = false
 
-    /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] to quote. */
+    // Written on the loop thread alone; ownedText reads it from any.
+    @Volatile
+    private var source: DataSource? = null
+
+    /** The serial the next [setText] or [clear] quotes; loop thread only, and readable so a test can quote it too. */
+    var inputSerial: Int? = null
+        private set
+
+    /** The text this client made the selection, until a clear or another client's selection replaces it. */
+    override val ownedText: String? get() = source?.ownedText
+
+    /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] or [clear] to quote. */
     fun recordInputSerial(serial: Int) {
         inputSerial = serial
     }
@@ -45,7 +54,16 @@ internal class WaylandClipboard private constructor(
      * @return [ClipboardError.NoInputSerial] until a surface of the shell has had an input event, or
      *   [ClipboardError.NoClipboard] when the compositor offers none.
      */
-    suspend fun setText(text: String): EmptyResult<ClipboardError> = withContext(loop) { offerSelection(text) }
+    override suspend fun setText(text: String): EmptyResult<ClipboardError> =
+        withContext(loop) { replaceSelection(text) }
+
+    /**
+     * Clears the selection, whichever client made it.
+     *
+     * @return [ClipboardError.NoInputSerial] until a surface of the shell has had an input event, or
+     *   [ClipboardError.NoClipboard] when the compositor offers none.
+     */
+    override suspend fun clear(): EmptyResult<ClipboardError> = withContext(loop) { replaceSelection(null) }
 
     /**
      * The selection, asked for under the first [TextMime] it is offered as, and read as UTF-8.
@@ -55,14 +73,15 @@ internal class WaylandClipboard private constructor(
      *
      * @return the text, or the [ClipboardError] saying why there is none.
      */
-    suspend fun readText(): Result<String, ClipboardError> =
+    override suspend fun readText(): Result<String, ClipboardError> =
         readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
 
-    private fun offerSelection(text: String): EmptyResult<ClipboardError> {
-        check(!closed) { "setText on a clipboard already given back" }
+    // A null text clears the selection.
+    private fun replaceSelection(text: String?): EmptyResult<ClipboardError> {
+        check(!closed) { "setting the selection on a clipboard already given back" }
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
         val serial = inputSerial ?: return Err(ClipboardError.NoInputSerial)
-        val offered = DataSource.create(bound.manager, text)
+        val offered = text?.let { DataSource.create(bound.manager, it) }
         bound.device.setSelection(offered, serial)
         display.flush()
         // After set_selection, not before: destroying the selection's own source would clear the selection meanwhile.

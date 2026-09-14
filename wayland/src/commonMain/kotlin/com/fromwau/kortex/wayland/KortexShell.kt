@@ -246,7 +246,12 @@ public class KortexShell private constructor(
         ).flatMap { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
-            surface.setContent { CompositionLocalProvider(LocalKortexHost provides host) { spec.content() } }
+            surface
+                .setContent {
+                    CompositionLocalProvider(LocalKortexHost provides host) {
+                        ProvideClipboard(clipboard, spec.content)
+                    }
+                }
                 // Never added to surfaces, so nothing else would close it.
                 .onError { surface.close() }
                 .map { surfaces += active }

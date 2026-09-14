@@ -55,11 +55,14 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
         selection = named
     }
 
-    /** `wl_data_device.set_selection`; [serial] is the input event the compositor checks the request against. */
-    fun setSelection(source: DataSource, serial: Int) {
+    /**
+     * `wl_data_device.set_selection`: makes [source] the selection, or clears it when [source] is null. [serial] is
+     * the input event the compositor checks the request against.
+     */
+    fun setSelection(source: DataSource?, serial: Int) {
         LibWayland.marshal(
             proxy, WL_DATA_DEVICE_SET_SELECTION,
-            args = listOf(WlArg.Ptr(source.proxy), WlArg.Num(serial)),
+            args = listOf(WlArg.Ptr(source?.proxy ?: MemorySegment.NULL), WlArg.Num(serial)),
         )
     }
 
@@ -205,8 +208,15 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
  *
  * @param arena holds its listener's stubs; [destroy] closes it.
  */
-internal class DataSource(text: String, private val arena: Arena = Arena.ofShared()) {
+internal class DataSource(private val text: String, private val arena: Arena = Arena.ofShared()) {
     private val bytes = text.encodeToByteArray()
+
+    // Set on the loop thread; ownedText reads it from any.
+    @Volatile
+    private var cancelled = false
+
+    /** Its text until the compositor cancels it, as it does once another selection or a clear replaces it. */
+    val ownedText: String? get() = text.takeUnless { cancelled }
 
     var proxy: MemorySegment = MemorySegment.NULL
         private set
@@ -220,7 +230,9 @@ internal class DataSource(text: String, private val arena: Arena = Arena.ofShare
 
     // Replaced as the selection. The next copy or the clipboard's close destroys it, never this event, which
     // runs in one of the stubs that would free.
-    fun onCancelled(data: MemorySegment, source: MemorySegment) = Unit
+    fun onCancelled(data: MemorySegment, source: MemorySegment) {
+        cancelled = true
+    }
 
     fun onDndDropPerformed(data: MemorySegment, source: MemorySegment) = Unit
 

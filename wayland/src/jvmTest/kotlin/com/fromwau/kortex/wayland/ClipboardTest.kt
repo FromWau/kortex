@@ -16,6 +16,7 @@ import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
@@ -25,8 +26,8 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * The clipboard's parts that need no keyboard focus: which text type a paste asks for, the pipe a transfer
- * runs through, how long it may take and how large it may grow, and the typed failures of a clipboard that no
- * surface has focused or that the compositor does not offer.
+ * runs through, how long it may take and how large it may grow, when a copy stops being this client's own, and
+ * the typed failures of a clipboard that no surface has focused or that the compositor does not offer.
  */
 class ClipboardTest {
     @Test
@@ -210,6 +211,16 @@ class ClipboardTest {
     }
 
     @Test
+    fun `a source's text stops being this client's own once the compositor cancels it`() {
+        Arena.ofShared().use { arena ->
+            val source = DataSource(COPIED, arena)
+            assertEquals(COPIED, source.ownedText, "a source nothing has replaced did not hold its own text")
+            source.onCancelled(NULL, NULL)
+            assertNull(source.ownedText, "a cancelled source still held its text as this client's own")
+        }
+    }
+
+    @Test
     fun `a read cancelled while its request waits on the loop still closes the fd it opened`() {
         val pipe = pipeOrFail()
         val loop = LoopQueue(wake = {})
@@ -238,6 +249,13 @@ class ClipboardTest {
     }
 
     @Test
+    fun `clearing the selection before any input event fails as NoInputSerial`() {
+        withUnfocusedClipboard { clipboard ->
+            assertEquals(Err(ClipboardError.NoInputSerial), runBlocking { clipboard.clear() })
+        }
+    }
+
+    @Test
     fun `a clipboard that has never had keyboard focus has no selection to read`() {
         withUnfocusedClipboard { clipboard ->
             assertEquals(Err(ClipboardError.NoSelection), runBlocking { clipboard.readText() })
@@ -258,6 +276,7 @@ class ClipboardTest {
             withClipboard(display) { clipboard ->
                 assertEquals(Err(ClipboardError.NoClipboard), runBlocking { clipboard.setText(COPIED) })
                 assertEquals(Err(ClipboardError.NoClipboard), runBlocking { clipboard.readText() })
+                assertEquals(Err(ClipboardError.NoClipboard), runBlocking { clipboard.clear() })
             }
         }
     }

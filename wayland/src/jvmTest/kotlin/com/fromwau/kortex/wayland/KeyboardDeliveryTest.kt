@@ -26,6 +26,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexPlatform
@@ -41,6 +43,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -93,6 +96,49 @@ class KeyboardDeliveryTest {
             typist.tap(KEY_X)
 
             assertEquals("x", typed.get(), "Ctrl+A did not select the text typed before it")
+        }
+    }
+
+    @Test
+    fun `Ctrl+C in a text field copies its selection into the provided clipboard`() {
+        val clipboard = FakeTextClipboard()
+        val typed = AtomicReference("")
+        withKeyboard(content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } }) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_A) }
+            typist.holding(CTRL_MASK) { typist.tap(KEY_C) }
+
+            assertTrue(awaitUntil { clipboard.setTexts.isNotEmpty() }, "Ctrl+C never reached the provided clipboard")
+            assertEquals(listOf("hi"), clipboard.setTexts.toList(), "Ctrl+C copied something other than the selection")
+        }
+    }
+
+    @Test
+    fun `Ctrl+V in a text field pastes what the provided clipboard reads`() {
+        val clipboard = FakeTextClipboard(read = { Ok(PASTED) })
+        val typed = AtomicReference("")
+        withKeyboard(content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } }) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_V) }
+
+            assertTrue(awaitUntil { typed.get() == "hi$PASTED" }, "Ctrl+V left the field holding '${typed.get()}'")
+        }
+    }
+
+    @Test
+    fun `a paste whose read fails inserts nothing and fails nothing`() {
+        val clipboard = FakeTextClipboard(read = { Err(ClipboardError.ReadTimedOut) })
+        val typed = AtomicReference("")
+        withKeyboard(content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } }) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_V) }
+
+            assertTrue(awaitUntil { clipboard.reads.get() > 0 }, "Ctrl+V never asked the provided clipboard for a text")
+            assertNull(typist.failure, "a failed read failed the scene")
+            assertEquals("hi", typed.get(), "a failed read changed the field")
         }
     }
 
@@ -199,6 +245,16 @@ class KeyboardDeliveryTest {
     private fun firstKeyDown(press: (Typist) -> Unit): KeyEvent =
         assertNotNull(keyDownsFrom(press).firstOrNull(), "no key reached the composition")
 
+    /** Polls [condition] until it holds or [AWAIT_MILLIS] pass: a paste finishes on the scene's own thread. */
+    private fun awaitUntil(condition: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + AWAIT_MILLIS * NANOS_PER_MILLI
+        while (!condition()) {
+            if (System.nanoTime() >= deadline) return false
+            Thread.sleep(FRAME_MILLIS)
+        }
+        return true
+    }
+
     /** Runs [block] against a keyboard on the compositor's keymap, delivering into [content] once it has focus. */
     private fun withKeyboard(content: @Composable (focus: Modifier) -> Unit, block: (Typist) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
@@ -279,6 +335,9 @@ class KeyboardDeliveryTest {
         const val SIDE = 200
         const val FOCUS_FRAMES = 6
         const val FRAME_MILLIS = 60L
+        const val AWAIT_MILLIS = 2000L
+        const val NANOS_PER_MILLI = 1_000_000L
+        const val PASTED = "Grüße"
         const val PRESSED = 1
         const val RELEASED = 0
         const val KEY_FAILURE = "a key handler threw"
@@ -295,6 +354,7 @@ class KeyboardDeliveryTest {
         const val KEY_APOSTROPHE = 40
         const val KEY_X = 45
         const val KEY_C = 46
+        const val KEY_V = 47
         const val KEY_SLASH = 53
         const val KEY_F1 = 59
         const val KEY_F2 = 60

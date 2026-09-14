@@ -56,9 +56,9 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: three entries are open, all of them decided and waiting to be built. Under Foundations, a typed
+Next: two entries are open, both of them decided and waiting to be built. Under Foundations, a typed
 surface lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin
-layout, and a native clipboard.
+layout.
 
 ## Foundations
 
@@ -337,13 +337,22 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       Cyrillic, Greek or Arabic one does. Then a key takes its base keysym from the keymap's first Latin
       layout, so Compose's own text field shortcuts work too. A Latin layout keeps its own keys: German `ü`
       stays `Key.Unknown` rather than borrowing US `[`. With no Latin layout configured, nothing changes.
-- [ ] **Clipboard.** kortex binds no `wl_data_device`, so copy and paste fall to Compose's desktop default,
-      AWT's system clipboard. That reaches the X clipboard through XWayland when `DISPLAY` is set, and
-      Compose turns AWT's `HeadlessException` into no clipboard at all; any other failure to start AWT is
-      not caught. None of it is tested, and a copy through XWayland has not been checked by hand. Decided: a
-      native clipboard. kortex binds `wl_data_device_manager` and backs Compose's `LocalClipboard` with
-      `wl_data_source` and `wl_data_offer`, UTF-8 text, on the loop thread. The protocol hands a client the
-      selection only while one of its surfaces has keyboard focus.
+- [x] **Copy and paste go through the Wayland selection, never AWT's clipboard.** Each shell binds
+      `wl_data_device_manager` once, takes a `wl_data_device` for a seat of its own, and provides Compose's
+      `LocalClipboard` and `LocalClipboardManager` around every surface's content. So a text field's Ctrl+C,
+      Ctrl+X and Ctrl+V, and content calling either local, reach that one clipboard. A copy offers UTF-8
+      under `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting the serial
+      of the latest key, keyboard enter or button, and `setClipEntry(null)` clears the selection under the
+      same serial. A paste asks for the first of those types the selection lists and reads it off the loop
+      thread, for at most 1000 ms and 16 MiB. Each expected failure is a typed `ClipboardError` that meets
+      Compose's contract at the edge: a failed paste gets no entry, and a failed copy does nothing.
+      Compose's own text fields read only `LocalClipboard`. The deprecated `ClipboardManager.getText` never
+      waits on a read, since reading this client's own selection needs the loop it runs on. It answers with
+      the text this client set, until another selection or a clear replaces it, and with nothing otherwise.
+      A bare `KortexSurface`, which only tests create, keeps Compose's default. The protocol hands a client
+      the selection only while one of its surfaces has keyboard focus, so the tests that need it take the
+      keyboard and run only while the desktop is free. (`ClipboardTest`, `ComposeClipboardTest`,
+      `KeyboardDeliveryTest`, and `ClipboardFocusTest` with the desktop free)
 
 ## Housekeeping
 
