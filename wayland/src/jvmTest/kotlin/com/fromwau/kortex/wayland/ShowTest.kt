@@ -1,6 +1,7 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -17,6 +18,7 @@ import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.ContentFailure
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CopyOnWriteArraySet
@@ -457,6 +459,119 @@ class ShowTest {
         assertEquals(Ok(Unit), result, "the application did not return Ok on exitApplication")
     }
 
+    @Test
+    fun `the application's content throwing ends the run as ApplicationCrashed, and no onClose is called`() {
+        val boom = mutableStateOf(false)
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
+            if (boom.value) error(APPLICATION_FAILURE)
+        }
+
+        onCrashingApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+
+            boom.value = true
+
+            val crash = assertIs<KortexError.ApplicationCrashed>(
+                shell.pump(PUMP_MILLIS).errorOrNull(),
+                "content that threw did not end the run as ApplicationCrashed",
+            )
+            assertEquals(APPLICATION_FAILURE, crash.cause.message, "the crash did not carry what the content threw")
+            crash
+        }
+        assertTrue(reports.isEmpty(), "an onClose was called after the application crashed: $reports")
+    }
+
+    @Test
+    fun `an onClose that throws ends the run as ApplicationCrashed, and no other onClose is called`() {
+        val closeRequested = mutableStateOf(false)
+        val others = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE, onClose = { error(ON_CLOSE_FAILURE) }) {
+                    val requested = closeRequested.value
+                    LaunchedEffect(requested) { if (requested) close() }
+                },
+            )
+            Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { others += it }))
+        }
+
+        onCrashingApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == 2 }, "the surfaces were never placed")
+
+            closeRequested.value = true
+
+            val crash = assertIs<KortexError.ApplicationCrashed>(
+                shell.pump(PUMP_MILLIS).errorOrNull(),
+                "an onClose that threw did not end the run as ApplicationCrashed",
+            )
+            assertEquals(ON_CLOSE_FAILURE, crash.cause.message, "the crash did not carry what onClose threw")
+            crash
+        }
+        assertTrue(others.isEmpty(), "another surface's onClose was called after an onClose threw: $others")
+    }
+
+    @Test
+    fun `UI placed directly in the application's content ends the run as ApplicationCrashed, and no onClose is called`() {
+        val addUi = mutableStateOf(false)
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
+            if (addUi.value) Box(Modifier.fillMaxSize())
+        }
+
+        onCrashingApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+
+            addUi.value = true
+
+            val crash = assertIs<KortexError.ApplicationCrashed>(
+                shell.pump(PUMP_MILLIS).errorOrNull(),
+                "UI placed in the application's content did not end the run as ApplicationCrashed",
+            )
+            assertIs<IllegalStateException>(crash.cause, "the crash did not carry the rejected UI's failure")
+            crash
+        }
+        assertTrue(reports.isEmpty(), "an onClose was called after the application crashed: $reports")
+    }
+
+    @Test
+    fun `UI placed in the application's first composition fails to start it as ApplicationCrashed`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            val error = KortexShell
+                .createApplication(display) { Box(Modifier.fillMaxSize()) }
+                .onSuccess { it.close() }
+                .errorOrNull()
+
+            val crash = assertIs<KortexError.ApplicationCrashed>(error, "an application whose content is UI started")
+            assertIs<IllegalStateException>(crash.cause, "the crash did not carry the rejected UI's failure")
+        }
+    }
+
+    /**
+     * Starts an application of [content] and hands it to [crash], which drives it into a crash and returns it; closing
+     * the application must then return that same crash.
+     */
+    private fun onCrashingApplication(
+        content: @Composable KortexApplicationScope.() -> Unit,
+        crash: (KortexShell) -> KortexError.ApplicationCrashed,
+    ) {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        display.use {
+            val shell = KortexShell.createApplicationOrFail(display, content)
+            val crashed = try {
+                crash(shell)
+            } catch (failure: Throwable) {
+                shell.close()
+                throw failure
+            }
+            assertEquals(Err(crashed), shell.close(), "closing a crashed application did not return its crash")
+        }
+    }
+
     /** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
     private fun crashIn(report: EmptyResult<SurfaceError<*>>, message: String): KortexError.SurfaceCrashed {
         val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")
@@ -520,6 +635,8 @@ class ShowTest {
         const val TALL = 16
         const val EFFECT_FAILURE = "an effect threw"
         const val CLEANUP_FAILURE = "cleanup threw as the surface went"
+        const val APPLICATION_FAILURE = "the application's content threw"
+        const val ON_CLOSE_FAILURE = "an onClose threw"
         const val EFFECT_DELAY_MILLIS = 50L
         const val IDLE_MILLIS = 500L
 

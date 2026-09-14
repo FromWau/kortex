@@ -127,6 +127,9 @@ public class KortexShell private constructor(
     @Volatile
     private var exitRequested = false
 
+    // The first throw of the application's own code, which ends the run; no onClose is called after it.
+    private val applicationCrash = AtomicReference<KortexError.ApplicationCrashed?>(null)
+
     private val applicationScope = object : KortexApplicationScope {
         override fun exitApplication() {
             exitRequested = true
@@ -220,6 +223,7 @@ public class KortexShell private constructor(
     }
 
     private fun applyPendingChanges(): EmptyResult<KortexError> {
+        applicationCrash.get()?.let { return Err(it) }
         if (pendingAdds.isNotEmpty()) {
             val adds = pendingAdds.toList()
             pendingAdds.clear()
@@ -237,7 +241,8 @@ public class KortexShell private constructor(
             opens.forEach { spec -> placeSurfaces(spec, standing = false).getOrElse { return Err(it) } }
         }
         reconcileShows()
-        return Ok(Unit)
+        // An onClose that threw as reconciling reported to it.
+        return applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
     }
 
     private fun serviceSurfaces(): EmptyResult<KortexError> {
@@ -260,7 +265,7 @@ public class KortexShell private constructor(
         placed.forEach { shown ->
             shown.surface?.serviceTick()?.onError { reason -> shown.requestEnd(Err(SurfaceError.Failed(reason))) }
         }
-        return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
+        return reportCrashes()?.let { Err(it) } ?: applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
     }
 
     // Every crash since the last report goes to the host once; the first is what ends the run.
@@ -448,11 +453,22 @@ public class KortexShell private constructor(
 
     private fun report(shown: ShownSurface, ending: EmptyResult<SurfaceError<IError>>) {
         shown.reported = true
-        shown.newest.value.report(ending)
+        // Once the application's own code has thrown, none of it runs again.
+        if (applicationCrash.get() != null) return
+        try {
+            shown.newest.value.report(ending)
+        } catch (cause: Throwable) {
+            applicationFailed(cause)
+        }
+    }
+
+    private fun applicationFailed(cause: Throwable) {
+        applicationCrash.compareAndSet(null, KortexError.ApplicationCrashed(cause))
+        display.wake()
     }
 
     private fun startApplication(content: @Composable KortexApplicationScope.() -> Unit) {
-        val application = ApplicationComposition(loopQueue, display::wake)
+        val application = ApplicationComposition(loopQueue, display::wake, ::applicationFailed)
         this.application = application
         application.setContent {
             CompositionLocalProvider(LocalKortexShell provides this@KortexShell) { applicationScope.content() }
@@ -471,6 +487,8 @@ public class KortexShell private constructor(
             // Every Show leaves composition here, and reconciling reports how each of their surfaces ended.
             application.close()
             reconcileShows()
+            // A disposal that threw can leave Shows in place; that throw ended the application, so they go unreported.
+            placed.toList().forEach { shown -> end(shown, Ok(Unit)) }
         }
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
@@ -480,7 +498,7 @@ public class KortexShell private constructor(
         // After the drain, which can still run a request content made of the clipboard.
         clipboard.close()
         // After the drain, since a closed scene's late work can be what crashed.
-        return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
+        return reportCrashes()?.let { Err(it) } ?: applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
     }
 
     public companion object {
@@ -543,11 +561,17 @@ public class KortexShell private constructor(
             display: WaylandDisplay,
             platform: KortexPlatform = KortexPlatform.None,
             content: @Composable KortexApplicationScope.() -> Unit,
-        ): Result<KortexShell, KortexError> =
-            create(display, emptyList(), platform, onCrashSurface = {}, contentClipboard = { it }).map { shell ->
-                shell.startApplication(content)
-                shell
+        ): Result<KortexShell, KortexError> {
+            val shell = create(display, emptyList(), platform, onCrashSurface = {}, contentClipboard = { it })
+                .getOrElse { return Err(it) }
+            shell.startApplication(content)
+            // The first composition runs the application's content, which can already have thrown.
+            shell.applicationCrash.get()?.let { crash ->
+                shell.close()
+                return Err(crash)
             }
+            return Ok(shell)
+        }
 
         private const val WL_OUTPUT = "wl_output"
 

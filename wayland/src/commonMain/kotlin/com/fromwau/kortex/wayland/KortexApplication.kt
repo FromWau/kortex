@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.FrameRecomposer
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kortex.compose.KortexPlatform
+import kotlinx.coroutines.CoroutineExceptionHandler
 
 /** What the content of [kortexApplication] can do besides compose: end the application. */
 public interface KortexApplicationScope {
@@ -60,11 +61,19 @@ internal val LocalKortexShell: ProvidableCompositionLocal<KortexShell> =
  * thread, in the pass after it asks for a frame.
  */
 @OptIn(InternalComposeUiApi::class)
-internal class ApplicationComposition(loopQueue: LoopQueue, private val wake: () -> Unit) {
+internal class ApplicationComposition(
+    loopQueue: LoopQueue,
+    private val wake: () -> Unit,
+    // Handed whatever the application's own code throws, on whichever thread it threw.
+    private val onFailure: (Throwable) -> Unit,
+) {
     @Volatile
     private var frameRequested = false
 
-    private val recomposer = FrameRecomposer(loopQueue) {
+    // Recomposition and the content's effects fail inside coroutines, never out of a call, so they report here.
+    private val coroutineFailures = CoroutineExceptionHandler { _, cause -> onFailure(cause) }
+
+    private val recomposer = FrameRecomposer(loopQueue + coroutineFailures) {
         frameRequested = true
         wake()
     }
@@ -72,19 +81,28 @@ internal class ApplicationComposition(loopQueue: LoopQueue, private val wake: ()
     private val composition = Composition(ApplicationApplier(), recomposer.compositionContext)
 
     fun setContent(content: @Composable () -> Unit) {
-        composition.setContent(content)
+        runHostCode { composition.setContent(content) }
     }
 
     /** Recomposes, if the content has asked to since the last frame. */
     fun frame() {
         if (!frameRequested) return
         frameRequested = false
-        recomposer.performFrame(System.nanoTime())
+        runHostCode { recomposer.performFrame(System.nanoTime()) }
     }
 
     fun close() {
-        composition.dispose()
+        // Content whose changes failed to apply leaves a composition whose disposal can throw as well.
+        runHostCode { composition.dispose() }
         recomposer.close()
+    }
+
+    private inline fun runHostCode(call: () -> Unit) {
+        try {
+            call()
+        } catch (cause: Throwable) {
+            onFailure(cause)
+        }
     }
 }
 
