@@ -129,9 +129,12 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
     }
 }
 
-/** A `wl_data_offer`: the types the selection, or a drag, is offered under. */
-internal class DataOffer {
-    private val arena: Arena = Arena.ofShared()
+/**
+ * A `wl_data_offer`: the types the selection, or a drag, is offered under.
+ *
+ * @param arena holds its listener's stubs; [destroy] closes it.
+ */
+internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     private var proxy: MemorySegment = MemorySegment.NULL
     private val textTypes = mutableSetOf<TextMime>()
 
@@ -197,10 +200,13 @@ internal class DataOffer {
     }
 }
 
-/** One copy's `wl_data_source`: offers its text under every [TextMime], and sends the same UTF-8 for each. */
-internal class DataSource(text: String) {
+/**
+ * One copy's `wl_data_source`: offers its text under every [TextMime], and sends the same UTF-8 for each.
+ *
+ * @param arena holds its listener's stubs; [destroy] closes it.
+ */
+internal class DataSource(text: String, private val arena: Arena = Arena.ofShared()) {
     private val bytes = text.encodeToByteArray()
-    private val arena: Arena = Arena.ofShared()
 
     var proxy: MemorySegment = MemorySegment.NULL
         private set

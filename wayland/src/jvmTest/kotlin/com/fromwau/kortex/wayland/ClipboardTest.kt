@@ -32,7 +32,7 @@ class ClipboardTest {
             // Listed last-first, after a type that is not text, so neither listing order nor the extra type decides.
             val listed = listOf("image/png") + PASTE_PREFERENCE.drop(first).reversed()
             assertEquals(
-                PASTE_PREFERENCE[first], offerListing(listed).preferredText?.wireName,
+                PASTE_PREFERENCE[first], preferredTextOf(listed)?.wireName,
                 "an offer listing $listed",
             )
         }
@@ -150,15 +150,19 @@ class ClipboardTest {
     @Test
     fun `a source's send writes its text to the fd and closes it`() {
         val pipe = pipeOrFail()
+        var writerClosed = false
         try {
-            Arena.ofConfined().use { arena ->
+            Arena.ofShared().use { arena ->
                 val mimeType = arena.allocateFrom(TextMime.TextPlainUtf8.wireName)
-                DataSource(COPIED).onSend(NULL, NULL, mimeType, pipe.writeFd)
+                DataSource(COPIED, arena).onSend(NULL, NULL, mimeType, pipe.writeFd)
             }
             // Only a closed fd ends the read before its timeout, so Ok also says the source closed it.
             val read = readPipeToEnd(pipe.readFd, LONG_TIMEOUT_MILLIS).map { it.decodeToString() }
+            writerClosed = read is Ok<*>
             assertEquals(Ok(COPIED), read, "the source did not write its text and close the fd")
         } finally {
+            // A read that never saw the end means the source kept the fd, which is then this test's to close.
+            if (!writerClosed) LibC.close(pipe.writeFd)
             LibC.close(pipe.readFd)
         }
     }
@@ -243,8 +247,11 @@ class ClipboardTest {
         }
     }
 
-    private fun offerListing(types: List<String>): DataOffer = DataOffer().also { offer ->
-        Arena.ofConfined().use { arena -> types.forEach { offer.onOffer(NULL, NULL, arena.allocateFrom(it)) } }
+    /** What a paste asks an offer listing [types] for. */
+    private fun preferredTextOf(types: List<String>): TextMime? = Arena.ofShared().use { arena ->
+        val offer = DataOffer(arena)
+        types.forEach { offer.onOffer(NULL, NULL, arena.allocateFrom(it)) }
+        offer.preferredText
     }
 
     private fun pipeOrFail(): Pipe = LibC.pipe().getOrElse { error -> fail("creating a pipe failed: $error") }
