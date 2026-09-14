@@ -80,7 +80,7 @@ internal class WaylandClipboard private constructor(
         check(!closed) { "readText on a clipboard already given back" }
         val offer = device.selection ?: return Err(ClipboardError.NoSelection)
         val type = offer.preferredText ?: return Err(ClipboardError.NoText)
-        val pipe = LibC.pipe().getOrElse { return Err(it) }
+        val pipe = LibC.pipe().getOrElse { return Err(ClipboardError.PipeFailed) }
         offer.receive(type, pipe.writeFd)
         // libwayland has sent a duplicate; this one would hold the pipe open, and the read with it, forever.
         LibC.close(pipe.writeFd)
@@ -153,9 +153,6 @@ internal enum class TextMime(val wireName: String) {
         fun fromWireNameOrNull(wireName: String): TextMime? = entries.firstOrNull { it.wireName == wireName }
     }
 }
-
-/** Both ends of a pipe: what is written into [writeFd] comes out of [readFd]. */
-internal data class Pipe(val readFd: Int, val writeFd: Int)
 
 /**
  * Reads [fd] until its writer closes it.

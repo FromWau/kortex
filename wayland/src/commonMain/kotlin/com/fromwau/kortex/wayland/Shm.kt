@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
@@ -54,7 +55,11 @@ internal object LibC {
         FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT),
         Linker.Option.captureCallState(ERRNO),
     )
-    private val pipe2 = downcall("pipe2", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
+    private val pipe2 = downcall(
+        "pipe2",
+        FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT),
+        Linker.Option.captureCallState(ERRNO),
+    )
 
     private val callState: StructLayout = Linker.Option.captureStateLayout()
     private val errnoOffset: Long = callState.byteOffset(MemoryLayout.PathElement.groupElement(ERRNO))
@@ -113,10 +118,11 @@ internal object LibC {
     }
 
     /** A close-on-exec pipe. */
-    fun pipe(): Result<Pipe, ClipboardError> {
+    fun pipe(): Result<Pipe, Errno> {
         Arena.ofConfined().use { call ->
+            val state = call.allocate(callState)
             val ends = call.allocate(JAVA_INT, PIPE_ENDS)
-            if (pipe2.invoke(ends, O_CLOEXEC) as Int != 0) return Err(ClipboardError.PipeFailed)
+            if (pipe2.invoke(state, ends, O_CLOEXEC) as Int != 0) return Err(Errno(state.get(JAVA_INT, errnoOffset)))
             return Ok(
                 Pipe(readFd = ends.getAtIndex(JAVA_INT, READ_END), writeFd = ends.getAtIndex(JAVA_INT, WRITE_END)),
             )
@@ -188,6 +194,12 @@ internal object LibC {
     private const val EINTR = 4
     private const val NANOS_PER_MILLI = 1_000_000L
 }
+
+/** Both ends of a pipe: what is written into [writeFd] comes out of [readFd]. */
+internal data class Pipe(val readFd: Int, val writeFd: Int)
+
+/** A libc call's failure: the C error number it left in `errno`. */
+internal data class Errno(val number: Int) : IError
 
 /**
  * A wl_shm buffer backed by memory you own and can draw into directly.
