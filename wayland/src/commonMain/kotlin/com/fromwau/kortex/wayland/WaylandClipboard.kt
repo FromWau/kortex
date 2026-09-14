@@ -146,6 +146,9 @@ internal sealed interface ClipboardError : IError {
 
     /** The selection's owner had not finished writing it when the read's timeout ran out. */
     data object ReadTimedOut : ClipboardError
+
+    /** The selection passed [MAX_SELECTION_BYTES] before its writer closed its end. */
+    data object TooLarge : ClipboardError
 }
 
 /**
@@ -167,7 +170,8 @@ internal enum class TextMime(val wireName: String) {
 }
 
 /**
- * Opens a pipe's read end with [open] on [loop], then reads that pipe to its end on [Dispatchers.IO] and closes it.
+ * Opens a pipe's read end with [open] on [loop], then reads from it on [Dispatchers.IO] until its writer closes it,
+ * [timeoutMillis] passes, or it grows past [MAX_SELECTION_BYTES], and closes it.
  *
  * Not cancellable: a cancelled caller gets its cancellation once this returns, at most [timeoutMillis] after [loop]
  * ran [open].
@@ -191,8 +195,9 @@ internal suspend fun readPipeOpenedOn(
 /**
  * Reads [fd] until its writer closes it.
  *
- * @return everything read, or [ClipboardError.ReadTimedOut] once [timeoutMillis] have passed before the writer
- *   closed its end, however much it was still sending.
+ * @return everything read, [ClipboardError.TooLarge] once more than [MAX_SELECTION_BYTES] has arrived, or
+ *   [ClipboardError.ReadTimedOut] once [timeoutMillis] have passed before the writer closed its end, however much
+ *   it was still sending.
  */
 internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, ClipboardError> {
     val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
@@ -208,6 +213,7 @@ internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, Clip
                 count < 0L -> return Err(ClipboardError.PipeFailed)
                 else -> read.write(chunk.asSlice(0L, count).toArray(JAVA_BYTE))
             }
+            if (read.size() > MAX_SELECTION_BYTES) return Err(ClipboardError.TooLarge)
         }
     }
     return Err(ClipboardError.ReadTimedOut)
@@ -240,6 +246,9 @@ internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
 
 /** Bounds a transfer: the read gives up this long after it began; the write gives up this long after its last byte. */
 internal const val TRANSFER_TIMEOUT_MILLIS = 1000L
+
+/** The most a read keeps of one selection before giving up as [ClipboardError.TooLarge]. */
+internal const val MAX_SELECTION_BYTES = 16L * 1024 * 1024
 
 private const val NANOS_PER_MILLI = 1_000_000L
 private const val READ_CHUNK_BYTES = 65_536L

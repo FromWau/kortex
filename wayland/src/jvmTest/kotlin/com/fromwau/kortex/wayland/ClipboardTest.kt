@@ -25,8 +25,8 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * The clipboard's parts that need no keyboard focus: which text type a paste asks for, the pipe a transfer
- * runs through and how long it may take, and the typed failures of a clipboard that no surface has focused
- * or that the compositor does not offer.
+ * runs through, how long and how large it may grow, and the typed failures of a clipboard that no surface has
+ * focused or that the compositor does not offer.
  */
 class ClipboardTest {
     @Test
@@ -167,6 +167,29 @@ class ClipboardTest {
     }
 
     @Test
+    fun `a selection bigger than the cap reads back as TooLarge`() {
+        val pipe = pipeOrFail()
+        val stop = AtomicBoolean(false)
+        val writer = thread(name = "kortex-oversized-writer") {
+            writeUntilStopped(pipe.writeFd, stop, pauseMillis = 0L)
+        }
+        val read = CompletableFuture.supplyAsync { readPipeToEnd(pipe.readFd, LONG_TIMEOUT_MILLIS) }
+        try {
+            val result = try {
+                read.get(TEST_BOUND_MILLIS, TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
+                fail("the read never gave up on a selection past the cap, ${TEST_BOUND_MILLIS}ms in")
+            }
+            assertEquals(Err(ClipboardError.TooLarge), result)
+        } finally {
+            stop.set(true)
+            writer.join(JOIN_MILLIS)
+            LibC.close(pipe.writeFd)
+            LibC.close(pipe.readFd)
+        }
+    }
+
+    @Test
     fun `a source's send writes its text to the fd and closes it`() {
         val pipe = pipeOrFail()
         var writerClosed = false
@@ -275,16 +298,18 @@ class ClipboardTest {
 
     private fun pipeOrFail(): Pipe = LibC.pipe().getOrElse { error -> fail("creating a pipe failed: $error") }
 
-    /** Writes into [fd] a page at a time until [stop] is set or its reader goes, never blocked on a full pipe. */
-    private fun writeUntilStopped(fd: Int, stop: AtomicBoolean) {
+    /**
+     * Writes into [fd] a page at a time until [stop] is set or its reader goes, never blocked on a full pipe.
+     * Paced by [pauseMillis] between pages, so what a timed-out read takes stays small; 0 for full throughput.
+     */
+    private fun writeUntilStopped(fd: Int, stop: AtomicBoolean, pauseMillis: Long = WRITER_PAUSE_MILLIS) {
         Arena.ofConfined().use { arena ->
             val page = arena.allocate(PAGE_BYTES)
             while (!stop.get()) {
                 val deadline = System.nanoTime() + POLL_WAIT_MILLIS * NANOS_PER_MILLI
                 if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLOUT), deadline).single() == 0) continue
                 if (LibC.write(fd, page) <= 0L) return
-                // Paced, so what the read takes before its timeout stays small.
-                Thread.sleep(WRITER_PAUSE_MILLIS)
+                if (pauseMillis > 0) Thread.sleep(pauseMillis)
             }
         }
     }
