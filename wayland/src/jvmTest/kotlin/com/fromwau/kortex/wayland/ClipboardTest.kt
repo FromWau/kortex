@@ -25,8 +25,8 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * The clipboard's parts that need no keyboard focus: which text type a paste asks for, the pipe a transfer
- * runs through, how long and how large it may grow, and the typed failures of a clipboard that no surface has
- * focused or that the compositor does not offer.
+ * runs through, how long it may take and how large it may grow, and the typed failures of a clipboard that no
+ * surface has focused or that the compositor does not offer.
  */
 class ClipboardTest {
     @Test
