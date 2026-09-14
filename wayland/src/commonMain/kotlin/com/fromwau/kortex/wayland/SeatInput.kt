@@ -269,13 +269,14 @@ internal class Seat private constructor(
         scene: KortexScene,
         textInput: () -> KortexTextInput? = { null },
         onInputSerial: (Int) -> Unit = {},
+        onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
     ): KeyboardInput? {
         if (!hasKeyboard) return null
         val keyboard = LibWayland.marshal(
             proxy, WL_SEAT_GET_KEYBOARD, LibWayland.keyboardInterface,
             LibWayland.proxyGetVersion(proxy), listOf(WlArg.Ptr(MemorySegment.NULL)),
         )
-        return KeyboardInput(scene, textInput, onInputSerial).also { it.install(keyboard) }
+        return KeyboardInput(scene, textInput, onInputSerial, onKeyboardFocus).also { it.install(keyboard) }
     }
 
     /** Gives the seat back; every device taken from it must already have been released. */

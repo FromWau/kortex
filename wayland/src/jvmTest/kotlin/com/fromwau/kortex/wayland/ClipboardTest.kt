@@ -28,8 +28,9 @@ import kotlinx.coroutines.runBlocking
 /**
  * The clipboard's parts that need no keyboard focus: which text type a paste asks for, the pipe a transfer
  * runs through, how long it may take and how large it may grow, when a copy stops being this client's own,
- * whether its own copy has text to paste regardless of any offer, and the typed failures of a clipboard that
- * no surface has focused or that the compositor does not offer.
+ * its own copy as text to paste and read back from memory with focus or without, the serial it quotes, the
+ * version it binds, and the typed failures of a clipboard that no surface has focused or that the compositor
+ * does not offer.
  */
 class ClipboardTest {
     @Test
@@ -271,17 +272,41 @@ class ClipboardTest {
 
     @Test
     fun `a clipboard that owns the selection has text to paste before the compositor ever grants it`() {
+        withOwnCopy { clipboard -> assertTrue(clipboard.hasText, "kortex's own copy was not text to paste") }
+    }
+
+    @Test
+    fun `kortex's own copy still has text to paste once keyboard focus has left`() {
+        withOwnCopy { clipboard ->
+            val keyboard = Any()
+            clipboard.recordKeyboardFocus(keyboard, focused = true)
+            clipboard.recordKeyboardFocus(keyboard, focused = false)
+            assertTrue(clipboard.hasText, "kortex's own copy stopped being text to paste as focus left")
+        }
+    }
+
+    @Test
+    fun `kortex's own copy reads back as its text while no surface has keyboard focus`() {
+        withOwnCopy { clipboard ->
+            assertEquals(Ok(COPIED), runBlocking { clipboard.readText() }, "an unfocused read of kortex's own copy")
+        }
+    }
+
+    @Test
+    fun `kortex's own copy reads back as its text while a surface has keyboard focus`() {
+        withOwnCopy { clipboard ->
+            clipboard.recordKeyboardFocus(Any(), focused = true)
+            assertEquals(Ok(COPIED), runBlocking { clipboard.readText() }, "a focused read of kortex's own copy")
+        }
+    }
+
+    @Test
+    fun `the clipboard quotes the latest input serial it is handed`() {
         withUnfocusedClipboard { clipboard ->
-            Arena.ofShared().use { arena ->
-                // recordOwnedSource reaches the own-copy state setText would leave, without setText's wire call.
-                clipboard.recordOwnedSource(DataSource(COPIED, arena))
-                try {
-                    assertTrue(clipboard.hasText, "kortex's own copy was not text to paste")
-                } finally {
-                    // Even on failure: the clipboard's close would destroy this source, which was never a real proxy.
-                    clipboard.recordOwnedSource(null)
-                }
-            }
+            // Nothing here sets the selection, so neither made-up serial reaches the compositor.
+            clipboard.recordInputSerial(EARLIER_SERIAL)
+            clipboard.recordInputSerial(LATEST_SERIAL)
+            assertEquals(LATEST_SERIAL, clipboard.inputSerial, "the clipboard kept a serial other than the latest")
         }
     }
 
@@ -325,6 +350,22 @@ class ClipboardTest {
     private fun withUnfocusedClipboard(block: (WaylandClipboard) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland -> withClipboard(wayland, block) }
+    }
+
+    /** An unfocused clipboard whose own copy is [COPIED], made so without telling the compositor. */
+    private fun withOwnCopy(block: (WaylandClipboard) -> Unit) {
+        withUnfocusedClipboard { clipboard ->
+            Arena.ofShared().use { arena ->
+                // recordOwnedSource reaches the own-copy state setText would leave, without setText's wire call.
+                clipboard.recordOwnedSource(DataSource(COPIED, arena))
+                try {
+                    block(clipboard)
+                } finally {
+                    // Even on failure: the clipboard's close would destroy this source, which was never a real proxy.
+                    clipboard.recordOwnedSource(null)
+                }
+            }
+        }
     }
 
     /** A connection that shows no `wl_data_device_manager`, as one to a compositor that never announced it would. */
@@ -418,5 +459,7 @@ class ClipboardTest {
         const val NANOS_PER_MILLI = 1_000_000L
         const val POLLERR = 0x008
         const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
+        const val EARLIER_SERIAL = 3
+        const val LATEST_SERIAL = 7
     }
 }

@@ -250,6 +250,7 @@ public class KortexShell private constructor(
             loopQueue = loopQueue,
             onCrash = crashes::add,
             onInputSerial = clipboard::recordInputSerial,
+            onKeyboardFocus = clipboard::recordKeyboardFocus,
         ).flatMap { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             // Built once per surface, not inside the content lambda: LocalKortexHost is static, so a fresh

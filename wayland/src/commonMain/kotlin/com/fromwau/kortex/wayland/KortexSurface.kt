@@ -326,6 +326,8 @@ public class KortexSurface private constructor(
             onCrash: (KortexError.SurfaceCrashed) -> Unit = {},
             // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
             onInputSerial: (Int) -> Unit = {},
+            // Told as the surface's keyboard gains and loses focus; the clipboard gives up its offer once none has it.
+            onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
         ): Result<KortexSurface, KortexError> {
             // The surface tracks the open text-input session itself so a host does not have to; keys the
             // composition does not consume are turned into edits on it.
@@ -423,7 +425,7 @@ public class KortexSurface private constructor(
                 surface.pointerInput =
                     seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
                 if (config.keyboard != KeyboardInteractivity.None) {
-                    surface.keyboardInput = seat.attachKeyboard(scene, { open.get() }, onInputSerial)
+                    surface.keyboardInput = seat.attachKeyboard(scene, { open.get() }, onInputSerial, onKeyboardFocus)
                 }
                 display.roundtrip()
                 return Ok(surface)

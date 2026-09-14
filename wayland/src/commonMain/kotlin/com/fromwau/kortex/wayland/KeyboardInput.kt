@@ -21,6 +21,8 @@ internal class KeyboardInput(
     private val textInput: () -> KortexTextInput? = { null },
     // Handed the serial of every enter and key, which the clipboard quotes to set the selection.
     private val onInputSerial: (Int) -> Unit = {},
+    // Told as this keyboard's focus arrives and goes, since the selection offer is valid only while focused.
+    private val onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
 ) {
     private val arena: Arena = Arena.ofShared()
 
@@ -69,12 +71,14 @@ internal class KeyboardInput(
         data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment, keys: MemorySegment,
     ) {
         onInputSerial(serial)
+        onKeyboardFocus(this, true)
         scene.windowFocused = true
     }
 
     // Without this the composition keeps a text field focused, and its blinking caret commits a frame
     // often enough that the compositor hands the keyboard straight back to this surface.
     fun onLeave(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment) {
+        onKeyboardFocus(this, false)
         scene.windowFocused = false
         repeatingKey = null
     }
@@ -169,6 +173,8 @@ internal class KeyboardInput(
 
     /** Gives the keyboard, its stubs and its compiled keymap back; nothing here may be used afterwards. */
     fun release() {
+        // No leave follows a release, so the clipboard hears here that this keyboard's focus is gone.
+        onKeyboardFocus(this, false)
         if (keyboardProxy.equals(MemorySegment.NULL)) return
         LibWayland.marshalIfSince(keyboardProxy, WL_KEYBOARD_RELEASE, WL_KEYBOARD_RELEASE_SINCE)
         LibWayland.proxyDestroy(keyboardProxy)

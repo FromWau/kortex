@@ -46,8 +46,9 @@ public sealed interface KortexClipboard {
     /**
      * The text on the clipboard.
      *
-     * The compositor tells a shell what is on the clipboard only while one of its surfaces has keyboard focus, so
-     * a shell that has never had it reads [ClipboardError.NoSelection], even for text it copied itself.
+     * Text this shell copied reads back at once, with or without keyboard focus. Text another application copied
+     * reads back only while one of the shell's surfaces has keyboard focus, since only then does the compositor
+     * tell the shell what is on the clipboard; without it, the read is [ClipboardError.NoSelection].
      *
      * Cancelling your coroutine does not cut a read short: the coroutine sees its cancellation once the read has
      * returned, at most a second after the read began.
@@ -66,8 +67,8 @@ public sealed interface ClipboardError : IError {
     public data object NoClipboard : ClipboardError
 
     /**
-     * There is nothing to read: the clipboard is empty, or the compositor has not told the shell what is on it,
-     * which it does only while one of the shell's surfaces has keyboard focus.
+     * There is nothing to read: the clipboard is empty, or another application's text is on it while none of the
+     * shell's surfaces has keyboard focus, which the shell needs to read it.
      */
     public data object NoSelection : ClipboardError
 

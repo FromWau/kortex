@@ -19,8 +19,7 @@ import kotlinx.coroutines.withContext
  * The shell's clipboard: makes a text the selection or clears it, and reads the selection as text.
  *
  * Any thread may call it. Its requests run on [loop], which dispatches onto the thread that owns the connection,
- * and a read waits for its text on [Dispatchers.IO]: the text may come from this very client, whose loop has to
- * stay free to send it.
+ * and a read of another client's text waits for it on [Dispatchers.IO], so a slow source never stalls the loop.
  */
 internal class WaylandClipboard private constructor(
     private val display: WaylandDisplay,
@@ -49,6 +48,21 @@ internal class WaylandClipboard private constructor(
         inputSerial = serial
     }
 
+    // Each of the shell's keyboards that has focus now, since each surface binds its own; loop thread only.
+    private val focusedKeyboards = mutableSetOf<Any>()
+
+    /**
+     * Keeps whether [keyboard] has focus. Once none of the shell's keyboards has, the selection's offer is given
+     * back, since the compositor vouches for it only until then.
+     */
+    fun recordKeyboardFocus(keyboard: Any, focused: Boolean) {
+        if (focused) {
+            focusedKeyboards += keyboard
+        } else if (focusedKeyboards.remove(keyboard) && focusedKeyboards.isEmpty()) {
+            bound?.device?.dropSelection()
+        }
+    }
+
     /** Makes [source] this client's own copy, or none, without telling the compositor: a test's seam onto [hasText]. */
     fun recordOwnedSource(source: DataSource?) {
         this.source = source
@@ -65,9 +79,10 @@ internal class WaylandClipboard private constructor(
         return withContext(loop) { replaceSelection(null) }
     }
 
-    /** Asks for the selection under the first [TextMime] it is offered as, and reads it as UTF-8. */
+    /** Answers this client's own copy from memory, and otherwise reads the first [TextMime] offered as UTF-8. */
     override suspend fun readText(): Result<String, ClipboardError> {
         checkOpen()
+        ownedText?.let { return Ok(it) }
         return readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
     }
 

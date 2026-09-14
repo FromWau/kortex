@@ -14,6 +14,7 @@ import com.fromwau.kortex.compose.KortexScene
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.Surface
 import java.lang.foreign.MemorySegment
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -103,6 +104,59 @@ class InputDeliveryTest {
         }
     }
 
+    @Test
+    fun `a pointer button hands its serial to the clipboard`() {
+        val serials = CopyOnWriteArrayList<Int>()
+        withScene { scene, _ ->
+            PointerInput(scene, scale = 1f, onInputSerial = { serials += it })
+                .onButton(NULL, NULL, BUTTON_SERIAL, 20, BTN_LEFT, PRESSED)
+        }
+        assertEquals(listOf(BUTTON_SERIAL), serials.toList(), "a button did not hand the clipboard its serial")
+    }
+
+    @Test
+    fun `a keyboard enter hands its serial to the clipboard`() {
+        val serials = CopyOnWriteArrayList<Int>()
+        withScene { scene, _ ->
+            KeyboardInput(scene, onInputSerial = { serials += it }).onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
+        }
+        assertEquals(listOf(ENTER_SERIAL), serials.toList(), "a keyboard enter did not hand the clipboard its serial")
+    }
+
+    @Test
+    fun `a key hands its serial to the clipboard`() {
+        val serials = CopyOnWriteArrayList<Int>()
+        withScene { scene, _ ->
+            KeyboardInput(scene, onInputSerial = { serials += it }).onKey(NULL, NULL, KEY_SERIAL, 0, KEY_A, PRESSED)
+        }
+        assertEquals(listOf(KEY_SERIAL), serials.toList(), "a key did not hand the clipboard its serial")
+    }
+
+    @Test
+    fun `a keyboard tells the clipboard as focus arrives and as it leaves`() {
+        val reports = CopyOnWriteArrayList<Pair<KeyboardInput, Boolean>>()
+        withScene { scene, _ ->
+            val keyboard = KeyboardInput(scene, onKeyboardFocus = { reported, focused -> reports += reported to focused })
+            keyboard.onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
+            keyboard.onLeave(NULL, NULL, LEAVE_SERIAL, NULL)
+            assertEquals(
+                listOf(keyboard to true, keyboard to false), reports.toList(),
+                "the keyboard did not tell the clipboard its focus arrived and then left",
+            )
+        }
+    }
+
+    @Test
+    fun `a keyboard released while focused tells the clipboard its focus is gone`() {
+        val reports = CopyOnWriteArrayList<Pair<KeyboardInput, Boolean>>()
+        withScene { scene, _ ->
+            val keyboard = KeyboardInput(scene, onKeyboardFocus = { reported, focused -> reports += reported to focused })
+            keyboard.onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
+            keyboard.release()
+            assertEquals(keyboard to false, reports.last(), "a released keyboard left the clipboard counting its focus")
+        }
+    }
+
     private fun withScene(density: Float = 1f, block: (KortexScene, Surface) -> Unit) {
         val dispatcher = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "kortex-input-test").apply { isDaemon = true }
@@ -130,6 +184,13 @@ class InputDeliveryTest {
         const val SCALE = 2f
         const val OUTSIDE_LOGICAL = 24
         const val INSIDE_LOGICAL = 8
+        const val ENTER_SERIAL = 5
+        const val LEAVE_SERIAL = 6
+        const val BUTTON_SERIAL = 7
+        const val KEY_SERIAL = 9
+
+        // linux/input-event-codes.h
+        const val KEY_A = 30
 
         /** Physical pixels as wl_fixed_t, 24.8 fixed point. */
         fun fixed(pixels: Int) = pixels * 256

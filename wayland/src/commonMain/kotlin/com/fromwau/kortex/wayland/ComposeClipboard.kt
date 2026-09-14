@@ -103,7 +103,7 @@ private class PasteCheckClipboard(
 
 /**
  * Compose's synchronous clipboard over [clipboard]. [getText] answers only with [TextClipboard.ownedText]: content
- * calls it on the loop thread, which a read of this client's own selection needs free, so it never waits on a read.
+ * calls it on the loop thread, which a read of another client's text needs free, so it never waits on a read.
  */
 @Suppress("DEPRECATION") // Compose deprecates the interface, yet LocalClipboardManager still reaches content.
 internal class ComposeClipboardManager(
