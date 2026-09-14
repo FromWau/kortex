@@ -104,7 +104,7 @@ internal class WaylandClipboard private constructor(
         /** Gives back the device and its offers, the manager, and the seat last. */
         fun release() {
             device.release()
-            // wl_data_device_manager has no destructor below v4, so its proxy is only ever freed on this side.
+            LibWayland.marshalIfSince(manager, WL_DATA_DEVICE_MANAGER_RELEASE, WL_DATA_DEVICE_MANAGER_RELEASE_SINCE)
             LibWayland.proxyDestroy(manager)
             // Last, since the device was taken for it.
             seat.release()
@@ -133,6 +133,8 @@ internal class WaylandClipboard private constructor(
         }
 
         private const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
+        private const val WL_DATA_DEVICE_MANAGER_RELEASE = 2
+        private const val WL_DATA_DEVICE_MANAGER_RELEASE_SINCE = 4
     }
 }
 

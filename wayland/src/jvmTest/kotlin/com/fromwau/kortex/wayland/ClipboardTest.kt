@@ -313,6 +313,14 @@ class ClipboardTest {
         }
     }
 
+    @Test
+    fun `the clipboard asks for the newest wl_data_device_manager its interface declares`() {
+        assertEquals(
+            LibWayland.interfaceVersion(LibWayland.dataDeviceManagerInterface), WlVersion.DATA_DEVICE_MANAGER,
+            "the clipboard asks for an older wl_data_device_manager than its interface declares",
+        )
+    }
+
     /** A clipboard on a connection with no surface, so nothing ever gives it focus or an input serial. */
     private fun withUnfocusedClipboard(block: (WaylandClipboard) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }

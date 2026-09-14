@@ -48,7 +48,7 @@ internal object WlVersion {
     const val OUTPUT = 4
 
     /** wl_data_device, its offers and every wl_data_source inherit it, so their listeners grow with it. */
-    const val DATA_DEVICE_MANAGER = 3
+    const val DATA_DEVICE_MANAGER = 4
 }
 
 /**

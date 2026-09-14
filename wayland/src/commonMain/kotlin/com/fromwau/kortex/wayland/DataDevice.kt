@@ -118,7 +118,7 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
         private const val WL_DATA_DEVICE_RELEASE = 2
         private const val WL_DATA_DEVICE_RELEASE_SINCE = 2
 
-        // wl_data_device v3 declares exactly these six events; every slot must be filled, because
+        // wl_data_device v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
         private const val EVENT_COUNT = 6L
         private const val DATA_OFFER = 0L
@@ -196,7 +196,7 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
         const val WL_DATA_OFFER_RECEIVE = 1
         const val WL_DATA_OFFER_DESTROY = 2
 
-        // wl_data_offer v3 declares exactly these three events; every slot must be filled, because
+        // wl_data_offer v4 declares exactly these three events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
         const val EVENT_COUNT = 3L
         const val OFFER = 0L
@@ -298,7 +298,7 @@ internal class DataSource(private val text: String, private val arena: Arena = A
         private const val WL_DATA_SOURCE_OFFER = 0
         private const val WL_DATA_SOURCE_DESTROY = 1
 
-        // wl_data_source v3 declares exactly these six events; every slot must be filled, because
+        // wl_data_source v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
         private const val EVENT_COUNT = 6L
         private const val TARGET = 0L
