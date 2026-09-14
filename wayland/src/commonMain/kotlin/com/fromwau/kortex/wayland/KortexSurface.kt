@@ -326,7 +326,7 @@ public class KortexSurface private constructor(
             onCrash: (KortexError.SurfaceCrashed) -> Unit = {},
             // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
             onInputSerial: (Int) -> Unit = {},
-            // Told as the surface's keyboard gains and loses focus; the clipboard gives up its offer once none has it.
+            // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
         ): Result<KortexSurface, KortexError> {
             // The surface tracks the open text-input session itself so a host does not have to; keys the
