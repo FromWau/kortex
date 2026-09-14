@@ -140,11 +140,17 @@ class ComposeClipboardTest {
             COPIED, awt.getContents(null)?.getTransferData(DataFlavor.stringFlavor),
             "the AWT clipboard's contents were not this client's own text",
         )
-        assertEquals(COPIED, awt.getData(DataFlavor.stringFlavor), "the AWT clipboard's data was not this client's text")
+        assertEquals(
+            COPIED, awt.getData(DataFlavor.stringFlavor),
+            "the AWT clipboard's data was not this client's text",
+        )
 
         clipboard.ownedText = null
         assertNull(awt.getContents(null), "the AWT clipboard had contents for another client's text")
-        assertEquals(0, clipboard.reads.get(), "the AWT clipboard read the selection, which waits on the loop it runs on")
+        assertEquals(
+            0, clipboard.reads.get(),
+            "the AWT clipboard read the selection, which waits on the loop it runs on",
+        )
     }
 
     @Test
@@ -259,7 +265,10 @@ class ComposeClipboardTest {
             val popupClipboard = assertNotNull(typed.get(), "the Popup's content was handed no typed clipboard")
             // Pumped rather than awaited: a clipboard whose read hops onto the loop would wait on this very thread.
             val read = CoroutineScope(Dispatchers.Unconfined).future { popupClipboard.readText() }
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { read.isDone }, "the read never returned while the shell was pumped")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { read.isDone },
+                "the read never returned while the shell was pumped",
+            )
             assertEquals(Ok(OTHER_CLIENTS), read.get(), "the Popup's typed clipboard did not reach the shell's")
         }
     }
