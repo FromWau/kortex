@@ -2,7 +2,6 @@ package com.fromwau.kortex.wayland
 
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
-import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
@@ -47,30 +46,15 @@ internal class WaylandClipboard private constructor(
         inputSerial = serial
     }
 
-    /**
-     * Makes [text] the selection, offered under every [TextMime].
-     *
-     * @return [ClipboardError.NoInputSerial] until a surface of the shell has had an input event, or
-     *   [ClipboardError.NoClipboard] when the compositor offers none.
-     */
+    /** Offers [text] under every [TextMime]. */
     override suspend fun setText(text: String): EmptyResult<ClipboardError> =
         withContext(loop) { replaceSelection(text) }
 
-    /**
-     * Clears the selection, whichever client made it.
-     *
-     * @return [ClipboardError.NoInputSerial] until a surface of the shell has had an input event, or
-     *   [ClipboardError.NoClipboard] when the compositor offers none.
-     */
     override suspend fun clear(): EmptyResult<ClipboardError> = withContext(loop) { replaceSelection(null) }
 
     /**
-     * The selection, asked for under the first [TextMime] it is offered as, and read as UTF-8.
-     *
-     * Not cancellable: a cancelled caller sees its cancellation only once this returns its [Result], at most
-     * [TRANSFER_TIMEOUT_MILLIS] later, at its own next suspension point.
-     *
-     * @return the text, or the [ClipboardError] saying why there is none.
+     * Asks for the selection under the first [TextMime] it is offered as, and reads it as UTF-8. Not cancellable:
+     * a cancelled caller sees its cancellation at most [TRANSFER_TIMEOUT_MILLIS] later, once this has returned.
      */
     override suspend fun readText(): Result<String, ClipboardError> =
         readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
@@ -146,30 +130,6 @@ internal class WaylandClipboard private constructor(
 
         private const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
     }
-}
-
-/** Why [WaylandClipboard] could not set or read the selection. */
-internal sealed interface ClipboardError : IError {
-    /** The compositor offers no clipboard: it never announced `wl_data_device_manager`. */
-    data object NoClipboard : ClipboardError
-
-    /** Nothing is selected, or this client has not been told what is: only keyboard focus brings that. */
-    data object NoSelection : ClipboardError
-
-    /** The selection is offered under no [TextMime]. */
-    data object NoText : ClipboardError
-
-    /** No surface has had an input event yet, and setting the selection quotes one's serial. */
-    data object NoInputSerial : ClipboardError
-
-    /** The pipe the text travels through could not be made, or failed while it was read. */
-    data object PipeFailed : ClipboardError
-
-    /** The selection's owner had not finished writing it when the read's timeout ran out. */
-    data object ReadTimedOut : ClipboardError
-
-    /** The selection passed [MAX_SELECTION_BYTES] before its writer closed its end. */
-    data object TooLarge : ClipboardError
 }
 
 /**

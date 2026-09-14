@@ -57,6 +57,8 @@ public class KortexShell private constructor(
     private val loopQueue: LoopQueue,
     /** The one clipboard every surface's content shares; not private because a test reads through it. */
     internal val clipboard: WaylandClipboard,
+    // What content copies and pastes through: the shell's clipboard, or a test's stand-in for it.
+    private val contentClipboard: TextClipboard,
 ) {
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
@@ -249,7 +251,7 @@ public class KortexShell private constructor(
             surface
                 .setContent {
                     CompositionLocalProvider(LocalKortexHost provides host) {
-                        ProvideClipboard(clipboard, spec.content)
+                        ProvideClipboard(contentClipboard, spec.content)
                     }
                 }
                 // Never added to surfaces, so nothing else would close it.
@@ -266,6 +268,8 @@ public class KortexShell private constructor(
             pendingOpens += spec
             display.wake()
         }
+
+        override val clipboard: KortexClipboard get() = contentClipboard
     }
 
     private fun removeSurface(active: ActiveSurface) {
@@ -307,11 +311,31 @@ public class KortexShell private constructor(
             vararg specs: SurfaceSpec,
             platform: KortexPlatform = KortexPlatform.None,
             onCrashSurface: (KortexError.SurfaceCrashed) -> Unit = {},
+        ): Result<KortexShell, KortexError> = create(display, specs.toList(), platform, onCrashSurface) { it }
+
+        /**
+         * The public [create], with content copying and pasting through what [contentClipboard] makes of the
+         * shell's own clipboard; a test hands it a stand-in.
+         */
+        internal fun create(
+            display: WaylandDisplay,
+            specs: List<SurfaceSpec>,
+            platform: KortexPlatform,
+            onCrashSurface: (KortexError.SurfaceCrashed) -> Unit,
+            contentClipboard: (WaylandClipboard) -> TextClipboard,
         ): Result<KortexShell, KortexError> {
             val loopQueue = LoopQueue(display::wake)
             // Before any surface can take focus: the selection comes as focus arrives, to the devices there are then.
             val clipboard = WaylandClipboard.bind(display, loopQueue).getOrElse { return Err(it) }
-            val shell = KortexShell(display, specs.toList(), platform, onCrashSurface, loopQueue, clipboard)
+            val shell = KortexShell(
+                display = display,
+                specs = specs,
+                platform = platform,
+                onCrashSurface = onCrashSurface,
+                loopQueue = loopQueue,
+                clipboard = clipboard,
+                contentClipboard = contentClipboard(clipboard),
+            )
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)

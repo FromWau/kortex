@@ -25,16 +25,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
-/** A clipboard that holds text: what Compose's clipboard needs of the shell's. */
-internal interface TextClipboard {
+/** The shell's clipboard as Compose's clipboards need it: a [KortexClipboard] that can also answer without waiting. */
+internal interface TextClipboard : KortexClipboard {
     /** The text this client set, until another selection or a clear replaces it; answered at once, on any thread. */
     val ownedText: String?
-
-    suspend fun setText(text: String): EmptyResult<ClipboardError>
-
-    suspend fun readText(): Result<String, ClipboardError>
-
-    suspend fun clear(): EmptyResult<ClipboardError>
 }
 
 /** Provides [clipboard] to [content] as both of Compose's clipboards, so no copy or paste there reaches AWT's. */

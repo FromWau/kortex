@@ -4,8 +4,8 @@ import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
- * The running shell, as a surface's own content can reach it: the output that surface landed on, and
- * the one way content can put another surface on screen.
+ * The running shell, as a surface's own content can reach it: the output that surface landed on, the
+ * one way content can put another surface on screen, and the desktop's clipboard.
  */
 public interface KortexHost {
     /**
@@ -27,6 +27,12 @@ public interface KortexHost {
      * whose config omits an axis it has no anchor to span, takes the host down instead.
      */
     public fun open(spec: SurfaceSpec)
+
+    /**
+     * The desktop's clipboard, shared by every surface of the shell. Call it rather than Compose's
+     * `LocalClipboard` when content needs to know why a copy or paste failed.
+     */
+    public val clipboard: KortexClipboard
 }
 
 /** Provided by the shell around each surface's own content; absent means content outside a running shell. */

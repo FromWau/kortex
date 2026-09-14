@@ -2,6 +2,8 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
@@ -10,16 +12,22 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.awtClipboard
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.KortexPlatform
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -31,7 +39,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Compose's two clipboards over the shell's, driven against a fake of it: what a copy, a clear and a paste hand
- * over, what the synchronous clipboard answers without reading, and which clipboards a shell's content is given.
+ * over, what the synchronous clipboard answers without reading, and which clipboards a shell's content is given,
+ * its typed one among them.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class ComposeClipboardTest {
@@ -98,23 +107,65 @@ class ComposeClipboardTest {
 
     @Test
     fun `a shell gives its surface's content kortex's clipboards, not AWT's`() {
-        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val clipboard = AtomicReference<Any?>()
         val manager = AtomicReference<Any?>()
-        display.use { wayland ->
-            val spec = SurfaceSpec(SPECK_CONFIG, OutputTarget.CompositorChoice) {
+        val typed = AtomicReference<KortexClipboard?>()
+        withSpeckShell(
+            content = {
                 clipboard.set(LocalClipboard.current)
                 // Deprecated by Compose, yet still what content that has not moved to LocalClipboard reads.
                 @Suppress("DEPRECATION")
                 val deprecatedManager = LocalClipboardManager.current
                 manager.set(deprecatedManager)
+                typed.set(LocalKortexHost.current.clipboard)
                 Box(Modifier.fillMaxSize())
-            }
-            val shell = KortexShell.create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
-            shell.useOrFail {
-                assertIs<ComposeClipboard>(clipboard.get(), "content's LocalClipboard is not the shell's")
-                assertIs<ComposeClipboardManager>(manager.get(), "content's LocalClipboardManager is not the shell's")
-            }
+            },
+        ) { shell ->
+            assertIs<ComposeClipboard>(clipboard.get(), "content's LocalClipboard is not the shell's")
+            assertIs<ComposeClipboardManager>(manager.get(), "content's LocalClipboardManager is not the shell's")
+            assertSame(shell.clipboard, typed.get(), "content's typed clipboard is not the shell's")
+        }
+    }
+
+    @Test
+    fun `content reads and writes the shell's clipboard through its host, failures included`() {
+        val clipboard = FakeTextClipboard(read = { Ok(OTHER_CLIENTS) }, set = { Err(ClipboardError.NoInputSerial) })
+        val results = CopyOnWriteArrayList<Result<Any, ClipboardError>>()
+        withSpeckShell(
+            content = {
+                val host = LocalKortexHost.current
+                LaunchedEffect(host) {
+                    results += host.clipboard.readText()
+                    results += host.clipboard.setText(COPIED)
+                    results += host.clipboard.clear()
+                }
+            },
+            create = { display, spec ->
+                KortexShell.create(display, listOf(spec), KortexPlatform.None, {}) { clipboard }
+            },
+        ) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { results.size == CALLS }, "content's calls never returned")
+        }
+        assertEquals(
+            listOf(Ok(OTHER_CLIENTS), Err(ClipboardError.NoInputSerial), Ok(Unit)),
+            results.toList(),
+            "content did not get the clipboard's own results",
+        )
+    }
+
+    /** Runs [block] against the shell [create] makes with [content] on a speck: by default, as a host makes one. */
+    private fun withSpeckShell(
+        content: @Composable () -> Unit,
+        create: (WaylandDisplay, SurfaceSpec) -> Result<KortexShell, KortexError> = { display, spec ->
+            KortexShell.create(display, spec)
+        },
+        block: (KortexShell) -> Unit,
+    ) {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        display.use { wayland ->
+            val spec = SurfaceSpec(SPECK_CONFIG, OutputTarget.CompositorChoice, content)
+            val shell = create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
+            shell.useOrFail(block)
         }
     }
 
@@ -130,6 +181,8 @@ class ComposeClipboardTest {
     private companion object {
         const val COPIED = "Grüße aus kortex"
         const val OTHER_CLIENTS = "from another client"
+        const val CALLS = 3
+        const val PUMP_MILLIS = 2000L
 
         // A speck in a corner that takes neither the keyboard nor any screen space from the desktop.
         val SPECK_CONFIG = SurfaceConfig(

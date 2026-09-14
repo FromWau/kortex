@@ -7,9 +7,13 @@ import com.fromwau.kern.result.Result
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
-/** A [TextClipboard] that keeps what reaches it and answers every read with [read]; any thread may call it. */
+/**
+ * A [TextClipboard] that keeps what reaches it, answers every read with [read] and every set with [set]; any thread
+ * may call it.
+ */
 internal class FakeTextClipboard(
     private val read: suspend () -> Result<String, ClipboardError> = { Err(ClipboardError.NoSelection) },
+    private val set: suspend () -> EmptyResult<ClipboardError> = { Ok(Unit) },
 ) : TextClipboard {
     val setTexts = CopyOnWriteArrayList<String>()
     val clears = AtomicInteger()
@@ -20,7 +24,7 @@ internal class FakeTextClipboard(
 
     override suspend fun setText(text: String): EmptyResult<ClipboardError> {
         setTexts += text
-        return Ok(Unit)
+        return set()
     }
 
     override suspend fun readText(): Result<String, ClipboardError> {
