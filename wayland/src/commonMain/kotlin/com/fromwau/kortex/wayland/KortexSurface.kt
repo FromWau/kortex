@@ -39,7 +39,7 @@ import org.jetbrains.skia.Surface
 public class KortexSurface private constructor(
     private val namespace: String,
     private val display: WaylandDisplay,
-    private val layer: LayerSurface,
+    private val layer: LayerShellSurface,
     private val shm: Shm,
     private var bufferScale: Int,
     private var frames: List<Frame>,
@@ -148,7 +148,7 @@ public class KortexSurface private constructor(
     /**
      * Requests a new size from the compositor; must be called on the loop thread, like every request here.
      *
-     * @return what [LayerSurface.setSize] rejected, leaving the surface at the size it already had.
+     * @return what [LayerShellSurface.setSize] rejected, leaving the surface at the size it already had.
      */
     public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
         layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
@@ -390,7 +390,7 @@ public class KortexSurface private constructor(
             try {
                 val shm = Shm.bind(display).getOrElse { return Err(it) }
                 unwind += shm::close
-                val layer = LayerSurface.create(
+                val layer = LayerShellSurface.create(
                     display,
                     namespace = config.namespace,
                     height = config.height.toLogicalPx(),

@@ -99,7 +99,7 @@ class SurfaceLifetimeTest {
                 .getOrElse { error -> fail("cursor theme load failed: $error") }
             val cursorSurface = WlCursorSurface.create(wayland)
                 .getOrElse { error -> fail("cursor surface creation failed: $error") }
-            val layer = LayerSurface.create(
+            val layer = LayerShellSurface.create(
                 wayland,
                 namespace = LAYER_NAMESPACE,
                 height = LAYER_HEIGHT,

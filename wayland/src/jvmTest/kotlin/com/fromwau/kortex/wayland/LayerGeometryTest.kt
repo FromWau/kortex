@@ -28,7 +28,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = NAMESPACE,
                 height = HEIGHT,
@@ -70,7 +70,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = DEFAULT_NAMESPACE,
                 height = DEFAULT_HEIGHT,
@@ -101,7 +101,7 @@ class LayerGeometryTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val result = LayerSurface.create(
+            val result = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, anchor = setOf(Edge.Top),
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
@@ -114,7 +114,7 @@ class LayerGeometryTest {
 
             // The rejection must happen before any request reaches the compositor, leaving the
             // connection itself unharmed; prove it by using it normally right after.
-            val sanity = LayerSurface.create(
+            val sanity = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
@@ -130,7 +130,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             // Anchored Left and Right, so the horizontal axis is spannable and only height can be rejected.
             val horizontal = setOf(Edge.Left, Edge.Right)
-            val result = LayerSurface.create(
+            val result = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = 0, anchor = horizontal,
                 exclusiveZone = ExclusiveZone.Yield,
             )
@@ -141,7 +141,7 @@ class LayerGeometryTest {
                 is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Vertical, horizontal), result.error)
             }
 
-            val sanity = LayerSurface.create(
+            val sanity = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
@@ -156,7 +156,7 @@ class LayerGeometryTest {
 
         display.use { wayland ->
             // Both axes explicit, so create() itself has nothing to object to and only setSize can.
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = RESIZED_NAMESPACE,
                 height = HEIGHT,
@@ -190,7 +190,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = SPANNING_NAMESPACE,
                 height = 0,

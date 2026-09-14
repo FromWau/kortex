@@ -89,7 +89,7 @@ internal object LayerShellProtocol {
  * The compositor answers the first commit with `configure`, and a buffer must not be attached before
  * that serial is acknowledged — doing so is a protocol error and a disconnect.
  */
-public class LayerSurface internal constructor(
+public class LayerShellSurface internal constructor(
     private val display: WaylandDisplay,
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
@@ -229,7 +229,7 @@ public class LayerSurface internal constructor(
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,
             exclusiveEdge: Edge? = null,
-        ): Result<LayerSurface, KortexError> {
+        ): Result<LayerShellSurface, KortexError> {
             unspannableAxis(width, height, anchor)?.let { return Err(it) }
             if (exclusiveEdge != null && exclusiveEdge !in anchor) {
                 return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
@@ -253,7 +253,7 @@ public class LayerSurface internal constructor(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
                 LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),
             )
-            // Closed by the LayerSurface this all ends up in, which is the one owner of both proxies.
+            // Closed by the LayerShellSurface this all ends up in, which is the one owner of both proxies.
             val arena = Arena.ofShared()
             // Before get_layer_surface below: the compositor answers that with preferred_buffer_scale.
             val surfaceListener = WlSurfaceListener()
@@ -311,7 +311,7 @@ public class LayerSurface internal constructor(
                 args = listOf(WlArg.Num(keyboard.wireValue)),
             )
 
-            val result = LayerSurface(
+            val result = LayerShellSurface(
                 display, surface, layerSurface, anchor, state, surfaceListener, compositor, shell, arena,
             )
             result.commit()

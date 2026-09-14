@@ -8,13 +8,13 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-class LayerSurfaceTest {
+class LayerShellSurfaceTest {
     @Test
     fun `the compositor places a layer surface and configures it`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 it, namespace = NAMESPACE, height = BAR_HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
@@ -37,7 +37,7 @@ class LayerSurfaceTest {
 
         display.use {
             val layer = Layer.Overlay
-            val overlay = LayerSurface.create(
+            val overlay = LayerShellSurface.create(
                 it,
                 namespace = NAMESPACE,
                 height = BAR_HEIGHT,

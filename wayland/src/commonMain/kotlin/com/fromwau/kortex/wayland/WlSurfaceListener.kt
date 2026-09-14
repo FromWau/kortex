@@ -26,7 +26,7 @@ internal class WlSurfaceListener {
 
     fun onPreferredBufferTransform(data: MemorySegment, proxy: MemorySegment, transform: Int) = Unit
 
-    /** [arena] is the owning [LayerSurface]'s, which closes it once the `wl_surface` is destroyed. */
+    /** [arena] is the owning [LayerShellSurface]'s, which closes it once the `wl_surface` is destroyed. */
     fun install(arena: Arena, surface: MemorySegment) {
         val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
         listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(arena, this, "onEnter", ENTER_DESCRIPTOR))

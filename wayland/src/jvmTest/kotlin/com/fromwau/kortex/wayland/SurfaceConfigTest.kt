@@ -69,7 +69,7 @@ class SurfaceConfigTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val panel = LayerSurface.create(
+            val panel = LayerShellSurface.create(
                 wayland,
                 namespace = PANEL_NAMESPACE,
                 height = PANEL_HEIGHT,

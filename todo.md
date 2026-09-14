@@ -107,12 +107,12 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       opcode past a proxy's version kills the connection; the proxies themselves are always freed
       client-side. Each `close()` is idempotent, since the `KortexSurface` latch guarding them is not
       something a direct caller of those classes has. (`SurfaceLifetimeTest`)
-- [x] **Every proxy a surface binds is given back.** `LayerSurface.create` binds a
+- [x] **Every proxy a surface binds is given back.** `LayerShellSurface.create` binds a
       `wl_compositor` and a `zwlr_layer_shell_v1` of its own, since `WaylandDisplay.require` caches
       nothing, and kept neither; `FrameClock` released its `wl_callback` only when the frame fired, so a
       surface closed mid-frame leaked one. All four are given back now, the shell and the compositor
       after the layer surface and `wl_surface` go, and the callback before the `wl_surface` it was
-      requested on. `LayerSurface.close()` took the same idempotence latch its siblings have, named
+      requested on. `LayerShellSurface.close()` took the same idempotence latch its siblings have, named
       `disposed` to sit beside the public `closed`, which is the compositor's word rather than a
       teardown flag. `wl_compositor.release` carries an opcode and a `since` that are fatal to get wrong
       together, so `releaseCompositor` holds both once, beside `releaseShm`. (`SurfaceLifetimeTest`)
@@ -459,7 +459,7 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 
 - [x] **`WlSurfaceListener` has a file of its own.** `wl_surface` is a core interface, not part of the
       wlroots extension, so its listener sits in `WlSurfaceListener.kt` and `LayerShell.kt` keeps the
-      `zwlr_layer_shell_v1` tables and `LayerSurface`.
+      `zwlr_layer_shell_v1` tables and `LayerShellSurface`.
 - [x] **A shell's surfaces run their Compose work on its loop thread.** `KortexShell` keeps one
       `LoopQueue`, a `CoroutineDispatcher`, and hands it to every `KortexSurface.create` call it makes; a
       bare `KortexSurface` builds one of its own. Every surface's scene dispatches onto it: a dispatch
