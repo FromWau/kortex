@@ -83,8 +83,8 @@ internal class ComposeClipboard(
 }
 
 /**
- * The AWT clipboard foundation's paste checks ask, synchronously and on the loop thread, whether there is text to
- * paste. It answers from [TextClipboard.hasText] and never reads. Its contents are this client's own text alone:
+ * The AWT clipboard that foundation's paste checks ask, synchronously and on the loop thread, whether there is text
+ * to paste. It answers from [TextClipboard.hasText] and never reads. Its contents are this client's own text alone:
  * another client's text it only reports as there, and that text is pasted through [Clipboard.getClipEntry]. A copy
  * handed to it goes to [copy].
  */
