@@ -38,8 +38,8 @@ class NamedOutputTest {
                 val shell = KortexShell.create(wayland, namedSpec(outputName), panelSpec())
                     .getOrElse { error -> fail("shell creation failed: $error") }
 
-                shell.use {
-                    val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
+                shell.useOrFail {
+                    val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
                     assertTrue(appeared, "hyprctl layers never reported a $NAMED_NAMESPACE- namespace")
 
                     val namespace = assertNotNull(namedNamespace(), "the named surface's namespace vanished mid-check")
@@ -69,8 +69,8 @@ class NamedOutputTest {
                 val shell = KortexShell.create(wayland, namedSpec(outputName), panelSpec())
                     .getOrElse { error -> fail("shell creation failed: $error") }
 
-                shell.use {
-                    val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
+                shell.useOrFail {
+                    val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
                     assertTrue(appeared, "hyprctl layers never reported a $NAMED_NAMESPACE- namespace")
                     val panelsBefore = awaitPanelCount(expectedPanels)
                     assertEquals(expectedPanels, panelsBefore.size, "expected one panel per connected output")
@@ -78,7 +78,7 @@ class NamedOutputTest {
                     Hyprctl.removeHeadlessOutput(outputName)
                     pending = null
 
-                    val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { namedNamespace() == null }
+                    val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { namedNamespace() == null }
                     assertTrue(dropped, "the named surface outlived the output it was placed on")
                     assertNull(namedNamespace(), "hyprctl layers still reports a $NAMED_NAMESPACE- namespace")
 
@@ -108,7 +108,7 @@ class NamedOutputTest {
                 val shell = KortexShell.create(wayland, namedSpec(predictedName))
                     .getOrElse { error -> fail("shell creation failed: $error") }
 
-                shell.use {
+                shell.useOrFail {
                     pending = Hyprctl.createHeadlessOutput()
                     assertEquals(
                         predictedName, pending,
@@ -116,7 +116,7 @@ class NamedOutputTest {
                             "after $probe was removed, so the prediction this test relies on no longer holds",
                     )
 
-                    val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
+                    val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { namedNamespace() != null }
                     assertTrue(appeared, "hyprctl layers never reported a $NAMED_NAMESPACE- namespace after hotplug")
 
                     val namespace = assertNotNull(namedNamespace(), "the named surface's namespace vanished mid-check")

@@ -217,7 +217,7 @@ class KeyRepeatTest {
             try {
                 val shell = KortexShell.create(display, speckSpec(FIRST_NAMESPACE), speckSpec(SECOND_NAMESPACE))
                     .getOrElse { error -> fail("shell creation failed: $error") }
-                shell.use {
+                shell.useOrFail {
                     val (first, second) = shell.activeSurfaces.map { active ->
                         assertNotNull(seat.attachKeyboard(scene), "the seat announced no keyboard")
                             .also { active.surface.keyboardInput = it }

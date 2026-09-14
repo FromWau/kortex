@@ -112,7 +112,7 @@ class ProtocolVersionTest {
                 .getOrElse { error -> fail("bar creation failed: $error") }
                 .use { bar ->
                     bar.setContent { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
-                    bar.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS)
+                    bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS)
 
                     assertNull(wayland.protocolError(), "the connection reported a protocol error")
                     assertTrue(bar.renders > 0, "the bar never rendered a frame")
@@ -165,7 +165,7 @@ class ProtocolVersionTest {
                         fun moveTo(x: Int, y: Int) {
                             wheel.moveTo(monitor, x, y)
                             wayland.roundtrip()
-                            bar.pump(timeoutMillis = SETTLE_MILLIS)
+                            bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
                         }
 
                         // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
@@ -187,7 +187,8 @@ class ProtocolVersionTest {
                         moveTo(offBarX, offBarY)
                     }
 
-                    val delivered = bar.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { scrolled.get() != Offset.Zero }
+                    val delivered =
+                        bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { scrolled.get() != Offset.Zero }
 
                     assertNull(wayland.protocolError(), "the connection reported a protocol error")
                     assertTrue(delivered, "a wheel scroll over the bar never reached the composition")

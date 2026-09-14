@@ -35,8 +35,8 @@ class RecompositionTest {
             }
             val shell = KortexShell.create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
-                val sawRealGeometry = shell.pump(PUMP_TIMEOUT_MILLIS) { composed.any { it != null } }
+            shell.useOrFail {
+                val sawRealGeometry = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { composed.any { it != null } }
                 assertTrue(sawRealGeometry, "content never composed with the output's real geometry")
 
                 val output = shell.activeSurfaces.first().output
@@ -56,7 +56,7 @@ class RecompositionTest {
                 listener.onDescription(NONE, NONE, strings.allocateFrom(DESCRIPTION))
                 listener.onDone(NONE, NONE)
 
-                val recomposed = shell.pump(PUMP_TIMEOUT_MILLIS) { composed.any { it?.name == NAME } }
+                val recomposed = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { composed.any { it?.name == NAME } }
                 assertTrue(recomposed, "content never recomposed after the output republished its geometry")
             }
         }
@@ -77,13 +77,13 @@ class RecompositionTest {
                     SideEffect { composed += size }
                     Box(Modifier.fillMaxSize())
                 }
-                val composedOnce = surface.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { composed.isNotEmpty() }
+                val composedOnce = surface.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { composed.isNotEmpty() }
                 assertTrue(composedOnce, "content never composed at all")
 
                 surface.requestSize(SPAN_ANCHORED_AXIS.dp, RESIZED_HEIGHT.dp)
                     .getOrElse { error -> fail("the resize was rejected before it reached the compositor: $error") }
 
-                val recomposed = surface.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) {
+                val recomposed = surface.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) {
                     composed.any { it.height == RESIZED_HEIGHT }
                 }
                 assertTrue(recomposed, "content never recomposed after requestSize changed the handle's size")

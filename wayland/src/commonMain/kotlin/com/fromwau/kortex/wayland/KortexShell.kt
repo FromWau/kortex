@@ -5,8 +5,10 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
+import com.fromwau.kern.result.onError
 import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -50,10 +52,14 @@ public class KortexShell private constructor(
     private val display: WaylandDisplay,
     private val specs: List<SurfaceSpec>,
     private val platform: KortexPlatform,
-) : AutoCloseable {
+    private val onCrashSurface: (KortexError.SurfaceCrashed) -> Unit,
+) {
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
     private val surfaces = mutableListOf<ActiveSurface>()
+
+    // Filled by each surface's scene, on whichever thread its content fails, and emptied by reportCrashes.
+    private val crashes = ConcurrentLinkedQueue<KortexError.SurfaceCrashed>()
     // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
     private val loopQueue = LoopQueue(display::wake)
 
@@ -96,41 +102,49 @@ public class KortexShell private constructor(
      * itself closes it, rather than content, it is placed again as long as any output remains connected,
      * so that case keeps the loop running too.
      *
+     * Ends early with the error when content throws, as [KortexError.SurfaceCrashed], or when a surface cannot be
+     * placed; each crash also reaches `onCrashSurface`, and closing the shell afterwards is still the caller's.
+     *
      * Blocks, and owns the connection for as long as it does. Content runs on the thread that runs the loop,
      * so create the shell on that same thread.
      */
-    public fun runEventLoop() {
+    public fun runEventLoop(): EmptyResult<KortexError> {
         while (true) {
-            applyPendingChanges()
+            applyPendingChanges().getOrElse { return Err(it) }
             if (surfaces.isEmpty() && !awaitingAnOutput) break
             if (!display.awaitWork(nextDeadlineNanos())) break
-            serviceSurfaces()
+            serviceSurfaces().getOrElse { return Err(it) }
         }
+        return Ok(Unit)
     }
 
     /** The earliest deadline across the surfaces that no event announces; not private because a test asserts it. */
     internal fun nextDeadlineNanos(): Long? = surfaces.mapNotNull { it.surface.nextDeadlineNanos }.minOrNull()
 
-    /** Pumps the connection until [predicate] holds or [timeoutMillis] elapses. */
-    public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Boolean {
+    /**
+     * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
+     *
+     * @return whether [predicate] held, or the error that ended the run first, as [runEventLoop] would return it.
+     */
+    public fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Result<Boolean, KortexError> {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
-            applyPendingChanges()
-            if (predicate()) return true
+            applyPendingChanges().getOrElse { return Err(it) }
+            if (predicate()) return Ok(true)
             display.roundtrip()
-            serviceSurfaces()
+            serviceSurfaces().getOrElse { return Err(it) }
             Thread.sleep(PUMP_INTERVAL_MILLIS)
         }
-        applyPendingChanges()
-        serviceSurfaces()
-        return predicate()
+        applyPendingChanges().getOrElse { return Err(it) }
+        serviceSurfaces().getOrElse { return Err(it) }
+        return Ok(predicate())
     }
 
-    private fun applyPendingChanges() {
+    private fun applyPendingChanges(): EmptyResult<KortexError> {
         if (pendingAdds.isNotEmpty()) {
             val adds = pendingAdds.toList()
             pendingAdds.clear()
-            adds.forEach(::addOutput)
+            adds.forEach { global -> addOutput(global).getOrElse { return Err(it) } }
         }
         if (pendingRemoves.isNotEmpty()) {
             val removes = pendingRemoves.toList()
@@ -141,14 +155,12 @@ public class KortexShell private constructor(
             // Drained fully before any is placed: placing one can compose content that calls open()
             // again, and servicing that in the same pass would spin forever on pathological content.
             val opens = generateSequence(pendingOpens::poll).toList()
-            opens.forEach { spec ->
-                placeSurfaces(spec, standing = false)
-                    .getOrElse { error("kortex surface open failed for ${spec.config.namespace}: $it") }
-            }
+            opens.forEach { spec -> placeSurfaces(spec, standing = false).getOrElse { return Err(it) } }
         }
+        return Ok(Unit)
     }
 
-    private fun serviceSurfaces() {
+    private fun serviceSurfaces(): EmptyResult<KortexError> {
         // First: content running here posts to the surface queues drained next, its own close among them.
         loopQueue.runPass()
         // Before the reap: content's posted close marks its surface only when drained, and its wake is already spent.
@@ -157,11 +169,16 @@ public class KortexShell private constructor(
         val closing = surfaces.filter { it.surface.closed }
         val toReplace = closing.filter(::shouldReplace)
         closing.forEach(::removeSurface)
-        // Dropped rather than thrown: a replacement fails on a connection already going down, with no
-        // caller left, and taking the host with it is worse than one surface staying gone.
+        // A replacement that cannot be placed is dropped, as on a connection going down: one surface staying gone
+        // beats ending the run. One whose content crashed has queued that crash, which ends the run below.
         toReplace.forEach { active -> placeSurfaces(active.spec, standing = true) }
-        surfaces.forEach { it.surface.serviceTick() }
+        surfaces.forEach { active -> active.surface.serviceTick().getOrElse { return Err(it) } }
+        return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
+
+    // Every crash since the last report goes to the host once; the first is what ends the run.
+    private fun reportCrashes(): KortexError.SurfaceCrashed? =
+        generateSequence(crashes::poll).toList().onEach(onCrashSurface).firstOrNull()
 
     // Exactly what OutputTarget.CompositorChoice's own KDoc promises: replaced only here, gone otherwise.
     private fun shouldReplace(active: ActiveSurface): Boolean =
@@ -170,8 +187,7 @@ public class KortexShell private constructor(
             active.surface.closeReason == CloseReason.Compositor &&
             outputs.isNotEmpty()
 
-    // A hotplug arrives long after create() returned, with no Result channel left to report through.
-    private fun addOutput(global: WaylandGlobal) {
+    private fun addOutput(global: WaylandGlobal): EmptyResult<KortexError> {
         val output = bindOutput(global)
         // The output has no name until its own done arrives, and a NamedOutput match needs it now.
         display.roundtrip()
@@ -181,10 +197,8 @@ public class KortexShell private constructor(
                 OutputTarget.CompositorChoice -> false
                 is OutputTarget.NamedOutput -> output.matchesName(target.name)
             }
-        }.forEach { spec ->
-            createSurface(spec, output, standing = true)
-                .getOrElse { error("kortex surface creation failed for output ${global.name}: $it") }
-        }
+        }.forEach { spec -> createSurface(spec, output, standing = true).getOrElse { return Err(it) } }
+        return Ok(Unit)
     }
 
     private fun bindOutput(global: WaylandGlobal): ShellOutput {
@@ -225,13 +239,14 @@ public class KortexShell private constructor(
             platform = platform,
             output = output?.proxy ?: MemorySegment.NULL,
             loopQueue = loopQueue,
-        ).map { surface ->
+            onCrash = crashes::add,
+        ).flatMap { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
-            surface.setContent {
-                CompositionLocalProvider(LocalKortexHost provides host) { spec.content() }
-            }
-            surfaces += active
+            surface.setContent { CompositionLocalProvider(LocalKortexHost provides host) { spec.content() } }
+                // Never added to surfaces, so nothing else would close it.
+                .onError { surface.close() }
+                .map { surfaces += active }
         }
     }
 
@@ -250,7 +265,11 @@ public class KortexShell private constructor(
         active.surface.close()
     }
 
-    override fun close() {
+    /**
+     * Closes every surface and output and runs what is left on the queue, whatever content throws meanwhile.
+     * Each crash not yet handed to `onCrashSurface` goes to it now, and the first is returned.
+     */
+    public fun close(): EmptyResult<KortexError> {
         display.onGlobalAdded = null
         display.onGlobalRemoved = null
         surfaces.toList().forEach(::removeSurface)
@@ -258,6 +277,8 @@ public class KortexShell private constructor(
         outputs.clear()
         // No pass follows a close, so what reached the queue since the last one runs here.
         loopQueue.drain()
+        // After the drain, since a closed scene's late work can be what crashed.
+        return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
 
     public companion object {
@@ -266,13 +287,17 @@ public class KortexShell private constructor(
          *
          * A per-output surface takes the output's registry name as a namespace suffix, so one spec's
          * surfaces stay distinguishable to the compositor and to whoever reads its layer list.
+         *
+         * @param onCrashSurface called on the loop thread with every crash of a surface's content, once each,
+         *   those while closing included.
          */
         public fun create(
             display: WaylandDisplay,
             vararg specs: SurfaceSpec,
             platform: KortexPlatform = KortexPlatform.None,
+            onCrashSurface: (KortexError.SurfaceCrashed) -> Unit = {},
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, specs.toList(), platform)
+            val shell = KortexShell(display, specs.toList(), platform, onCrashSurface)
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)
@@ -280,6 +305,7 @@ public class KortexShell private constructor(
             display.roundtrip()
             for (spec in specs) {
                 shell.placeSurfaces(spec, standing = true).getOrElse {
+                    // Its crashes reach onCrashSurface; what this returns is why placing failed.
                     shell.close()
                     return Err(it)
                 }

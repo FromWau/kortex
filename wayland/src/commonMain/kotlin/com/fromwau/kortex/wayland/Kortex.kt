@@ -5,7 +5,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.flatMap
-import com.fromwau.kern.result.map
 import com.fromwau.kortex.compose.KortexPlatform
 
 /**
@@ -25,8 +24,8 @@ import com.fromwau.kortex.compose.KortexPlatform
  * keeps it going with nothing on screen: an [OutputTarget.EveryOutput] spec waiting for any output, or
  * an [OutputTarget.NamedOutput] spec waiting for the one output it names. A standing
  * [OutputTarget.CompositorChoice] surface keeps it going a third way, by being placed again whenever the
- * compositor takes it away while an output is still connected. The connection itself is always closed
- * before this returns.
+ * compositor takes it away while an output is still connected. Content that throws ends the run early, as
+ * [KortexError.SurfaceCrashed]. The connection itself is always closed before this returns.
  *
  * Every surface's composition and effects, and any coroutine they start without a dispatcher of its own,
  * run on the thread that calls this, the same thread that dispatches Wayland events and draws. Blocking
@@ -35,15 +34,23 @@ import com.fromwau.kortex.compose.KortexPlatform
  *
  * @param specs what to put on screen and where, created in the order given.
  * @param platform host hooks the compositions drive, e.g. the cursor shape a hover asks for.
+ * @param onCrashSurface called on the loop thread with every crash of a surface's content, those while closing
+ *   included, e.g. to log its cause's stack trace. The run still returns the first.
  */
 public fun runSurfaces(
     vararg specs: SurfaceSpec,
     platform: KortexPlatform = KortexPlatform.None,
+    onCrashSurface: (KortexError.SurfaceCrashed) -> Unit = {},
 ): EmptyResult<KortexError> =
     WaylandDisplay.connect().flatMap { display ->
         display.use {
-            KortexShell.create(display, *specs, platform = platform)
-                .map { shell -> shell.use { it.runEventLoop() } }
+            KortexShell.create(display, *specs, platform = platform, onCrashSurface = onCrashSurface)
+                .flatMap { shell ->
+                    val run = shell.runEventLoop()
+                    // Closed whatever the run returned; whatever fails while closing still reaches onCrashSurface.
+                    val closed = shell.close()
+                    run.flatMap { closed }
+                }
         }
     }
 
@@ -69,6 +76,7 @@ public fun runSurfaces(
  * @param keyboard whether the bar can take keyboard focus. Fixed for the bar's lifetime: Hyprland
  *   does not return the keyboard to the focused window when a layer surface drops its interactivity
  *   (hyprwm/Hyprland#8293).
+ * @param onCrashSurface called with every crash of the bar's content, as [runSurfaces] describes.
  * @param content the composition, drawn on every output.
  */
 public fun runBar(
@@ -78,6 +86,7 @@ public fun runBar(
     margins: Margins = Margins.None,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     platform: KortexPlatform = KortexPlatform.None,
+    onCrashSurface: (KortexError.SurfaceCrashed) -> Unit = {},
     content: @Composable () -> Unit,
 ): EmptyResult<KortexError> {
     val config = SurfaceConfig
@@ -86,5 +95,6 @@ public fun runBar(
     return runSurfaces(
         SurfaceSpec(config = config, target = OutputTarget.EveryOutput, content = content),
         platform = platform,
+        onCrashSurface = onCrashSurface,
     )
 }

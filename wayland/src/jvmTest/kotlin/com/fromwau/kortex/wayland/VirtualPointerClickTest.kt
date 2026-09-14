@@ -57,7 +57,7 @@ class VirtualPointerClickTest {
                         pointer.clickAt(monitor, targetX, targetY)
                         it.roundtrip()
 
-                        val landed = bar.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
+                        val landed = bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
                         // Off it again: a cursor left on a target would deny the next test's own move
                         // here an enter, the same hazard the first move above avoids.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)

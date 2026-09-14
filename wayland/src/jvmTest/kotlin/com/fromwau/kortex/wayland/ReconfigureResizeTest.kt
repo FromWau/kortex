@@ -28,7 +28,7 @@ class ReconfigureResizeTest {
 
             bar.use {
                 bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
-                bar.pump(timeoutMillis = PUMP_MILLIS)
+                bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
 
                 val scale = bar.currentBufferScale
                 assertEquals(
@@ -38,7 +38,8 @@ class ReconfigureResizeTest {
 
                 bar.requestSize(SPAN_ANCHORED_AXIS.dp, RESIZED_HEIGHT.dp)
                     .getOrElse { error -> fail("the resize was rejected before it reached the compositor: $error") }
-                val resized = bar.pump(timeoutMillis = PUMP_MILLIS) { bar.bufferSize.height == RESIZED_HEIGHT * scale }
+                val resized =
+                    bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { bar.bufferSize.height == RESIZED_HEIGHT * scale }
                 assertTrue(
                     resized, "a later configure never resized the buffers; bar.height stayed ${bar.bufferSize.height}",
                 )

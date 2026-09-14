@@ -51,8 +51,8 @@ class SurfaceHandleTest {
             val shell = KortexShell.create(wayland, spec)
                 .getOrElse { error -> fail("shell creation failed: $error") }
 
-            shell.use {
-                val appeared = shell.pump(PUMP_TIMEOUT_MILLIS) { kortexNamespace() != null }
+            shell.useOrFail {
+                val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { kortexNamespace() != null }
                 assertTrue(appeared, "hyprctl never reported a $NAMESPACE- namespace; nothing to prove close() removes")
                 assertNotNull(handleRef.get(), "content never saw a LocalKortexSurface")
 
@@ -60,10 +60,10 @@ class SurfaceHandleTest {
                 // below, so a pass proves the composition's own close() did it.
                 closeRequested.value = true
 
-                val dropped = shell.pump(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.isEmpty() }
+                val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.isEmpty() }
                 assertTrue(dropped, "the shell never dropped the surface after content called close()")
 
-                val gone = shell.pump(PUMP_TIMEOUT_MILLIS) { kortexNamespace() == null }
+                val gone = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { kortexNamespace() == null }
                 assertTrue(gone, "hyprctl layers still reports a $NAMESPACE- namespace after close()")
 
                 // A call after teardown (surface removed and closed) must be a no-op, not a crash.
@@ -86,7 +86,7 @@ class SurfaceHandleTest {
                     handleRef.set(LocalKortexSurface.current)
                     Box(Modifier.fillMaxSize())
                 }
-                surface.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS)
+                surface.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS)
 
                 val handle = assertNotNull(handleRef.get(), "content never saw a LocalKortexSurface")
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl did not report $NAMESPACE")
@@ -97,7 +97,8 @@ class SurfaceHandleTest {
 
                 surface.requestSize(SPAN_ANCHORED_AXIS.dp, RESIZED_HEIGHT.dp)
                     .getOrElse { error -> fail("the resize was rejected before it reached the compositor: $error") }
-                val resized = surface.pump(timeoutMillis = PUMP_TIMEOUT_MILLIS) { handle.size.height == RESIZED_HEIGHT }
+                val resized =
+                    surface.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { handle.size.height == RESIZED_HEIGHT }
                 assertTrue(resized, "the handle's size never followed a later configure")
             }
         }

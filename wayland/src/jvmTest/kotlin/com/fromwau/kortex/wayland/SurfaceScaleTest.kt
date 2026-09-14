@@ -32,7 +32,7 @@ class SurfaceScaleTest {
 
             bar.use {
                 bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
-                bar.pump(timeoutMillis = PUMP_MILLIS)
+                bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
                 // The first commit may still be in flight; force it through before reading hyprctl.
                 display.roundtrip()
 
@@ -71,7 +71,7 @@ class SurfaceScaleTest {
                 try {
                     bars.forEach { (_, bar) ->
                         bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
-                        bar.pump(timeoutMillis = PUMP_MILLIS)
+                        bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
                     }
                     wayland.roundtrip()
                     bars.forEach { (namespace, bar) -> assertRendersAtItsMonitorScale(bar, namespace) }

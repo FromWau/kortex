@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
 import com.fromwau.kern.result.IError
+import com.fromwau.kortex.compose.ContentFailure
 
 /** A `wl_seat` capability [KortexSurface] may need but the compositor did not announce. */
 public enum class SeatDevice { Pointer, Keyboard }
@@ -47,4 +48,7 @@ public sealed interface KortexError : IError {
 
     /** Allocating a shared-memory buffer failed at [step]. */
     public data class ShmAllocationFailed(public val step: ShmStep) : KortexError
+
+    /** Content on the surface named [namespace] threw and runs no more; [failure] says what it was doing. */
+    public data class SurfaceCrashed(public val namespace: String, public val failure: ContentFailure) : KortexError
 }

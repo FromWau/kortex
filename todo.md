@@ -56,8 +56,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: four entries are open. Under Keyboard and clipboard, shortcuts that ignore the layout and the
-clipboard; under Foundations, a surface lifecycle state; under Polish, the reference's gradient crash.
+Next: seven entries are open. Under Foundations, a surface lifecycle state; under Polish, a state change
+read only while drawing, which never redraws, a wayland-level test for a throwing pointer handler, and crash
+logging in the bar demo; under Keyboard and clipboard, Page Up, Page Down, Insert and the F-keys, shortcuts
+that ignore the layout, and the clipboard.
 
 ## Foundations
 
@@ -82,7 +84,7 @@ clipboard; under Foundations, a surface lifecycle state; under Polish, the refer
       surface already paired with the spec it came from and its output's geometry rather than a second
       list parallel by naming convention. Closing one surface releases the `wl_pointer`, `wl_keyboard` and
       `wl_seat` it bound before its scene goes, so a sibling on the same connection keeps taking input
-      instead of the closed scene taking the process down (`SurfaceTeardownTest`).
+      instead of the closed scene ending the run as a crash (`SurfaceTeardownTest`).
       `runSurfaces`, `runBar` and `KortexShell.create` are how a host opens a surface up front, and
       `KortexHost.open` is how its content opens one later. `KortexSurface.create` is internal, since
       filling its `wl_output` needs a proxy only this module can bind. The shell's loop ends when no
@@ -225,8 +227,9 @@ clipboard; under Foundations, a surface lifecycle state; under Polish, the refer
       still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
       gone either way. With no output at all connected at that moment there is nowhere to place the
       replacement, and it stays gone until asked for again, and a replacement that fails to be placed is
-      dropped rather than ending the run. Two of `CompositorChoiceTest`'s three tests reach this through
-      `KortexSurface.simulateCompositorClose`, the shell's own seam: the standing surface being placed
+      dropped rather than ending the run, unless its content threw, which ends the run as a crash. Two of
+      `CompositorChoiceTest`'s three tests reach this through `KortexSurface.simulateCompositorClose`, the
+      shell's own seam: the standing surface being placed
       again, and an opened surface not being replaced. The third, content closing its own surface, does
       not need it. The end-to-end trigger, an output going away under the surface, is not exercised
       anywhere. (`CompositorChoiceTest`)
@@ -266,10 +269,33 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       its surfaces' posted work before reaping closed ones, so a close that content posts is reaped in the
       pass it wakes. Another source, D-Bus or a timerfd, would be one more fd in that `poll`.
       (`EventLoopWakeTest`, `KeyRepeatTest`, `WaylandDisplayTest`)
-- [ ] **Check the reference's gradient crash against kortex.** The reference records that desktop Skia
-      returns a null shader for `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`
-      and throws `Can't wrap nullptr` at draw time. kortex draws with the same Skia. Whether a kortex
-      surface hits it, and what a throw from content during a frame does to a running shell, is untested.
+- [x] **Content that throws ends the run with a typed error, not the process.** The reference's gradient, a
+      `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`, does throw
+      `Can't wrap nullptr` from the desktop Skia kortex draws with. Frames after the first are drawn inside a
+      libwayland callback, and an exception escaping one made the JDK end the process with status 1, past any
+      handler the host had. Now `KortexScene` catches anything content throws, `Error`s included, at every
+      call into it, and recomposition and effects through a `CoroutineExceptionHandler`, as a typed
+      `ContentFailure`: `Composition`, `KeyInput` or `PointerInput`. A failed scene runs no more content, and
+      the shell ends the run with `KortexError.SurfaceCrashed`: out of `KortexShell.create` for a first frame,
+      out of `runEventLoop`, `pump` and `runSurfaces` otherwise. `KortexShell.close()` returns one too when
+      content's cleanup throws as the shell closes, having closed everything else regardless. Every crash,
+      those while closing included, reaches the host's `onCrashSurface` once, so the host can log its cause's
+      stack trace; `runSurfaces`, `runBar` and `KortexShell.create` take it. A surface that fails to open or
+      to be placed on hotplug, and a failed shm reallocation on resize, return their `KortexError` the same way
+      instead of throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
+- [ ] **A wayland-level test for a pointer handler that throws.** `KortexSceneTest` covers `sendPointerEvent`
+      turning the throw into a `PointerInput` failure, and the pointer listener passes events straight to the
+      scene, which keeps the failure for the shell to report. Nothing drives such a crash through a real
+      `wl_pointer`; that takes the virtual pointer, and with it a desktop nobody is using.
+- [ ] **The bar demo logs its crashes.** `Main.kt` passes `runBar` no `onCrashSurface` and turns the run's
+      error into `error("kortex: $it")`. As the worked example it should show the host's side of a crash:
+      log each one's message and stack trace to a file from the hook, instead of only throwing the error.
+- [ ] **A state change read only while drawing never redraws.** A counter read only inside a `Canvas` draw
+      lambda was bumped five times and the surface drew once, since nothing asked for a frame. A change read
+      during composition does redraw (`InvalidationRenderTest`), so it is draw-phase invalidation that never
+      reaches kortex's frame request. Animations often read state only while drawing, in `drawBehind` or a
+      `graphicsLayer` block, to skip recomposition; a `graphicsLayer` read has not been tried. Not yet
+      root-caused.
 
 ## Keyboard and clipboard
 
@@ -281,6 +307,10 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       and still types through its codepoint. The keypad's navigation keysyms stay unnamed on purpose: at the
       base level they are what a keypad digit is, and a text field would move its caret instead of typing
       the digit. (`KeyboardDeliveryTest`)
+- [ ] **Page Up, Page Down, Insert and the F-keys.** `Xkb`'s key table has no entry for them, so they reach
+      Compose as `Key.Unknown`, though Compose names each (`Key.PageUp`, `Key.PageDown`, `Key.Insert`,
+      `Key.F1` to `Key.F12`) and its text fields act on Page Up, Page Down and Insert. Their keysyms are
+      `Page_Up` 0xff55, `Page_Down` 0xff56, `Insert` 0xff63, and `F1` to `F12` 0xffbe to 0xffc9.
 - [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
       Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
       QWERTY calls Q. The reference hands content the raw evdev keycode for this. Undecided: fall back to a

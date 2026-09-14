@@ -1,16 +1,26 @@
 package com.fromwau.kortex.compose
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -20,17 +30,22 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.errorOrNull
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Surface
 import java.awt.Cursor
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class KortexSceneTest {
@@ -214,6 +229,141 @@ class KortexSceneTest {
         }
     }
 
+    @Test
+    fun `content that throws while drawing is a composition failure`() {
+        withScene { scene, surface ->
+            scene.setContent { Canvas(Modifier.fillMaxSize()) { error(DRAW_FAILURE) } }
+
+            val failure = scene.render(surface.canvas.asComposeCanvas(), 0L).errorOrNull()
+
+            assertIs<ContentFailure.Composition>(failure, "a throwing draw must fail the composition")
+            assertEquals(DRAW_FAILURE, failure.cause.message)
+        }
+    }
+
+    @Test
+    fun `content that throws while recomposing is a composition failure`() {
+        val broken = mutableStateOf(false)
+
+        withScene { scene, surface ->
+            scene.setContent { if (broken.value) error(RECOMPOSE_FAILURE) }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+            broken.value = true
+            val failure = awaitFailure(scene) { scene.render(surface.canvas.asComposeCanvas(), System.nanoTime()) }
+
+            assertIs<ContentFailure.Composition>(failure, "a throwing recomposition must fail the composition")
+            assertEquals(RECOMPOSE_FAILURE, failure.cause.message)
+        }
+    }
+
+    @Test
+    fun `a key handler that throws is a key input failure`() {
+        withScene { scene, surface ->
+            scene.setContent {
+                val requester = remember { FocusRequester() }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .focusRequester(requester)
+                        .onKeyEvent { error(KEY_FAILURE) }
+                        .focusable(),
+                )
+                LaunchedEffect(Unit) { requester.requestFocus() }
+            }
+            // A few frames so the LaunchedEffect runs and focus settles.
+            repeat(FOCUS_FRAMES) { frame ->
+                scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
+                Thread.sleep(FRAME_MILLIS)
+            }
+
+            val failure = scene.sendKey(Key.A, KeyEventType.KeyDown).errorOrNull()
+
+            assertIs<ContentFailure.KeyInput>(failure, "a throwing key handler must fail the key")
+            assertEquals(KEY_FAILURE, failure.cause.message)
+        }
+    }
+
+    @Test
+    fun `a pointer handler that throws is a pointer input failure`() {
+        withScene { scene, surface ->
+            scene.setContent { Box(Modifier.size(BOX_DP.dp).clickable { error(POINTER_FAILURE) }) }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+            scene.click(Offset(BOX_DP / 2f, BOX_DP / 2f), from = 0L)
+            val failure = awaitFailure(scene) { scene.render(surface.canvas.asComposeCanvas(), System.nanoTime()) }
+
+            assertIs<ContentFailure.PointerInput>(failure, "a throwing click handler must fail the pointer event")
+            assertEquals(POINTER_FAILURE, failure.cause.message)
+        }
+    }
+
+    @Test
+    fun `an effect that throws is a composition failure`() {
+        withScene { scene, surface ->
+            scene.setContent {
+                LaunchedEffect(Unit) {
+                    delay(EFFECT_DELAY_MILLIS)
+                    error(EFFECT_FAILURE)
+                }
+            }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+            val failure = awaitFailure(scene)
+
+            assertIs<ContentFailure.Composition>(failure, "an effect that throws must fail the composition")
+            assertEquals(EFFECT_FAILURE, failure.cause.message)
+        }
+    }
+
+    @Test
+    fun `a failed scene keeps its first failure and runs no more content`() {
+        val draws = AtomicInteger()
+
+        withScene { scene, surface ->
+            scene.setContent {
+                Canvas(Modifier.fillMaxSize()) {
+                    draws.incrementAndGet()
+                    error(DRAW_FAILURE)
+                }
+            }
+
+            val first = scene.render(surface.canvas.asComposeCanvas(), 0L).errorOrNull()
+            val second = scene.render(surface.canvas.asComposeCanvas(), 1L).errorOrNull()
+
+            assertSame(first, second, "a failed scene must report its first failure again")
+            assertEquals(1, draws.get(), "a failed scene must not draw again")
+        }
+    }
+
+    @Test
+    fun `content that throws an Error is a composition failure too`() {
+        withScene { scene, surface ->
+            scene.setContent { Canvas(Modifier.fillMaxSize()) { throw StackOverflowError(ERROR_FAILURE) } }
+
+            val failure = scene.render(surface.canvas.asComposeCanvas(), 0L).errorOrNull()
+
+            assertIs<ContentFailure.Composition>(failure, "an Error thrown by content must fail the composition")
+            assertIs<StackOverflowError>(failure.cause)
+        }
+    }
+
+    @Test
+    fun `every failure reaches onFailure, cleanup on close included`() {
+        val reported = CopyOnWriteArrayList<ContentFailure>()
+
+        withScene(onFailure = { reported += it }) { scene, surface ->
+            scene.setContent {
+                DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
+                Canvas(Modifier.fillMaxSize()) { error(DRAW_FAILURE) }
+            }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+        }
+
+        // withScene has closed the scene by now, running content's cleanup.
+        assertEquals(listOf(DRAW_FAILURE, CLEANUP_FAILURE), reported.map { it.cause.message })
+    }
+
     private fun KortexScene.click(position: Offset, from: Long) {
         sendPointerEvent(PointerEventType.Press, position, timeMillis = from,
             buttons = PointerButtons(isPrimaryPressed = true), button = PointerButton.Primary)
@@ -221,11 +371,22 @@ class KortexSceneTest {
             buttons = PointerButtons(), button = PointerButton.Primary)
     }
 
+    /** [scene]'s failure once it has one, running [step] between looks, or null after [FAILURE_WAIT_MILLIS]. */
+    private fun awaitFailure(scene: KortexScene, step: () -> Unit = {}): ContentFailure? {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(FAILURE_WAIT_MILLIS)
+        while (scene.failure == null && System.nanoTime() < deadline) {
+            step()
+            Thread.sleep(FRAME_MILLIS)
+        }
+        return scene.failure
+    }
+
     private fun withScene(
         size: IntSize = IntSize(SIDE, SIDE),
         surfaceSize: IntSize = size,
         onInvalidate: () -> Unit = {},
         platform: KortexPlatform = KortexPlatform.None,
+        onFailure: (ContentFailure) -> Unit = {},
         block: (KortexScene, Surface) -> Unit,
     ) {
         // FrameRecomposer rejects a context with no ContinuationInterceptor, and Dispatchers.Unconfined
@@ -245,6 +406,7 @@ class KortexSceneTest {
                 frameContext = dispatcher,
                 onInvalidate = onInvalidate,
                 platform = platform,
+                onFailure = onFailure,
             ).use { scene -> block(scene, surface) }
         }
     }
@@ -265,5 +427,17 @@ class KortexSceneTest {
         const val BOX_DP = 32
         const val TRANSPARENT = 0
         const val IDLE_WINDOW_MILLIS = 250L
+        const val FOCUS_FRAMES = 6
+        const val FRAME_MILLIS = 60L
+        const val EFFECT_DELAY_MILLIS = 50L
+        const val FAILURE_WAIT_MILLIS = 5_000L
+
+        const val DRAW_FAILURE = "content threw while drawing"
+        const val RECOMPOSE_FAILURE = "content threw while recomposing"
+        const val KEY_FAILURE = "a key handler threw"
+        const val POINTER_FAILURE = "a click handler threw"
+        const val EFFECT_FAILURE = "an effect threw"
+        const val ERROR_FAILURE = "content threw an Error"
+        const val CLEANUP_FAILURE = "cleanup threw as the scene closed"
     }
 }
