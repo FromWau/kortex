@@ -4,8 +4,10 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
+import java.io.ByteArrayOutputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -137,13 +139,29 @@ class ClipboardTest {
     }
 
     @Test
-    fun `a write whose time is up puts nothing into a pipe that has room`() {
+    fun `a reader pacing slower than the write's idle timeout still receives every byte`() {
         val pipe = pipeOrFail()
+        val sent = ByteArray(PIPE_BYTES) { index -> (index % BYTE_PATTERN).toByte() }
+        val stop = AtomicBoolean(false)
+        // Paced comfortably under the timeout, so the whole transfer outlasts it without any one gap reaching it.
+        val write = CompletableFuture.runAsync { writePipeAndClose(pipe.writeFd, sent, SHORT_TIMEOUT_MILLIS) }
+        val read = CompletableFuture.supplyAsync { readPaced(pipe.readFd, stop, READER_PAUSE_MILLIS) }
         try {
-            writePipeAndClose(pipe.writeFd, COPIED.encodeToByteArray(), timeoutMillis = 0L)
-            val drained = readPipeToEnd(pipe.readFd, SHORT_TIMEOUT_MILLIS).map { it.decodeToString() }
-            assertEquals(Ok(""), drained, "the write put text into the pipe after its time was up")
+            try {
+                write.get(TEST_BOUND_MILLIS, TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
+                fail("the write never finished for a reader still draining, ${TEST_BOUND_MILLIS}ms in")
+            }
+            val received = try {
+                read.get(TEST_BOUND_MILLIS, TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
+                fail("the paced reader never reached the end of the write")
+            }
+            assertContentEquals(sent, received, "a reader pacing under the timeout did not receive every byte")
         } finally {
+            stop.set(true)
+            runCatching { write.get(JOIN_MILLIS, TimeUnit.MILLISECONDS) }
+            runCatching { read.get(JOIN_MILLIS, TimeUnit.MILLISECONDS) }
             LibC.close(pipe.readFd)
         }
     }
@@ -262,13 +280,30 @@ class ClipboardTest {
         Arena.ofConfined().use { arena ->
             val page = arena.allocate(PAGE_BYTES)
             while (!stop.get()) {
-                val deadline = System.nanoTime() + WRITER_POLL_MILLIS * NANOS_PER_MILLI
+                val deadline = System.nanoTime() + POLL_WAIT_MILLIS * NANOS_PER_MILLI
                 if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLOUT), deadline).single() == 0) continue
                 if (LibC.write(fd, page) <= 0L) return
                 // Paced, so what the read takes before its timeout stays small.
                 Thread.sleep(WRITER_PAUSE_MILLIS)
             }
         }
+    }
+
+    /** Reads [fd] a chunk at a time, pausing [pauseMillis] before each, until [stop] is set or its writer closes it. */
+    private fun readPaced(fd: Int, stop: AtomicBoolean, pauseMillis: Long): ByteArray {
+        val received = ByteArrayOutputStream()
+        Arena.ofConfined().use { arena ->
+            val chunk = arena.allocate(READER_CHUNK_BYTES)
+            while (!stop.get()) {
+                Thread.sleep(pauseMillis)
+                val deadline = System.nanoTime() + POLL_WAIT_MILLIS * NANOS_PER_MILLI
+                if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLIN), deadline).single() == 0) continue
+                val count = LibC.read(fd, chunk)
+                if (count <= 0L) return received.toByteArray()
+                received.write(chunk.asSlice(0L, count).toArray(JAVA_BYTE))
+            }
+        }
+        return received.toByteArray()
     }
 
     private companion object {
@@ -288,8 +323,14 @@ class ClipboardTest {
         const val JOIN_MILLIS = 2000L
 
         const val PAGE_BYTES = 4096L
-        const val WRITER_POLL_MILLIS = 10L
+        const val POLL_WAIT_MILLIS = 10L
         const val WRITER_PAUSE_MILLIS = 1L
+
+        const val READER_CHUNK_BYTES = 65_536L
+
+        // Well under SHORT_TIMEOUT_MILLIS, so no gap between reads reaches the write's idle bound.
+        const val READER_PAUSE_MILLIS = 50L
+
         const val NANOS_PER_MILLI = 1_000_000L
         const val POLLERR = 0x008
         const val DATA_DEVICE_MANAGER = "wl_data_device_manager"

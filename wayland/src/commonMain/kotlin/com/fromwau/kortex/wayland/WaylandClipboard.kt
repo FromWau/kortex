@@ -214,11 +214,11 @@ internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, Clip
 }
 
 /**
- * Writes [bytes] into [fd] and closes it. A reader that goes away first, or has not taken everything by the time
- * [timeoutMillis] have passed, gets the text cut short.
+ * Writes [bytes] into [fd] and closes it. A reader that goes away, or takes nothing for [timeoutMillis], gets the
+ * text cut short; a reader still taking bytes, however slowly, gets all of it.
  */
 internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
-    val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
+    var deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
     try {
         Arena.ofConfined().use { arena ->
             val buffer: MemorySegment = arena.allocateFrom(JAVA_BYTE, *bytes)
@@ -229,6 +229,8 @@ internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
                 val written = LibC.write(fd, chunk)
                 if (written <= 0L) return
                 offset += written
+                // An idle bound, not a deadline over the whole transfer: progress against it resets it.
+                deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
             }
         }
     } finally {
@@ -236,7 +238,7 @@ internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
     }
 }
 
-/** The most time either end of a clipboard transfer spends on it before giving it up. */
+/** Bounds a transfer: the read gives up this long after it began; the write gives up this long after its last byte. */
 internal const val TRANSFER_TIMEOUT_MILLIS = 1000L
 
 private const val NANOS_PER_MILLI = 1_000_000L
