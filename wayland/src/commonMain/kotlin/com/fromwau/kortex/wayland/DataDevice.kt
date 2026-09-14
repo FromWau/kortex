@@ -228,8 +228,8 @@ internal class DataSource(private val text: String, private val arena: Arena = A
         Dispatchers.IO.asExecutor().execute { writePipeAndClose(fd, bytes, TRANSFER_TIMEOUT_MILLIS) }
     }
 
-    // Replaced as the selection. The next copy or the clipboard's close destroys it, never this event, which
-    // runs in one of the stubs that would free.
+    // Replaced as the selection. The next copy or clear, or the clipboard's close, destroys it, never this event,
+    // which runs in one of the stubs that would free.
     fun onCancelled(data: MemorySegment, source: MemorySegment) {
         cancelled = true
     }

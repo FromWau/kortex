@@ -40,7 +40,6 @@ internal class WaylandClipboard private constructor(
     var inputSerial: Int? = null
         private set
 
-    /** The text this client made the selection, until a clear or another client's selection replaces it. */
     override val ownedText: String? get() = source?.ownedText
 
     /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] or [clear] to quote. */

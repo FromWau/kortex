@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
 
 /** A clipboard that holds text: what Compose's clipboard needs of the shell's. */
 internal interface TextClipboard {
-    /** The text this client made the selection, while it still is; answered at once, from any thread. */
+    /** The text this client set, until another selection or a clear replaces it; answered at once, on any thread. */
     val ownedText: String?
 
     suspend fun setText(text: String): EmptyResult<ClipboardError>
@@ -90,13 +90,13 @@ internal class ComposeClipboardManager(
     }
 }
 
-// A Transferable's data can be gone by the time it is asked for, in a flavor it still lists.
 private fun ClipEntry.text(): String? {
     val transferable = asAwtTransferable ?: return null
     if (!transferable.isDataFlavorSupported(DataFlavor.stringFlavor)) return null
     return try {
         transferable.getTransferData(DataFlavor.stringFlavor) as? String
     } catch (_: IOException) {
+        // The data can be gone by the time it is asked for, in a flavor the Transferable still lists.
         null
     }
 }
