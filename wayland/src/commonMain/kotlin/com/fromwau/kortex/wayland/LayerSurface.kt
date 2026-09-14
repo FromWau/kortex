@@ -22,8 +22,13 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * class VolumeOsd(
  *     private val level: Float,
  *     onClose: (EmptyResult<SurfaceError<OsdError>>) -> Unit = {},
- * ) : LayerSurface<OsdError>(namespace = "volume", layer = Layer.Overlay, width = 240.dp, height = 48.dp,
- *     onClose = onClose) {
+ * ) : LayerSurface<OsdError>(
+ *     namespace = "volume",
+ *     layer = Layer.Overlay,
+ *     width = 240.dp,
+ *     height = 48.dp,
+ *     onClose = onClose,
+ * ) {
  *     @Composable
  *     override fun invoke() {
  *         LaunchedEffect(Unit) {

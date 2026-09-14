@@ -57,7 +57,7 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             showing.value = false
 
@@ -96,7 +96,10 @@ class ShowTest {
 
             showing.value = false
 
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reportedTo.isNotEmpty() }, "taking the Show out reported nothing")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reportedTo.isNotEmpty() },
+                "taking the Show out reported nothing",
+            )
             assertEquals(listOf(2), reportedTo.toList(), "the ending did not reach the newest instance's onClose alone")
         }
     }
@@ -110,7 +113,7 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
             val first = shell.shownSurfaces.single()
 
             height.intValue = TALL
@@ -149,7 +152,7 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == 2 }, "the surfaces were never placed")
+            awaitPlaced(shell, count = 2)
 
             closeRequested.value = true
 
@@ -180,13 +183,16 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
             generation.intValue = 2
             assertTrue(shell.pumpOrFail(PUMP_MILLIS) { instances.size >= 2 }, "the application built no newer instance")
 
             instances[0].close()
 
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reportedTo.isNotEmpty() }, "the older instance's close() reported nothing")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reportedTo.isNotEmpty() },
+                "the older instance's close() reported nothing",
+            )
             assertEquals(listOf(2), reportedTo.toList(), "the ending did not reach the newest instance's onClose alone")
             assertTrue(shell.shownSurfaces.isEmpty(), "the older instance's close() left its surface on screen")
         }
@@ -198,7 +204,7 @@ class ShowTest {
         val stray = TestSurface<Dismissal>(NAMESPACE, onClose = { reports += it })
 
         onApplication({ Show(TestSurface<Nothing>(NAMESPACE)) }) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             stray.close()
             stray.close(Dismissal.Dismissed)
@@ -225,7 +231,7 @@ class ShowTest {
             val shown = assertNotNull(instance.get(), "the application never built its instance")
             assertEquals(IntSize.Zero, shown.size, "size was not zero before the surface was placed")
 
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
             val geometry = assertNotNull(Screen.awaitGeometry(NAMESPACE), "hyprctl never listed $NAMESPACE")
             assertEquals(
                 IntSize(geometry.logicalWidth, geometry.logicalHeight),
@@ -241,7 +247,7 @@ class ShowTest {
     }
 
     @Test
-    fun `a surface the compositor closes reports Ok and is not replaced, and taking its Show out reports nothing more`() {
+    fun `a surface the compositor closes reports Ok, is not replaced, and its Show taken out reports nothing more`() {
         val showing = mutableStateOf(true)
         val left = AtomicBoolean(false)
         val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
@@ -253,11 +259,14 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             shell.shownSurfaces.single().simulateCompositorClose()
 
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the compositor's close reported nothing")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "the compositor's close reported nothing",
+            )
             assertEquals(listOf(Ok(Unit)), reports.toList(), "the compositor's close did not report Ok once")
             shell.pumpOrFail(SETTLE_MILLIS)
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface the compositor closed was placed again")
@@ -278,7 +287,10 @@ class ShowTest {
         }
 
         onApplication(unplaceable) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the unplaceable surface reported nothing")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "the unplaceable surface reported nothing",
+            )
             assertEquals(
                 listOf(Err(SurfaceError.Failed(KortexError.UnspannableAxis(Axis.Horizontal, emptySet())))),
                 reports.toList(),
@@ -311,7 +323,10 @@ class ShowTest {
 
             assertEquals(1, shell.shownSurfaces.size, "the crash did not end its own surface, and only its own")
             tick.intValue = 1
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { 1 in drawn }, "the other surface stopped drawing after the crash")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { 1 in drawn },
+                "the other surface stopped drawing after the crash",
+            )
         }
     }
 
@@ -324,7 +339,7 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             showing.value = false
 
@@ -347,12 +362,18 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             height.intValue = TALL
 
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the replaced content's crash reported nothing")
-            val crash = crashIn(reports.single(), "cleanup that threw as its surface was replaced did not report a crash")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "the replaced content's crash reported nothing",
+            )
+            val crash = crashIn(
+                reports.single(),
+                "cleanup that threw as its surface was replaced did not report a crash",
+            )
             assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what the cleanup threw")
             shell.pumpOrFail(SETTLE_MILLIS)
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface was placed for a Show whose content had crashed")
@@ -373,11 +394,14 @@ class ShowTest {
         }
 
         onApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             showing.value = false
 
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the ending and the removal reported nothing")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "the ending and the removal reported nothing",
+            )
             shell.pumpOrFail(SETTLE_MILLIS)
             assertEquals(
                 listOf(Err(SurfaceError.Closed(Dismissal.Dismissed))),
@@ -388,7 +412,7 @@ class ShowTest {
     }
 
     @Test
-    fun `exitApplication from another thread, twice, ends the run Ok with every onClose getting Ok on the loop thread`() {
+    fun `exitApplication from another thread, twice, returns Ok and every onClose gets Ok on the loop thread`() {
         val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
         val reportingThreads = CopyOnWriteArraySet<Thread>()
         val onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit = { result ->
@@ -417,7 +441,11 @@ class ShowTest {
         }
 
         assertEquals(Ok(Unit), result, "an application ended by exitApplication did not return Ok")
-        assertEquals(listOf(Ok(Unit), Ok(Unit)), reports.toList(), "exitApplication did not report Ok to each surface once")
+        assertEquals(
+            listOf(Ok(Unit), Ok(Unit)),
+            reports.toList(),
+            "exitApplication did not report Ok to each surface once",
+        )
         assertEquals(setOf(application.get()), reportingThreads.toSet(), "an onClose ran off the application's thread")
     }
 
@@ -432,7 +460,7 @@ class ShowTest {
 
         display.use {
             val shell = KortexShell.createApplicationOrFail(display, content)
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == 2 }, "the surfaces were never placed")
+            awaitPlaced(shell, count = 2)
 
             assertEquals(Ok(Unit), shell.close(), "closing the application did not return Ok")
             assertEquals(
@@ -446,8 +474,11 @@ class ShowTest {
     @Test
     fun `an application with no surface shown keeps running, and a Show added later still places`() {
         val showing = mutableStateOf(false)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) Show(TestSurface<Nothing>(NAMESPACE))
+        }
 
-        val result = LoopThread.runApplication({ if (showing.value) Show(TestSurface<Nothing>(NAMESPACE)) }) { _, loop ->
+        val result = LoopThread.runApplication(content) { _, loop ->
             loop.join(IDLE_MILLIS)
             assertTrue(loop.isAlive, "an application with no surface shown stopped running")
 
@@ -469,7 +500,7 @@ class ShowTest {
         }
 
         onCrashingApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             boom.value = true
 
@@ -498,7 +529,7 @@ class ShowTest {
         }
 
         onCrashingApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == 2 }, "the surfaces were never placed")
+            awaitPlaced(shell, count = 2)
 
             closeRequested.value = true
 
@@ -513,7 +544,7 @@ class ShowTest {
     }
 
     @Test
-    fun `UI placed directly in the application's content ends the run as ApplicationCrashed, and no onClose is called`() {
+    fun `UI placed directly in the application's content ends the run as ApplicationCrashed with no onClose`() {
         val addUi = mutableStateOf(false)
         val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
@@ -522,7 +553,7 @@ class ShowTest {
         }
 
         onCrashingApplication(content) { shell ->
-            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            awaitPlaced(shell)
 
             addUi.value = true
 
@@ -620,7 +651,15 @@ class ShowTest {
         }
     }
 
-    /** Connects, starts an application of [content] and hands it to [block]; the application and connection close after. */
+    /** Pumps [shell] until [count] of its Shows' surfaces are on screen; the test fails if they never are. */
+    private fun awaitPlaced(shell: KortexShell, count: Int = 1) {
+        assertTrue(
+            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == count },
+            "the application never had $count surfaces on screen",
+        )
+    }
+
+    /** Starts an application of [content] and hands it to [block]; the application and connection close after. */
     private fun onApplication(content: @Composable KortexApplicationScope.() -> Unit, block: (KortexShell) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { KortexShell.createApplicationOrFail(display, content).useOrFail(block) }
