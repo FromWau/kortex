@@ -75,6 +75,12 @@ class LatinFallbackTest {
         assertEquals(Key.Unknown, keyUnder("ru", "ru", KEY_C), "C under ru alone")
     }
 
+    @Test
+    fun `with no Latin layout in the keymap each layout names its own keys`() {
+        // Here ru has period on this key and gr has slash.
+        assertEquals(Key.Slash, keyUnder("ru,gr", "gr", KEY_SLASH), "/ under gr in ru,gr")
+    }
+
     private fun keyUnder(layouts: String, active: String, waylandKey: Int): Key =
         underLayout(layouts, active) { state -> Xkb.key(state, waylandKey) }
 
