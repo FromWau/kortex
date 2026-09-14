@@ -123,8 +123,15 @@ public class KortexShell private constructor(
     // The composition this shell runs, for a shell that runs an application rather than specs.
     private var application: ApplicationComposition? = null
 
+    // Set from any thread by exitApplication; the run ends at its next pass.
+    @Volatile
+    private var exitRequested = false
+
     private val applicationScope = object : KortexApplicationScope {
-        override fun exitApplication() = TODO("exitApplication")
+        override fun exitApplication() {
+            exitRequested = true
+            display.wake()
+        }
     }
 
     // Each Show whose surface is on screen, in the order placed.
@@ -176,8 +183,14 @@ public class KortexShell private constructor(
     public fun runEventLoop(): EmptyResult<KortexError> {
         while (true) {
             applyPendingChanges().getOrElse { return Err(it) }
-            if (surfaces.isEmpty() && !awaitingAnOutput) break
-            if (!display.awaitWork(nextDeadlineNanos())) break
+            if (exitRequested) break
+            // An application ends only when asked to, so an empty screen keeps it running.
+            if (application == null && surfaces.isEmpty() && !awaitingAnOutput) break
+            if (!display.awaitWork(nextDeadlineNanos())) {
+                // An application did not ask to stop, so the connection dying is its error.
+                if (application != null) return Err(display.protocolError() ?: KortexError.NoCompositorResponse)
+                break
+            }
             serviceSurfaces().getOrElse { return Err(it) }
         }
         return Ok(Unit)
@@ -454,9 +467,11 @@ public class KortexShell private constructor(
     public fun close(): EmptyResult<KortexError> {
         display.onGlobalAdded = null
         display.onGlobalRemoved = null
-        application?.close()
-        placed.toList().forEach { shown -> shown.surface?.close() }
-        placed.clear()
+        application?.let { application ->
+            // Every Show leaves composition here, and reconciling reports how each of their surfaces ended.
+            application.close()
+            reconcileShows()
+        }
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()

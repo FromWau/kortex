@@ -19,11 +19,13 @@ import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.ContentFailure
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.delay
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
@@ -383,6 +385,78 @@ class ShowTest {
         }
     }
 
+    @Test
+    fun `exitApplication from another thread, twice, ends the run Ok with every onClose getting Ok on the loop thread`() {
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reportingThreads = CopyOnWriteArraySet<Thread>()
+        val onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit = { result ->
+            reports += result
+            reportingThreads += Thread.currentThread()
+        }
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface(NAMESPACE, onClose = onClose))
+            Show(TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = onClose))
+        }
+        val application = AtomicReference<Thread>()
+
+        val result = LoopThread.runApplication(content) { scope, loop ->
+            application.set(loop)
+            assertTrue(LoopThread.awaitNamespace(NAMESPACE, present = true), "hyprctl never listed $NAMESPACE")
+            assertTrue(
+                LoopThread.awaitNamespace(SECOND_NAMESPACE, present = true),
+                "hyprctl never listed $SECOND_NAMESPACE",
+            )
+
+            scope.exitApplication()
+            scope.exitApplication()
+
+            loop.join(LoopThread.JOIN_MILLIS)
+            assertFalse(loop.isAlive, "exitApplication did not end the run")
+        }
+
+        assertEquals(Ok(Unit), result, "an application ended by exitApplication did not return Ok")
+        assertEquals(listOf(Ok(Unit), Ok(Unit)), reports.toList(), "exitApplication did not report Ok to each surface once")
+        assertEquals(setOf(application.get()), reportingThreads.toSet(), "an onClose ran off the application's thread")
+    }
+
+    @Test
+    fun `closing the application reports Ok to every shown surface and returns Ok`() {
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
+            Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { reports += it }))
+        }
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            val shell = KortexShell.createApplicationOrFail(display, content)
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == 2 }, "the surfaces were never placed")
+
+            assertEquals(Ok(Unit), shell.close(), "closing the application did not return Ok")
+            assertEquals(
+                listOf(Ok(Unit), Ok(Unit)),
+                reports.toList(),
+                "closing the application did not report Ok to each surface once",
+            )
+        }
+    }
+
+    @Test
+    fun `an application with no surface shown keeps running, and a Show added later still places`() {
+        val showing = mutableStateOf(false)
+
+        val result = LoopThread.runApplication({ if (showing.value) Show(TestSurface<Nothing>(NAMESPACE)) }) { _, loop ->
+            loop.join(IDLE_MILLIS)
+            assertTrue(loop.isAlive, "an application with no surface shown stopped running")
+
+            showing.value = true
+
+            assertTrue(LoopThread.awaitNamespace(NAMESPACE, present = true), "a Show added later never placed")
+        }
+
+        assertEquals(Ok(Unit), result, "the application did not return Ok on exitApplication")
+    }
+
     /** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
     private fun crashIn(report: EmptyResult<SurfaceError<*>>, message: String): KortexError.SurfaceCrashed {
         val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")
@@ -447,6 +521,7 @@ class ShowTest {
         const val EFFECT_FAILURE = "an effect threw"
         const val CLEANUP_FAILURE = "cleanup threw as the surface went"
         const val EFFECT_DELAY_MILLIS = 50L
+        const val IDLE_MILLIS = 500L
 
         // Clear of the default speck's corner, so a second surface is told apart on screen too.
         val BOTTOM_LEFT = setOf(Edge.Bottom, Edge.Left)

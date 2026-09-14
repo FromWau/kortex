@@ -12,6 +12,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.platform.FrameRecomposer
 import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.flatMap
 import com.fromwau.kortex.compose.KortexPlatform
 
 /** What the content of [kortexApplication] can do besides compose: end the application. */
@@ -24,7 +25,17 @@ public interface KortexApplicationScope {
 public fun kortexApplication(
     platform: KortexPlatform = KortexPlatform.None,
     content: @Composable KortexApplicationScope.() -> Unit,
-): EmptyResult<KortexError> = TODO()
+): EmptyResult<KortexError> =
+    WaylandDisplay.connect().flatMap { display ->
+        display.use {
+            KortexShell.createApplication(display, platform, content).flatMap { shell ->
+                val run = shell.runEventLoop()
+                // Whatever the run returned: this is where exitApplication's Shows leave and their surfaces report.
+                val closed = shell.close()
+                run.flatMap { closed }
+            }
+        }
+    }
 
 /** Keeps [surface] on screen while this call is in composition. */
 @Composable

@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.io.ByteArrayOutputStream
@@ -11,6 +12,7 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.test.assertNotNull
 import kotlin.test.fail
 
 /**
@@ -82,6 +84,63 @@ internal object LoopThread {
                 if (existing != null) existing.addSuppressed(trouble) else throw trouble
             }
         }
+    }
+
+    /**
+     * Runs [kortexApplication] around [content] on a thread of its own, hands [block] the application's scope and that
+     * thread, then calls `exitApplication()` and returns what the application returned. The thread owns the
+     * connection until it returns, so [block] watches the application only through `hyprctl` and snapshot state.
+     */
+    fun runApplication(
+        content: @Composable KortexApplicationScope.() -> Unit,
+        block: (scope: KortexApplicationScope, loop: Thread) -> Unit,
+    ): EmptyResult<KortexError> {
+        val scope = AtomicReference<KortexApplicationScope?>(null)
+        val returned = AtomicReference<EmptyResult<KortexError>?>(null)
+        val threw = AtomicReference<Throwable?>(null)
+        val loop = Thread(
+            {
+                // Caught so a throw reaches the test thread as a failure, rather than as a missing result.
+                try {
+                    returned.set(
+                        kortexApplication {
+                            scope.set(this)
+                            content()
+                        },
+                    )
+                } catch (thrown: Throwable) {
+                    threw.set(thrown)
+                }
+            },
+            "kortex-test-application",
+        )
+        loop.isDaemon = true
+        loop.start()
+
+        // Set in catch, read in finally: what finally finds attaches to the failure that surfaced first.
+        var primary: Throwable? = null
+        try {
+            waitUntil { scope.get() != null || !loop.isAlive }
+            val started = scope.get()
+                ?: fail("the application never composed its content: ${returned.get() ?: threw.get()}")
+            block(started, loop)
+        } catch (thrown: Throwable) {
+            primary = thrown
+            throw thrown
+        } finally {
+            scope.get()?.exitApplication()
+            loop.join(JOIN_MILLIS)
+            if (loop.isAlive) {
+                val trouble = AssertionError(
+                    "the application never returned, so its connection, its surfaces and the thread stay live for " +
+                        "the rest of this test JVM",
+                )
+                val existing = primary
+                if (existing != null) existing.addSuppressed(trouble) else throw trouble
+            }
+        }
+        threw.get()?.let { throw AssertionError("the application's thread threw", it) }
+        return assertNotNull(returned.get(), "the application returned nothing")
     }
 
     /** Polls [condition] until it holds, for at most [timeoutMillis]; the loop thread is the one making it true. */
