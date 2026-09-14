@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
@@ -14,11 +15,16 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.ContentFailure
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.delay
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -230,6 +236,178 @@ class ShowTest {
         }
     }
 
+    @Test
+    fun `a surface the compositor closes reports Ok and is not replaced, and taking its Show out reports nothing more`() {
+        val showing = mutableStateOf(true)
+        val left = AtomicBoolean(false)
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) {
+                Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
+                OnLeave(left)
+            }
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+
+            shell.shownSurfaces.single().simulateCompositorClose()
+
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the compositor's close reported nothing")
+            assertEquals(listOf(Ok(Unit)), reports.toList(), "the compositor's close did not report Ok once")
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface the compositor closed was placed again")
+
+            showing.value = false
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { left.get() }, "the Show never left composition")
+            shell.passOrFail()
+
+            assertEquals(listOf(Ok(Unit)), reports.toList(), "taking out a Show whose surface had ended reported again")
+        }
+    }
+
+    @Test
+    fun `a surface that cannot be placed reports Failed with the reason, and the run goes on`() {
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val unplaceable: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface<Nothing>(NAMESPACE, anchor = emptySet(), width = 0.dp, onClose = { reports += it }))
+        }
+
+        onApplication(unplaceable) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the unplaceable surface reported nothing")
+            assertEquals(
+                listOf(Err(SurfaceError.Failed(KortexError.UnspannableAxis(Axis.Horizontal, emptySet())))),
+                reports.toList(),
+                "a surface with an unspannable axis did not report Failed with that reason once",
+            )
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface that could not be placed is listed as shown")
+        }
+    }
+
+    @Test
+    fun `content whose effect throws reports Failed with the crash, and another shown surface keeps drawing`() {
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val tick = mutableIntStateOf(0)
+        val drawn = CopyOnWriteArrayList<Int>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) { ThrowingEffect() })
+            Show(
+                TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT) {
+                    Canvas(Modifier.fillMaxSize()) { drawn += tick.intValue }
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the crashed surface reported nothing")
+            val crash = crashIn(reports.single(), "an effect that threw did not report Failed(SurfaceCrashed)")
+            assertEquals(NAMESPACE, crash.namespace, "the crash named another surface")
+            assertIs<ContentFailure.Composition>(crash.failure, "the crash was not the effect's")
+            assertEquals(EFFECT_FAILURE, crash.failure.cause.message, "the crash did not carry what the effect threw")
+
+            assertEquals(1, shell.shownSurfaces.size, "the crash did not end its own surface, and only its own")
+            tick.intValue = 1
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { 1 in drawn }, "the other surface stopped drawing after the crash")
+        }
+    }
+
+    @Test
+    fun `content whose cleanup throws as its Show is taken out reports the crash, not Ok`() {
+        val showing = mutableStateOf(true)
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) { ThrowingCleanup() })
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+
+            showing.value = false
+
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "taking the Show out reported nothing")
+            val crash = crashIn(reports.single(), "cleanup that threw as its Show was taken out did not report a crash")
+            assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what the cleanup threw")
+        }
+    }
+
+    @Test
+    fun `content whose cleanup throws as changed settings replace its surface reports the crash and places nothing`() {
+        val height = mutableIntStateOf(SHORT)
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it }) {
+                    ThrowingCleanup()
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+
+            height.intValue = TALL
+
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the replaced content's crash reported nothing")
+            val crash = crashIn(reports.single(), "cleanup that threw as its surface was replaced did not report a crash")
+            assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what the cleanup threw")
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface was placed for a Show whose content had crashed")
+        }
+    }
+
+    @Test
+    fun `a surface that ends in the pass its Show is taken out reports once`() {
+        val showing = mutableStateOf(true)
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) {
+                val surface = TestSurface<Dismissal>(NAMESPACE, onClose = { reports += it })
+                Show(surface)
+                // The host closes the surface as it takes the Show out, so the ending and the removal meet in one pass.
+                DisposableEffect(Unit) { onDispose { surface.close(Dismissal.Dismissed) } }
+            }
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+
+            showing.value = false
+
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the ending and the removal reported nothing")
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertEquals(
+                listOf(Err(SurfaceError.Closed(Dismissal.Dismissed))),
+                reports.toList(),
+                "an ending and a removal in one pass did not report the ending, once",
+            )
+        }
+    }
+
+    /** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
+    private fun crashIn(report: EmptyResult<SurfaceError<*>>, message: String): KortexError.SurfaceCrashed {
+        val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")
+        return assertIs<KortexError.SurfaceCrashed>(failed.error, "$message: $report")
+    }
+
+    @Composable
+    private fun ThrowingEffect() {
+        LaunchedEffect(Unit) {
+            delay(EFFECT_DELAY_MILLIS)
+            error(EFFECT_FAILURE)
+        }
+    }
+
+    @Composable
+    private fun ThrowingCleanup() {
+        DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
+    }
+
+    /** Sets [left] as the caller leaves composition, so a test can wait for its removal to have been queued. */
+    @Composable
+    private fun OnLeave(left: AtomicBoolean) {
+        DisposableEffect(Unit) { onDispose { left.set(true) } }
+    }
+
     private sealed interface Dismissal : IError {
         data object Dismissed : Dismissal
     }
@@ -266,6 +444,9 @@ class ShowTest {
         const val SETTLE_MILLIS = 300L
         const val SHORT = 8
         const val TALL = 16
+        const val EFFECT_FAILURE = "an effect threw"
+        const val CLEANUP_FAILURE = "cleanup threw as the surface went"
+        const val EFFECT_DELAY_MILLIS = 50L
 
         // Clear of the default speck's corner, so a second surface is told apart on screen too.
         val BOTTOM_LEFT = setOf(Edge.Bottom, Edge.Left)

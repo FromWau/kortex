@@ -12,6 +12,7 @@ import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
 import com.fromwau.kern.result.onError
+import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -53,8 +54,14 @@ internal class ShownSurface(val newest: State<LayerSurface<*>>, private val wake
 
     private val requested = AtomicReference<EmptyResult<SurfaceError<IError>>?>(null)
 
-    /** The ending an instance asked for through close() or close(error), once one has. */
-    val ending: EmptyResult<SurfaceError<IError>>? get() = requested.get()
+    /**
+     * How its surface ended by itself, once it has: the first ending an instance asked for, else its content's
+     * crash, else a close by the compositor or through the surface's own handle.
+     */
+    val ownEnding: EmptyResult<SurfaceError<IError>>?
+        get() = requested.get() ?: surface?.let { placed ->
+            placed.crash?.let { Err(SurfaceError.Failed(it)) } ?: Ok(Unit).takeIf { placed.closed }
+        }
 
     /** Asks for [ending] from any thread; the first ask decides, and the shell acts on it in its next pass. */
     fun requestEnd(ending: EmptyResult<SurfaceError<IError>>) {
@@ -216,7 +223,8 @@ public class KortexShell private constructor(
             val opens = generateSequence(pendingOpens::poll).toList()
             opens.forEach { spec -> placeSurfaces(spec, standing = false).getOrElse { return Err(it) } }
         }
-        return reconcileShows()
+        reconcileShows()
+        return Ok(Unit)
     }
 
     private fun serviceSurfaces(): EmptyResult<KortexError> {
@@ -235,7 +243,10 @@ public class KortexShell private constructor(
         // beats ending the run. One whose content crashed has queued that crash, which ends the run below.
         toReplace.forEach { active -> placeSurfaces(active.spec, standing = true) }
         surfaces.forEach { active -> active.surface.serviceTick().getOrElse { return Err(it) } }
-        shownSurfaces.forEach { surface -> surface.serviceTick().getOrElse { return Err(it) } }
+        // A shown surface that fails its tick ends by itself, as Failed; the run goes on.
+        placed.forEach { shown ->
+            shown.surface?.serviceTick()?.onError { reason -> shown.requestEnd(Err(SurfaceError.Failed(reason))) }
+        }
         return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
 
@@ -357,66 +368,74 @@ public class KortexShell private constructor(
         display.wake()
     }
 
-    private fun reconcileShows(): EmptyResult<KortexError> {
+    private fun reconcileShows() {
         // Every placed Show, for an ending of its own, and every Show that changed.
-        (placed.toList() + generateSequence(changedShows::poll)).forEach { shown ->
-            reconcile(shown).getOrElse { return Err(it) }
-        }
-        return Ok(Unit)
+        (placed.toList() + generateSequence(changedShows::poll)).forEach(::reconcile)
     }
 
-    private fun reconcile(shown: ShownSurface): EmptyResult<KortexError> {
-        if (shown.reported) return Ok(Unit)
-        val ending = shown.ending
+    private fun reconcile(shown: ShownSurface) {
+        if (shown.reported) return
+        val ownEnding = shown.ownEnding
         val wanted = shown.wanted
         when {
-            // First: an ending the surface asked for before its Show left is what reports.
-            ending != null -> end(shown, ending)
+            // First: a surface that ended by itself before its Show left reports how it ended.
+            ownEnding != null -> end(shown, ownEnding)
             wanted == null -> end(shown, Ok(Unit))
-            shown.surface == null -> return place(shown, wanted)
-            shown.placedWith != wanted -> return replace(shown, wanted)
+            shown.surface == null -> place(shown, wanted)
+            shown.placedWith != wanted -> replace(shown, wanted)
         }
-        return Ok(Unit)
     }
 
-    // The Show is still in composition, so from its host's side nothing has ended: no onClose.
-    private fun replace(shown: ShownSurface, settings: SurfaceConfig): EmptyResult<KortexError> {
-        shown.surface?.let { surface ->
-            placed.remove(shown)
-            shown.surface = null
-            surface.close()
-        }
-        return place(shown, settings)
+    // The Show is still in composition, so nothing has ended for its host, unless its content failed as it went.
+    private fun replace(shown: ShownSurface, settings: SurfaceConfig) {
+        val crash = takeDown(shown) ?: return place(shown, settings)
+        report(shown, Err(SurfaceError.Failed(crash)))
     }
 
-    private fun place(shown: ShownSurface, settings: SurfaceConfig): EmptyResult<KortexError> =
-        KortexSurface.create(
-            display,
-            settings,
-            platform = platform,
-            loopQueue = loopQueue,
-            onCrash = crashes::add,
-            onInputSerial = clipboard::recordInputSerial,
-            onKeyboardFocus = clipboard::recordKeyboardFocus,
-        ).flatMap { surface ->
-            surface
-                .setContent { ProvideClipboard(contentClipboard) { shown.newest.value() } }
-                .onError { surface.close() }
-                .map {
-                    shown.surface = surface
-                    shown.placedWith = settings
-                    placed += shown
-                }
-        }
+    private fun place(shown: ShownSurface, settings: SurfaceConfig) {
+        KortexSurface
+            .create(
+                display,
+                settings,
+                platform = platform,
+                loopQueue = loopQueue,
+                // Only a wake: the next pass reads the scene's first failure, which this one may not be.
+                onCrash = { wake() },
+                onInputSerial = clipboard::recordInputSerial,
+                onKeyboardFocus = clipboard::recordKeyboardFocus,
+            )
+            .flatMap { surface ->
+                surface
+                    .setContent { ProvideClipboard(contentClipboard) { shown.newest.value() } }
+                    .onError { surface.close() }
+                    .map { surface }
+            }
+            .onSuccess { surface ->
+                shown.surface = surface
+                shown.placedWith = settings
+                placed += shown
+            }
+            .onError { reason -> report(shown, Err(SurfaceError.Failed(reason))) }
+    }
 
-    private fun end(shown: ShownSurface, result: EmptyResult<SurfaceError<IError>>) {
-        shown.surface?.let { surface ->
-            placed.remove(shown)
-            shown.surface = null
-            surface.close()
-        }
+    private fun end(shown: ShownSurface, ending: EmptyResult<SurfaceError<IError>>) {
+        // Content failing, its cleanup as the surface goes included, ends it as a crash whatever else ended it.
+        val crash = takeDown(shown)
+        report(shown, crash?.let { Err(SurfaceError.Failed(it)) } ?: ending)
+    }
+
+    /** Closes [shown]'s surface, if it has one, and returns what its content threw, as it went included. */
+    private fun takeDown(shown: ShownSurface): KortexError.SurfaceCrashed? {
+        val surface = shown.surface ?: return null
+        placed.remove(shown)
+        shown.surface = null
+        surface.close()
+        return surface.crash
+    }
+
+    private fun report(shown: ShownSurface, ending: EmptyResult<SurfaceError<IError>>) {
         shown.reported = true
-        shown.newest.value.report(result)
+        shown.newest.value.report(ending)
     }
 
     private fun startApplication(content: @Composable KortexApplicationScope.() -> Unit) {
