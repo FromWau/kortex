@@ -380,8 +380,6 @@ class ClipboardTest {
     private companion object {
         val NULL: MemorySegment = MemorySegment.NULL
         const val COPIED = "Grüße aus kortex"
-
-        // No real input event ever reaches an unfocused connection, so this stands in for one.
         const val FAKE_SERIAL = 1
 
         // Spelled out rather than read off TextMime, so reordering its entries fails here.
