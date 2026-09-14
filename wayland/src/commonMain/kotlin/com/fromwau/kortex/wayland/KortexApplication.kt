@@ -16,13 +16,40 @@ import com.fromwau.kern.result.flatMap
 import com.fromwau.kortex.compose.KortexPlatform
 import kotlinx.coroutines.CoroutineExceptionHandler
 
-/** What the content of [kortexApplication] can do besides compose: end the application. */
+/** What your application's content can do besides composing: end the application. */
 public interface KortexApplicationScope {
-    /** Ends the application. */
+    /**
+     * Ends the application: every [Show] leaves composition, each surface's `onClose` receives `Ok(Unit)`, and
+     * [kortexApplication] returns. Safe to call from any thread, and more than once.
+     */
     public fun exitApplication()
 }
 
-/** Runs [content] as an application whose surfaces are the [LayerSurface]s it shows. */
+/**
+ * Runs your application: the [LayerSurface]s on screen are the ones [content] shows with [Show].
+ *
+ * ```kotlin
+ * fun main() {
+ *     kortexApplication {
+ *         var level by remember { mutableStateOf<Float?>(0.4f) }
+ *         level?.let { Show(VolumeOsd(it, onClose = { level = null })) }
+ *     }.onError { exitProcess(1) }
+ * }
+ * ```
+ *
+ * Blocks the calling thread until the application ends. [content], every surface's content and every `onClose` run
+ * on that thread, which also draws, so blocking inside an effect stalls every surface; move blocking work off it,
+ * e.g. with `withContext(Dispatchers.IO)`.
+ *
+ * [content] holds state and [Show] calls and draws nothing itself: UI belongs in a surface's `invoke()`. An
+ * application with no surface on screen keeps running until [KortexApplicationScope.exitApplication] is called.
+ *
+ * @param platform hooks the surfaces' content drives, e.g. the cursor shape a hover asks for.
+ * @return `Ok(Unit)` once `exitApplication()` has ended the application, with every surface's `onClose` called.
+ *   [KortexError.NoCompositorResponse], [KortexError.ConnectionError], [KortexError.ProtocolViolation] or
+ *   [KortexError.MissingGlobal] when the compositor cannot be reached, goes away, or lacks what kortex needs.
+ *   [KortexError.ApplicationCrashed] when your own code threw, UI placed directly in [content] included.
+ */
 public fun kortexApplication(
     platform: KortexPlatform = KortexPlatform.None,
     content: @Composable KortexApplicationScope.() -> Unit,
@@ -38,7 +65,19 @@ public fun kortexApplication(
         }
     }
 
-/** Keeps [surface] on screen while this call is in composition. */
+/**
+ * Keeps [surface] on screen while this call is in composition in [kortexApplication]'s content.
+ *
+ * The surface appears shortly after `Show` enters composition, and goes when `Show` leaves it, reporting `Ok(Unit)`
+ * to its `onClose`. Each recomposition hands `Show` a new instance. While the settings stay equal, the surface keeps
+ * running with the newest instance's content and `onClose`. When they change, a new surface replaces it, and no
+ * `onClose` is called.
+ *
+ * Once the surface has ended by itself, in any of the ways [LayerSurface.onClose] lists, `Show` shows nothing until
+ * you take it out of composition and put it back. Taking it out reports nothing more.
+ *
+ * @throws IllegalStateException when called outside [kortexApplication]'s content.
+ */
 @Composable
 public fun Show(surface: LayerSurface<*>) {
     val shell = LocalKortexShell.current

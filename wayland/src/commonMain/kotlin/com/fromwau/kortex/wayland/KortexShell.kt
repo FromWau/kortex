@@ -488,7 +488,7 @@ public class KortexShell private constructor(
             application.close()
             reconcileShows()
             // A disposal that threw can leave Shows in place; that throw ended the application, so they go unreported.
-            placed.toList().forEach { shown -> end(shown, Ok(Unit)) }
+            placed.toList().forEach(::takeDown)
         }
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)

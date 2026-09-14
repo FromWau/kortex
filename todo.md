@@ -166,33 +166,36 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       `onDone`. That stands in for what a real re-send would dispatch on the loop thread. Content
       recomposes with the fabricated geometry, which needs no real output added, removed or changed, so it
       runs untagged in the default build. (`RecompositionTest`)
-- [x] **A typed surface lifecycle state.** A sealed `SurfaceState` runs from `Running` to `Closed` or
-      `Crashed(failure)`. The host reads it on `ActiveSurface.state` and content through
-      `KortexSurfaceHandle.state`, and both read the one Compose state its `KortexSurface` holds. A surface reads
-      `Running` from the moment content can see its handle; nothing comes before it, since content first runs on
-      a configured surface. `KortexSurface.close()` moves it to `Closed` as its last step, and only if its scene
-      has recorded no failure. Content's `close()`, the compositor closing it, its output going away and the shell
-      closing all reach that one teardown, and content's `close()` leaves it `Running` until the shell tears the
-      surface down. The scene's `onFailure` moves it to `Crashed` with the first failure the scene recorded, before
-      the crash is queued for `onCrashSurface`. Nothing moves it off `Crashed`, and content failing as it is torn
-      down leaves it `Crashed` rather than `Closed`. A failure after that moves it on from `Closed` to `Crashed`:
-      the `Crashed` write has no condition, and `close()` writes `Closed` only once. That case is not exercised by
-      a test. Both writes take one lock, so a crash recorded on another thread cannot land between the teardown's
-      check and its write; that interleaving is not exercised by a test either. They go to the global snapshot,
-      whatever snapshot their thread has entered. Each then calls `Snapshot.sendApplyNotifications()`, since a
-      torn-down scene pumps nothing and a crash ends the run: a `snapshotFlow` outside composition would not hear
-      the change otherwise. `onFailure` queues the crash from a `finally`, so a crash in one of content's coroutines
-      still reaches `onCrashSurface` and ends the run when an apply observer throws as the move to `Crashed` is
-      announced. That observer's exception goes to its thread's uncaught-exception handler. An output going away
-      tears its surfaces down through the same `removeSurface` as the shell's close, and is not exercised by a
-      test. (`SurfaceStateTest`)
-- [ ] **Two failures of one scene on two threads can end the run with a different failure than `Crashed`
-      holds.** `KortexScene.record` sets the first failure by compare-and-set and then calls `onFailure`
+- [x] **A shown surface reports each ending to its host once, through `onClose`.** `kortexApplication` runs the
+      host's content as an application composition on the thread that calls it: Compose's `FrameRecomposer` on
+      the shell's `LoopQueue`, recomposed in a loop pass once it asks for a frame, over an applier that takes no
+      node, so UI placed in it ends the run as `KortexError.ApplicationCrashed`. It runs in a `KortexShell` beside
+      the spec path, on the same outputs, clipboard, loop queue and display. A surface is a `LayerSurface<E>`
+      subclass: its constructor values are its settings, and its `invoke()` is its content. `Show(surface)` queues
+      a placement from a `DisposableEffect` keyed on the settings, and the shell places the surface in its next
+      pass, never inside composition, under its namespace as written, on the output the compositor chooses. A new
+      instance with the same settings keeps the surface, which composes the newest instance's `invoke()` and
+      reports to its `onClose`; changed settings replace the surface and report nothing. Every ending reports once,
+      on the loop thread, after the surface has gone: `close()`, the compositor closing it and its `Show` leaving
+      composition report `Ok(Unit)`, `close(error)` reports `Err(SurfaceError.Closed(error))`, and a surface that
+      cannot be placed reports `SurfaceError.Failed` with the reason. Content that throws ends only its own
+      surface, reporting `Failed(SurfaceCrashed)` with the scene's first failure, and so does cleanup that throws
+      as the surface goes, whatever else ended it. An ending and a removal in one pass report the ending, and a
+      `Show` taken out after its surface ended reports nothing more. `close()` and `close(error)` act on the
+      `Show`'s surface from any of its instances and any thread, the first deciding, and do nothing on an
+      instance never shown. `exitApplication()`, from any thread and more than once, ends the run, and closing
+      the shell takes every `Show` out, each reporting `Ok(Unit)`. The host's own code throwing, its content or an
+      `onClose`, ends the run as `ApplicationCrashed`, and no `onClose` is called after it. Nothing else ends the
+      run: an application with nothing on screen keeps running. A connection that dies under it ends the run with
+      the connection's error, and a shown surface whose tick fails ends as `Failed`; neither is exercised by a
+      test. (`ShowTest`)
+- [ ] **Two failures of one scene on two threads can end a spec surface's run with a different failure than the
+      scene keeps.** `KortexScene.record` sets the first failure by compare-and-set and then calls `onFailure`
       (`KortexScene.kt:227-230`). Two threads can make those calls in either order, so the failure the scene
-      keeps can reach `onFailure` second. The shell ends the run with the first crash its queue received
-      (`KortexShell.kt:199-200`), so `runEventLoop`'s error can differ from the surface's `Crashed.failure`.
-      Open: whether the run ends with the scene's first recorded failure instead, which changes the error a
-      host's run returns.
+      keeps can reach `onFailure` second. The spec path ends the run with the first crash its queue received
+      (`KortexShell.kt:272-273`), so `runEventLoop`'s error can differ from the scene's `failure`. A shown surface
+      reads the scene's `failure` itself as it reports. Open: whether the spec path's run ends with the scene's
+      first recorded failure instead, which changes the error a host's run returns.
 - [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
       `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
       clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
