@@ -8,9 +8,10 @@ import com.fromwau.kern.result.Result
  * The desktop's clipboard, as a shell's content reaches it through `LocalKortexHost.current.clipboard`: put text
  * on it, clear it, or read the text on it, each call returning a typed result.
  *
- * Compose's `LocalClipboard`, which Compose's own text fields use, reaches the same clipboard but cannot say why
- * a copy or paste failed: a failed paste gets no entry, and a failed copy does nothing. Call this instead when
- * your content needs to know.
+ * Compose's `LocalClipboard`, which Compose's own text fields use, reaches the same clipboard, except inside a
+ * `Popup` or `Dialog`, where it is AWT's. It cannot say why a copy or paste failed: a failed paste gets no entry,
+ * and a failed copy does nothing. Call this instead when your content needs to know; it is the shell's clipboard
+ * inside a `Popup` or `Dialog` too.
  *
  * ```kotlin
  * val clipboard = LocalKortexHost.current.clipboard
