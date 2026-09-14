@@ -198,18 +198,48 @@ class ClipboardTest {
         }
     }
 
+    @Test
+    fun `a compositor that offers no clipboard still gets a shell`() {
+        withoutDataDeviceManager { display ->
+            val shell = KortexShell.create(display).getOrElse { error -> fail("shell creation failed: $error") }
+            shell.useOrFail { }
+        }
+    }
+
+    @Test
+    fun `a clipboard the compositor does not offer fails every request as NoClipboard`() {
+        withoutDataDeviceManager { display ->
+            withClipboard(display) { clipboard ->
+                assertEquals(Err(ClipboardError.NoClipboard), runBlocking { clipboard.setText(COPIED) })
+                assertEquals(Err(ClipboardError.NoClipboard), runBlocking { clipboard.readText() })
+            }
+        }
+    }
+
     /** A clipboard on a connection with no surface, so nothing ever gives it focus or an input serial. */
     private fun withUnfocusedClipboard(block: (WaylandClipboard) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        display.use { wayland -> withClipboard(wayland, block) }
+    }
+
+    /** A connection that shows no `wl_data_device_manager`, as one to a compositor that never announced it would. */
+    private fun withoutDataDeviceManager(block: (WaylandDisplay) -> Unit) {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland ->
-            // Unconfined runs the clipboard's loop work right here, on the thread that owns this connection.
-            val clipboard = WaylandClipboard.bind(wayland, Dispatchers.Unconfined)
-                .getOrElse { error -> fail("binding the clipboard failed: $error") }
-            clipboard.use {
-                // Whatever the compositor sends a new data device has arrived before the block looks.
-                wayland.roundtrip()
-                block(it)
-            }
+            // Forgotten on this side only, as global_remove does; nothing ever binds it.
+            wayland.global(DATA_DEVICE_MANAGER)?.let { wayland.removeGlobal(it.name) }
+            block(wayland)
+        }
+    }
+
+    private fun withClipboard(display: WaylandDisplay, block: (WaylandClipboard) -> Unit) {
+        // Unconfined runs the clipboard's loop work right here, on the thread that owns this connection.
+        val clipboard = WaylandClipboard.bind(display, Dispatchers.Unconfined)
+            .getOrElse { error -> fail("binding the clipboard failed: $error") }
+        clipboard.use {
+            // Whatever the compositor sends a new data device has arrived before the block looks.
+            display.roundtrip()
+            block(it)
         }
     }
 
@@ -254,5 +284,6 @@ class ClipboardTest {
         const val WRITER_PAUSE_MILLIS = 1L
         const val NANOS_PER_MILLI = 1_000_000L
         const val POLLERR = 0x008
+        const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
     }
 }

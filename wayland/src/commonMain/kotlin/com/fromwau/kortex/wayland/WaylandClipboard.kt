@@ -26,9 +26,8 @@ import kotlinx.coroutines.withContext
 internal class WaylandClipboard private constructor(
     private val display: WaylandDisplay,
     private val loop: CoroutineDispatcher,
-    private val seat: Seat,
-    private val manager: MemorySegment,
-    private val device: DataDevice,
+    // Null when the compositor offers no clipboard.
+    private val bound: BoundDevice?,
 ) : AutoCloseable {
     // Each of these is the loop thread's alone.
     private var inputSerial: Int? = null
@@ -43,7 +42,8 @@ internal class WaylandClipboard private constructor(
     /**
      * Makes [text] the selection, offered under every [TextMime].
      *
-     * @return [ClipboardError.NoInputSerial] until a surface of the shell has had an input event.
+     * @return [ClipboardError.NoInputSerial] until a surface of the shell has had an input event, or
+     *   [ClipboardError.NoClipboard] when the compositor offers none.
      */
     suspend fun setText(text: String): EmptyResult<ClipboardError> = withContext(loop) { offerSelection(text) }
 
@@ -57,9 +57,10 @@ internal class WaylandClipboard private constructor(
 
     private fun offerSelection(text: String): EmptyResult<ClipboardError> {
         check(!closed) { "setText on a clipboard already given back" }
+        val bound = bound ?: return Err(ClipboardError.NoClipboard)
         val serial = inputSerial ?: return Err(ClipboardError.NoInputSerial)
-        val offered = DataSource.create(manager, text)
-        device.setSelection(offered, serial)
+        val offered = DataSource.create(bound.manager, text)
+        bound.device.setSelection(offered, serial)
         display.flush()
         // After set_selection, not before: destroying the selection's own source would clear the selection meanwhile.
         source?.destroy()
@@ -69,7 +70,8 @@ internal class WaylandClipboard private constructor(
 
     private fun receiveSelection(): Result<Int, ClipboardError> {
         check(!closed) { "readText on a clipboard already given back" }
-        val offer = device.selection ?: return Err(ClipboardError.NoSelection)
+        val bound = bound ?: return Err(ClipboardError.NoClipboard)
+        val offer = bound.device.selection ?: return Err(ClipboardError.NoSelection)
         val type = offer.preferredText ?: return Err(ClipboardError.NoText)
         val pipe = LibC.pipe().getOrElse { return Err(ClipboardError.PipeFailed) }
         offer.receive(type, pipe.writeFd)
@@ -85,30 +87,51 @@ internal class WaylandClipboard private constructor(
         closed = true
         source?.destroy()
         source = null
-        device.release()
-        // wl_data_device_manager has no destructor below v4, so its proxy is only ever freed on this side.
-        LibWayland.proxyDestroy(manager)
-        // Last, since the device was taken for it.
-        seat.release()
+        bound?.release()
+    }
+
+    /** The manager, a seat of the clipboard's own, and the data device taken for that seat. */
+    private class BoundDevice(val manager: MemorySegment, val seat: Seat, val device: DataDevice) {
+        /** Gives back the device and its offers, the manager, and the seat last. */
+        fun release() {
+            device.release()
+            // wl_data_device_manager has no destructor below v4, so its proxy is only ever freed on this side.
+            LibWayland.proxyDestroy(manager)
+            // Last, since the device was taken for it.
+            seat.release()
+        }
     }
 
     companion object {
-        /** Binds the manager and a seat of the clipboard's own, and takes that seat's data device. */
+        /**
+         * Binds the manager and a seat of the clipboard's own, and takes that seat's data device. On a compositor
+         * that offers no manager, the clipboard fails every request as [ClipboardError.NoClipboard] instead.
+         */
         fun bind(display: WaylandDisplay, loop: CoroutineDispatcher): Result<WaylandClipboard, KortexError> {
             val manager = display
-                .require("wl_data_device_manager", LibWayland.dataDeviceManagerInterface, WlVersion.DATA_DEVICE_MANAGER)
-                .getOrElse { return Err(it) }
+                .require(DATA_DEVICE_MANAGER, LibWayland.dataDeviceManagerInterface, WlVersion.DATA_DEVICE_MANAGER)
+                .getOrElse { failure ->
+                    if (failure == KortexError.MissingGlobal(DATA_DEVICE_MANAGER)) {
+                        return Ok(WaylandClipboard(display, loop, bound = null))
+                    }
+                    return Err(failure)
+                }
             val seat = Seat.bind(display).getOrElse { failure ->
                 LibWayland.proxyDestroy(manager)
                 return Err(failure)
             }
-            return Ok(WaylandClipboard(display, loop, seat, manager, DataDevice.create(manager, seat)))
+            return Ok(WaylandClipboard(display, loop, BoundDevice(manager, seat, DataDevice.create(manager, seat))))
         }
+
+        private const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
     }
 }
 
 /** Why [WaylandClipboard] could not set or read the selection. */
 internal sealed interface ClipboardError : IError {
+    /** The compositor offers no clipboard: it never announced `wl_data_device_manager`. */
+    data object NoClipboard : ClipboardError
+
     /** Nothing is selected, or this client has not been told what is: only keyboard focus brings that. */
     data object NoSelection : ClipboardError
 
