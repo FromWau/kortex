@@ -30,10 +30,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertIsNot
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.CompletableDeferred
@@ -182,10 +182,13 @@ class ComposeClipboardTest {
                 typed.set(LocalKortexHost.current.clipboard)
                 Box(Modifier.fillMaxSize())
             },
-        ) { shell ->
+        ) { _ ->
             assertIs<ComposeClipboard>(clipboard.get(), "content's LocalClipboard is not the shell's")
             assertIs<ComposeClipboardManager>(manager.get(), "content's LocalClipboardManager is not the shell's")
-            assertSame(shell.clipboard, typed.get(), "content's typed clipboard is not the shell's")
+            assertIsNot<AutoCloseable>(
+                assertNotNull(typed.get(), "content was handed no typed clipboard"),
+                "content was handed a clipboard it could close",
+            )
         }
     }
 

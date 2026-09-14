@@ -20,7 +20,7 @@ import com.fromwau.kern.result.Result
  *
  * Call it from any thread.
  */
-public interface KortexClipboard {
+public sealed interface KortexClipboard {
     /**
      * Puts [text] on the clipboard, for this and every other application to paste.
      *

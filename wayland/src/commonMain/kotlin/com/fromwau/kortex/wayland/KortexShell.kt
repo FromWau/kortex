@@ -26,6 +26,9 @@ internal class ShellOutput(
     }
 }
 
+/** [clipboard]'s calls without its close, which is the shell's alone: what content reaches through its host. */
+private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
+
 /**
  * A live surface together with the spec it came from and the output it went on.
  *
@@ -60,6 +63,8 @@ public class KortexShell private constructor(
     // What content copies and pastes through: the shell's clipboard, or a test's stand-in for it.
     private val contentClipboard: TextClipboard,
 ) {
+
+    private val hostClipboard: KortexClipboard = HostClipboard(contentClipboard)
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
     private val surfaces = mutableListOf<ActiveSurface>()
@@ -247,7 +252,9 @@ public class KortexShell private constructor(
             onInputSerial = clipboard::recordInputSerial,
         ).flatMap { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
-            val host = hostFor(active)
+            // Built once per surface, not inside the content lambda: LocalKortexHost is static, so a fresh
+            // instance handed to it on every recomposition would recompose everything the local reaches.
+            val host = ShellHost(active)
             surface
                 .setContent {
                     CompositionLocalProvider(LocalKortexHost provides host) {
@@ -260,16 +267,15 @@ public class KortexShell private constructor(
         }
     }
 
-    // Built once per surface, not inside the content lambda: LocalKortexHost is static, so a fresh
-    // instance handed to it on every recomposition would recompose everything the local reaches.
-    private fun hostFor(active: ActiveSurface): KortexHost = object : KortexHost {
+    private inner class ShellHost(private val active: ActiveSurface) : KortexHost {
         override val output: OutputGeometry? get() = active.geometry
+
         override fun open(spec: SurfaceSpec) {
             pendingOpens += spec
             display.wake()
         }
 
-        override val clipboard: KortexClipboard get() = contentClipboard
+        override val clipboard: KortexClipboard get() = hostClipboard
     }
 
     private fun removeSurface(active: ActiveSurface) {
