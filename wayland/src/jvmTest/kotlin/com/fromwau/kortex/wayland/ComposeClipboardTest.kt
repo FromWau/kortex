@@ -18,6 +18,7 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexPlatform
 import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
 import java.util.concurrent.CopyOnWriteArrayList
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -57,6 +59,23 @@ class ComposeClipboardTest {
         runBlocking { ComposeClipboard(clipboard).setClipEntry(ClipEntry(ImageOnly)) }
         assertEquals(0, clipboard.clears.get(), "an entry with no text cleared the selection")
         assertEquals(emptyList(), clipboard.setTexts.toList(), "an entry with no text set the selection")
+    }
+
+    @Test
+    fun `a copy reads its entry's text off the thread that copies`() {
+        val clipboard = FakeTextClipboard()
+        val reader = AtomicReference<Thread?>()
+        runBlocking { ComposeClipboard(clipboard).setClipEntry(ClipEntry(ThreadRecordingText(reader))) }
+        assertNotEquals(Thread.currentThread(), reader.get(), "the entry's text was read on the thread that copied")
+        assertEquals(listOf(COPIED), clipboard.setTexts.toList(), "the copy did not set the entry's text")
+    }
+
+    @Test
+    fun `a copy the clipboard refuses does nothing and throws nothing`() {
+        val clipboard = FakeTextClipboard(set = { Err(ClipboardError.NoInputSerial) })
+        runBlocking { ComposeClipboard(clipboard).setClipEntry(ClipEntry(StringSelection(COPIED))) }
+        assertEquals(listOf(COPIED), clipboard.setTexts.toList(), "the copy was not tried exactly once")
+        assertEquals(0, clipboard.clears.get(), "a refused copy cleared the selection")
     }
 
     @Test
@@ -166,6 +185,18 @@ class ComposeClipboardTest {
             val spec = SurfaceSpec(SPECK_CONFIG, OutputTarget.CompositorChoice, content)
             val shell = create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
             shell.useOrFail(block)
+        }
+    }
+
+    /** A text entry that notes which thread asks it for its text. */
+    private class ThreadRecordingText(private val reader: AtomicReference<Thread?>) : Transferable {
+        override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(DataFlavor.stringFlavor)
+
+        override fun isDataFlavorSupported(flavor: DataFlavor?): Boolean = flavor == DataFlavor.stringFlavor
+
+        override fun getTransferData(flavor: DataFlavor?): Any {
+            reader.set(Thread.currentThread())
+            return COPIED
         }
     }
 

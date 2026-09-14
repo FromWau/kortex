@@ -21,9 +21,11 @@ import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** The shell's clipboard as Compose's clipboards need it: a [KortexClipboard] that can also answer without waiting. */
 internal interface TextClipboard : KortexClipboard {
@@ -84,13 +86,16 @@ internal class ComposeClipboardManager(
     }
 }
 
-private fun ClipEntry.text(): String? {
+private suspend fun ClipEntry.text(): String? {
     val transferable = asAwtTransferable ?: return null
     if (!transferable.isDataFlavorSupported(DataFlavor.stringFlavor)) return null
-    return try {
-        transferable.getTransferData(DataFlavor.stringFlavor) as? String
-    } catch (_: IOException) {
-        // The data can be gone by the time it is asked for, in a flavor the Transferable still lists.
-        null
+    // Off the caller's thread, which for content is the loop's: a Transferable may take its time producing its data.
+    return withContext(Dispatchers.IO) {
+        try {
+            transferable.getTransferData(DataFlavor.stringFlavor) as? String
+        } catch (_: IOException) {
+            // The data can be gone by the time it is asked for, in a flavor the Transferable still lists.
+            null
+        }
     }
 }
