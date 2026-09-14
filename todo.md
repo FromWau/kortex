@@ -71,7 +71,7 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       and scale on `done` (`WlOutput.kt`), reachable through `KortexShell.activeSurfaces` and
       `ActiveSurface.geometry` — both public, so a host can read an output's logical size and hand it to
       `SurfaceConfig.contextMenu`. (`OutputGeometryTest`)
-- [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
+- [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `state`, `close()`) and a `LocalKortexSurface`
       composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
       still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state,
       and a configure recomposes a reader (`RecompositionTest`). `close()` posts onto the surface's queue
@@ -351,7 +351,7 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 ## Keyboard and clipboard
 
 - [x] **A key reaches Compose as one of Compose's own keys.** `Xkb.key` maps the keysym a key has with no
-      modifiers, in the active layout, onto Compose's named `Key` constants. Ctrl+C is `Key.C`, Ctrl+/ is
+      modifiers onto Compose's named `Key` constants. Ctrl+C is `Key.C`, Ctrl+/ is
       `Key.Slash`, and Shift+1 is `Key.One` with Shift held: AWT names a key, not the character it types,
       and Compose's shortcuts expect that. Keysyms never leave `Xkb`, the FFM layer, so `KeyboardInput` and
       everything above it handle only typed keys. A keysym Compose has no name for arrives as `Key.Unknown`
