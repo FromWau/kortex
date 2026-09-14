@@ -325,8 +325,8 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       base level they are what a keypad digit is, and a text field would move its caret instead of typing
       the digit. (`KeyboardDeliveryTest`)
 - [x] **Page Up, Page Down, Insert and the F-keys reach Compose by name.** `Xkb.composeKey` names
-      `Page_Up`, `Page_Down`, `Insert` and `F1` through `F12`, so a text field's own Page Up, Page Down and
-      Insert handling fires and Compose's F-key shortcuts resolve instead of arriving as `Key.Unknown`. The
+      `Page_Up`, `Page_Down`, `Insert` and `F1` through `F12`, so each reaches content as its own `Key`
+      instead of `Key.Unknown`, and a text field's own Page Up, Page Down and Insert handling fires. The
       F-keys index into a table the way `DIGIT_KEYS` and `LETTER_KEYS` do; the keypad's own navigation
       keysyms stay unnamed, since at the base level they are what a keypad digit is.
       (`KeyboardDeliveryTest`)
