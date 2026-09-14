@@ -49,8 +49,9 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Types into a real composition using the compositor's own keymap, so the keycode is translated the
- * way it would be for a user with this layout rather than through a table invented for the test.
+ * Types into a real composition through a real keymap, the compositor's own or one `xkbcli` compiles, so the
+ * keycode is translated the way it would be for a user with that layout rather than through a table invented
+ * for the test.
  */
 class KeyboardDeliveryTest {
     @Test
