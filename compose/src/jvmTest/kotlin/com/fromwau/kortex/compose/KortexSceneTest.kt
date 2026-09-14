@@ -146,8 +146,12 @@ class KortexSceneTest {
     fun `a clickable's default press indication asks for a frame`() {
         val signalled = CountDownLatch(1)
         val signals = AtomicInteger()
+        val onInvalidate = {
+            signals.incrementAndGet()
+            signalled.countDown()
+        }
 
-        withScene(onInvalidate = { signals.incrementAndGet(); signalled.countDown() }) { scene, surface ->
+        withScene(onInvalidate = onInvalidate) { scene, surface ->
             scene.setContent { Box(Modifier.size(BOX_DP.dp).clickable {}) }
             scene.render(surface.canvas.asComposeCanvas(), 0L)
             assertEquals(0, signals.get(), "composing and rendering must not ask for a frame on its own")
