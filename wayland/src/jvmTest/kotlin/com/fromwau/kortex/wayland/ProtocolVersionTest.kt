@@ -222,6 +222,7 @@ class ProtocolVersionTest {
             Binding("wl_shm", LibWayland.shmInterface, WlVersion.SHM),
             Binding("wl_seat", LibWayland.seatInterface, WlVersion.SEAT),
             Binding("wl_output", LibWayland.outputInterface, WlVersion.OUTPUT),
+            Binding("wl_data_device_manager", LibWayland.dataDeviceManagerInterface, WlVersion.DATA_DEVICE_MANAGER),
             Binding("zwlr_layer_shell_v1", LayerShellProtocol.layerShellInterface, WlVersion.LAYER_SHELL),
             Binding(
                 "zwlr_virtual_pointer_manager_v1",

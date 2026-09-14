@@ -31,6 +31,8 @@ internal class PointerInput(
     // Absent when a caller only needs event delivery, e.g. a test with no surface behind it.
     private val cursorTheme: WlCursorTheme? = null,
     private val cursorSurface: WlCursorSurface? = null,
+    // Handed the serial of every button, which the clipboard quotes to set the selection.
+    private val onInputSerial: (Int) -> Unit = {},
 ) {
     private val arena: Arena = Arena.ofShared()
 
@@ -63,6 +65,7 @@ internal class PointerInput(
     }
 
     fun onButton(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, button: Int, state: Int) {
+        onInputSerial(serial)
         val pressed = state == BUTTON_PRESSED
         val which = button.toPointerButton() ?: return
         buttons = buttonsWith(which, pressed)
@@ -238,7 +241,8 @@ internal class PointerInput(
  * [capabilities] is awaited before either is created.
  */
 internal class Seat private constructor(
-    private val seat: MemorySegment,
+    /** The bound `wl_seat`, which the clipboard takes its data device for. */
+    val proxy: MemorySegment,
     private val capabilities: SeatCapabilities,
 ) {
 
@@ -251,30 +255,36 @@ internal class Seat private constructor(
         scale: Float,
         cursorTheme: WlCursorTheme? = null,
         cursorSurface: WlCursorSurface? = null,
+        onInputSerial: (Int) -> Unit = {},
     ): PointerInput? {
         if (!hasPointer) return null
         val pointer = LibWayland.marshal(
-            seat, WL_SEAT_GET_POINTER, LibWayland.pointerInterface,
-            LibWayland.proxyGetVersion(seat), listOf(WlArg.Ptr(MemorySegment.NULL)),
+            proxy, WL_SEAT_GET_POINTER, LibWayland.pointerInterface,
+            LibWayland.proxyGetVersion(proxy), listOf(WlArg.Ptr(MemorySegment.NULL)),
         )
-        return PointerInput(scene, scale, cursorTheme, cursorSurface).also { it.install(pointer) }
+        return PointerInput(scene, scale, cursorTheme, cursorSurface, onInputSerial).also { it.install(pointer) }
     }
 
-    fun attachKeyboard(scene: KortexScene, textInput: () -> KortexTextInput? = { null }): KeyboardInput? {
+    fun attachKeyboard(
+        scene: KortexScene,
+        textInput: () -> KortexTextInput? = { null },
+        onInputSerial: (Int) -> Unit = {},
+        onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
+    ): KeyboardInput? {
         if (!hasKeyboard) return null
         val keyboard = LibWayland.marshal(
-            seat, WL_SEAT_GET_KEYBOARD, LibWayland.keyboardInterface,
-            LibWayland.proxyGetVersion(seat), listOf(WlArg.Ptr(MemorySegment.NULL)),
+            proxy, WL_SEAT_GET_KEYBOARD, LibWayland.keyboardInterface,
+            LibWayland.proxyGetVersion(proxy), listOf(WlArg.Ptr(MemorySegment.NULL)),
         )
-        return KeyboardInput(scene, textInput).also { it.install(keyboard) }
+        return KeyboardInput(scene, textInput, onInputSerial, onKeyboardFocus).also { it.install(keyboard) }
     }
 
     /** Gives the seat back; every device taken from it must already have been released. */
     fun release() {
         if (released) return
         released = true
-        LibWayland.marshalIfSince(seat, WL_SEAT_RELEASE, WL_SEAT_RELEASE_SINCE)
-        LibWayland.proxyDestroy(seat)
+        LibWayland.marshalIfSince(proxy, WL_SEAT_RELEASE, WL_SEAT_RELEASE_SINCE)
+        LibWayland.proxyDestroy(proxy)
         // After the destroy, so no capabilities event can still reach a stub this frees.
         capabilities.close()
     }

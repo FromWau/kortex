@@ -14,9 +14,7 @@ import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.LocalKortexSurface
 import kotlinx.coroutines.delay
-import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -126,46 +124,22 @@ class ContentFailureTest {
 
     @Test
     fun `content that throws while drawing a later frame ends the run, not the process`() {
-        val (exitCode, output) = runProbe()
-        val raw = output.joinToString("\n")
+        val probe = runProbe(PROBE_MAIN_CLASS)
+        val raw = probe.output.joinToString("\n")
 
-        assertEquals(0, exitCode, "the probe did not exit cleanly; output:\n$raw")
+        assertEquals(0, probe.exitCode, "the probe did not exit cleanly; output:\n$raw")
         assertTrue(
-            "$PROBE_MARKER crashed=$PROBE_NAMESPACE failure=Composition cause=$PROBE_FAILURE" in output,
+            "$PROBE_MARKER crashed=$PROBE_NAMESPACE failure=Composition cause=$PROBE_FAILURE" in probe.output,
             "the run did not end in the later frame's crash; output:\n$raw",
         )
         assertTrue(
-            "$PROBE_MARKER hook crashed=$PROBE_NAMESPACE cause=$PROBE_FAILURE" in output,
+            "$PROBE_MARKER hook crashed=$PROBE_NAMESPACE cause=$PROBE_FAILURE" in probe.output,
             "the later frame's crash never reached onCrashSurface; output:\n$raw",
         )
     }
 
     private fun crashingSpec(content: @Composable () -> Unit): SurfaceSpec =
         SurfaceSpec(SPECK_CONFIG, OutputTarget.CompositorChoice, content)
-
-    private fun runProbe(): Pair<Int, List<String>> {
-        val javaExecutable = ProcessHandle
-            .current()
-            .info()
-            .command()
-            .orElseThrow { IllegalStateException("could not resolve the running JVM's own java executable") }
-        val process = ProcessBuilder(
-            javaExecutable, "--enable-native-access=ALL-UNNAMED", "-cp", System.getProperty("java.class.path"),
-            PROBE_MAIN_CLASS,
-        ).redirectErrorStream(true).start()
-        val output = Collections.synchronizedList(mutableListOf<String>())
-        val reader = Thread { process.inputStream.bufferedReader().forEachLine { output += it } }
-        reader.start()
-
-        val finished = process.waitFor(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        if (!finished) process.destroyForcibly().waitFor()
-        reader.join(READER_JOIN_MILLIS)
-        assertTrue(
-            finished,
-            "the probe did not exit within ${PROBE_TIMEOUT_SECONDS}s; output:\n${output.joinToString("\n")}",
-        )
-        return process.exitValue() to output.toList()
-    }
 
     @Composable
     private fun ThrowingOnReplacement(placements: AtomicInteger) {
@@ -207,8 +181,6 @@ class ContentFailureTest {
         const val CLOSE_AFTER_MILLIS = 50L
         const val PUMP_MILLIS = 2_000L
         const val PROBE_MAIN_CLASS = "com.fromwau.kortex.wayland.CrashedSurfaceProbe"
-        const val PROBE_TIMEOUT_SECONDS = 20L
-        const val READER_JOIN_MILLIS = 2_000L
 
         // A speck in the corner, where the pointer is least likely to be.
         val SPECK_CONFIG = SurfaceConfig(

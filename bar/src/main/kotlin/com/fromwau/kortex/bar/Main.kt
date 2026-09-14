@@ -36,19 +36,38 @@ import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.onError
 import com.fromwau.kortex.compose.LocalKortexSurface
 import com.fromwau.kortex.wayland.KeyboardInteractivity
+import com.fromwau.kortex.wayland.KortexError
 import com.fromwau.kortex.wayland.LocalKortexHost
 import com.fromwau.kortex.wayland.OutputGeometry
 import com.fromwau.kortex.wayland.OutputTarget
 import com.fromwau.kortex.wayland.SurfaceConfig
 import com.fromwau.kortex.wayland.SurfaceSpec
 import com.fromwau.kortex.wayland.runBar
+import java.nio.file.Path
 import kotlin.math.roundToInt
+import kotlin.system.exitProcess
 
 fun main() {
-    // Static keyboard interactivity, like the reference's dock preset: a layer surface that changes it
-    // at runtime never gets the keyboard back to the focused window (hyprwm/Hyprland#8293).
-    runBar(height = 56.dp, keyboard = KeyboardInteractivity.OnDemand) { Bar() }
-        .onError { error("kortex: $it") }
+    val crashLog = crashLogPath(System.getenv())
+    runBar(
+        height = 56.dp,
+        // Static keyboard interactivity, like the reference's dock preset: a layer surface that changes it
+        // at runtime never gets the keyboard back to the focused window (hyprwm/Hyprland#8293).
+        keyboard = KeyboardInteractivity.OnDemand,
+        onCrashSurface = { crash -> logCrash(crashLog, crash) },
+    ) { Bar() }
+        .onError { error ->
+            System.err.println("kortex: $error")
+            exitProcess(1)
+        }
+}
+
+private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
+    appendCrash(path, crash).onError { writeFailure ->
+        System.err.println("kortex: surface crashed: $crash")
+        System.err.println(crash.failure.cause.stackTraceToString())
+        System.err.println("kortex: could not write the crash log: $writeFailure")
+    }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)

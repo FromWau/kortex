@@ -10,6 +10,8 @@ dependencies {
     implementation(project(":wayland"))
     implementation(libs.compose.material3)
     implementation(compose.desktop.currentOs)
+
+    testImplementation(libs.kotlin.test)
 }
 
 compose.desktop {

@@ -26,6 +26,9 @@ internal class ShellOutput(
     }
 }
 
+/** [clipboard]'s calls without its close, which is the shell's alone: what content reaches through its host. */
+private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
+
 /**
  * A live surface together with the spec it came from and the output it went on.
  *
@@ -53,15 +56,21 @@ public class KortexShell private constructor(
     private val specs: List<SurfaceSpec>,
     private val platform: KortexPlatform,
     private val onCrashSurface: (KortexError.SurfaceCrashed) -> Unit,
+    // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
+    private val loopQueue: LoopQueue,
+    /** The one clipboard every surface's content shares; not private because a test reads through it. */
+    internal val clipboard: WaylandClipboard,
+    // What content copies and pastes through: the shell's clipboard, or a test's stand-in for it.
+    private val contentClipboard: TextClipboard,
 ) {
+
+    private val hostClipboard: KortexClipboard = HostClipboard(contentClipboard)
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
     private val surfaces = mutableListOf<ActiveSurface>()
 
     // Filled by each surface's scene, on whichever thread its content fails, and emptied by reportCrashes.
     private val crashes = ConcurrentLinkedQueue<KortexError.SurfaceCrashed>()
-    // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
-    private val loopQueue = LoopQueue(display::wake)
 
     // Registry callbacks fire mid-dispatch; touching `outputs` or `surfaces` there would race the loop
     // iterating them.
@@ -240,24 +249,34 @@ public class KortexShell private constructor(
             output = output?.proxy ?: MemorySegment.NULL,
             loopQueue = loopQueue,
             onCrash = crashes::add,
+            onInputSerial = clipboard::recordInputSerial,
+            onKeyboardFocus = clipboard::recordKeyboardFocus,
         ).flatMap { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
-            val host = hostFor(active)
-            surface.setContent { CompositionLocalProvider(LocalKortexHost provides host) { spec.content() } }
+            // Built once per surface, not inside the content lambda: LocalKortexHost is static, so a fresh
+            // instance handed to it on every recomposition would recompose everything the local reaches.
+            val host = ShellHost(active)
+            surface
+                .setContent {
+                    CompositionLocalProvider(LocalKortexHost provides host) {
+                        ProvideClipboard(contentClipboard, spec.content)
+                    }
+                }
                 // Never added to surfaces, so nothing else would close it.
                 .onError { surface.close() }
                 .map { surfaces += active }
         }
     }
 
-    // Built once per surface, not inside the content lambda: LocalKortexHost is static, so a fresh
-    // instance handed to it on every recomposition would recompose everything the local reaches.
-    private fun hostFor(active: ActiveSurface): KortexHost = object : KortexHost {
+    private inner class ShellHost(private val active: ActiveSurface) : KortexHost {
         override val output: OutputGeometry? get() = active.geometry
+
         override fun open(spec: SurfaceSpec) {
             pendingOpens += spec
             display.wake()
         }
+
+        override val clipboard: KortexClipboard get() = hostClipboard
     }
 
     private fun removeSurface(active: ActiveSurface) {
@@ -266,8 +285,9 @@ public class KortexShell private constructor(
     }
 
     /**
-     * Closes every surface and output and runs what is left on the queue, whatever content throws meanwhile.
-     * Each crash not yet handed to `onCrashSurface` goes to it now, and the first is returned.
+     * Closes every surface and output, runs what is left on the queue and gives the clipboard back, whatever
+     * content throws meanwhile. Each crash not yet handed to `onCrashSurface` goes to it now, and the first is
+     * returned.
      */
     public fun close(): EmptyResult<KortexError> {
         display.onGlobalAdded = null
@@ -277,6 +297,8 @@ public class KortexShell private constructor(
         outputs.clear()
         // No pass follows a close, so what reached the queue since the last one runs here.
         loopQueue.drain()
+        // After the drain, which can still run a request content made of the clipboard.
+        clipboard.close()
         // After the drain, since a closed scene's late work can be what crashed.
         return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
@@ -296,8 +318,31 @@ public class KortexShell private constructor(
             vararg specs: SurfaceSpec,
             platform: KortexPlatform = KortexPlatform.None,
             onCrashSurface: (KortexError.SurfaceCrashed) -> Unit = {},
+        ): Result<KortexShell, KortexError> = create(display, specs.toList(), platform, onCrashSurface) { it }
+
+        /**
+         * The public [create], with content copying and pasting through what [contentClipboard] makes of the
+         * shell's own clipboard; a test hands it a stand-in.
+         */
+        internal fun create(
+            display: WaylandDisplay,
+            specs: List<SurfaceSpec>,
+            platform: KortexPlatform,
+            onCrashSurface: (KortexError.SurfaceCrashed) -> Unit,
+            contentClipboard: (WaylandClipboard) -> TextClipboard,
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, specs.toList(), platform, onCrashSurface)
+            val loopQueue = LoopQueue(display::wake)
+            // Before any surface can take focus: the selection comes as focus arrives, to the devices there are then.
+            val clipboard = WaylandClipboard.bind(display, loopQueue).getOrElse { return Err(it) }
+            val shell = KortexShell(
+                display = display,
+                specs = specs,
+                platform = platform,
+                onCrashSurface = onCrashSurface,
+                loopQueue = loopQueue,
+                clipboard = clipboard,
+                contentClipboard = contentClipboard(clipboard),
+            )
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)

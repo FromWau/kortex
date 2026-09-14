@@ -22,9 +22,12 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexPlatform
@@ -40,6 +43,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -96,12 +100,99 @@ class KeyboardDeliveryTest {
     }
 
     @Test
+    fun `Ctrl+C in a text field copies its selection into the provided clipboard`() {
+        val clipboard = FakeTextClipboard()
+        val typed = AtomicReference("")
+        withKeyboard(
+            content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } },
+        ) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_A) }
+            typist.holding(CTRL_MASK) { typist.tap(KEY_C) }
+
+            assertTrue(awaitUntil { clipboard.setTexts.isNotEmpty() }, "Ctrl+C never reached the provided clipboard")
+            assertEquals(listOf("hi"), clipboard.setTexts.toList(), "Ctrl+C copied something other than the selection")
+        }
+    }
+
+    @Test
+    fun `Ctrl+X in a text field moves its selection into the provided clipboard`() {
+        val clipboard = FakeTextClipboard()
+        val typed = AtomicReference("")
+        withKeyboard(
+            content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } },
+        ) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_A) }
+            typist.holding(CTRL_MASK) { typist.tap(KEY_X) }
+
+            assertTrue(awaitUntil { clipboard.setTexts.isNotEmpty() }, "Ctrl+X never reached the provided clipboard")
+            assertEquals(listOf("hi"), clipboard.setTexts.toList(), "Ctrl+X cut something other than the selection")
+            assertEquals("", typed.get(), "Ctrl+X left the cut text in the field")
+        }
+    }
+
+    @Test
+    fun `Ctrl+V in a text field pastes what the provided clipboard reads`() {
+        val clipboard = FakeTextClipboard(read = { Ok(PASTED) })
+        val typed = AtomicReference("")
+        withKeyboard(
+            content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } },
+        ) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_V) }
+
+            assertTrue(awaitUntil { typed.get() == "hi$PASTED" }, "Ctrl+V left the field holding '${typed.get()}'")
+        }
+    }
+
+    @Test
+    fun `a paste whose read fails inserts nothing and fails nothing`() {
+        val clipboard = FakeTextClipboard(read = { Err(ClipboardError.ReadTimedOut) })
+        val typed = AtomicReference("")
+        withKeyboard(
+            content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } },
+        ) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_V) }
+
+            assertTrue(awaitUntil { clipboard.reads.get() > 0 }, "Ctrl+V never asked the provided clipboard for a text")
+            // A paste lands after its read returns, so the field is watched for a while rather than checked once.
+            assertTrue(holdsFor { typed.get() == "hi" }, "a failed read changed the field to '${typed.get()}'")
+            assertNull(typist.failure, "a failed read failed the scene")
+        }
+    }
+
+    @Test
     fun `an apostrophe types into a text field instead of moving its caret`() {
         val typed = AtomicReference("")
         withKeyboard(content = { focus -> RecordingTextField(focus, typed) }) { typist ->
             typist.tap(KEY_APOSTROPHE)
 
             assertEquals("'", typed.get(), "the apostrophe did not reach the text field")
+        }
+    }
+
+    @Test
+    fun `Page Up, Page Down, Insert and the F-keys reach the composition as their own Key`() {
+        val downs = keyDownsFrom { typist -> NAMED_KEYS.forEach { (code, _) -> typist.tap(code) } }
+
+        NAMED_KEYS.forEachIndexed { index, (code, key) ->
+            assertEquals(key, downs.getOrNull(index)?.key, "evdev code $code reached the composition as the wrong key")
+        }
+    }
+
+    @Test
+    fun `Page Down moves a multi-line text field's caret`() {
+        val caret = AtomicReference(0)
+        withKeyboard(content = { focus -> MultiLineTextField(focus, caret) }) { typist ->
+            typist.tap(KEY_PAGEDOWN)
+
+            assertTrue(caret.get() > 0, "Page Down did not move the caret")
         }
     }
 
@@ -142,8 +233,21 @@ class KeyboardDeliveryTest {
         )
     }
 
-    /** The first key-down [press] delivers to a focused composition. */
-    private fun firstKeyDown(press: (Typist) -> Unit): KeyEvent {
+    @Composable
+    private fun MultiLineTextField(focus: Modifier, caret: AtomicReference<Int>) {
+        var value by remember { mutableStateOf(TextFieldValue(MULTILINE_TEXT)) }
+        BasicTextField(
+            value = value,
+            onValueChange = {
+                value = it
+                caret.set(it.selection.start)
+            },
+            modifier = focus,
+        )
+    }
+
+    /** The key-down events [press] delivers to a focused composition, in delivery order. */
+    private fun keyDownsFrom(press: (Typist) -> Unit): List<KeyEvent> {
         val received = CopyOnWriteArrayList<KeyEvent>()
         withKeyboard(
             content = { focus ->
@@ -159,10 +263,31 @@ class KeyboardDeliveryTest {
             },
             block = press,
         )
-        return assertNotNull(
-            received.firstOrNull { it.type == KeyEventType.KeyDown },
-            "no key reached the composition",
-        )
+        return received.filter { it.type == KeyEventType.KeyDown }
+    }
+
+    /** The first key-down [press] delivers to a focused composition. */
+    private fun firstKeyDown(press: (Typist) -> Unit): KeyEvent =
+        assertNotNull(keyDownsFrom(press).firstOrNull(), "no key reached the composition")
+
+    /** Polls [condition] until it holds or [AWAIT_MILLIS] pass: a paste finishes on the scene's own thread. */
+    private fun awaitUntil(condition: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + AWAIT_MILLIS * NANOS_PER_MILLI
+        while (!condition()) {
+            if (System.nanoTime() >= deadline) return false
+            Thread.sleep(FRAME_MILLIS)
+        }
+        return true
+    }
+
+    /** Whether [condition] holds throughout [HOLD_MILLIS], polled as [awaitUntil] polls. */
+    private fun holdsFor(condition: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + HOLD_MILLIS * NANOS_PER_MILLI
+        while (System.nanoTime() < deadline) {
+            if (!condition()) return false
+            Thread.sleep(FRAME_MILLIS)
+        }
+        return condition()
     }
 
     /** Runs [block] against a keyboard on the compositor's keymap, delivering into [content] once it has focus. */
@@ -245,6 +370,10 @@ class KeyboardDeliveryTest {
         const val SIDE = 200
         const val FOCUS_FRAMES = 6
         const val FRAME_MILLIS = 60L
+        const val AWAIT_MILLIS = 2000L
+        const val HOLD_MILLIS = 500L
+        const val NANOS_PER_MILLI = 1_000_000L
+        const val PASTED = "Grüße"
         const val PRESSED = 1
         const val RELEASED = 0
         const val KEY_FAILURE = "a key handler threw"
@@ -261,6 +390,42 @@ class KeyboardDeliveryTest {
         const val KEY_APOSTROPHE = 40
         const val KEY_X = 45
         const val KEY_C = 46
+        const val KEY_V = 47
         const val KEY_SLASH = 53
+        const val KEY_F1 = 59
+        const val KEY_F2 = 60
+        const val KEY_F3 = 61
+        const val KEY_F4 = 62
+        const val KEY_F5 = 63
+        const val KEY_F6 = 64
+        const val KEY_F7 = 65
+        const val KEY_F8 = 66
+        const val KEY_F9 = 67
+        const val KEY_F10 = 68
+        const val KEY_F11 = 87
+        const val KEY_F12 = 88
+        const val KEY_PAGEUP = 104
+        const val KEY_PAGEDOWN = 109
+        const val KEY_INSERT = 110
+
+        const val MULTILINE_TEXT = "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten"
+
+        val NAMED_KEYS = listOf(
+            KEY_PAGEUP to Key.PageUp,
+            KEY_PAGEDOWN to Key.PageDown,
+            KEY_INSERT to Key.Insert,
+            KEY_F1 to Key.F1,
+            KEY_F2 to Key.F2,
+            KEY_F3 to Key.F3,
+            KEY_F4 to Key.F4,
+            KEY_F5 to Key.F5,
+            KEY_F6 to Key.F6,
+            KEY_F7 to Key.F7,
+            KEY_F8 to Key.F8,
+            KEY_F9 to Key.F9,
+            KEY_F10 to Key.F10,
+            KEY_F11 to Key.F11,
+            KEY_F12 to Key.F12,
+        )
     }
 }

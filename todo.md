@@ -34,9 +34,12 @@ Every global is bound at the newest version its interface declares; `wl_registry
 the compositor offers. No legacy paths, no version-conditional branches, no migration shims.
 
 - [x] **1. Newest bind version, full listener arrays.** `wl_seat` 1 → 11, `wl_output` 2 → 4, `wl_shm`
-      2 → 3, `wl_compositor` 6 → 7. Listener arrays grew with them — `wl_pointer` 5 → 12 slots,
-      `wl_output` 4 → 6, `wl_keyboard` 5 → 6, `wl_seat` 1 → 2 — because libwayland indexes a listener
-      array by event opcode and calls straight through an empty slot. (`ProtocolVersionTest`)
+      2 → 3, `wl_compositor` 6 → 7, and the clipboard's `wl_data_device_manager` at 4. Listener arrays grew
+      with them, because libwayland indexes a listener array by event opcode and calls straight through an
+      empty slot: `wl_pointer` 5 → 12 slots, `wl_output` 4 → 6, `wl_keyboard` 5 → 6, `wl_seat` 1 → 2.
+      `wl_data_device_manager` v4 adds only its own `release` request, and no event. The release goes out
+      only where a compositor offers v4; Hyprland offers v3, so no test sends it. (`ProtocolVersionTest`;
+      `ClipboardTest` for `wl_data_device_manager`)
 - [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
       and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
       `get_layer_surface` with the event, so the first frame already has it — and nothing depends on that
@@ -56,10 +59,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: seven entries are open. Under Foundations, a surface lifecycle state; under Polish, a state change
-read only while drawing, which never redraws, a wayland-level test for a throwing pointer handler, and crash
-logging in the bar demo; under Keyboard and clipboard, Page Up, Page Down, Insert and the F-keys, shortcuts
-that ignore the layout, and the clipboard.
+Next: seven entries are open. Two are decided and waiting to be built: under Foundations, a typed surface
+lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin layout. Five
+wait for a decision: under Foundations, AWT's toolkit, which Compose starts in a scene with a text field; under
+Keyboard and clipboard, the clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that
+leaves `KeyboardDeliveryTest` proving only a value-based field, images on the clipboard as PNG and JPEG, and
+drag and drop.
 
 ## Foundations
 
@@ -162,9 +167,18 @@ that ignore the layout, and the clipboard.
       `onDone`. That stands in for what a real re-send would dispatch on the loop thread. Content
       recomposes with the fabricated geometry, which needs no real output added, removed or changed, so it
       runs untagged in the default build. (`RecompositionTest`)
-- [ ] **Decide on a surface lifecycle state.** The reference exposes a `StateFlow<BridgeState>` that runs
-      from `IDLE` through `CONFIGURED` and `RUNNING` to `CLOSED` or `ERROR`. `KortexSurfaceHandle` has only
-      `size` and `close()`, and unlike `awaitClose()`, nothing records whether kortex wants one.
+- [ ] **A typed surface lifecycle state.** The reference exposes a `StateFlow<BridgeState>` that runs from
+      `IDLE` through `CONFIGURED` and `RUNNING` to `CLOSED` or `ERROR`. `KortexSurfaceHandle` has only `size`
+      and `close()`. Decided: a sealed `SurfaceState`, backed by Compose state, that runs from `Running` to
+      `Closed` or `Crashed(failure)`, readable by the host on `ActiveSurface` and by content through
+      `KortexSurfaceHandle`.
+- [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
+      `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
+      clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
+      Compose's `RectManager` schedules its debounced layout-rect callbacks through `postDelayed`, which launches
+      each on Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event
+      queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
+      `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
 
 ## Surface presets
 
@@ -283,19 +297,35 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       stack trace; `runSurfaces`, `runBar` and `KortexShell.create` take it. A surface that fails to open or
       to be placed on hotplug, and a failed shm reallocation on resize, return their `KortexError` the same way
       instead of throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
-- [ ] **A wayland-level test for a pointer handler that throws.** `KortexSceneTest` covers `sendPointerEvent`
-      turning the throw into a `PointerInput` failure, and the pointer listener passes events straight to the
-      scene, which keeps the failure for the shell to report. Nothing drives such a crash through a real
-      `wl_pointer`; that takes the virtual pointer, and with it a desktop nobody is using.
-- [ ] **The bar demo logs its crashes.** `Main.kt` passes `runBar` no `onCrashSurface` and turns the run's
-      error into `error("kortex: $it")`. As the worked example it should show the host's side of a crash:
-      log each one's message and stack trace to a file from the hook, instead of only throwing the error.
-- [ ] **A state change read only while drawing never redraws.** A counter read only inside a `Canvas` draw
-      lambda was bumped five times and the surface drew once, since nothing asked for a frame. A change read
-      during composition does redraw (`InvalidationRenderTest`), so it is draw-phase invalidation that never
-      reaches kortex's frame request. Animations often read state only while drawing, in `drawBehind` or a
-      `graphicsLayer` block, to skip recomposition; a `graphicsLayer` read has not been tried. Not yet
-      root-caused.
+- [x] **A state change read only while drawing or placing redraws.** Compose reports a change that
+      recomposes nothing through the scene's `invalidateDraw` and `invalidateLayout`, not the recomposer.
+      That covers a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
+      `Modifier.offset { }` lambda, and the press indication `clickable` draws by default. `KortexScene`
+      passes both to `CanvasLayersComposeScene`, and each asks the host for a frame from whichever thread
+      noticed the change; `KortexSurface` posts that to its loop. A scene phase ends by asking for a frame
+      if it still needs one, so the asks raised inside `setContent` and `render` are dropped: the render
+      under way, or the host's first render after `setContent`, is that frame. Content that invalidates
+      while a render draws it has missed that frame, so `render` then asks for the next one, as Compose's
+      own `SingleComposeSceneRenderingScope` does. An unchanged surface still asks for nothing.
+      (`KortexSceneTest`, `InvalidationRenderTest`, `IdleFrameTest`)
+- [x] **A wayland-level test for a pointer handler that throws.** `VirtualPointerCrashTest` drives a real
+      click through the compositor into `CrashedPointerProbe`, a surface whose `clickable` throws, run in a
+      child JVM the way `ContentFailureTest` runs `CrashedSurfaceProbe`, both through one shared
+      `runProbe` helper, since a throw escaping a real `wl_pointer` callback would otherwise end the JVM
+      running the tests. The click reaches it through `VirtualPointer.clickAt`, the same path
+      `VirtualPointerClickTest` drives; the run ends with `KortexError.SurfaceCrashed` whose failure is
+      `ContentFailure.PointerInput`, reaching `onCrashSurface` once, while the probe's own process exits
+      cleanly. Its content closes its own surface if no click ever lands, so a missed click fails the test
+      on the probe's own output instead of a kill. (`VirtualPointerCrashTest`)
+- [x] **The bar demo logs its crashes.** `Main.kt`'s `onCrashSurface` appends each crash's ISO-8601 instant,
+      namespace and failure kind (`Composition`, `KeyInput` or `PointerInput`), then the cause's full stack
+      trace, to `$XDG_STATE_HOME/kortex-bar/crash.log`, or `$HOME/.local/state/kortex-bar/crash.log` when
+      `XDG_STATE_HOME` is unset, empty or relative, per the XDG Base Directory spec; missing parent
+      directories are created as needed. `CrashLog.kt`'s `crashLogPath` is a pure function of the
+      environment it is handed, and `appendCrash` catches the write's own failure as a typed
+      `CrashLogWriteFailed` rather than throwing it; the hook prints the crash and a write failure to
+      stderr instead. `main` prints the run's own error to stderr and exits with status 1, which the test
+      suite never runs and is covered by the mechanism rather than by a test. (`CrashLogTest`)
 
 ## Keyboard and clipboard
 
@@ -307,18 +337,87 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       and still types through its codepoint. The keypad's navigation keysyms stay unnamed on purpose: at the
       base level they are what a keypad digit is, and a text field would move its caret instead of typing
       the digit. (`KeyboardDeliveryTest`)
-- [ ] **Page Up, Page Down, Insert and the F-keys.** `Xkb`'s key table has no entry for them, so they reach
-      Compose as `Key.Unknown`, though Compose names each (`Key.PageUp`, `Key.PageDown`, `Key.Insert`,
-      `Key.F1` to `Key.F12`) and its text fields act on Page Up, Page Down and Insert. Their keysyms are
-      `Page_Up` 0xff55, `Page_Down` 0xff56, `Insert` 0xff63, and `F1` to `F12` 0xffbe to 0xffc9.
+- [x] **Page Up, Page Down, Insert and the F-keys reach Compose by name.** `Xkb.composeKey` names
+      `Page_Up`, `Page_Down`, `Insert` and `F1` through `F12`, so each reaches content as its own `Key`
+      instead of `Key.Unknown`, and a text field's own Page Up, Page Down and Insert handling fires. The
+      F-keys index into a table the way `DIGIT_KEYS` and `LETTER_KEYS` do; the keypad's own navigation
+      keysyms stay unnamed, since at the base level they are what a keypad digit is.
+      (`KeyboardDeliveryTest`)
 - [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
       Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
-      QWERTY calls Q. The reference hands content the raw evdev keycode for this. Undecided: fall back to a
-      Latin layout's keysym when the active one is not Latin, or hand content a typed physical key.
-- [ ] **Clipboard.** kortex binds no `wl_data_device`, so copy and paste fall to Compose's desktop default,
-      AWT's system clipboard. That reaches the X clipboard through XWayland when `DISPLAY` is set, and
-      Compose turns AWT's `HeadlessException` into no clipboard at all; any other failure to start AWT is
-      not caught. None of it is tested, and a copy through XWayland has not been checked by hand.
+      QWERTY calls Q. The reference hands content the raw evdev keycode for this. Decided: a Latin fallback
+      inside `Xkb`, not a typed physical key, and only while the active layout has no Latin letters, as a
+      Cyrillic, Greek or Arabic one does. Then a key takes its base keysym from the keymap's first Latin
+      layout, so Compose's own text field shortcuts work too. A Latin layout keeps its own keys: German `ü`
+      stays `Key.Unknown` rather than borrowing US `[`. With no Latin layout configured, nothing changes.
+- [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
+      clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
+      of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
+      content. Content outside a `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers
+      UTF-8 under exactly `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting
+      the serial of the latest key, keyboard enter or button, and reads the text out of the entry it is handed
+      off the loop thread. `setClipEntry(null)` clears the selection under the same serial, whichever client
+      made it, and the text this client set stops being its own at once.
+      The clipboard follows keyboard focus, which the protocol ties the selection to: every surface's keyboard
+      tells it of its enter, its leave and its release. While none of the shell's keyboards has focus, another
+      client's text reads as `NoSelection` and is no text to paste. The clipboard keeps the selection offer
+      meanwhile: focus moving between the shell's own surfaces leaves every keyboard before the next one
+      enters, and need not bring a new offer. The next selection the compositor sends replaces it. This
+      client's own copy reads back from memory, with focus or without, through no pipe. A paste of another
+      client's text asks for the first of those types the selection lists and reads it off the loop thread,
+      for at most 1000 ms and 16 MiB.
+      Content that needs to know why a copy or paste failed calls `LocalKortexHost.current.clipboard`, a
+      `KortexClipboard` whose `setText`, `clear` and `readText` return a public, sealed `ClipboardError`:
+      `NoSelection`, `NoText`, `NoInputSerial`, `NoClipboard`, `PipeFailed`, `ReadTimedOut` or `TooLarge`.
+      Content cannot close that clipboard, and it answers only while its shell runs: once the shell has
+      closed, every call throws `IllegalStateException` at once rather than waiting on a loop nothing runs.
+      Compose's locals keep Compose's contract over the same clipboard: a failed paste gets no entry, and a
+      failed copy does nothing and throws nothing. A value-based `BasicTextField`'s Ctrl+C, Ctrl+X and Ctrl+V
+      go through `LocalClipboard`, and so does a state-based one's Ctrl+C and Ctrl+V. The AWT clipboard a text
+      field's right-click Paste asks answers from a snapshot and never reads: there is text while this
+      client's own copy stands, no offer needed for that, or while the shell has keyboard focus and the
+      compositor's last selection offer lists a text type. Its contents are this client's own text, and none
+      for another client's, which pastes through `LocalClipboard`. The deprecated `ClipboardManager.getText`
+      never waits on a read, since reading another client's text needs the loop it runs on. It answers with
+      the text this client set, until another selection or a clear replaces it, and with nothing otherwise.
+      The protocol hands a client the selection only while one of its surfaces has keyboard focus, so the
+      tests that need it take the keyboard and run only while the desktop is free. (`ClipboardTest`,
+      `ComposeClipboardTest` and `InputDeliveryTest`; `KeyboardDeliveryTest` for the value-based field;
+      `ClipboardFocusTest`, with the desktop free, for both field kinds, the offered types, a clear's own
+      text, focus leaving and focus moving between the shell's surfaces)
+- [ ] **`KeyboardDeliveryTest` proves keyboard delivery for a value-based field only.** Its harness drives a
+      scene's `render` and key delivery from the test thread but hands the scene a separate single-thread
+      executor as its `frameContext`; a real shell's own loop thread does both instead. A
+      `BasicTextField(TextFieldState)` put through it fails as multithreaded access to `SnapshotStateObserver`,
+      from `FocusTargetNode.invalidateFocus` running on that executor while the test thread drives the scene,
+      so typing, the named and modified keys, Page Down and a throwing key handler are proven for a
+      value-based field only. `ClipboardFocusTest` proves a state-based field's Ctrl+C and Ctrl+V instead,
+      through a real shell whose one loop thread the harness problem does not reach.
+- [ ] **Content inside a `Popup` or `Dialog` copies and pastes through AWT's clipboard.** Each runs in a
+      scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
+      inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
+      ui sources, `Popup.skiko.kt:489` and `:495`, and `Dialog.skiko.kt:222` and `:240`, put their content in
+      a layer from `rememberComposeSceneLayer`, which asks `LocalComposeSceneContext` for one
+      (`ComposeSceneLayer.skiko.kt:189-194`). That context is the `CanvasLayersComposeScene` itself
+      (`CanvasLayersComposeScene.skiko.kt:126-127`), whose `createLayer` (`:483-488`) builds a layer around a
+      `RootNodeOwner` of its own (`:559`) and sets its content there (`:671`), under the clipboards that owner
+      creates (`RootNodeOwner.skiko.kt:471-472`). No seam short of reflection or copying Compose code reaches
+      it: `PlatformContext` carries no clipboard, `LocalComposeSceneContext` is internal, and
+      `CanvasLayersComposeScene` takes no `ComposeSceneContext`. `LocalKortexHost.current.clipboard`, which
+      no layer provides again, is still the shell's there. (`ComposeClipboardTest`)
+- [ ] **Copy and paste images, as PNG and JPEG.** The clipboard carries text only. A copy offers the five
+      text types and nothing else, a selection another client offers only as an image reads as
+      `ClipboardError.NoText`, and an image entry handed to `LocalClipboard` leaves the selection as it was
+      (`ComposeClipboard.kt`). Wanted: `image/png` and `image/jpeg`, both ways. Open: the typed call content
+      reads and writes an image through, an `ImageBitmap` or bytes under a named type, and its error for a
+      selection with no image; a size cap of its own, since the 16 MiB cap on a text paste was sized for
+      text; and turning Compose's desktop image entry, a `java.awt.Image` inside a `Transferable`, to and
+      from those bytes without starting AWT's toolkit.
+- [ ] **Drag and drop.** The data device serves the selection only. A drag's offer is given back as soon as
+      `enter` names it, `motion`, `leave` and `drop` do nothing (`DataDevice.kt`), and kortex never calls
+      `start_drag`, so nothing can be dropped onto a surface and nothing dragged out of one. Wanted: text and
+      the PNG and JPEG images above, both ways. Open: how a drop reaches content and how content starts a
+      drag, and which of the protocol's actions, copy, move or ask, kortex takes.
 
 ## Housekeeping
 

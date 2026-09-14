@@ -46,6 +46,9 @@ internal object WlVersion {
     const val SEAT = 11
 
     const val OUTPUT = 4
+
+    /** wl_data_device, its offers and every wl_data_source inherit it, so their listeners grow with it. */
+    const val DATA_DEVICE_MANAGER = 4
 }
 
 /**
@@ -102,6 +105,9 @@ internal object LibWayland {
     val callbackInterface: MemorySegment = symbol("wl_callback_interface")
     val pointerInterface: MemorySegment = symbol("wl_pointer_interface")
     val keyboardInterface: MemorySegment = symbol("wl_keyboard_interface")
+    val dataDeviceManagerInterface: MemorySegment = symbol("wl_data_device_manager_interface")
+    val dataDeviceInterface: MemorySegment = symbol("wl_data_device_interface")
+    val dataSourceInterface: MemorySegment = symbol("wl_data_source_interface")
 
     fun displayConnect(name: MemorySegment): MemorySegment = displayConnect.invoke(name) as MemorySegment
     fun displayDisconnect(display: MemorySegment) { displayDisconnect.invoke(display) }
