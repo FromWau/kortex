@@ -174,8 +174,10 @@ field, images on the clipboard as PNG and JPEG, and drag and drop.
       closing all reach that one teardown, and content's `close()` leaves it `Running` until the shell tears the
       surface down. The scene's `onFailure` moves it to `Crashed` with the first failure the scene recorded, before
       the crash is queued for `onCrashSurface`. Nothing moves it off `Crashed`, and content failing as it is torn
-      down, or after, leaves it `Crashed` rather than `Closed`. Both writes take one lock, so a crash recorded on
-      another thread cannot land between the teardown's check and its write. They go to the global snapshot,
+      down leaves it `Crashed` rather than `Closed`. A failure after that moves it on from `Closed` to `Crashed`:
+      the `Crashed` write has no condition, and `close()` writes `Closed` only once. That case is not exercised by
+      a test. Both writes take one lock, so a crash recorded on another thread cannot land between the teardown's
+      check and its write; that interleaving is not exercised by a test either. They go to the global snapshot,
       whatever snapshot their thread has entered. Each then calls `Snapshot.sendApplyNotifications()`, since a
       torn-down scene pumps nothing and a crash ends the run: a `snapshotFlow` outside composition would not hear
       the change otherwise. An output going away tears its surfaces down through the same `removeSurface` as the
