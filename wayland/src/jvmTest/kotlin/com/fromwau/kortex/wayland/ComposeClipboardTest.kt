@@ -23,6 +23,7 @@ import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
@@ -40,6 +41,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.future.future
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -216,6 +218,29 @@ class ComposeClipboardTest {
             results.toList(),
             "content did not get the clipboard's own results",
         )
+    }
+
+    @Test
+    fun `content's clipboard fails every call at once after its shell has closed`() {
+        val typed = AtomicReference<KortexClipboard?>()
+        withSpeckShell(content = { typed.set(LocalKortexHost.current.clipboard) }) { }
+        val clipboard = assertNotNull(typed.get(), "content was handed no typed clipboard")
+        listOf<suspend () -> Any>(
+            { clipboard.setText(COPIED) },
+            { clipboard.clear() },
+            { clipboard.readText() },
+        ).forEach { call ->
+            val result = CoroutineScope(Dispatchers.Unconfined).future { call() }
+            val failure = try {
+                result.get(CALL_BOUND_MILLIS, TimeUnit.MILLISECONDS)
+                fail("a call on a closed shell's clipboard returned")
+            } catch (_: TimeoutException) {
+                fail("a call on a closed shell's clipboard was still waiting ${CALL_BOUND_MILLIS}ms in")
+            } catch (thrown: ExecutionException) {
+                thrown.cause
+            }
+            assertIs<IllegalStateException>(failure, "a call on a closed shell's clipboard failed some other way")
+        }
     }
 
     /** [clipboard] as Compose's, running what it launches right where it is launched. */

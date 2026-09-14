@@ -28,7 +28,8 @@ internal class WaylandClipboard private constructor(
     // Null when the compositor offers no clipboard.
     private val bound: BoundDevice?,
 ) : AutoCloseable, TextClipboard {
-    // The loop thread's alone.
+    // Set on the loop thread; every call checks it on its caller's thread too.
+    @Volatile
     private var closed = false
 
     // Written on the loop thread alone; ownedText reads it from any.
@@ -54,18 +55,28 @@ internal class WaylandClipboard private constructor(
     }
 
     /** Offers [text] under every [TextMime]. */
-    override suspend fun setText(text: String): EmptyResult<ClipboardError> =
-        withContext(loop) { replaceSelection(text) }
+    override suspend fun setText(text: String): EmptyResult<ClipboardError> {
+        checkOpen()
+        return withContext(loop) { replaceSelection(text) }
+    }
 
-    override suspend fun clear(): EmptyResult<ClipboardError> = withContext(loop) { replaceSelection(null) }
+    override suspend fun clear(): EmptyResult<ClipboardError> {
+        checkOpen()
+        return withContext(loop) { replaceSelection(null) }
+    }
 
     /** Asks for the selection under the first [TextMime] it is offered as, and reads it as UTF-8. */
-    override suspend fun readText(): Result<String, ClipboardError> =
-        readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
+    override suspend fun readText(): Result<String, ClipboardError> {
+        checkOpen()
+        return readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
+    }
+
+    // Before any hop: no loop runs once the shell has closed, so a call waiting on one would never return.
+    private fun checkOpen() = check(!closed) { "the clipboard's shell has closed" }
 
     // A null text clears the selection.
     private fun replaceSelection(text: String?): EmptyResult<ClipboardError> {
-        check(!closed) { "setting the selection on a clipboard already given back" }
+        checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
         val serial = inputSerial ?: return Err(ClipboardError.NoInputSerial)
         val offered = text?.let { DataSource.create(bound.manager, it) }
@@ -78,7 +89,7 @@ internal class WaylandClipboard private constructor(
     }
 
     private fun receiveSelection(): Result<Int, ClipboardError> {
-        check(!closed) { "readText on a clipboard already given back" }
+        checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
         val offer = bound.device.selection ?: return Err(ClipboardError.NoSelection)
         val type = offer.preferredText ?: return Err(ClipboardError.NoText)

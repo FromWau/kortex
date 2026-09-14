@@ -18,15 +18,20 @@ import com.fromwau.kern.result.Result
  * Button(onClick = { scope.launch { copied = clipboard.setText(link) } }) { Text("Copy link") }
  * ```
  *
- * Call it from any thread.
+ * Call it from any thread while the shell runs. Once the shell has closed, every call throws
+ * [IllegalStateException]; a call made just as the shell closes may never return.
  */
 public sealed interface KortexClipboard {
     /**
      * Puts [text] on the clipboard, for this and every other application to paste.
      *
+     * The text stays there only while the shell runs: closing the shell takes it off the clipboard again,
+     * unless a clipboard manager has kept a copy of it.
+     *
      * @return `Ok` once the shell has asked the compositor, which does not confirm a copy;
      *   [ClipboardError.NoInputSerial] before the user has pressed a key, clicked, or given keyboard focus to any
      *   of the shell's surfaces; or [ClipboardError.NoClipboard] on a compositor that has no clipboard.
+     * @throws IllegalStateException if the shell has closed.
      */
     public suspend fun setText(text: String): EmptyResult<ClipboardError>
 
@@ -34,6 +39,7 @@ public sealed interface KortexClipboard {
      * Empties the clipboard, whichever application filled it.
      *
      * @return the same as [setText].
+     * @throws IllegalStateException if the shell has closed.
      */
     public suspend fun clear(): EmptyResult<ClipboardError>
 
@@ -49,6 +55,7 @@ public sealed interface KortexClipboard {
      * @return the text, or why there is none: [ClipboardError.NoSelection], [ClipboardError.NoText],
      *   [ClipboardError.NoClipboard], [ClipboardError.PipeFailed], [ClipboardError.ReadTimedOut] or
      *   [ClipboardError.TooLarge].
+     * @throws IllegalStateException if the shell has closed.
      */
     public suspend fun readText(): Result<String, ClipboardError>
 }
