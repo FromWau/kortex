@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composition
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.platform.FrameRecomposer
@@ -28,7 +29,8 @@ public fun kortexApplication(
 @Composable
 public fun Show(surface: LayerSurface<*>) {
     val shell = LocalKortexShell.current
-    val shown = remember { ShownSurface(surface) }
+    val newest = rememberUpdatedState(surface)
+    val shown = remember { ShownSurface(newest) }
     val settings = surface.settings
     DisposableEffect(settings) {
         shell.queuePlace(shown, settings)

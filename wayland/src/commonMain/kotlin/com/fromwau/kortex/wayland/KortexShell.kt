@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -30,13 +31,16 @@ internal class ShellOutput(
 /** [clipboard]'s calls without its close, which is the shell's alone: what content reaches through its host. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
 
-/** What the shell holds for one [Show]: the instance it shows, what its `Show` asks for, and its surface. */
-internal class ShownSurface(val instance: LayerSurface<*>) {
+/** What the shell holds for one [Show]: the newest instance it was handed, what it asks for, and its surface. */
+internal class ShownSurface(val newest: State<LayerSurface<*>>) {
     // The settings its Show asks for while in composition, and null once it has left. Loop thread only.
     var wanted: SurfaceConfig? = null
 
     // Null until placed, and again once it has ended. Loop thread only.
     var surface: KortexSurface? = null
+
+    // What surface was placed with, which a change of settings replaces it over. Loop thread only.
+    var placedWith: SurfaceConfig? = null
 }
 
 /**
@@ -341,8 +345,19 @@ public class KortexShell private constructor(
         when {
             wanted == null -> end(shown, Ok(Unit))
             shown.surface == null -> return place(shown, wanted)
+            shown.placedWith != wanted -> return replace(shown, wanted)
         }
         return Ok(Unit)
+    }
+
+    // The Show is still in composition, so from its host's side nothing has ended: no onClose.
+    private fun replace(shown: ShownSurface, settings: SurfaceConfig): EmptyResult<KortexError> {
+        shown.surface?.let { surface ->
+            placed.remove(shown)
+            shown.surface = null
+            surface.close()
+        }
+        return place(shown, settings)
     }
 
     private fun place(shown: ShownSurface, settings: SurfaceConfig): EmptyResult<KortexError> =
@@ -356,10 +371,11 @@ public class KortexShell private constructor(
             onKeyboardFocus = clipboard::recordKeyboardFocus,
         ).flatMap { surface ->
             surface
-                .setContent { ProvideClipboard(contentClipboard) { shown.instance() } }
+                .setContent { ProvideClipboard(contentClipboard) { shown.newest.value() } }
                 .onError { surface.close() }
                 .map {
                     shown.surface = surface
+                    shown.placedWith = settings
                     placed += shown
                 }
         }
@@ -370,7 +386,7 @@ public class KortexShell private constructor(
             shown.surface = null
             surface.close()
         }
-        shown.instance.onClose(result)
+        shown.newest.value.onClose(result)
     }
 
     private fun startApplication(content: @Composable KortexApplicationScope.() -> Unit) {
