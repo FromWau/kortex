@@ -275,9 +275,12 @@ class ClipboardTest {
             Arena.ofShared().use { arena ->
                 // recordOwnedSource reaches the own-copy state setText would leave, without setText's wire call.
                 clipboard.recordOwnedSource(DataSource(COPIED, arena))
-                assertTrue(clipboard.hasText, "kortex's own copy was not text to paste")
-                // Unset before the clipboard closes: its close destroys this source, which was never a real proxy.
-                clipboard.recordOwnedSource(null)
+                try {
+                    assertTrue(clipboard.hasText, "kortex's own copy was not text to paste")
+                } finally {
+                    // Even on failure: the clipboard's close would destroy this source, which was never a real proxy.
+                    clipboard.recordOwnedSource(null)
+                }
             }
         }
     }
