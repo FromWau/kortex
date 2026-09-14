@@ -266,26 +266,17 @@ class ClipboardFocusTest {
                 runWlCopy(COPIED)
                 val read = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
                 assertEquals(Ok(COPIED), read, "the clipboard never read back the text wl-copy set")
-                val keyboard = assertNotNull(
-                    shell.activeSurfaces.single().surface.keyboardInput,
-                    "the focused surface has no keyboard",
-                )
-                val serial = assertNotNull(
-                    shell.clipboard.inputSerial,
-                    "no input event has reached the shell's surface",
-                )
 
-                // A second focused keyboard, as a second surface of the shell's would bring.
+                // A second surface's keyboard, leaving first: then only the enter the compositor sent holds focus.
                 val sibling = Any()
                 shell.clipboard.recordKeyboardFocus(sibling, focused = true)
-                // Made up on this side only: the compositor still has the surface focused.
-                keyboard.onLeave(NULL, NULL, serial, NULL)
+                shell.clipboard.recordKeyboardFocus(sibling, focused = false)
                 assertEquals(
                     Ok(COPIED), shell.awaitCall { shell.clipboard.readText() },
-                    "focus leaving one keyboard lost the selection while another keyboard still had focus",
+                    "focus leaving one keyboard lost the selection while the surface's own keyboard still had focus",
                 )
 
-                shell.clipboard.recordKeyboardFocus(sibling, focused = false)
+                shell.makeUpKeyboardLeave()
                 assertEquals(
                     Err(ClipboardError.NoSelection), shell.awaitCall { shell.clipboard.readText() },
                     "an unfocused read of another client's text did not read as NoSelection",
@@ -350,6 +341,16 @@ class ClipboardFocusTest {
         keyboard.onKey(NULL, NULL, serial, 0, code, PRESSED)
         keyboard.onKey(NULL, NULL, serial, 0, code, RELEASED)
         keyboard.onModifiers(NULL, NULL, serial, 0, 0, 0, 0)
+    }
+
+    /** Makes up a leave on the focused surface's own keyboard, on this side only: the compositor keeps it focused. */
+    private fun KortexShell.makeUpKeyboardLeave() {
+        val keyboard = assertNotNull(
+            activeSurfaces.single().surface.keyboardInput,
+            "the focused surface has no keyboard",
+        )
+        val serial = assertNotNull(clipboard.inputSerial, "no input event has reached the shell's surface")
+        keyboard.onLeave(NULL, NULL, serial, NULL)
     }
 
     /** Runs `wl-paste` with [args] while pumping: it may read this client's own source, which only a pump serves. */
