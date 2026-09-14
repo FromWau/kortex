@@ -59,10 +59,11 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: five entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
-starts in a scene with a text field; under Keyboard and clipboard, the clipboard that content inside a
-`Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based
-field, images on the clipboard as PNG and JPEG, and drag and drop.
+Next: eight entries are open, and each waits for a decision: under Foundations, which failure ends the run when
+one scene fails on two threads, and AWT's toolkit, which Compose starts in a scene with a text field; under
+Keyboard and clipboard, the letter a Ctrl+letter types with no Latin layout configured, the clipboard that
+content inside a `Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a
+value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
 
 ## Foundations
 
@@ -182,6 +183,13 @@ field, images on the clipboard as PNG and JPEG, and drag and drop.
       torn-down scene pumps nothing and a crash ends the run: a `snapshotFlow` outside composition would not hear
       the change otherwise. An output going away tears its surfaces down through the same `removeSurface` as the
       shell's close, and is not exercised by a test. (`SurfaceStateTest`)
+- [ ] **Two failures of one scene on two threads can end the run with a different failure than `Crashed`
+      holds.** `KortexScene.record` sets the first failure by compare-and-set and then calls `onFailure`
+      (`KortexScene.kt:227-230`). Two threads can make those calls in either order, so the failure the scene
+      keeps can reach `onFailure` second. The shell ends the run with the first crash its queue received
+      (`KortexShell.kt:199-200`), so `runEventLoop`'s error can differ from the surface's `Crashed.failure`.
+      Open: whether the run ends with the scene's first recorded failure instead, which changes the error a
+      host's run returns.
 - [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
       `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
       clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
@@ -364,6 +372,11 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       own keys: German `ü` stays `Key.Unknown` rather than borrowing US `[`, and AZERTY's `Key.A` is the key
       QWERTY calls Q. With no Latin layout configured, nothing changes. (`LatinFallbackTest`,
       `KeyboardDeliveryTest`)
+- [ ] **With no Latin layout configured, a Ctrl+letter a text field does not consume types its letter.** Under
+      `ru` alone, Ctrl+Q reports `й` (U+0439), and `KeyboardInput.deliverKey` commits any printable character of
+      a key the composition did not consume (`KeyboardInput.kt:137`). Under `us,ru`, xkb's Control
+      transformation finds `us`'s `q` and reports 0x11, which is dropped. No test covers it yet. Open: committing
+      nothing while Ctrl is held, say, checked against AltGr under the xkb options in use.
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
       clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
       of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
@@ -407,6 +420,12 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       so typing, the named and modified keys, Page Down and a throwing key handler are proven for a
       value-based field only. `ClipboardFocusTest` proves a state-based field's Ctrl+C and Ctrl+V instead,
       through a real shell whose one loop thread the harness problem does not reach.
+- [ ] **A keymap xkb rejects reads as no keymap.** `Xkb.stateFromKeymap` answers it with null, so
+      `KeyboardInput` cannot tell a keymap that has not arrived yet from one xkb rejected, and drops every key
+      either way. A rejected re-send also discards the last good keymap (`KeyboardInput.kt:62-63`). The keymap
+      comes from outside kortex, so its rejection is an expected failure. Open: `stateFromKeymap` returning a
+      typed `Result`, with `xkb_state_new` returning NULL failing fast through `check`, and what kortex does
+      then: keep the last good keymap, drop keys, or tell the host through a `KortexError`.
 - [ ] **Content inside a `Popup` or `Dialog` copies and pastes through AWT's clipboard.** Each runs in a
       scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
       inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
