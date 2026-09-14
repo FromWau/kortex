@@ -3,7 +3,9 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
@@ -12,7 +14,11 @@ import com.fromwau.kortex.compose.LocalKortexSurface
 import com.fromwau.kortex.compose.SurfaceState
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -182,6 +188,56 @@ class SurfaceStateTest {
         }
     }
 
+    @Test
+    fun `snapshotFlow collected outside any composition sees a surface go from Running to Closed`() {
+        val closeRequested = mutableStateOf(false)
+
+        onShell(stateSpec { CloseWhen(closeRequested) }) { shell ->
+            shell.useOrFail {
+                collectingState(shell.activeSurfaces.single()) { seen ->
+                    closeRequested.value = true
+                    assertTrue(
+                        shell.pumpOrFail(PUMP_MILLIS) { shell.activeSurfaces.isEmpty() },
+                        "the shell never dropped the surface its content closed",
+                    )
+
+                    // Not pumped meanwhile: nothing but kortex itself may tell the flow the surface closed.
+                    LoopThread.waitUntil(COLLECT_MILLIS) { seen.size >= 2 }
+                    assertEquals(
+                        listOf(SurfaceState.Running, SurfaceState.Closed),
+                        seen.toList(),
+                        "the snapshotFlow did not see the surface go from Running to Closed",
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `snapshotFlow collected outside any composition sees a surface go from Running to Crashed`() {
+        val failRequested = mutableStateOf(false)
+
+        onShell(stateSpec { FailWhen(failRequested) }) { shell ->
+            shell.useOrFail {
+                collectingState(shell.activeSurfaces.single()) { seen ->
+                    failRequested.value = true
+                    val crash = assertIs<KortexError.SurfaceCrashed>(
+                        shell.pump(PUMP_MILLIS).errorOrNull(),
+                        "an effect that throws must end the run",
+                    )
+
+                    // Not pumped meanwhile, and the shell not yet closed: nothing but kortex itself may tell the flow.
+                    LoopThread.waitUntil(COLLECT_MILLIS) { seen.size >= 2 }
+                    assertEquals(
+                        listOf(SurfaceState.Running, SurfaceState.Crashed(crash.failure)),
+                        seen.toList(),
+                        "the snapshotFlow did not see the surface go from Running to Crashed",
+                    )
+                }
+            }
+        }
+    }
+
     /** Connects, creates a shell of [specs] and hands it to [block], which closes it; the connection closes after. */
     private fun <T> onShell(
         vararg specs: SurfaceSpec,
@@ -193,6 +249,23 @@ class SurfaceStateTest {
             val shell = KortexShell.create(display, *specs, onCrashSurface = onCrashSurface)
                 .getOrElse { error -> fail("shell creation failed: $error") }
             block(shell)
+        }
+    }
+
+    /**
+     * Collects a `snapshotFlow` over [active]'s state on a coroutine of this test's own, outside any composition, for
+     * as long as [block] runs, and cancels it on every path. [block] sees every value the flow has emitted so far.
+     */
+    private fun collectingState(active: ActiveSurface, block: (seen: List<SurfaceState>) -> Unit) {
+        val seen = CopyOnWriteArrayList<SurfaceState>()
+        val collector = CoroutineScope(Dispatchers.Default)
+        try {
+            collector.launch { snapshotFlow { active.state }.collect(seen::add) }
+            // A flow has subscribed by its first emission, so any change after it must reach the flow.
+            assertTrue(LoopThread.waitUntil(COLLECT_MILLIS) { seen.isNotEmpty() }, "the snapshotFlow never emitted")
+            block(seen)
+        } finally {
+            collector.cancel()
         }
     }
 
@@ -208,6 +281,12 @@ class SurfaceStateTest {
     }
 
     @Composable
+    private fun FailWhen(requested: MutableState<Boolean>) {
+        val fail = requested.value
+        LaunchedEffect(fail) { if (fail) error(EFFECT_FAILURE) }
+    }
+
+    @Composable
     private fun ThrowingOnClose() {
         DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
     }
@@ -220,6 +299,7 @@ class SurfaceStateTest {
         const val SETTLE_MILLIS = 300L
         const val EFFECT_DELAY_MILLIS = 50L
         const val PUMP_MILLIS = 4_000L
+        const val COLLECT_MILLIS = 2_000L
 
         // A speck in the corner, where the pointer is least likely to be.
         val SPECK_CONFIG = SurfaceConfig(

@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -322,13 +323,17 @@ public class KortexSurface private constructor(
     // Called with each failure the scene records, from any thread; scene.failure is already the first of them.
     private fun onContentFailure() {
         val first = checkNotNull(scene.failure) { "the scene reported a failure it had not recorded" }
-        synchronized(lifecycleLock) { lifecycle.value = SurfaceState.Crashed(first) }
+        moveLifecycle { lifecycle.value = SurfaceState.Crashed(first) }
     }
 
     private fun onTornDown() {
-        synchronized(lifecycleLock) {
-            if (scene.failure == null) lifecycle.value = SurfaceState.Closed
-        }
+        moveLifecycle { if (scene.failure == null) lifecycle.value = SurfaceState.Closed }
+    }
+
+    private inline fun moveLifecycle(write: () -> Unit) {
+        synchronized(lifecycleLock, write)
+        // The run ends with a crash and a torn-down scene pumps nothing, so no one else would announce this write.
+        Snapshot.sendApplyNotifications()
     }
 
     private class Frame(val buffer: ShmBuffer, val surface: Surface) {
