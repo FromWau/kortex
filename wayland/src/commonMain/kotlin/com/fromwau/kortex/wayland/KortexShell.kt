@@ -3,6 +3,9 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
@@ -43,9 +46,9 @@ internal class ShownSurface(val newest: State<LayerSurface<*>>, private val wake
     // The settings its Show asks for while in composition, and null once it has left. Loop thread only.
     var wanted: SurfaceSettings? = null
 
-    // Null until placed, and again once it has ended. Written on the loop thread; size reads it from any.
-    @Volatile
-    var surface: KortexSurface? = null
+    // Null until placed, and again once it has ended. Snapshot state, written on the loop thread outside composition,
+    // so content that reads size recomposes as the surface is placed or goes, as it does on a configure.
+    var surface: KortexSurface? by mutableStateOf(null)
 
     // What surface was placed with, which a change of settings replaces it over. Loop thread only.
     var placedWith: SurfaceSettings? = null
@@ -438,13 +441,16 @@ public class KortexShell private constructor(
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
             )
             .flatMap { surface ->
+                // Before the content composes, so its first composition already reads the surface's size.
+                shown.surface = surface
                 surface
                     .setContent { ProvideClipboard(contentClipboard) { shown.newest.value.invoke() } }
-                    .onError { surface.close() }
-                    .map { surface }
+                    .onError {
+                        shown.surface = null
+                        surface.close()
+                    }
             }
-            .onSuccess { surface ->
-                shown.surface = surface
+            .onSuccess {
                 shown.placedWith = settings
                 placed += shown
             }

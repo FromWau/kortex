@@ -298,6 +298,22 @@ class ShowTest {
     }
 
     @Test
+    fun `content's first composition reads its surface's logical size`() {
+        val composedWith = CopyOnWriteArrayList<IntSize>()
+
+        onApplication({ Show(TestSurface<Nothing>(NAMESPACE) { composedWith += size }) }) { shell ->
+            awaitPlaced(shell)
+            val geometry = assertNotNull(Screen.awaitGeometry(NAMESPACE), "hyprctl never listed $NAMESPACE")
+
+            assertEquals(
+                IntSize(geometry.logicalWidth, geometry.logicalHeight),
+                composedWith[0],
+                "content's first composition read a size other than its surface's; it composed with $composedWith",
+            )
+        }
+    }
+
+    @Test
     fun `a surface the compositor closes reports Ok, is not replaced, and its Show taken out reports nothing more`() {
         val showing = mutableStateOf(true)
         val left = AtomicBoolean(false)
