@@ -153,15 +153,23 @@ class ClipboardFocusTest {
 
     @Test
     fun `a selection the clipboard clears leaves wl-paste nothing to print`() = withFocusedShell { shell, display ->
-        val set = shell.retryUntil({ it is Ok }) { shell.clipboard.setText(PASTED) }
-        assertEquals(Ok(Unit), set, "the clipboard never set the selection it was to clear")
-        assertEquals(Ok(Unit), shell.awaitCall { shell.clipboard.clear() }, "the clipboard did not clear the selection")
-        // So the compositor has dropped the selection before wl-paste asks it for one.
-        display.roundtrip()
+        try {
+            // Another client's selection: destroying a source of this client's own would clear nothing here.
+            runWlCopy(COPIED)
+            val read = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
+            assertEquals(Ok(COPIED), read, "the clipboard never read back the text wl-copy set")
 
-        val paste = shell.runWlPaste()
-        assertEquals("", paste.printed, "wl-paste printed a selection the clipboard had cleared")
-        assertNotEquals(0, paste.exitCode, "wl-paste found a selection the clipboard had cleared")
+            val cleared = shell.awaitCall { shell.clipboard.clear() }
+            assertEquals(Ok(Unit), cleared, "the clipboard did not clear the selection")
+            // So the compositor has dropped the selection before wl-paste asks it for one.
+            display.roundtrip()
+
+            val paste = shell.runWlPaste()
+            assertEquals("", paste.printed, "wl-paste printed a selection the clipboard had cleared")
+            assertNotEquals(0, paste.exitCode, "wl-paste found a selection the clipboard had cleared")
+        } finally {
+            runWlCopy("--clear")
+        }
     }
 
     private fun withFocusedShell(
@@ -208,7 +216,10 @@ class ClipboardFocusTest {
      * event quotes the latest real serial, since the clipboard quotes whatever serial the last key carried.
      */
     private fun KortexShell.pressWithCtrl(code: Int) {
-        val keyboard = assertNotNull(activeSurfaces.single().surface.keyboardInput, "the focused surface has no keyboard")
+        val keyboard = assertNotNull(
+            activeSurfaces.single().surface.keyboardInput,
+            "the focused surface has no keyboard",
+        )
         assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
         val serial = assertNotNull(clipboard.inputSerial, "no input event has reached the shell's surface")
         keyboard.onModifiers(NULL, NULL, serial, CTRL_MASK, 0, 0, 0)
@@ -217,7 +228,7 @@ class ClipboardFocusTest {
         keyboard.onModifiers(NULL, NULL, serial, 0, 0, 0, 0)
     }
 
-    /** Runs `wl-paste`, pumping meanwhile: it may be reading from this client's own source, which only a pump serves. */
+    /** Runs `wl-paste` while pumping: it may read this client's own source, which only a pump serves. */
     private fun KortexShell.runWlPaste(): Pasted {
         val paste = ProcessBuilder("wl-paste", "--no-newline").start()
         try {
