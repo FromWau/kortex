@@ -16,6 +16,7 @@ import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -259,6 +260,20 @@ class ClipboardTest {
     fun `a clipboard that has never had keyboard focus has no selection to read`() {
         withUnfocusedClipboard { clipboard ->
             assertEquals(Err(ClipboardError.NoSelection), runBlocking { clipboard.readText() })
+        }
+    }
+
+    @Test
+    fun `a clipboard that has never had keyboard focus has no text to paste`() {
+        withUnfocusedClipboard { clipboard -> assertFalse(clipboard.hasText, "an unfocused clipboard claimed text") }
+    }
+
+    @Test
+    fun `a clipboard the compositor does not offer never has text to paste`() {
+        withoutDataDeviceManager { display ->
+            withClipboard(display) { clipboard ->
+                assertFalse(clipboard.hasText, "a clipboard not offered claimed text")
+            }
         }
     }
 

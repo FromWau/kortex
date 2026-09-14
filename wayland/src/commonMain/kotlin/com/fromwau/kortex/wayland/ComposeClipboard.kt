@@ -17,9 +17,12 @@ import androidx.compose.ui.text.AnnotatedString
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrNull
+import java.awt.datatransfer.ClipboardOwner
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+import java.awt.datatransfer.Transferable
 import java.io.IOException
+import java.awt.datatransfer.Clipboard as AwtClipboard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -31,13 +34,19 @@ import kotlinx.coroutines.withContext
 internal interface TextClipboard : KortexClipboard {
     /** The text this client set, until another selection or a clear replaces it; answered at once, on any thread. */
     val ownedText: String?
+
+    /**
+     * Whether the selection is text, as this client last heard: its own text, or an offer listing a text type.
+     * Answered at once, on any thread.
+     */
+    val hasText: Boolean
 }
 
 /** Provides [clipboard] to [content] as both of Compose's clipboards, so no copy or paste there reaches AWT's. */
 @Composable
 internal fun ProvideClipboard(clipboard: TextClipboard, content: @Composable () -> Unit) {
     val scope = rememberCoroutineScope()
-    val composeClipboard = remember(clipboard) { ComposeClipboard(clipboard) }
+    val composeClipboard = remember(clipboard, scope) { ComposeClipboard(clipboard, scope) }
     val manager = remember(clipboard, scope) { ComposeClipboardManager(clipboard, scope) }
     CompositionLocalProvider(
         LocalClipboard provides composeClipboard,
@@ -47,7 +56,11 @@ internal fun ProvideClipboard(clipboard: TextClipboard, content: @Composable () 
 }
 
 /** Compose's clipboard over [clipboard]: text in and out, and nothing at all where [clipboard] fails. */
-internal class ComposeClipboard(private val clipboard: TextClipboard) : Clipboard {
+internal class ComposeClipboard(
+    private val clipboard: TextClipboard,
+    // Runs a copy made through the AWT clipboard, whose setContents cannot suspend.
+    private val scope: CoroutineScope,
+) : Clipboard {
     override suspend fun getClipEntry(): ClipEntry? {
         val read = clipboard.readText()
         // readText cannot be cancelled, so a caller cancelled meanwhile learns it here rather than pasting late.
@@ -64,9 +77,30 @@ internal class ComposeClipboard(private val clipboard: TextClipboard) : Clipboar
         clipEntry.text()?.let { clipboard.setText(it) }
     }
 
-    // A text field's paste check casts this to an AWT clipboard; the interface's default throws there instead.
+    // A text field's context menu enables Paste only when this, cast to an AWT clipboard, says it holds text.
     @Suppress("OVERRIDE_DEPRECATION")
-    override val nativeClipboard: Any get() = clipboard
+    override val nativeClipboard: Any = PasteCheckClipboard(clipboard) { contents ->
+        scope.launch { setClipEntry(ClipEntry(contents)) }
+    }
+}
+
+/**
+ * The AWT clipboard foundation's paste checks ask, synchronously and on the loop thread, whether there is text to
+ * paste. It answers from [TextClipboard.hasText] and never reads: the text itself is pasted through
+ * [Clipboard.getClipEntry], and a copy handed to it goes to [copy].
+ */
+private class PasteCheckClipboard(
+    private val clipboard: TextClipboard,
+    private val copy: (Transferable) -> Unit,
+) : AwtClipboard("kortex") {
+    override fun isDataFlavorAvailable(flavor: DataFlavor): Boolean =
+        flavor == DataFlavor.stringFlavor && clipboard.hasText
+
+    override fun getAvailableDataFlavors(): Array<DataFlavor> =
+        if (clipboard.hasText) arrayOf(DataFlavor.stringFlavor) else emptyArray()
+
+    // No lostOwnership for owner: the JDK's own clipboard sends it through AWT's event thread, starting the toolkit.
+    override fun setContents(contents: Transferable, owner: ClipboardOwner?) = copy(contents)
 }
 
 /**

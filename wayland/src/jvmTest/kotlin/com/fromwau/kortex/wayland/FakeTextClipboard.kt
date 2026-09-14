@@ -22,6 +22,9 @@ internal class FakeTextClipboard(
     @Volatile
     override var ownedText: String? = null
 
+    @Volatile
+    override var hasText: Boolean = false
+
     override suspend fun setText(text: String): EmptyResult<ClipboardError> {
         setTexts += text
         return set()

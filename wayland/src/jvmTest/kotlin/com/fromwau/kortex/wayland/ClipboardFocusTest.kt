@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -78,6 +79,24 @@ class ClipboardFocusTest {
             runWlCopy("--clear")
         }
     }
+
+    @Test
+    fun `the clipboard has text to paste while a text is the selection, and none while an image is`() =
+        withFocusedShell { shell, _ ->
+            try {
+                runWlCopy("--type", "image/png", stdin = PNG_SIGNATURE)
+                val image = shell.retryUntil({ it == Err(ClipboardError.NoText) }) { shell.clipboard.readText() }
+                assertEquals(Err(ClipboardError.NoText), image, "an image never became the selection this client knew")
+                assertFalse(shell.clipboard.hasText, "an image selection had text to paste")
+
+                runWlCopy(COPIED)
+                val text = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
+                assertEquals(Ok(COPIED), text, "the clipboard never read back the text wl-copy set")
+                assertTrue(shell.clipboard.hasText, "wl-copy's text gave the clipboard no text to paste")
+            } finally {
+                runWlCopy("--clear")
+            }
+        }
 
     @Test
     fun `a text wl-copy sets is what Ctrl+V pastes into a focused text field`() {

@@ -41,6 +41,8 @@ internal class WaylandClipboard private constructor(
 
     override val ownedText: String? get() = source?.ownedText
 
+    override val hasText: Boolean get() = ownedText != null || bound?.device?.selectionHasText == true
+
     /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] or [clear] to quote. */
     fun recordInputSerial(serial: Int) {
         inputSerial = serial

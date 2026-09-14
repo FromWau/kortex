@@ -22,6 +22,11 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
     var selection: DataOffer? = null
         private set
 
+    /** Whether [selection] is offered as text; answered at once, on any thread. */
+    @Volatile
+    var selectionHasText: Boolean = false
+        private set
+
     fun onDataOffer(data: MemorySegment, device: MemorySegment, offer: MemorySegment) {
         introduced[offer.address()] = DataOffer().also { it.install(offer) }
     }
@@ -53,6 +58,7 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
         introduced.values.forEach(DataOffer::destroy)
         introduced.clear()
         selection = named
+        selectionHasText = named?.preferredText != null
     }
 
     /**

@@ -21,12 +21,17 @@ import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -49,14 +54,14 @@ class ComposeClipboardTest {
     @Test
     fun `a null entry clears the selection`() {
         val clipboard = FakeTextClipboard()
-        runBlocking { ComposeClipboard(clipboard).setClipEntry(null) }
+        runBlocking { composeClipboard(clipboard).setClipEntry(null) }
         assertEquals(1, clipboard.clears.get(), "a null entry did not clear the selection")
     }
 
     @Test
     fun `an entry that carries no text leaves the selection as it was`() {
         val clipboard = FakeTextClipboard()
-        runBlocking { ComposeClipboard(clipboard).setClipEntry(ClipEntry(ImageOnly)) }
+        runBlocking { composeClipboard(clipboard).setClipEntry(ClipEntry(ImageOnly)) }
         assertEquals(0, clipboard.clears.get(), "an entry with no text cleared the selection")
         assertEquals(emptyList(), clipboard.setTexts.toList(), "an entry with no text set the selection")
     }
@@ -65,7 +70,7 @@ class ComposeClipboardTest {
     fun `a copy reads its entry's text off the thread that copies`() {
         val clipboard = FakeTextClipboard()
         val reader = AtomicReference<Thread?>()
-        runBlocking { ComposeClipboard(clipboard).setClipEntry(ClipEntry(ThreadRecordingText(reader))) }
+        runBlocking { composeClipboard(clipboard).setClipEntry(ClipEntry(ThreadRecordingText(reader))) }
         assertNotEquals(Thread.currentThread(), reader.get(), "the entry's text was read on the thread that copied")
         assertEquals(listOf(COPIED), clipboard.setTexts.toList(), "the copy did not set the entry's text")
     }
@@ -73,7 +78,7 @@ class ComposeClipboardTest {
     @Test
     fun `a copy the clipboard refuses does nothing and throws nothing`() {
         val clipboard = FakeTextClipboard(set = { Err(ClipboardError.NoInputSerial) })
-        runBlocking { ComposeClipboard(clipboard).setClipEntry(ClipEntry(StringSelection(COPIED))) }
+        runBlocking { composeClipboard(clipboard).setClipEntry(ClipEntry(StringSelection(COPIED))) }
         assertEquals(listOf(COPIED), clipboard.setTexts.toList(), "the copy was not tried exactly once")
         assertEquals(0, clipboard.clears.get(), "a refused copy cleared the selection")
     }
@@ -91,7 +96,7 @@ class ComposeClipboardTest {
         val handedBack = AtomicReference<ClipEntry?>()
         runBlocking {
             // Unconfined runs the paste up to its held read, and on from there as the read is released.
-            val paste = launch(Dispatchers.Unconfined) { handedBack.set(ComposeClipboard(clipboard).getClipEntry()) }
+            val paste = launch(Dispatchers.Unconfined) { handedBack.set(composeClipboard(clipboard).getClipEntry()) }
             paste.cancel()
             release.complete(Unit)
             paste.join()
@@ -100,8 +105,46 @@ class ComposeClipboardTest {
     }
 
     @Test
-    fun `Compose's awtClipboard finds none instead of throwing, as a text field's paste check needs`() {
-        assertNull(ComposeClipboard(FakeTextClipboard()).awtClipboard, "the clipboard claimed to be AWT's")
+    fun `a text field's paste check finds text exactly while the clipboard has some, and reads none`() {
+        // Another client's text: the clipboard has text, none of it this client's own.
+        val clipboard = FakeTextClipboard(read = { Ok(OTHER_CLIENTS) })
+        val awt = assertNotNull(composeClipboard(clipboard).awtClipboard, "the paste check found no clipboard to ask")
+
+        // The two questions foundation's paste checks ask: nativeClipboardHasText, and ClipboardPasteState.update.
+        assertFalse(
+            awt.isDataFlavorAvailable(DataFlavor.stringFlavor),
+            "the check found text on a clipboard with none",
+        )
+        assertEquals(emptyList(), awt.availableDataFlavors.toList(), "a clipboard with no text listed a flavor")
+        clipboard.hasText = true
+        assertTrue(
+            awt.isDataFlavorAvailable(DataFlavor.stringFlavor),
+            "the check found no text on a clipboard with some",
+        )
+        assertEquals(listOf(DataFlavor.stringFlavor), awt.availableDataFlavors.toList(), "the flavors named no text")
+        assertEquals(0, clipboard.reads.get(), "the check read the selection, which waits on the loop it runs on")
+    }
+
+    @Test
+    fun `an AWT copy reaches the clipboard without waiting for it`() {
+        val release = CompletableDeferred<Unit>()
+        val clipboard = FakeTextClipboard(
+            set = {
+                release.await()
+                Ok(Unit)
+            },
+        )
+        val awt = assertNotNull(composeClipboard(clipboard).awtClipboard, "there was no AWT clipboard to copy into")
+        val copy = CompletableFuture.runAsync { awt.setContents(StringSelection(COPIED), null) }
+        try {
+            copy.get(CALL_BOUND_MILLIS, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            fail("setContents was still waiting on the clipboard ${CALL_BOUND_MILLIS}ms in")
+        } finally {
+            release.complete(Unit)
+        }
+        assertTrue(awaitUntil { clipboard.setTexts.isNotEmpty() }, "the copy never reached the clipboard")
+        assertEquals(listOf(COPIED), clipboard.setTexts.toList(), "the copy set something other than its text")
     }
 
     @Test
@@ -172,6 +215,20 @@ class ComposeClipboardTest {
         )
     }
 
+    /** [clipboard] as Compose's, running what it launches right where it is launched. */
+    private fun composeClipboard(clipboard: TextClipboard) =
+        ComposeClipboard(clipboard, CoroutineScope(Dispatchers.Unconfined))
+
+    /** Polls [condition] until it holds or [CALL_BOUND_MILLIS] pass. */
+    private fun awaitUntil(condition: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + CALL_BOUND_MILLIS * NANOS_PER_MILLI
+        while (!condition()) {
+            if (System.nanoTime() >= deadline) return false
+            Thread.sleep(POLL_MILLIS)
+        }
+        return true
+    }
+
     /** Runs [block] against the shell [create] makes with [content] on a speck: by default, as a host makes one. */
     private fun withSpeckShell(
         content: @Composable () -> Unit,
@@ -214,6 +271,9 @@ class ComposeClipboardTest {
         const val OTHER_CLIENTS = "from another client"
         const val CALLS = 3
         const val PUMP_MILLIS = 2000L
+        const val CALL_BOUND_MILLIS = 2000L
+        const val POLL_MILLIS = 10L
+        const val NANOS_PER_MILLI = 1_000_000L
 
         // A speck in a corner that takes neither the keyboard nor any screen space from the desktop.
         val SPECK_CONFIG = SurfaceConfig(
