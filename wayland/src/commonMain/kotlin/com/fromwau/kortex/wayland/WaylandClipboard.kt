@@ -136,8 +136,7 @@ internal class WaylandClipboard private constructor(
         /** Gives back the device and its offers, the manager, and the seat last. */
         fun release() {
             device.release()
-            LibWayland.marshalIfSince(manager, WL_DATA_DEVICE_MANAGER_RELEASE, WL_DATA_DEVICE_MANAGER_RELEASE_SINCE)
-            LibWayland.proxyDestroy(manager)
+            releaseManager(manager)
             // Last, since the device was taken for it.
             seat.release()
         }
@@ -158,10 +157,15 @@ internal class WaylandClipboard private constructor(
                     return Err(failure)
                 }
             val seat = Seat.bind(display).getOrElse { failure ->
-                LibWayland.proxyDestroy(manager)
+                releaseManager(manager)
                 return Err(failure)
             }
             return Ok(WaylandClipboard(display, loop, BoundDevice(manager, seat, DataDevice.create(manager, seat))))
+        }
+
+        private fun releaseManager(manager: MemorySegment) {
+            LibWayland.marshalIfSince(manager, WL_DATA_DEVICE_MANAGER_RELEASE, WL_DATA_DEVICE_MANAGER_RELEASE_SINCE)
+            LibWayland.proxyDestroy(manager)
         }
 
         private const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
