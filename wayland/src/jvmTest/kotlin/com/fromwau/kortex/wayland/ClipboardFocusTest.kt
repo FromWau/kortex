@@ -103,7 +103,7 @@ class ClipboardFocusTest {
 
     /** Runs `wl-copy` until it has handed the selection to the copy of itself it forks to serve it. */
     private fun runWlCopy(vararg args: String, stdin: ByteArray = ByteArray(0)) {
-        // Both discarded: the copy it forks keeps them open for as long as it serves the selection.
+        // Only stderr stays open in the fork that serves the selection: wl-copy already nulls stdin and stdout first.
         val copy = ProcessBuilder("wl-copy", *args)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
