@@ -333,9 +333,10 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
 - [ ] **Shortcuts that ignore the layout.** A key's `Key` follows the active layout. Under a Cyrillic layout
       Ctrl+C reaches Compose as `Key.Unknown` and no `Key.C` shortcut fires; on AZERTY, `Key.A` is the key
       QWERTY calls Q. The reference hands content the raw evdev keycode for this. Decided: a Latin fallback
-      inside `Xkb`, not a typed physical key. A key whose base keysym in the active layout has no Compose
-      name takes the same key's base keysym from the keymap's first other layout that has one, so Compose's
-      own text field shortcuts work too; with no such layout configured it stays `Key.Unknown`.
+      inside `Xkb`, not a typed physical key, and only while the active layout has no Latin letters, as a
+      Cyrillic, Greek or Arabic one does. Then a key takes its base keysym from the keymap's first Latin
+      layout, so Compose's own text field shortcuts work too. A Latin layout keeps its own keys: German `ü`
+      stays `Key.Unknown` rather than borrowing US `[`. With no Latin layout configured, nothing changes.
 - [ ] **Clipboard.** kortex binds no `wl_data_device`, so copy and paste fall to Compose's desktop default,
       AWT's system clipboard. That reaches the X clipboard through XWayland when `DISPLAY` is set, and
       Compose turns AWT's `HeadlessException` into no clipboard at all; any other failure to start AWT is
