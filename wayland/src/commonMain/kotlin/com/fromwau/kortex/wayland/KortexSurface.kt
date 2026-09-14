@@ -331,9 +331,12 @@ public class KortexSurface private constructor(
     }
 
     private inline fun moveLifecycle(write: () -> Unit) {
-        synchronized(lifecycleLock, write)
-        // The run ends with a crash and a torn-down scene pumps nothing, so no one else would announce this write.
-        Snapshot.sendApplyNotifications()
+        // Outside any snapshot this thread has entered: a read-only one rejects the write, a mutable one can drop it.
+        Snapshot.global {
+            synchronized(lifecycleLock, write)
+            // The run ends with a crash and a torn-down scene pumps nothing, so no one else would announce this write.
+            Snapshot.sendApplyNotifications()
+        }
     }
 
     private class Frame(val buffer: ShmBuffer, val surface: Surface) {

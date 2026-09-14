@@ -5,7 +5,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.runtime.snapshots.asContextElement
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
@@ -238,6 +241,27 @@ class SurfaceStateTest {
         }
     }
 
+    @Test
+    fun `a surface whose content fails inside a read-only snapshot reads Crashed`() {
+        val snapshot = AtomicReference<Snapshot>()
+
+        onShell(stateSpec { FailingInsideReadOnlySnapshot(snapshot) }) { shell ->
+            try {
+                shell.useOrFail {
+                    val active = shell.activeSurfaces.single()
+
+                    val error = shell.pump(PUMP_MILLIS).errorOrNull()
+
+                    assertIs<SurfaceState.Crashed>(active.state, "a failure recorded inside a read-only snapshot was lost")
+                    val crash = assertIs<KortexError.SurfaceCrashed>(error, "a failure inside a snapshot must end the run")
+                    assertEquals(SurfaceState.Crashed(crash.failure), active.state)
+                }
+            } finally {
+                snapshot.get()?.dispose()
+            }
+        }
+    }
+
     /** Connects, creates a shell of [specs] and hands it to [block], which closes it; the connection closes after. */
     private fun <T> onShell(
         vararg specs: SurfaceSpec,
@@ -287,6 +311,17 @@ class SurfaceStateTest {
     }
 
     @Composable
+    private fun FailingInsideReadOnlySnapshot(snapshot: AtomicReference<Snapshot>) {
+        val scope = rememberCoroutineScope()
+        LaunchedEffect(Unit) {
+            delay(EFFECT_DELAY_MILLIS)
+            val readOnly = Snapshot.takeSnapshot().also(snapshot::set)
+            // A child of the remembered scope's plain Job reports its own failure, while its snapshot is still entered.
+            scope.launch(readOnly.asContextElement()) { error(SNAPSHOT_FAILURE) }
+        }
+    }
+
+    @Composable
     private fun ThrowingOnClose() {
         DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
     }
@@ -295,6 +330,7 @@ class SurfaceStateTest {
         const val NAMESPACE = "kortex-state"
         const val SECOND_NAMESPACE = "kortex-state-second"
         const val EFFECT_FAILURE = "an effect threw"
+        const val SNAPSHOT_FAILURE = "content threw inside a read-only snapshot"
         const val CLEANUP_FAILURE = "cleanup threw as the shell closed"
         const val SETTLE_MILLIS = 300L
         const val EFFECT_DELAY_MILLIS = 50L
