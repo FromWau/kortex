@@ -50,6 +50,9 @@ internal class WaylandClipboard private constructor(
     /**
      * The selection, asked for under the first [TextMime] it is offered as, and read as UTF-8.
      *
+     * Not cancellable: a cancelled caller sees its cancellation only once this returns its [Result], at most
+     * [TRANSFER_TIMEOUT_MILLIS] later, at its own next suspension point.
+     *
      * @return the text, or the [ClipboardError] saying why there is none.
      */
     suspend fun readText(): Result<String, ClipboardError> =
