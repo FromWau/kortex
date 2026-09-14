@@ -34,8 +34,8 @@ internal interface TextClipboard : KortexClipboard {
     val ownedText: String?
 
     /**
-     * Whether the selection is text, as this client last heard: its own text, or an offer listing a text type.
-     * Answered at once, on any thread.
+     * Whether the selection is text, as this client last heard: its own text, or an offer listing a text type
+     * while the client has keyboard focus. Answered at once, on any thread.
      */
     val hasText: Boolean
 }

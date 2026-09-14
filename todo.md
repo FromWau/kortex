@@ -358,11 +358,13 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       off the loop thread. `setClipEntry(null)` clears the selection under the same serial, whichever client
       made it, and the text this client set stops being its own at once.
       The clipboard follows keyboard focus, which the protocol ties the selection to: every surface's keyboard
-      tells it of its enter, its leave and its release. Once none of the shell's keyboards has focus, the
-      clipboard gives back the selection offer it held, so another client's text reads as `NoSelection` and is
-      no text to paste until focus returns. This client's own copy reads back from memory, with focus or
-      without, through no pipe. A paste of another client's text asks for the first of those types the
-      selection lists and reads it off the loop thread, for at most 1000 ms and 16 MiB.
+      tells it of its enter, its leave and its release. While none of the shell's keyboards has focus, another
+      client's text reads as `NoSelection` and is no text to paste. The clipboard keeps the selection offer
+      meanwhile: focus moving between the shell's own surfaces leaves every keyboard before the next one
+      enters, and need not bring a new offer. The next selection the compositor sends replaces it. This
+      client's own copy reads back from memory, with focus or without, through no pipe. A paste of another
+      client's text asks for the first of those types the selection lists and reads it off the loop thread,
+      for at most 1000 ms and 16 MiB.
       Content that needs to know why a copy or paste failed calls `LocalKortexHost.current.clipboard`, a
       `KortexClipboard` whose `setText`, `clear` and `readText` return a public, sealed `ClipboardError`:
       `NoSelection`, `NoText`, `NoInputSerial`, `NoClipboard`, `PipeFailed`, `ReadTimedOut` or `TooLarge`.
@@ -372,15 +374,16 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       failed copy does nothing and throws nothing. A value-based `BasicTextField`'s Ctrl+C, Ctrl+X and Ctrl+V
       go through `LocalClipboard`, and so does a state-based one's Ctrl+C and Ctrl+V. The AWT clipboard a text
       field's right-click Paste asks answers from a snapshot and never reads: there is text while this
-      client's own copy stands, no offer needed for that, or while the compositor's last selection offer lists
-      a text type. Its contents are this client's own text, and none for another client's, which pastes
-      through `LocalClipboard`. The deprecated `ClipboardManager.getText` never waits on a read, since reading
-      another client's text needs the loop it runs on. It answers with the text this client set, until
-      another selection or a clear replaces it, and with nothing otherwise. The protocol hands a client the
-      selection only while one of its surfaces has keyboard focus, so the tests that need it take the keyboard
-      and run only while the desktop is free. (`ClipboardTest`, `ComposeClipboardTest` and
-      `InputDeliveryTest`; `KeyboardDeliveryTest` for the value-based field; `ClipboardFocusTest`, with the
-      desktop free, for both field kinds, the offered types, a clear's own text and focus leaving)
+      client's own copy stands, no offer needed for that, or while the shell has keyboard focus and the
+      compositor's last selection offer lists a text type. Its contents are this client's own text, and none
+      for another client's, which pastes through `LocalClipboard`. The deprecated `ClipboardManager.getText`
+      never waits on a read, since reading another client's text needs the loop it runs on. It answers with
+      the text this client set, until another selection or a clear replaces it, and with nothing otherwise.
+      The protocol hands a client the selection only while one of its surfaces has keyboard focus, so the
+      tests that need it take the keyboard and run only while the desktop is free. (`ClipboardTest`,
+      `ComposeClipboardTest` and `InputDeliveryTest`; `KeyboardDeliveryTest` for the value-based field;
+      `ClipboardFocusTest`, with the desktop free, for both field kinds, the offered types, a clear's own
+      text, focus leaving and focus moving between the shell's surfaces)
 - [ ] **`KeyboardDeliveryTest` proves keyboard delivery for a value-based field only.** Its harness drives a
       scene's `render` and key delivery from the test thread but hands the scene a separate single-thread
       executor as its `frameContext`; a real shell's own loop thread does both instead. A

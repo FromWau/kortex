@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.JAVA_BYTE
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -39,12 +40,17 @@ internal class WaylandClipboard private constructor(
     var inputSerial: Int? = null
         private set
 
-    // Each of the shell's keyboards that has focus now, since each surface binds its own; loop thread only.
-    private val focusedKeyboards = mutableSetOf<Any>()
+    // Each of the shell's keyboards that has focus now, since each surface binds its own. Written on the loop thread
+    // alone; hasText reads it from any.
+    private val focusedKeyboards: MutableSet<Any> = ConcurrentHashMap.newKeySet()
+
+    // The compositor vouches for its offer only while the client has focus, and sends one anew before focus returns.
+    private val hasKeyboardFocus: Boolean get() = focusedKeyboards.isNotEmpty()
 
     override val ownedText: String? get() = source?.ownedText
 
-    override val hasText: Boolean get() = ownedText != null || bound?.device?.selectionHasText == true
+    override val hasText: Boolean
+        get() = ownedText != null || (hasKeyboardFocus && bound?.device?.selectionHasText == true)
 
     /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] or [clear] to quote. */
     fun recordInputSerial(serial: Int) {
@@ -52,14 +58,14 @@ internal class WaylandClipboard private constructor(
     }
 
     /**
-     * Keeps whether [keyboard] has focus. Once none of the shell's keyboards has, the selection's offer is given
-     * back, since the compositor vouches for it only until then.
+     * Keeps whether [keyboard] has focus. The last leave keeps the selection's offer: focus moving between the
+     * shell's own surfaces leaves every keyboard before the next one enters, and need not bring a new offer.
      */
     fun recordKeyboardFocus(keyboard: Any, focused: Boolean) {
         if (focused) {
             focusedKeyboards += keyboard
-        } else if (focusedKeyboards.remove(keyboard) && focusedKeyboards.isEmpty()) {
-            bound?.device?.dropSelection()
+        } else {
+            focusedKeyboards -= keyboard
         }
     }
 
@@ -106,7 +112,7 @@ internal class WaylandClipboard private constructor(
     private fun receiveSelection(): Result<Int, ClipboardError> {
         checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
-        val offer = bound.device.selection ?: return Err(ClipboardError.NoSelection)
+        val offer = bound.device.selection?.takeIf { hasKeyboardFocus } ?: return Err(ClipboardError.NoSelection)
         val type = offer.preferredText ?: return Err(ClipboardError.NoText)
         val pipe = LibC.pipe().getOrElse { return Err(ClipboardError.PipeFailed) }
         offer.receive(type, pipe.writeFd)

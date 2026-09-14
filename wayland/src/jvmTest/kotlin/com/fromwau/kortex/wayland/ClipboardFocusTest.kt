@@ -37,7 +37,7 @@ import kotlinx.coroutines.future.future
 
 /**
  * Copies and pastes against the desktop's own clipboard, through `wl-copy` and `wl-paste`, directly, through a
- * focused text field's keys, and as keyboard focus leaves the shell.
+ * focused text field's keys, and as keyboard focus leaves the shell or moves between its surfaces.
  *
  * The compositor hands a client the selection only while one of its surfaces has keyboard focus, so each
  * test puts up a small [KeyboardInteractivity.Exclusive] surface, which takes the keyboard from whatever the
@@ -282,6 +282,26 @@ class ClipboardFocusTest {
                     "an unfocused read of another client's text did not read as NoSelection",
                 )
                 assertFalse(shell.clipboard.hasText, "another client's text was still text to paste without focus")
+            } finally {
+                runWlCopy("--clear")
+            }
+        }
+
+    @Test
+    fun `another client's text reads back after keyboard focus moves to another of the shell's surfaces`() =
+        withFocusedShell { shell, _ ->
+            try {
+                runWlCopy(COPIED)
+                val read = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
+                assertEquals(Ok(COPIED), read, "the clipboard never read back the text wl-copy set")
+
+                // As a move to a second surface: the enter follows every leave, and need not bring a new selection.
+                shell.makeUpKeyboardLeave()
+                shell.clipboard.recordKeyboardFocus(Any(), focused = true)
+                assertEquals(
+                    Ok(COPIED), shell.awaitCall { shell.clipboard.readText() },
+                    "focus moving between the shell's own surfaces lost another client's text",
+                )
             } finally {
                 runWlCopy("--clear")
             }
