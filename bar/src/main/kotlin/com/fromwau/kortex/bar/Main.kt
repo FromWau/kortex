@@ -49,10 +49,10 @@ import kotlin.system.exitProcess
 
 fun main() {
     val crashLog = crashLogPath(System.getenv())
-    // Static keyboard interactivity, like the reference's dock preset: a layer surface that changes it
-    // at runtime never gets the keyboard back to the focused window (hyprwm/Hyprland#8293).
     runBar(
         height = 56.dp,
+        // Static keyboard interactivity, like the reference's dock preset: a layer surface that changes it
+        // at runtime never gets the keyboard back to the focused window (hyprwm/Hyprland#8293).
         keyboard = KeyboardInteractivity.OnDemand,
         onCrashSurface = { crash -> logCrash(crashLog, crash) },
     ) { Bar() }
