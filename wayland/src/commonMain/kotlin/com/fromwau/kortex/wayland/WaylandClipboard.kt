@@ -48,6 +48,11 @@ internal class WaylandClipboard private constructor(
         inputSerial = serial
     }
 
+    /** Makes [source] this client's own copy, or none, without telling the compositor: a test's seam onto [hasText]. */
+    fun recordOwnedSource(source: DataSource?) {
+        this.source = source
+    }
+
     /** Offers [text] under every [TextMime]. */
     override suspend fun setText(text: String): EmptyResult<ClipboardError> =
         withContext(loop) { replaceSelection(text) }
