@@ -53,6 +53,10 @@ public class KortexShell private constructor(
     private val specs: List<SurfaceSpec>,
     private val platform: KortexPlatform,
     private val onCrashSurface: (KortexError.SurfaceCrashed) -> Unit,
+    // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
+    private val loopQueue: LoopQueue,
+    /** The one clipboard every surface's content shares; not private because a test reads through it. */
+    internal val clipboard: WaylandClipboard,
 ) {
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
@@ -60,8 +64,6 @@ public class KortexShell private constructor(
 
     // Filled by each surface's scene, on whichever thread its content fails, and emptied by reportCrashes.
     private val crashes = ConcurrentLinkedQueue<KortexError.SurfaceCrashed>()
-    // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
-    private val loopQueue = LoopQueue(display::wake)
 
     // Registry callbacks fire mid-dispatch; touching `outputs` or `surfaces` there would race the loop
     // iterating them.
@@ -240,6 +242,7 @@ public class KortexShell private constructor(
             output = output?.proxy ?: MemorySegment.NULL,
             loopQueue = loopQueue,
             onCrash = crashes::add,
+            onInputSerial = clipboard::recordInputSerial,
         ).flatMap { surface ->
             val active = ActiveSurface(surface, spec, output, standing)
             val host = hostFor(active)
@@ -266,8 +269,9 @@ public class KortexShell private constructor(
     }
 
     /**
-     * Closes every surface and output and runs what is left on the queue, whatever content throws meanwhile.
-     * Each crash not yet handed to `onCrashSurface` goes to it now, and the first is returned.
+     * Closes every surface and output, runs what is left on the queue and gives the clipboard back, whatever
+     * content throws meanwhile. Each crash not yet handed to `onCrashSurface` goes to it now, and the first is
+     * returned.
      */
     public fun close(): EmptyResult<KortexError> {
         display.onGlobalAdded = null
@@ -277,6 +281,8 @@ public class KortexShell private constructor(
         outputs.clear()
         // No pass follows a close, so what reached the queue since the last one runs here.
         loopQueue.drain()
+        // After the drain, which can still run a request content made of the clipboard.
+        clipboard.close()
         // After the drain, since a closed scene's late work can be what crashed.
         return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
@@ -297,7 +303,10 @@ public class KortexShell private constructor(
             platform: KortexPlatform = KortexPlatform.None,
             onCrashSurface: (KortexError.SurfaceCrashed) -> Unit = {},
         ): Result<KortexShell, KortexError> {
-            val shell = KortexShell(display, specs.toList(), platform, onCrashSurface)
+            val loopQueue = LoopQueue(display::wake)
+            // Before any surface can take focus: the selection comes as focus arrives, to the devices there are then.
+            val clipboard = WaylandClipboard.bind(display, loopQueue).getOrElse { return Err(it) }
+            val shell = KortexShell(display, specs.toList(), platform, onCrashSurface, loopQueue, clipboard)
             display.globals
                 .filter { it.interfaceName == WL_OUTPUT }
                 .forEach(shell::bindOutput)

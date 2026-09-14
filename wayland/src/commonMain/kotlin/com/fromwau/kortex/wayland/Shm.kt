@@ -18,7 +18,7 @@ import java.lang.foreign.ValueLayout.JAVA_LONG
 import java.lang.foreign.ValueLayout.JAVA_SHORT
 
 /**
- * The libc calls behind a shared-memory buffer and the event loop's wait.
+ * The libc calls behind a shared-memory buffer, the event loop's wait and the clipboard's pipes.
  *
  * Passing the fd is the reason kortex binds libwayland rather than speaking the wire protocol
  * directly: libwayland does the SCM_RIGHTS dance, and the JDK's Unix socket channels cannot.
@@ -54,6 +54,7 @@ internal object LibC {
         FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT),
         Linker.Option.captureCallState(ERRNO),
     )
+    private val pipe2 = downcall("pipe2", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
 
     private val callState: StructLayout = Linker.Option.captureStateLayout()
     private val errnoOffset: Long = callState.byteOffset(MemoryLayout.PathElement.groupElement(ERRNO))
@@ -111,13 +112,22 @@ internal object LibC {
         }
     }
 
-    fun read(fd: Int, buffer: MemorySegment) {
-        read.invoke(fd, buffer, buffer.byteSize())
+    /** A close-on-exec pipe. */
+    fun pipe(): Result<Pipe, ClipboardError> {
+        Arena.ofConfined().use { call ->
+            val ends = call.allocate(JAVA_INT, PIPE_ENDS)
+            if (pipe2.invoke(ends, O_CLOEXEC) as Int != 0) return Err(ClipboardError.PipeFailed)
+            return Ok(
+                Pipe(readFd = ends.getAtIndex(JAVA_INT, READ_END), writeFd = ends.getAtIndex(JAVA_INT, WRITE_END)),
+            )
+        }
     }
 
-    fun write(fd: Int, buffer: MemorySegment) {
-        write.invoke(fd, buffer, buffer.byteSize())
-    }
+    /** @return how many bytes were read into [buffer]: 0 at end of file, negative on failure. */
+    fun read(fd: Int, buffer: MemorySegment): Long = read.invoke(fd, buffer, buffer.byteSize()) as Long
+
+    /** @return how many bytes of [buffer] were written, negative on failure. */
+    fun write(fd: Int, buffer: MemorySegment): Long = write.invoke(fd, buffer, buffer.byteSize()) as Long
 
     /**
      * `poll(2)` until one of [fds] is ready or [deadlineNanos] passes; null waits indefinitely.
@@ -170,6 +180,10 @@ internal object LibC {
 
     private const val EFD_CLOEXEC = 0x80000
     private const val EFD_NONBLOCK = 0x800
+    private const val O_CLOEXEC = 0x80000
+    private const val PIPE_ENDS = 2L
+    private const val READ_END = 0L
+    private const val WRITE_END = 1L
     private const val ERRNO = "errno"
     private const val EINTR = 4
     private const val NANOS_PER_MILLI = 1_000_000L

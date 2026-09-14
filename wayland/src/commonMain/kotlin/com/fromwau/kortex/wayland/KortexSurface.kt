@@ -324,6 +324,8 @@ public class KortexSurface private constructor(
             loopQueue: LoopQueue? = null,
             // Where every crash of this surface's content goes, the first and any after it, cleanup included.
             onCrash: (KortexError.SurfaceCrashed) -> Unit = {},
+            // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
+            onInputSerial: (Int) -> Unit = {},
         ): Result<KortexSurface, KortexError> {
             // The surface tracks the open text-input session itself so a host does not have to; keys the
             // composition does not consume are turned into edits on it.
@@ -418,9 +420,10 @@ public class KortexSurface private constructor(
                 )
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true
-                surface.pointerInput = seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface)
+                surface.pointerInput =
+                    seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
                 if (config.keyboard != KeyboardInteractivity.None) {
-                    surface.keyboardInput = seat.attachKeyboard(scene, { open.get() })
+                    surface.keyboardInput = seat.attachKeyboard(scene, { open.get() }, onInputSerial)
                 }
                 display.roundtrip()
                 return Ok(surface)

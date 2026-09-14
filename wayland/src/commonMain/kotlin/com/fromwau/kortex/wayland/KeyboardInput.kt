@@ -19,6 +19,8 @@ import java.lang.foreign.ValueLayout.JAVA_INT
 internal class KeyboardInput(
     private val scene: KortexScene,
     private val textInput: () -> KortexTextInput? = { null },
+    // Handed the serial of every enter and key, which the clipboard quotes to set the selection.
+    private val onInputSerial: (Int) -> Unit = {},
 ) {
     private val arena: Arena = Arena.ofShared()
 
@@ -66,6 +68,7 @@ internal class KeyboardInput(
     fun onEnter(
         data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment, keys: MemorySegment,
     ) {
+        onInputSerial(serial)
         scene.windowFocused = true
     }
 
@@ -77,6 +80,7 @@ internal class KeyboardInput(
     }
 
     fun onKey(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, key: Int, keyState: Int) {
+        onInputSerial(serial)
         if (state.equals(MemorySegment.NULL)) return
         if (keyState == KEY_PRESSED) {
             // A second repeatable key going down replaces whichever key was repeating; only the most
