@@ -59,12 +59,11 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: seven entries are open. Two are decided and waiting to be built: under Foundations, a typed surface
-lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin layout. Five
-wait for a decision: under Foundations, AWT's toolkit, which Compose starts in a scene with a text field; under
-Keyboard and clipboard, the clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that
-leaves `KeyboardDeliveryTest` proving only a value-based field, images on the clipboard as PNG and JPEG, and
-drag and drop.
+Next: six entries are open. One is decided and waiting to be built: under Keyboard and clipboard, a Latin
+fallback for shortcuts under a non-Latin layout. Five wait for a decision: under Foundations, AWT's toolkit,
+which Compose starts in a scene with a text field; under Keyboard and clipboard, the clipboard that content
+inside a `Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a
+value-based field, images on the clipboard as PNG and JPEG, and drag and drop.
 
 ## Foundations
 
@@ -167,11 +166,21 @@ drag and drop.
       `onDone`. That stands in for what a real re-send would dispatch on the loop thread. Content
       recomposes with the fabricated geometry, which needs no real output added, removed or changed, so it
       runs untagged in the default build. (`RecompositionTest`)
-- [ ] **A typed surface lifecycle state.** The reference exposes a `StateFlow<BridgeState>` that runs from
-      `IDLE` through `CONFIGURED` and `RUNNING` to `CLOSED` or `ERROR`. `KortexSurfaceHandle` has only `size`
-      and `close()`. Decided: a sealed `SurfaceState`, backed by Compose state, that runs from `Running` to
-      `Closed` or `Crashed(failure)`, readable by the host on `ActiveSurface` and by content through
-      `KortexSurfaceHandle`.
+- [x] **A typed surface lifecycle state.** A sealed `SurfaceState` runs from `Running` to `Closed` or
+      `Crashed(failure)`. The host reads it on `ActiveSurface.state` and content through
+      `KortexSurfaceHandle.state`, and both read the one Compose state its `KortexSurface` holds. A surface reads
+      `Running` from the moment content can see its handle; nothing comes before it, since content first runs on
+      a configured surface. `KortexSurface.close()` moves it to `Closed` as its last step, and only if its scene
+      has recorded no failure. Content's `close()`, the compositor closing it, its output going away and the shell
+      closing all reach that one teardown, and content's `close()` leaves it `Running` until the shell tears the
+      surface down. The scene's `onFailure` moves it to `Crashed` with the first failure the scene recorded, before
+      the crash is queued for `onCrashSurface`. Nothing moves it off `Crashed`, and content failing as it is torn
+      down, or after, leaves it `Crashed` rather than `Closed`. Both writes take one lock, so a crash recorded on
+      another thread cannot land between the teardown's check and its write. They go to the global snapshot,
+      whatever snapshot their thread has entered. Each then calls `Snapshot.sendApplyNotifications()`, since a
+      torn-down scene pumps nothing and a crash ends the run: a `snapshotFlow` outside composition would not hear
+      the change otherwise. An output going away tears its surfaces down through the same `removeSurface` as the
+      shell's close, and is not exercised by a test. (`SurfaceStateTest`)
 - [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
       `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
       clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
