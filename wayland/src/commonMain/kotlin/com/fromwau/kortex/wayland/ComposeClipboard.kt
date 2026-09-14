@@ -84,8 +84,9 @@ internal class ComposeClipboard(
 
 /**
  * The AWT clipboard foundation's paste checks ask, synchronously and on the loop thread, whether there is text to
- * paste. It answers from [TextClipboard.hasText] and never reads: the text itself is pasted through
- * [Clipboard.getClipEntry], and a copy handed to it goes to [copy].
+ * paste. It answers from [TextClipboard.hasText] and never reads. Its contents are this client's own text alone:
+ * another client's text it only reports as there, and that text is pasted through [Clipboard.getClipEntry]. A copy
+ * handed to it goes to [copy].
  */
 private class PasteCheckClipboard(
     private val clipboard: TextClipboard,
@@ -96,6 +97,9 @@ private class PasteCheckClipboard(
 
     override fun getAvailableDataFlavors(): Array<DataFlavor> =
         if (clipboard.hasText) arrayOf(DataFlavor.stringFlavor) else emptyArray()
+
+    // The JDK's getData reads through this too, so neither ever waits on a read.
+    override fun getContents(requestor: Any?): Transferable? = clipboard.ownedText?.let(::StringSelection)
 
     // No lostOwnership for owner: the JDK's own clipboard sends it through AWT's event thread, starting the toolkit.
     override fun setContents(contents: Transferable, owner: ClipboardOwner?) = copy(contents)

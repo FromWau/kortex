@@ -128,6 +128,24 @@ class ComposeClipboardTest {
     }
 
     @Test
+    fun `the AWT clipboard's contents are this client's own text, and none for another client's`() {
+        val clipboard = FakeTextClipboard(read = { Ok(OTHER_CLIENTS) })
+        val awt = assertNotNull(composeClipboard(clipboard).awtClipboard, "there was no AWT clipboard to ask")
+
+        clipboard.ownedText = COPIED
+        clipboard.hasText = true
+        assertEquals(
+            COPIED, awt.getContents(null)?.getTransferData(DataFlavor.stringFlavor),
+            "the AWT clipboard's contents were not this client's own text",
+        )
+        assertEquals(COPIED, awt.getData(DataFlavor.stringFlavor), "the AWT clipboard's data was not this client's text")
+
+        clipboard.ownedText = null
+        assertNull(awt.getContents(null), "the AWT clipboard had contents for another client's text")
+        assertEquals(0, clipboard.reads.get(), "the AWT clipboard read the selection, which waits on the loop it runs on")
+    }
+
+    @Test
     fun `an AWT copy reaches the clipboard without waiting for it`() {
         val release = CompletableDeferred<Unit>()
         val clipboard = FakeTextClipboard(
