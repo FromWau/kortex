@@ -16,7 +16,9 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -162,6 +164,27 @@ class ClipboardTest {
     }
 
     @Test
+    fun `a read cancelled while its request waits on the loop still closes the fd it opened`() {
+        val pipe = pipeOrFail()
+        val loop = LoopQueue(wake = {})
+        // Unconfined runs the call up to its hop onto the loop, where it waits until the drain below.
+        val call = CoroutineScope(Dispatchers.Unconfined).launch {
+            readPipeOpenedOn(loop, SHORT_TIMEOUT_MILLIS) { Ok(pipe.readFd) }
+        }
+        call.cancel()
+        loop.drain()
+        // A pipe with no read end left reports POLLERR on its write end, whatever that end was asked to wait for.
+        val deadline = System.nanoTime() + TEST_BOUND_MILLIS * NANOS_PER_MILLI
+        val readEndClosed = LibC.poll(intArrayOf(pipe.writeFd), intArrayOf(0), deadline).single() and POLLERR != 0
+        try {
+            assertTrue(readEndClosed, "the read end stayed open after its call was cancelled")
+        } finally {
+            if (!readEndClosed) LibC.close(pipe.readFd)
+            LibC.close(pipe.writeFd)
+        }
+    }
+
+    @Test
     fun `setting the selection before any input event fails as NoInputSerial`() {
         withUnfocusedClipboard { clipboard ->
             assertEquals(Err(ClipboardError.NoInputSerial), runBlocking { clipboard.setText(COPIED) })
@@ -230,5 +253,6 @@ class ClipboardTest {
         const val WRITER_POLL_MILLIS = 10L
         const val WRITER_PAUSE_MILLIS = 1L
         const val NANOS_PER_MILLI = 1_000_000L
+        const val POLLERR = 0x008
     }
 }

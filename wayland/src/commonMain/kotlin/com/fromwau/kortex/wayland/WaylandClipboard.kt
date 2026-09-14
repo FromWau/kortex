@@ -52,17 +52,8 @@ internal class WaylandClipboard private constructor(
      *
      * @return the text, or the [ClipboardError] saying why there is none.
      */
-    suspend fun readText(): Result<String, ClipboardError> {
-        // Neither hop may be cancelled: each hands an fd on, and a hop cancelled after its work ran would drop it.
-        val readFd = withContext(loop + NonCancellable) { receiveSelection() }.getOrElse { return Err(it) }
-        return withContext(Dispatchers.IO + NonCancellable) {
-            try {
-                readPipeToEnd(readFd, TRANSFER_TIMEOUT_MILLIS)
-            } finally {
-                LibC.close(readFd)
-            }
-        }.map { it.decodeToString() }
-    }
+    suspend fun readText(): Result<String, ClipboardError> =
+        readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
 
     private fun offerSelection(text: String): EmptyResult<ClipboardError> {
         check(!closed) { "setText on a clipboard already given back" }
@@ -149,6 +140,28 @@ internal enum class TextMime(val wireName: String) {
     companion object {
         /** The entry named [wireName], or null for a type that is not text. */
         fun fromWireNameOrNull(wireName: String): TextMime? = entries.firstOrNull { it.wireName == wireName }
+    }
+}
+
+/**
+ * Opens a pipe's read end with [open] on [loop], then reads that pipe to its end on [Dispatchers.IO] and closes it.
+ *
+ * Not cancellable: a cancelled caller gets its cancellation once this returns, at most [timeoutMillis] after [loop]
+ * ran [open].
+ */
+internal suspend fun readPipeOpenedOn(
+    loop: CoroutineDispatcher,
+    timeoutMillis: Long,
+    open: () -> Result<Int, ClipboardError>,
+): Result<ByteArray, ClipboardError> = withContext(NonCancellable) {
+    // Around both hops: a dispatcher-changing hop discards its result, fd and all, on resuming a cancelled caller.
+    val readFd = withContext(loop) { open() }.getOrElse { return@withContext Err(it) }
+    withContext(Dispatchers.IO) {
+        try {
+            readPipeToEnd(readFd, timeoutMillis)
+        } finally {
+            LibC.close(readFd)
+        }
     }
 }
 
