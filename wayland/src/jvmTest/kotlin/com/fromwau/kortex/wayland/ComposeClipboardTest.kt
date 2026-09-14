@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -12,6 +13,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.awtClipboard
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
@@ -236,6 +238,30 @@ class ComposeClipboardTest {
             results.toList(),
             "content did not get the clipboard's own results",
         )
+    }
+
+    @Test
+    fun `content inside a Popup reaches the shell's clipboard through its host`() {
+        val clipboard = FakeTextClipboard(read = { Ok(OTHER_CLIENTS) })
+        val typed = AtomicReference<KortexClipboard?>()
+        withSpeckShell(
+            content = {
+                Popup {
+                    typed.set(LocalKortexHost.current.clipboard)
+                    Box(Modifier.size(1.dp))
+                }
+            },
+            create = { display, spec ->
+                KortexShell.create(display, listOf(spec), KortexPlatform.None, {}) { clipboard }
+            },
+        ) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { typed.get() != null }, "the Popup's content never composed")
+            val popupClipboard = assertNotNull(typed.get(), "the Popup's content was handed no typed clipboard")
+            assertEquals(
+                Ok(OTHER_CLIENTS), runBlocking { popupClipboard.readText() },
+                "the Popup's typed clipboard did not reach the shell's",
+            )
+        }
     }
 
     @Test
