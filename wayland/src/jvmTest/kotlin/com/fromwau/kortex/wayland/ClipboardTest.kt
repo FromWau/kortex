@@ -9,10 +9,12 @@ import java.lang.foreign.MemorySegment
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -72,6 +74,43 @@ class ClipboardTest {
     }
 
     @Test
+    fun `a writer that never stops writing ends the read as ReadTimedOut`() {
+        val pipe = pipeOrFail()
+        val stop = AtomicBoolean(false)
+        val writer = thread(name = "kortex-endless-writer") { writeUntilStopped(pipe.writeFd, stop) }
+        val read = CompletableFuture.supplyAsync { readPipeToEnd(pipe.readFd, SHORT_TIMEOUT_MILLIS) }
+        try {
+            val result = try {
+                read.get(TEST_BOUND_MILLIS, TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
+                fail("the read was still taking chunks ${TEST_BOUND_MILLIS}ms into a ${SHORT_TIMEOUT_MILLIS}ms timeout")
+            }
+            assertEquals(Err(ClipboardError.ReadTimedOut), result)
+        } finally {
+            stop.set(true)
+            // Joined before its fd closes; closing that fd is what ends a read that ignores its timeout.
+            writer.join(JOIN_MILLIS)
+            LibC.close(pipe.writeFd)
+            runCatching { read.get(TEST_BOUND_MILLIS, TimeUnit.MILLISECONDS) }
+            LibC.close(pipe.readFd)
+        }
+    }
+
+    @Test
+    fun `a read whose time is up takes nothing more from a pipe that still has data`() {
+        val pipe = pipeOrFail()
+        try {
+            Arena.ofConfined().use { arena -> LibC.write(pipe.writeFd, arena.allocateFrom(COPIED)) }
+            assertEquals(Err(ClipboardError.ReadTimedOut), readPipeToEnd(pipe.readFd, timeoutMillis = 0L))
+            val unread = LibC.poll(intArrayOf(pipe.readFd), intArrayOf(LibC.POLLIN), System.nanoTime()).single()
+            assertTrue(unread and LibC.POLLIN != 0, "the read took from the pipe after its time was up")
+        } finally {
+            LibC.close(pipe.writeFd)
+            LibC.close(pipe.readFd)
+        }
+    }
+
+    @Test
     fun `a source's send writes its text to the fd and closes it`() {
         val pipe = pipeOrFail()
         try {
@@ -122,6 +161,20 @@ class ClipboardTest {
 
     private fun pipeOrFail(): Pipe = LibC.pipe().getOrElse { error -> fail("creating a pipe failed: $error") }
 
+    /** Writes into [fd] a page at a time until [stop] is set or its reader goes, never blocked on a full pipe. */
+    private fun writeUntilStopped(fd: Int, stop: AtomicBoolean) {
+        Arena.ofConfined().use { arena ->
+            val page = arena.allocate(PAGE_BYTES)
+            while (!stop.get()) {
+                val deadline = System.nanoTime() + WRITER_POLL_MILLIS * NANOS_PER_MILLI
+                if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLOUT), deadline).single() == 0) continue
+                if (LibC.write(fd, page) <= 0L) return
+                // Paced, so what the read takes before its timeout stays small.
+                Thread.sleep(WRITER_PAUSE_MILLIS)
+            }
+        }
+    }
+
     private companion object {
         val NULL: MemorySegment = MemorySegment.NULL
         const val COPIED = "Grüße aus kortex"
@@ -137,5 +190,10 @@ class ClipboardTest {
         const val SHORT_TIMEOUT_MILLIS = 200L
         const val TEST_BOUND_MILLIS = 5000L
         const val JOIN_MILLIS = 2000L
+
+        const val PAGE_BYTES = 4096L
+        const val WRITER_POLL_MILLIS = 10L
+        const val WRITER_PAUSE_MILLIS = 1L
+        const val NANOS_PER_MILLI = 1_000_000L
     }
 }

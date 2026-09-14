@@ -157,18 +157,17 @@ internal enum class TextMime(val wireName: String) {
 /**
  * Reads [fd] until its writer closes it.
  *
- * @return everything read, or [ClipboardError.ReadTimedOut] once [timeoutMillis] have passed with the writer's end
- *   still open and nothing more in the pipe.
+ * @return everything read, or [ClipboardError.ReadTimedOut] once [timeoutMillis] have passed before the writer
+ *   closed its end, however much it was still sending.
  */
 internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, ClipboardError> {
     val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
     val read = ByteArrayOutputStream()
     Arena.ofConfined().use { arena ->
         val chunk = arena.allocate(PIPE_CHUNK_BYTES)
-        while (true) {
+        while (System.nanoTime() < deadline) {
             // Polled first: a read blocks for as long as the writer keeps its end open.
-            val ready = LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLIN), deadline).single()
-            if (ready == 0) return Err(ClipboardError.ReadTimedOut)
+            if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLIN), deadline).single() == 0) continue
             val count = LibC.read(fd, chunk)
             when {
                 count == 0L -> return Ok(read.toByteArray())
@@ -177,6 +176,7 @@ internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, Clip
             }
         }
     }
+    return Err(ClipboardError.ReadTimedOut)
 }
 
 /** Writes all of [bytes] into [fd] and closes it; a reader that goes away first only cuts the write short. */
