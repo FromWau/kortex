@@ -27,8 +27,9 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * The clipboard's parts that need no keyboard focus: which text type a paste asks for, the pipe a transfer
- * runs through, how long it may take and how large it may grow, when a copy stops being this client's own, and
- * the typed failures of a clipboard that no surface has focused or that the compositor does not offer.
+ * runs through, how long it may take and how large it may grow, when a copy stops being this client's own,
+ * whether its own copy has text to paste regardless of any offer, and the typed failures of a clipboard that
+ * no surface has focused or that the compositor does not offer.
  */
 class ClipboardTest {
     @Test
@@ -269,6 +270,17 @@ class ClipboardTest {
     }
 
     @Test
+    fun `a clipboard that owns the selection has text to paste before the compositor ever grants it`() {
+        withUnfocusedClipboard { clipboard ->
+            // No keyboard ever reaches this connection to earn a real serial, so one is faked to reach setText.
+            clipboard.recordInputSerial(FAKE_SERIAL)
+            val set = runBlocking { clipboard.setText(COPIED) }
+            assertEquals(Ok(Unit), set, "the clipboard never set its own copy")
+            assertTrue(clipboard.hasText, "kortex's own copy was not text to paste")
+        }
+    }
+
+    @Test
     fun `a clipboard the compositor does not offer never has text to paste`() {
         withoutDataDeviceManager { display ->
             withClipboard(display) { clipboard ->
@@ -368,6 +380,9 @@ class ClipboardTest {
     private companion object {
         val NULL: MemorySegment = MemorySegment.NULL
         const val COPIED = "Grüße aus kortex"
+
+        // No real input event ever reaches an unfocused connection, so this stands in for one.
+        const val FAKE_SERIAL = 1
 
         // Spelled out rather than read off TextMime, so reordering its entries fails here.
         val PASTE_PREFERENCE = listOf("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT")
