@@ -54,9 +54,8 @@ private fun ThrowOnClick() {
     )
 }
 
-// Comfortably past the ~1s a surface takes to get its first buffer and the ~850ms fade after it, so a
-// real click still lands well within it.
-private const val NO_CLICK_TIMEOUT_MILLIS = 8_000L
+// Past both of VirtualPointerCrashTest's sequential Screen waits, with room for the click to arrive.
+private const val NO_CLICK_TIMEOUT_MILLIS = 2 * Screen.SETTLE_TIMEOUT_MILLIS + 2_000L
 
 // Anchored so a virtual pointer can find and click it; unlike CrashedSurfaceProbe's speck, this one must
 // be reachable, not avoided.

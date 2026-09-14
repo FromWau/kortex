@@ -123,6 +123,7 @@ internal object Screen {
 
     private const val SETTLE_INTERVAL_MILLIS = 20L
 
-    private const val SETTLE_TIMEOUT_MILLIS = 5000L
+    // Widened from private: CrashedPointerProbe sizes its self-close off this so the two cannot drift.
+    internal const val SETTLE_TIMEOUT_MILLIS = 5000L
     private const val NANOS_PER_MILLI = 1_000_000L
 }
