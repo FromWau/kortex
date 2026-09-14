@@ -17,6 +17,7 @@ import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.reflect.KClass
 
 /** A bound `wl_output`: the registry name it was announced under, its proxy, and what it publishes. */
 internal class ShellOutput(
@@ -40,33 +41,45 @@ private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipb
  */
 internal class ShownSurface(val newest: State<LayerSurface<*>>, private val wake: () -> Unit) {
     // The settings its Show asks for while in composition, and null once it has left. Loop thread only.
-    var wanted: SurfaceConfig? = null
+    var wanted: SurfaceSettings? = null
 
     // Null until placed, and again once it has ended. Written on the loop thread; size reads it from any.
     @Volatile
     var surface: KortexSurface? = null
 
     // What surface was placed with, which a change of settings replaces it over. Loop thread only.
-    var placedWith: SurfaceConfig? = null
+    var placedWith: SurfaceSettings? = null
 
     // Set as its onClose is called: whatever the shell sees of this Show afterwards reports nothing. Loop thread only.
     var reported = false
 
-    private val requested = AtomicReference<EmptyResult<SurfaceError<IError>>?>(null)
+    private val requested = AtomicReference<EndRequest?>(null)
 
     /**
-     * How its surface ended by itself, once it has: the first ending an instance asked for, else its content's
-     * crash, else a close by the compositor or through the surface's own handle.
+     * How its surface ended by itself, once it has: the first ending an instance of the class it shows asked for,
+     * else its content's crash, else a close by the compositor or through the surface's own handle.
      */
     val ownEnding: EmptyResult<SurfaceError<IError>>?
-        get() = requested.get() ?: surface?.let { placed ->
+        get() = requested.get()?.takeIf { it.fromShownClass() }?.ending ?: surface?.let { placed ->
             placed.crash?.let { Err(SurfaceError.Failed(it)) } ?: Ok(Unit).takeIf { placed.closed }
         }
 
-    /** Asks for [ending] from any thread; the first ask decides, and the shell acts on it in its next pass. */
-    fun requestEnd(ending: EmptyResult<SurfaceError<IError>>) {
-        if (requested.compareAndSet(null, ending)) wake()
+    /**
+     * Asks for [ending] on behalf of [from], from any thread; the shell acts on it in its next pass. The first ask
+     * from an instance of the class the Show shows decides. One from a class it no longer shows concerns a surface
+     * already replaced, and does nothing.
+     */
+    fun requestEnd(from: LayerSurface<*>, ending: EmptyResult<SurfaceError<IError>>) {
+        val ask = EndRequest(from::class, ending)
+        val standing = requested.updateAndGet { current ->
+            current?.takeIf { it.fromShownClass() } ?: ask.takeIf { it.fromShownClass() }
+        }
+        if (standing === ask) wake()
     }
+
+    private fun EndRequest.fromShownClass(): Boolean = kind == newest.value::class
+
+    private class EndRequest(val kind: KClass<*>, val ending: EmptyResult<SurfaceError<IError>>)
 }
 
 /**
@@ -263,7 +276,9 @@ public class KortexShell private constructor(
         surfaces.forEach { active -> active.surface.serviceTick().getOrElse { return Err(it) } }
         // A shown surface that fails its tick ends by itself, as Failed; the run goes on.
         placed.forEach { shown ->
-            shown.surface?.serviceTick()?.onError { reason -> shown.requestEnd(Err(SurfaceError.Failed(reason))) }
+            shown.surface?.serviceTick()?.onError { reason ->
+                shown.requestEnd(shown.newest.value, Err(SurfaceError.Failed(reason)))
+            }
         }
         return reportCrashes()?.let { Err(it) } ?: applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
     }
@@ -373,7 +388,7 @@ public class KortexShell private constructor(
     }
 
     /** [shown]'s `Show` entered composition, or its settings changed: its surface is placed in the next pass. */
-    internal fun queuePlace(shown: ShownSurface, settings: SurfaceConfig) {
+    internal fun queuePlace(shown: ShownSurface, settings: SurfaceSettings) {
         shown.wanted = settings
         changedShows += shown
         display.wake()
@@ -405,16 +420,16 @@ public class KortexShell private constructor(
     }
 
     // The Show is still in composition, so nothing has ended for its host, unless its content failed as it went.
-    private fun replace(shown: ShownSurface, settings: SurfaceConfig) {
+    private fun replace(shown: ShownSurface, settings: SurfaceSettings) {
         val crash = takeDown(shown) ?: return place(shown, settings)
         report(shown, Err(SurfaceError.Failed(crash)))
     }
 
-    private fun place(shown: ShownSurface, settings: SurfaceConfig) {
+    private fun place(shown: ShownSurface, settings: SurfaceSettings) {
         KortexSurface
             .create(
                 display,
-                settings,
+                settings.config,
                 platform = platform,
                 loopQueue = loopQueue,
                 // Only a wake: the next pass reads the scene's first failure, which this one may not be.

@@ -69,9 +69,9 @@ public fun kortexApplication(
  * Keeps [surface] on screen while this call is in composition in [kortexApplication]'s content.
  *
  * The surface appears shortly after `Show` enters composition, and goes when `Show` leaves it, reporting `Ok(Unit)`
- * to its `onClose`. Each recomposition hands `Show` a new instance. While the settings stay equal, the surface keeps
- * running with the newest instance's content and `onClose`. When they change, a new surface replaces it, and no
- * `onClose` is called.
+ * to its `onClose`. Each recomposition hands `Show` a new instance. While the instances keep one class and equal
+ * settings, the surface keeps running with the newest instance's content and `onClose`. When the class or the
+ * settings change, a new surface replaces it, and no `onClose` is called.
  *
  * Once the surface has ended by itself, in any of the ways [LayerSurface.onClose] lists, `Show` shows nothing until
  * you take it out of composition and put it back. Taking it out reports nothing more.

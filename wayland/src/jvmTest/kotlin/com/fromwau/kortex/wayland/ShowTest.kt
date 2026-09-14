@@ -133,6 +133,56 @@ class ShowTest {
     }
 
     @Test
+    fun `a Show handed an instance of another class replaces its surface, and only the new class can close it`() {
+        val showRefusing = mutableStateOf(false)
+        val dismissals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val refusals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Refusal>>>()
+        val instances = CopyOnWriteArrayList<LayerSurface<*>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val surface = when {
+                showRefusing.value -> RefusingSurface { refusals += it }
+                else -> DismissingSurface { dismissals += it }
+            }
+            SideEffect { instances += surface }
+            Show(surface)
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val first = shell.shownSurfaces.single()
+            val dismissing = assertNotNull(instances.filterIsInstance<DismissingSurface>().lastOrNull())
+
+            showRefusing.value = true
+
+            val replaced = shell.pumpOrFail(PUMP_MILLIS) {
+                shell.shownSurfaces.singleOrNull()?.let { it !== first } == true
+            }
+            assertTrue(replaced, "an instance of another class with equal settings did not replace the surface")
+
+            dismissing.close(Dismissal.Dismissed)
+
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertEquals(1, shell.shownSurfaces.size, "close(error) from the class the Show left closed its surface")
+            assertTrue(dismissals.isEmpty(), "the replaced class's onClose was called: $dismissals")
+            assertTrue(refusals.isEmpty(), "the new class's onClose was called before it closed: $refusals")
+
+            val refusing = assertNotNull(instances.filterIsInstance<RefusingSurface>().lastOrNull())
+            refusing.close(Refusal.Refused)
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { refusals.isNotEmpty() },
+                "close(error) on the new class reported nothing",
+            )
+            assertEquals(
+                listOf(Err(SurfaceError.Closed(Refusal.Refused))),
+                refusals.toList(),
+                "close(error) on the new class did not reach its own onClose once",
+            )
+            assertTrue(dismissals.isEmpty(), "the replaced class's onClose was called: $dismissals")
+        }
+    }
+
+    @Test
     fun `close() reports Ok and close(error) reports the error as Closed`() {
         val closeRequested = mutableStateOf(false)
         val plain = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
@@ -657,23 +707,46 @@ class ShowTest {
         data object Dismissed : Dismissal
     }
 
+    private sealed interface Refusal : IError {
+        data object Refused : Refusal
+    }
+
+    /** A speck in the default corner under [NAMESPACE]: the settings every subclass below shares. */
+    private abstract class SpeckSurface<E : IError>(onClose: (EmptyResult<SurfaceError<E>>) -> Unit) :
+        LayerSurface<E>(
+            namespace = NAMESPACE,
+            layer = Layer.Overlay,
+            anchor = setOf(Edge.Bottom, Edge.Right),
+            width = SHORT.dp,
+            height = SHORT.dp,
+            onClose = onClose,
+        )
+
     /** Draws the [label] it was built with, so a test can tell which instance's content its surface composes. */
     private class LabelSurface(
         private val label: Int,
         private val drawn: MutableList<Int>,
         onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
-    ) : LayerSurface<Nothing>(
-        namespace = NAMESPACE,
-        layer = Layer.Overlay,
-        anchor = setOf(Edge.Bottom, Edge.Right),
-        width = SHORT.dp,
-        height = SHORT.dp,
-        onClose = onClose,
-    ) {
+    ) : SpeckSurface<Nothing>(onClose) {
         @Composable
         override fun invoke() {
             Canvas(Modifier.fillMaxSize()) { drawn += label }
         }
+    }
+
+    // Two classes with equal settings and an error of each's own, for one Show handed first one, then the other.
+    private class DismissingSurface(
+        onClose: (EmptyResult<SurfaceError<Dismissal>>) -> Unit,
+    ) : SpeckSurface<Dismissal>(onClose) {
+        @Composable
+        override fun invoke() = Unit
+    }
+
+    private class RefusingSurface(
+        onClose: (EmptyResult<SurfaceError<Refusal>>) -> Unit,
+    ) : SpeckSurface<Refusal>(onClose) {
+        @Composable
+        override fun invoke() = Unit
     }
 
     /** Pumps [shell] until [count] of its Shows' surfaces are on screen; the test fails if they never are. */

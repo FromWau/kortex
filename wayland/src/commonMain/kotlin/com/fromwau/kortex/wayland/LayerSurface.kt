@@ -9,6 +9,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kortex.compose.KortexSurfaceHandle
+import kotlin.reflect.KClass
 
 /**
  * A layer-shell surface of your own: its settings are the constructor's values, and its content is [invoke].
@@ -41,8 +42,8 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * ```
  *
  * The application builds a new instance each time it recomposes, so keep state inside [invoke] behind `remember`,
- * never in the class's fields. [Show] treats two instances whose settings are equal, every constructor value but
- * [onClose], as the same surface: it keeps running, with the newest instance's content and `onClose`.
+ * never in the class's fields. [Show] treats two instances of one class whose settings are equal, every constructor
+ * value but [onClose], as the same surface: it keeps running, with the newest instance's content and `onClose`.
  *
  * A surface with no error of its own extends `LayerSurface<Nothing>`, so `close(error)` cannot be called on it.
  *
@@ -91,40 +92,46 @@ public abstract class LayerSurface<E : IError>(
     override val size: IntSize get() = heldBy?.surface?.logicalSize ?: IntSize.Zero
 
     /**
-     * Ends the surface this instance's [Show] holds, whichever of that `Show`'s instances you call it on: [onClose]
-     * receives `Ok(Unit)`. Safe from any thread, more than once, and after the surface has gone; the first `close()`
-     * or `close(error)` decides what `onClose` receives, and later ones do nothing. On an instance never handed to a
-     * [Show], it does nothing.
+     * Ends the surface this instance's [Show] holds, whichever of that `Show`'s instances of this class you call it
+     * on: [onClose] receives `Ok(Unit)`. Safe from any thread, more than once, and after the surface has gone; the
+     * first `close()` or `close(error)` decides what `onClose` receives, and later ones do nothing. It does nothing on
+     * an instance never handed to a [Show], or once that `Show` has been handed an instance of another class.
      */
     override fun close() {
-        heldBy?.requestEnd(Ok(Unit))
+        heldBy?.requestEnd(this, Ok(Unit))
     }
 
     /** Ends the surface as `close()` does, except that [onClose] receives `Err(SurfaceError.Closed(error))`. */
     public fun close(error: E) {
-        heldBy?.requestEnd(Err(SurfaceError.Closed(error)))
+        heldBy?.requestEnd(this, Err(SurfaceError.Closed(error)))
     }
 
     internal fun report(ending: EmptyResult<SurfaceError<IError>>) {
-        // Sound while every instance one Show is handed has the same E: a Closed error came from close(error) on one.
+        // Safe for a class that fixes E: a Closed ending is honoured only when asked for by an instance of this class.
         @Suppress("UNCHECKED_CAST")
         (onClose as (EmptyResult<SurfaceError<IError>>) -> Unit)(ending)
     }
 
-    /** Every constructor value but [onClose]: what makes two instances the same surface to [Show]. */
-    internal val settings: SurfaceConfig
-        get() = SurfaceConfig(
-            namespace = namespace,
-            layer = layer,
-            anchor = anchor,
-            width = width,
-            height = height,
-            margins = margins,
-            exclusiveZone = exclusiveZone,
-            keyboard = keyboard,
-            exclusiveEdge = exclusiveEdge,
+    /** Its class and every constructor value but [onClose]: what makes two instances the same surface to [Show]. */
+    internal val settings: SurfaceSettings
+        get() = SurfaceSettings(
+            kind = this::class,
+            config = SurfaceConfig(
+                namespace = namespace,
+                layer = layer,
+                anchor = anchor,
+                width = width,
+                height = height,
+                margins = margins,
+                exclusiveZone = exclusiveZone,
+                keyboard = keyboard,
+                exclusiveEdge = exclusiveEdge,
+            ),
         )
 }
+
+/** What [Show] compares its instances by: two with equal settings are the same surface. */
+internal data class SurfaceSettings(val kind: KClass<*>, val config: SurfaceConfig)
 
 /** Why a surface ended, when it did not end cleanly: what its `onClose` receives inside `Err`. */
 public sealed interface SurfaceError<out E : IError> : IError {
