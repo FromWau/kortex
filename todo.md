@@ -56,9 +56,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: two entries are open, both of them decided and waiting to be built. Under Foundations, a typed
-surface lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin
-layout.
+Next: four entries are open. Two are decided and waiting to be built: under Foundations, a typed surface
+lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin layout. Two
+wait for a decision: under Foundations, AWT's toolkit, which Compose starts in a scene with a text field; under
+Keyboard and clipboard, the clipboard that content inside a `Popup` or `Dialog` reaches.
 
 ## Foundations
 
@@ -166,6 +167,13 @@ layout.
       and `close()`. Decided: a sealed `SurfaceState`, backed by Compose state, that runs from `Running` to
       `Closed` or `Crashed(failure)`, readable by the host on `ActiveSurface` and by content through
       `KortexSurfaceHandle`.
+- [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
+      `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
+      clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
+      Compose's `RectManager` schedules its debounced layout-rect callbacks through `postDelayed`, which launches
+      each on Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event
+      queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
+      `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
 
 ## Surface presets
 
@@ -337,22 +345,40 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       Cyrillic, Greek or Arabic one does. Then a key takes its base keysym from the keymap's first Latin
       layout, so Compose's own text field shortcuts work too. A Latin layout keeps its own keys: German `ü`
       stays `Key.Unknown` rather than borrowing US `[`. With no Latin layout configured, nothing changes.
-- [x] **Copy and paste go through the Wayland selection, never AWT's clipboard.** Each shell binds
-      `wl_data_device_manager` once, takes a `wl_data_device` for a seat of its own, and provides Compose's
-      `LocalClipboard` and `LocalClipboardManager` around every surface's content. So a text field's Ctrl+C,
-      Ctrl+X and Ctrl+V, and content calling either local, reach that one clipboard. A copy offers UTF-8
+- [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
+      clipboard.** Each shell binds `wl_data_device_manager` once, takes a `wl_data_device` for a seat of its
+      own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's content.
+      Content outside a `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers UTF-8
       under `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting the serial
-      of the latest key, keyboard enter or button, and `setClipEntry(null)` clears the selection under the
-      same serial. A paste asks for the first of those types the selection lists and reads it off the loop
-      thread, for at most 1000 ms and 16 MiB. Each expected failure is a typed `ClipboardError` that meets
-      Compose's contract at the edge: a failed paste gets no entry, and a failed copy does nothing.
-      Compose's own text fields read only `LocalClipboard`. The deprecated `ClipboardManager.getText` never
-      waits on a read, since reading this client's own selection needs the loop it runs on. It answers with
-      the text this client set, until another selection or a clear replaces it, and with nothing otherwise.
-      A bare `KortexSurface`, which only tests create, keeps Compose's default. The protocol hands a client
-      the selection only while one of its surfaces has keyboard focus, so the tests that need it take the
-      keyboard and run only while the desktop is free. (`ClipboardTest`, `ComposeClipboardTest`,
-      `KeyboardDeliveryTest`, and `ClipboardFocusTest` with the desktop free)
+      of the latest key, keyboard enter or button, and reads the text out of the entry it is handed off the
+      loop thread. `setClipEntry(null)` clears the selection under the same serial, whichever client made it.
+      A paste asks for the first of those types the selection lists and reads it off the loop thread, for at
+      most 1000 ms and 16 MiB. Content that needs to know why a copy or paste failed calls
+      `LocalKortexHost.current.clipboard`, a `KortexClipboard` whose `setText`, `clear` and `readText` return
+      a public, sealed `ClipboardError`: `NoSelection`, `NoText`, `NoInputSerial`, `NoClipboard`,
+      `PipeFailed`, `ReadTimedOut` or `TooLarge`. Compose's locals keep Compose's contract over the same
+      clipboard: a failed paste gets no entry, and a failed copy does nothing and throws nothing. A value-based
+      `BasicTextField`'s Ctrl+C, Ctrl+X and Ctrl+V go through `LocalClipboard`. The AWT clipboard a text
+      field's right-click Paste asks answers from a snapshot and never reads: there is text while this
+      client's own copy stands, or while the compositor's last selection offer lists a text type. The
+      deprecated `ClipboardManager.getText` never waits on a read, since reading this client's own selection
+      needs the loop it runs on. It answers with the text this client set, until another selection or a clear
+      replaces it, and with nothing otherwise. The protocol hands a client the selection only while one of its
+      surfaces has keyboard focus, so the tests that need it take the keyboard and run only while the desktop
+      is free. (`ClipboardTest`, `ComposeClipboardTest`, `KeyboardDeliveryTest`, and `ClipboardFocusTest`
+      with the desktop free)
+- [ ] **Content inside a `Popup` or `Dialog` copies and pastes through AWT's clipboard.** Each runs in a
+      scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
+      inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
+      ui sources, `Popup.skiko.kt:489` and `:495`, and `Dialog.skiko.kt:222` and `:240`, put their content in
+      a layer from `rememberComposeSceneLayer`, which asks `LocalComposeSceneContext` for one
+      (`ComposeSceneLayer.skiko.kt:189-194`). That context is the `CanvasLayersComposeScene` itself
+      (`CanvasLayersComposeScene.skiko.kt:126-127`), whose `createLayer` (`:483-488`) builds a layer around a
+      `RootNodeOwner` of its own (`:559`) and sets its content there (`:671`), under the clipboards that owner
+      creates (`RootNodeOwner.skiko.kt:471-472`). No seam short of reflection or copying Compose code reaches
+      it: `PlatformContext` carries no clipboard, `LocalComposeSceneContext` is internal, and
+      `CanvasLayersComposeScene` takes no `ComposeSceneContext`. `LocalKortexHost.current.clipboard`, which
+      no layer provides again, is still the shell's there.
 
 ## Housekeeping
 
