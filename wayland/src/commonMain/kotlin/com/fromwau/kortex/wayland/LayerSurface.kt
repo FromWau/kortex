@@ -83,7 +83,7 @@ public abstract class LayerSurface<E : IError>(
 
     /** The content drawn on the surface, with this instance as `this`. */
     @Composable
-    public abstract operator fun invoke()
+    public abstract fun invoke()
 
     /**
      * The logical size of the surface this instance's [Show] holds; [IntSize.Zero] while it holds none, before

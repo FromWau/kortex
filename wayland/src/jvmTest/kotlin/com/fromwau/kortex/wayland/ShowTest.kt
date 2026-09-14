@@ -657,6 +657,15 @@ class ShowTest {
         )
     }
 
+    @Test
+    fun `first() on an ArrayList of surfaces returns its first surface`() {
+        val surface = TestSurface<Nothing>(NAMESPACE)
+        val surfaces = ArrayList<LayerSurface<Nothing>>()
+        surfaces.add(surface)
+
+        assertSame<LayerSurface<Nothing>>(surface, surfaces.first(), "first() did not return the list's surface")
+    }
+
     /**
      * Starts an application of [content] and hands it to [crash], which drives it into a crash and returns it; closing
      * the application must then return that same crash.

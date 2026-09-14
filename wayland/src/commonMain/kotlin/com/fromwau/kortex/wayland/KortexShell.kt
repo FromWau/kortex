@@ -439,7 +439,7 @@ public class KortexShell private constructor(
             )
             .flatMap { surface ->
                 surface
-                    .setContent { ProvideClipboard(contentClipboard) { shown.newest.value() } }
+                    .setContent { ProvideClipboard(contentClipboard) { shown.newest.value.invoke() } }
                     .onError { surface.close() }
                     .map { surface }
             }
