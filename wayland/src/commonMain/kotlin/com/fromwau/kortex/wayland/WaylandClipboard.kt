@@ -225,7 +225,8 @@ internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
             var offset = 0L
             while (offset < buffer.byteSize() && System.nanoTime() < deadline) {
                 if (LibC.poll(intArrayOf(fd), intArrayOf(LibC.POLLOUT), deadline).single() == 0) continue
-                val written = LibC.write(fd, buffer.asSlice(offset, minOf(WRITE_CHUNK_BYTES, buffer.byteSize() - offset)))
+                val chunk = buffer.asSlice(offset, minOf(WRITE_CHUNK_BYTES, buffer.byteSize() - offset))
+                val written = LibC.write(fd, chunk)
                 if (written <= 0L) return
                 offset += written
             }
@@ -235,7 +236,7 @@ internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
     }
 }
 
-/** How long either end of a clipboard transfer waits on the other before giving the transfer up. */
+/** The most time either end of a clipboard transfer spends on it before giving it up. */
 internal const val TRANSFER_TIMEOUT_MILLIS = 1000L
 
 private const val NANOS_PER_MILLI = 1_000_000L
