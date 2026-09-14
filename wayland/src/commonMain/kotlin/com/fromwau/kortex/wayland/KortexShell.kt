@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
@@ -28,6 +29,15 @@ internal class ShellOutput(
 
 /** [clipboard]'s calls without its close, which is the shell's alone: what content reaches through its host. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
+
+/** What the shell holds for one [Show]: the instance it shows, what its `Show` asks for, and its surface. */
+internal class ShownSurface(val instance: LayerSurface<*>) {
+    // The settings its Show asks for while in composition, and null once it has left. Loop thread only.
+    var wanted: SurfaceConfig? = null
+
+    // Null until placed, and again once it has ended. Loop thread only.
+    var surface: KortexSurface? = null
+}
 
 /**
  * A live surface together with the spec it came from and the output it went on.
@@ -80,8 +90,24 @@ public class KortexShell private constructor(
     // Queued rather than placed at once: content may call open() from any thread, or mid-pass from the loop's own.
     private val pendingOpens = ConcurrentLinkedQueue<SurfaceSpec>()
 
+    // The composition this shell runs, for a shell that runs an application rather than specs.
+    private var application: ApplicationComposition? = null
+
+    private val applicationScope = object : KortexApplicationScope {
+        override fun exitApplication() = TODO("exitApplication")
+    }
+
+    // Each Show whose surface is on screen, in the order placed.
+    private val placed = mutableListOf<ShownSurface>()
+
+    // Filled by Show's effects, which run inside a composition's apply, and acted on in the next pass.
+    private val changedShows = ConcurrentLinkedQueue<ShownSurface>()
+
     /** The surfaces currently live, each with its output; exposed so a caller or test can inspect them. */
     public val activeSurfaces: List<ActiveSurface> get() = surfaces.toList()
+
+    /** Every surface a [Show] holds on screen, in the order they were placed; a test reads them. */
+    internal val shownSurfaces: List<KortexSurface> get() = placed.mapNotNull { it.surface }
 
     // A future output could still complete an EveryOutput spec, or the one output a NamedOutput spec names.
     private val awaitingAnOutput: Boolean
@@ -128,7 +154,8 @@ public class KortexShell private constructor(
     }
 
     /** The earliest deadline across the surfaces that no event announces; not private because a test asserts it. */
-    internal fun nextDeadlineNanos(): Long? = surfaces.mapNotNull { it.surface.nextDeadlineNanos }.minOrNull()
+    internal fun nextDeadlineNanos(): Long? =
+        (surfaces.map { it.surface } + shownSurfaces).mapNotNull { it.nextDeadlineNanos }.minOrNull()
 
     /**
      * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
@@ -166,14 +193,17 @@ public class KortexShell private constructor(
             val opens = generateSequence(pendingOpens::poll).toList()
             opens.forEach { spec -> placeSurfaces(spec, standing = false).getOrElse { return Err(it) } }
         }
-        return Ok(Unit)
+        return reconcileShows()
     }
 
     private fun serviceSurfaces(): EmptyResult<KortexError> {
         // First: content running here posts to the surface queues drained next, its own close among them.
         loopQueue.runPass()
+        // After the pass, which runs the snapshot pump that asks the application for a frame.
+        application?.frame()
         // Before the reap: content's posted close marks its surface only when drained, and its wake is already spent.
         surfaces.forEach { it.surface.drainQueue() }
+        shownSurfaces.forEach(KortexSurface::drainQueue)
         // filter copies first: removeSurface mutates the very list this walks.
         val closing = surfaces.filter { it.surface.closed }
         val toReplace = closing.filter(::shouldReplace)
@@ -182,6 +212,7 @@ public class KortexShell private constructor(
         // beats ending the run. One whose content crashed has queued that crash, which ends the run below.
         toReplace.forEach { active -> placeSurfaces(active.spec, standing = true) }
         surfaces.forEach { active -> active.surface.serviceTick().getOrElse { return Err(it) } }
+        shownSurfaces.forEach { surface -> surface.serviceTick().getOrElse { return Err(it) } }
         return reportCrashes()?.let { Err(it) } ?: Ok(Unit)
     }
 
@@ -284,6 +315,72 @@ public class KortexShell private constructor(
         active.surface.close()
     }
 
+    /** [shown]'s `Show` entered composition, or its settings changed: its surface is placed in the next pass. */
+    internal fun queuePlace(shown: ShownSurface, settings: SurfaceConfig) {
+        shown.wanted = settings
+        changedShows += shown
+        display.wake()
+    }
+
+    /** [shown]'s `Show` left composition, or is about to be handed new settings. */
+    internal fun queueRemove(shown: ShownSurface) {
+        shown.wanted = null
+        changedShows += shown
+        display.wake()
+    }
+
+    private fun reconcileShows(): EmptyResult<KortexError> {
+        generateSequence(changedShows::poll).distinct().toList().forEach { shown ->
+            reconcile(shown).getOrElse { return Err(it) }
+        }
+        return Ok(Unit)
+    }
+
+    private fun reconcile(shown: ShownSurface): EmptyResult<KortexError> {
+        val wanted = shown.wanted
+        when {
+            wanted == null -> end(shown, Ok(Unit))
+            shown.surface == null -> return place(shown, wanted)
+        }
+        return Ok(Unit)
+    }
+
+    private fun place(shown: ShownSurface, settings: SurfaceConfig): EmptyResult<KortexError> =
+        KortexSurface.create(
+            display,
+            settings,
+            platform = platform,
+            loopQueue = loopQueue,
+            onCrash = crashes::add,
+            onInputSerial = clipboard::recordInputSerial,
+            onKeyboardFocus = clipboard::recordKeyboardFocus,
+        ).flatMap { surface ->
+            surface
+                .setContent { ProvideClipboard(contentClipboard) { shown.instance() } }
+                .onError { surface.close() }
+                .map {
+                    shown.surface = surface
+                    placed += shown
+                }
+        }
+
+    private fun end(shown: ShownSurface, result: EmptyResult<SurfaceError<Nothing>>) {
+        shown.surface?.let { surface ->
+            placed.remove(shown)
+            shown.surface = null
+            surface.close()
+        }
+        shown.instance.onClose(result)
+    }
+
+    private fun startApplication(content: @Composable KortexApplicationScope.() -> Unit) {
+        val application = ApplicationComposition(loopQueue, display::wake)
+        this.application = application
+        application.setContent {
+            CompositionLocalProvider(LocalKortexShell provides this@KortexShell) { applicationScope.content() }
+        }
+    }
+
     /**
      * Closes every surface and output, runs what is left on the queue and gives the clipboard back, whatever
      * content throws meanwhile. Each crash not yet handed to `onCrashSurface` goes to it now, and the first is
@@ -292,6 +389,9 @@ public class KortexShell private constructor(
     public fun close(): EmptyResult<KortexError> {
         display.onGlobalAdded = null
         display.onGlobalRemoved = null
+        application?.close()
+        placed.toList().forEach { shown -> shown.surface?.close() }
+        placed.clear()
         surfaces.toList().forEach(::removeSurface)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
@@ -357,6 +457,17 @@ public class KortexShell private constructor(
             }
             return Ok(shell)
         }
+
+        /** A shell that runs [content] as an application composition, and no spec. */
+        internal fun createApplication(
+            display: WaylandDisplay,
+            platform: KortexPlatform = KortexPlatform.None,
+            content: @Composable KortexApplicationScope.() -> Unit,
+        ): Result<KortexShell, KortexError> =
+            create(display, emptyList(), platform, onCrashSurface = {}, contentClipboard = { it }).map { shell ->
+                shell.startApplication(content)
+                shell
+            }
 
         private const val WL_OUTPUT = "wl_output"
 

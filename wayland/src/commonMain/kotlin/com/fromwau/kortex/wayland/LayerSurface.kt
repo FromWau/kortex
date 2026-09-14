@@ -1,0 +1,120 @@
+package com.fromwau.kortex.wayland
+
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.IError
+import com.fromwau.kortex.compose.KortexSurfaceHandle
+
+/**
+ * A layer-shell surface of your own: its settings are the constructor's values, and its content is [invoke].
+ *
+ * Subclass it, pass the settings that suit its kind, and draw in [invoke]. [Show] puts it on screen inside
+ * [kortexApplication]:
+ *
+ * ```kotlin
+ * sealed interface OsdError : IError { data object Expired : OsdError }
+ *
+ * class VolumeOsd(
+ *     private val level: Float,
+ *     onClose: (EmptyResult<SurfaceError<OsdError>>) -> Unit = {},
+ * ) : LayerSurface<OsdError>(namespace = "volume", layer = Layer.Overlay, width = 240.dp, height = 48.dp,
+ *     onClose = onClose) {
+ *     @Composable
+ *     override fun invoke() {
+ *         LaunchedEffect(Unit) {
+ *             delay(2_000)
+ *             close(OsdError.Expired)
+ *         }
+ *         LinearProgressIndicator(progress = { level })
+ *     }
+ * }
+ * ```
+ *
+ * The application builds a new instance each time it recomposes, so keep state inside [invoke] behind `remember`,
+ * never in the class's fields. [Show] treats two instances whose settings are equal, every constructor value but
+ * [onClose], as the same surface: it keeps running, with the newest instance's content and `onClose`.
+ *
+ * A surface with no error of its own extends `LayerSurface<Nothing>`, so `close(error)` cannot be called on it.
+ *
+ * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`, exactly as written.
+ * @property layer which layer the surface sits in.
+ * @property anchor the edges the surface is pinned to. Pinning both edges of an [Axis] spans that axis, and pinning
+ *   none centres the surface.
+ * @property width 0 asks the compositor to choose, which needs [anchor] to pin both [Edge.Left] and [Edge.Right];
+ *   without them the surface is not placed, and [onClose] receives [KortexError.UnspannableAxis].
+ * @property height 0 asks the compositor to choose, like [width], and needs both [Edge.Top] and [Edge.Bottom].
+ * @property margins insets from the anchor point; an edge [anchor] does not pin ignores its margin.
+ * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows into.
+ * @property exclusiveEdge which anchored edge [exclusiveZone] is measured from, needed only when [anchor] pins a
+ *   corner.
+ * @property keyboard whether the surface can take keyboard focus.
+ * @property onClose called once when the surface ends, after it has gone, on the thread that runs
+ *   [kortexApplication]. It receives `Ok(Unit)` when `close()` is called, the compositor closes the surface, or its
+ *   [Show] leaves composition, `exitApplication()` included. It receives [SurfaceError.Closed] when `close(error)`
+ *   is called, and [SurfaceError.Failed] when the surface could not be placed or its content threw. If it throws,
+ *   the application ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
+ */
+public abstract class LayerSurface<E : IError>(
+    public val namespace: String = "kortex",
+    public val layer: Layer = Layer.Top,
+    public val anchor: Set<Edge> = emptySet(),
+    public val width: Dp = 0.dp,
+    public val height: Dp = 0.dp,
+    public val margins: Margins = Margins.None,
+    public val exclusiveZone: ExclusiveZone = ExclusiveZone.Yield,
+    public val exclusiveEdge: Edge? = null,
+    public val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
+    public val onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+) : KortexSurfaceHandle {
+    /** The content drawn on the surface, with this instance as `this`. */
+    @Composable
+    public abstract operator fun invoke()
+
+    /**
+     * The logical size of the surface this instance's [Show] holds; [IntSize.Zero] while it holds none, before
+     * the surface is placed and after it has ended.
+     */
+    override val size: IntSize get() = IntSize.Zero
+
+    /**
+     * Ends the surface this instance's [Show] holds, whichever of that `Show`'s instances you call it on: [onClose]
+     * receives `Ok(Unit)`. Safe from any thread, more than once, and after the surface has gone; the first `close()`
+     * or `close(error)` decides what `onClose` receives, and later ones do nothing. On an instance never handed to a
+     * [Show], it does nothing.
+     */
+    override fun close() {
+    }
+
+    /** Ends the surface as `close()` does, except that [onClose] receives `Err(SurfaceError.Closed(error))`. */
+    public fun close(error: E) {
+    }
+
+    /** Every constructor value but [onClose]: what makes two instances the same surface to [Show]. */
+    internal val settings: SurfaceConfig
+        get() = SurfaceConfig(
+            namespace = namespace,
+            layer = layer,
+            anchor = anchor,
+            width = width,
+            height = height,
+            margins = margins,
+            exclusiveZone = exclusiveZone,
+            keyboard = keyboard,
+            exclusiveEdge = exclusiveEdge,
+        )
+}
+
+/** Why a surface ended, when it did not end cleanly: what its `onClose` receives inside `Err`. */
+public sealed interface SurfaceError<out E : IError> : IError {
+    /** Its surface was closed with your own [error], through `close(error)`. */
+    public data class Closed<out E : IError>(public val error: E) : SurfaceError<E>
+
+    /**
+     * kortex ended the surface: its content threw, as [KortexError.SurfaceCrashed], or it could not be placed, as
+     * [KortexError.UnspannableAxis], say.
+     */
+    public data class Failed(public val error: KortexError) : SurfaceError<Nothing>
+}
