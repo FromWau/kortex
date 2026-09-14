@@ -122,7 +122,7 @@ internal object Xkb {
         return layouts.map { layout -> if (layout in latinLayouts) layout else firstLatin }
     }
 
-    /** The one keysym [keycode] has at [layout]'s base level; null where it lacks [layout] or has several there. */
+    /** The one keysym [keycode] has at [layout]'s base level; null unless it has [layout] and exactly one there. */
     private fun baseKeysymOrNull(keymap: MemorySegment, keycode: Int, layout: Int): Int? {
         // xkb would bring a layout the key lacks back into range, onto a layout the key was not asked about.
         if (layout >= keymapNumLayoutsForKey.invoke(keymap, keycode) as Int) return null
