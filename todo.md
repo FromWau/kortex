@@ -71,7 +71,7 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       and scale on `done` (`WlOutput.kt`), reachable through `KortexShell.activeSurfaces` and
       `ActiveSurface.geometry` — both public, so a host can read an output's logical size and hand it to
       `SurfaceConfig.contextMenu`. (`OutputGeometryTest`)
-- [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `state`, `close()`) and a `LocalKortexSurface`
+- [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
       composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
       still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state,
       and a configure recomposes a reader (`RecompositionTest`). `close()` posts onto the surface's queue

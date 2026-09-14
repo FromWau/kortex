@@ -14,17 +14,6 @@ public interface KortexSurfaceHandle {
     /** Reading it during composition recomposes the reader on the next configure that changes it. */
     public val size: IntSize
 
-    /**
-     * Where this surface is in its life. Reading it during composition recomposes the reader when it changes, and a
-     * `snapshotFlow` over it, collected anywhere, follows it.
-     *
-     * Content's own composition, in practice, only ever reads [SurfaceState.Running]: by the time the state moves
-     * on, the surface is gone or its content has failed. [SurfaceState.Closed] and [SurfaceState.Crashed] reach code
-     * that outlives the content: the host, another surface's content, or a coroutine outside the composition.
-     * [close] leaves it Running until the surface has been removed.
-     */
-    public val state: SurfaceState
-
     /** Dismisses the surface. Safe to call more than once, and after it has already gone away. */
     public fun close()
 }
