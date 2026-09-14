@@ -350,7 +350,7 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       layout, so Compose's own text field shortcuts work too. A Latin layout keeps its own keys: German `ü`
       stays `Key.Unknown` rather than borrowing US `[`. With no Latin layout configured, nothing changes.
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
-      clipboard.** Each shell binds `wl_data_device_manager` once, at v4, takes a `wl_data_device` for a seat
+      clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
       of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
       content. Content outside a `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers
       UTF-8 under exactly `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting
