@@ -5,6 +5,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
@@ -14,6 +15,7 @@ import com.fromwau.kern.result.onError
 import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicReference
 
 /** A bound `wl_output`: the registry name it was announced under, its proxy, and what it publishes. */
 internal class ShellOutput(
@@ -31,16 +33,33 @@ internal class ShellOutput(
 /** [clipboard]'s calls without its close, which is the shell's alone: what content reaches through its host. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
 
-/** What the shell holds for one [Show]: the newest instance it was handed, what it asks for, and its surface. */
-internal class ShownSurface(val newest: State<LayerSurface<*>>) {
+/**
+ * What the shell holds for one [Show]: the newest instance it was handed, what it asks for, its surface, and the
+ * ending one of its instances asked for.
+ */
+internal class ShownSurface(val newest: State<LayerSurface<*>>, private val wake: () -> Unit) {
     // The settings its Show asks for while in composition, and null once it has left. Loop thread only.
     var wanted: SurfaceConfig? = null
 
-    // Null until placed, and again once it has ended. Loop thread only.
+    // Null until placed, and again once it has ended. Written on the loop thread; size reads it from any.
+    @Volatile
     var surface: KortexSurface? = null
 
     // What surface was placed with, which a change of settings replaces it over. Loop thread only.
     var placedWith: SurfaceConfig? = null
+
+    // Set as its onClose is called: whatever the shell sees of this Show afterwards reports nothing. Loop thread only.
+    var reported = false
+
+    private val requested = AtomicReference<EmptyResult<SurfaceError<IError>>?>(null)
+
+    /** The ending an instance asked for through close() or close(error), once one has. */
+    val ending: EmptyResult<SurfaceError<IError>>? get() = requested.get()
+
+    /** Asks for [ending] from any thread; the first ask decides, and the shell acts on it in its next pass. */
+    fun requestEnd(ending: EmptyResult<SurfaceError<IError>>) {
+        if (requested.compareAndSet(null, ending)) wake()
+    }
 }
 
 /**
@@ -319,6 +338,11 @@ public class KortexShell private constructor(
         active.surface.close()
     }
 
+    /** Makes the loop run a pass soon, from any thread. */
+    internal fun wake() {
+        display.wake()
+    }
+
     /** [shown]'s `Show` entered composition, or its settings changed: its surface is placed in the next pass. */
     internal fun queuePlace(shown: ShownSurface, settings: SurfaceConfig) {
         shown.wanted = settings
@@ -334,15 +358,20 @@ public class KortexShell private constructor(
     }
 
     private fun reconcileShows(): EmptyResult<KortexError> {
-        generateSequence(changedShows::poll).distinct().toList().forEach { shown ->
+        // Every placed Show, for an ending of its own, and every Show that changed.
+        (placed.toList() + generateSequence(changedShows::poll)).forEach { shown ->
             reconcile(shown).getOrElse { return Err(it) }
         }
         return Ok(Unit)
     }
 
     private fun reconcile(shown: ShownSurface): EmptyResult<KortexError> {
+        if (shown.reported) return Ok(Unit)
+        val ending = shown.ending
         val wanted = shown.wanted
         when {
+            // First: an ending the surface asked for before its Show left is what reports.
+            ending != null -> end(shown, ending)
             wanted == null -> end(shown, Ok(Unit))
             shown.surface == null -> return place(shown, wanted)
             shown.placedWith != wanted -> return replace(shown, wanted)
@@ -380,13 +409,14 @@ public class KortexShell private constructor(
                 }
         }
 
-    private fun end(shown: ShownSurface, result: EmptyResult<SurfaceError<Nothing>>) {
+    private fun end(shown: ShownSurface, result: EmptyResult<SurfaceError<IError>>) {
         shown.surface?.let { surface ->
             placed.remove(shown)
             shown.surface = null
             surface.close()
         }
-        shown.newest.value.onClose(result)
+        shown.reported = true
+        shown.newest.value.report(result)
     }
 
     private fun startApplication(content: @Composable KortexApplicationScope.() -> Unit) {

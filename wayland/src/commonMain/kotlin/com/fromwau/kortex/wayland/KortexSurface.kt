@@ -89,6 +89,9 @@ public class KortexSurface private constructor(
     // A second close() would re-marshal every request below on proxies the first call already freed.
     private var disposed = false
 
+    /** The logical (surface-local) size the compositor last configured, the one content reads as its handle's size. */
+    internal val logicalSize: IntSize get() = sizeState.value
+
     /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
     public val bufferSize: IntSize
         get() = IntSize(frames.first().buffer.width, frames.first().buffer.height)

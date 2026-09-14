@@ -3,14 +3,20 @@ package com.fromwau.kortex.wayland
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -112,6 +118,122 @@ class ShowTest {
         }
     }
 
+    @Test
+    fun `close() reports Ok and close(error) reports the error as Closed`() {
+        val closeRequested = mutableStateOf(false)
+        val plain = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val withError = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE, onClose = { plain += it }) {
+                    val requested = closeRequested.value
+                    LaunchedEffect(requested) { if (requested) close() }
+                },
+            )
+            Show(
+                TestSurface<Dismissal>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { withError += it }) {
+                    val requested = closeRequested.value
+                    LaunchedEffect(requested) { if (requested) close(Dismissal.Dismissed) }
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == 2 }, "the surfaces were never placed")
+
+            closeRequested.value = true
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { plain.isNotEmpty() && withError.isNotEmpty() },
+                "closing from content left a surface unreported: close() $plain, close(error) $withError",
+            )
+            assertEquals(listOf(Ok(Unit)), plain.toList(), "close() did not report Ok once")
+            assertEquals(
+                listOf(Err(SurfaceError.Closed(Dismissal.Dismissed))),
+                withError.toList(),
+                "close(error) did not report the error as Closed once",
+            )
+            assertTrue(shell.shownSurfaces.isEmpty(), "a closed surface stayed on screen")
+        }
+    }
+
+    @Test
+    fun `close() on an older instance of the same Show closes its surface`() {
+        val generation = mutableIntStateOf(1)
+        val instances = CopyOnWriteArrayList<TestSurface<Nothing>>()
+        val reportedTo = CopyOnWriteArrayList<Int>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val current = generation.intValue
+            val surface = TestSurface<Nothing>(NAMESPACE, onClose = { reportedTo += current })
+            SideEffect { instances += surface }
+            Show(surface)
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            generation.intValue = 2
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { instances.size >= 2 }, "the application built no newer instance")
+
+            instances[0].close()
+
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reportedTo.isNotEmpty() }, "the older instance's close() reported nothing")
+            assertEquals(listOf(2), reportedTo.toList(), "the ending did not reach the newest instance's onClose alone")
+            assertTrue(shell.shownSurfaces.isEmpty(), "the older instance's close() left its surface on screen")
+        }
+    }
+
+    @Test
+    fun `close() and close(error) on an instance never handed to a Show do nothing`() {
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val stray = TestSurface<Dismissal>(NAMESPACE, onClose = { reports += it })
+
+        onApplication({ Show(TestSurface<Nothing>(NAMESPACE)) }) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+
+            stray.close()
+            stray.close(Dismissal.Dismissed)
+
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertTrue(reports.isEmpty(), "an instance never shown reported $reports")
+            assertEquals(1, shell.shownSurfaces.size, "closing an instance never shown closed a shown surface")
+        }
+    }
+
+    @Test
+    fun `size is zero until the surface is placed, its logical size while shown, and zero once it has ended`() {
+        val showing = mutableStateOf(true)
+        val instance = AtomicReference<TestSurface<Nothing>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) {
+                val surface = TestSurface<Nothing>(NAMESPACE)
+                SideEffect { instance.set(surface) }
+                Show(surface)
+            }
+        }
+
+        onApplication(content) { shell ->
+            val shown = assertNotNull(instance.get(), "the application never built its instance")
+            assertEquals(IntSize.Zero, shown.size, "size was not zero before the surface was placed")
+
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isNotEmpty() }, "the surface was never placed")
+            val geometry = assertNotNull(Screen.awaitGeometry(NAMESPACE), "hyprctl never listed $NAMESPACE")
+            assertEquals(
+                IntSize(geometry.logicalWidth, geometry.logicalHeight),
+                shown.size,
+                "size was not the logical size hyprctl reports for the surface",
+            )
+
+            showing.value = false
+
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.isEmpty() }, "the surface outlived its Show")
+            assertEquals(IntSize.Zero, shown.size, "size was not zero once the surface had ended")
+        }
+    }
+
+    private sealed interface Dismissal : IError {
+        data object Dismissed : Dismissal
+    }
+
     /** Draws the [label] it was built with, so a test can tell which instance's content its surface composes. */
     private class LabelSurface(
         private val label: Int,
@@ -139,9 +261,13 @@ class ShowTest {
 
     private companion object {
         const val NAMESPACE = "kortex-show"
+        const val SECOND_NAMESPACE = "kortex-show-second"
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 300L
         const val SHORT = 8
         const val TALL = 16
+
+        // Clear of the default speck's corner, so a second surface is told apart on screen too.
+        val BOTTOM_LEFT = setOf(Edge.Bottom, Edge.Left)
     }
 }

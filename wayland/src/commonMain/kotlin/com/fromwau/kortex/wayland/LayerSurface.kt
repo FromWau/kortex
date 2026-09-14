@@ -5,7 +5,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
+import com.fromwau.kern.result.Ok
 import com.fromwau.kortex.compose.KortexSurfaceHandle
 
 /**
@@ -69,6 +71,10 @@ public abstract class LayerSurface<E : IError>(
     public val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     public val onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
 ) : KortexSurfaceHandle {
+    // The Show this instance was last handed to; null for an instance never shown.
+    @Volatile
+    internal var heldBy: ShownSurface? = null
+
     /** The content drawn on the surface, with this instance as `this`. */
     @Composable
     public abstract operator fun invoke()
@@ -77,7 +83,7 @@ public abstract class LayerSurface<E : IError>(
      * The logical size of the surface this instance's [Show] holds; [IntSize.Zero] while it holds none, before
      * the surface is placed and after it has ended.
      */
-    override val size: IntSize get() = IntSize.Zero
+    override val size: IntSize get() = heldBy?.surface?.logicalSize ?: IntSize.Zero
 
     /**
      * Ends the surface this instance's [Show] holds, whichever of that `Show`'s instances you call it on: [onClose]
@@ -86,10 +92,18 @@ public abstract class LayerSurface<E : IError>(
      * [Show], it does nothing.
      */
     override fun close() {
+        heldBy?.requestEnd(Ok(Unit))
     }
 
     /** Ends the surface as `close()` does, except that [onClose] receives `Err(SurfaceError.Closed(error))`. */
     public fun close(error: E) {
+        heldBy?.requestEnd(Err(SurfaceError.Closed(error)))
+    }
+
+    internal fun report(ending: EmptyResult<SurfaceError<IError>>) {
+        // Sound while every instance one Show is handed has the same E: a Closed error came from close(error) on one.
+        @Suppress("UNCHECKED_CAST")
+        (onClose as (EmptyResult<SurfaceError<IError>>) -> Unit)(ending)
     }
 
     /** Every constructor value but [onClose]: what makes two instances the same surface to [Show]. */
