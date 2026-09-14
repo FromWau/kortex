@@ -82,7 +82,7 @@ internal class WaylandClipboard private constructor(
         val type = offer.preferredText ?: return Err(ClipboardError.NoText)
         val pipe = LibC.pipe().getOrElse { return Err(ClipboardError.PipeFailed) }
         offer.receive(type, pipe.writeFd)
-        // libwayland has sent a duplicate; this one would hold the pipe open, and the read with it, forever.
+        // The flush sends libwayland's own duplicate; this end left open would hold the read to its timeout.
         LibC.close(pipe.writeFd)
         display.flush()
         return Ok(pipe.readFd)
