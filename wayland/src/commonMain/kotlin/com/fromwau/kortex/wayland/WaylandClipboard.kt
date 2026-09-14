@@ -54,10 +54,7 @@ internal class WaylandClipboard private constructor(
 
     override suspend fun clear(): EmptyResult<ClipboardError> = withContext(loop) { replaceSelection(null) }
 
-    /**
-     * Asks for the selection under the first [TextMime] it is offered as, and reads it as UTF-8. Not cancellable:
-     * a cancelled caller sees its cancellation at most [TRANSFER_TIMEOUT_MILLIS] later, once this has returned.
-     */
+    /** Asks for the selection under the first [TextMime] it is offered as, and reads it as UTF-8. */
     override suspend fun readText(): Result<String, ClipboardError> =
         readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
 

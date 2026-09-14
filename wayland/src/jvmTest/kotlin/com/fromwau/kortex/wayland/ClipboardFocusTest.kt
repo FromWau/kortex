@@ -154,7 +154,7 @@ class ClipboardFocusTest {
     @Test
     fun `a selection the clipboard clears leaves wl-paste nothing to print`() = withFocusedShell { shell, display ->
         try {
-            // Another client's selection: destroying a source of this client's own would clear nothing here.
+            // Another client's selection, so only a clear the compositor carries out can empty it.
             runWlCopy(COPIED)
             val read = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
             assertEquals(Ok(COPIED), read, "the clipboard never read back the text wl-copy set")

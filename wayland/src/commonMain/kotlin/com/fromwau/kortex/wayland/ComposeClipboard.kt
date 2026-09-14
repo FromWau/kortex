@@ -14,15 +14,13 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.asAwtTransferable
 import androidx.compose.ui.text.AnnotatedString
-import com.fromwau.kern.result.EmptyResult
-import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrNull
+import java.awt.datatransfer.Clipboard as AwtClipboard
 import java.awt.datatransfer.ClipboardOwner
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
 import java.io.IOException
-import java.awt.datatransfer.Clipboard as AwtClipboard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext

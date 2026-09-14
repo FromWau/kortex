@@ -44,7 +44,7 @@ public interface KortexClipboard {
      * a shell that has never had it reads [ClipboardError.NoSelection], even for text it copied itself.
      *
      * Cancelling your coroutine does not cut a read short: the coroutine sees its cancellation once the read has
-     * returned, which is within a second.
+     * returned, at most a second after the read began.
      *
      * @return the text, or why there is none: [ClipboardError.NoSelection], [ClipboardError.NoText],
      *   [ClipboardError.NoClipboard], [ClipboardError.PipeFailed], [ClipboardError.ReadTimedOut] or
