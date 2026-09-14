@@ -181,8 +181,11 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       check and its write; that interleaving is not exercised by a test either. They go to the global snapshot,
       whatever snapshot their thread has entered. Each then calls `Snapshot.sendApplyNotifications()`, since a
       torn-down scene pumps nothing and a crash ends the run: a `snapshotFlow` outside composition would not hear
-      the change otherwise. An output going away tears its surfaces down through the same `removeSurface` as the
-      shell's close, and is not exercised by a test. (`SurfaceStateTest`)
+      the change otherwise. `onFailure` queues the crash from a `finally`, so a crash in one of content's coroutines
+      still reaches `onCrashSurface` and ends the run when an apply observer throws as the move to `Crashed` is
+      announced. That observer's exception goes to its thread's uncaught-exception handler. An output going away
+      tears its surfaces down through the same `removeSurface` as the shell's close, and is not exercised by a
+      test. (`SurfaceStateTest`)
 - [ ] **Two failures of one scene on two threads can end the run with a different failure than `Crashed`
       holds.** `KortexScene.record` sets the first failure by compare-and-set and then calls `onFailure`
       (`KortexScene.kt:227-230`). Two threads can make those calls in either order, so the failure the scene
