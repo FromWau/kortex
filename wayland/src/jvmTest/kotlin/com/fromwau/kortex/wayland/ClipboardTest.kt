@@ -26,11 +26,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
- * The clipboard's parts that need no keyboard focus: which text type a paste asks for, the pipe a transfer
- * runs through, how long it may take and how large it may grow, when a copy stops being this client's own,
- * its own copy as text to paste and read back from memory with focus or without, the serial it quotes, the
- * version it binds, and the typed failures of a clipboard that no surface has focused or that the compositor
- * does not offer.
+ * The clipboard's parts that need no keyboard focus. None of these tests sets or reads the desktop's selection, not
+ * even under a made-up serial: only [ClipboardFocusTest], which runs while the desktop is free, may do that.
  */
 class ClipboardTest {
     @Test
