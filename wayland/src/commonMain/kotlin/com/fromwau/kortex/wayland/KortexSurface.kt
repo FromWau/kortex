@@ -440,8 +440,12 @@ public class KortexSurface private constructor(
                     platform = hostPlatform,
                     onFailure = { failure ->
                         // Before onCrash, so the host reads Crashed by the time the crash reaches it.
-                        surface.onContentFailure()
-                        onCrash(KortexError.SurfaceCrashed(config.namespace, failure))
+                        try {
+                            surface.onContentFailure()
+                        } finally {
+                            // Apply observers run uncaught, and one that throws must not cost the host this crash.
+                            onCrash(KortexError.SurfaceCrashed(config.namespace, failure))
+                        }
                     },
                 )
                 unwind += scene::close

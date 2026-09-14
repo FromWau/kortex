@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.runtime.snapshots.SnapshotMutableState
 import androidx.compose.runtime.snapshots.asContextElement
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.errorOrNull
@@ -16,6 +17,7 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
 import com.fromwau.kortex.compose.LocalKortexSurface
 import com.fromwau.kortex.compose.SurfaceState
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -294,6 +296,69 @@ class SurfaceStateTest {
         }
     }
 
+    @Test
+    fun `a crash ends the run and reaches onCrashSurface when an apply observer throws on the move to Crashed`() {
+        val reported = CopyOnWriteArrayList<KortexError.SurfaceCrashed>()
+        val failRequested = mutableStateOf(false)
+
+        onShell(stateSpec { FailWhen(failRequested) }, onCrashSurface = reported::add) { shell ->
+            shell.useOrFail {
+                val uncaught = throwingAsCrashedIsAnnounced {
+                    failRequested.value = true
+                    val crash = assertIs<KortexError.SurfaceCrashed>(
+                        shell.pump(PUMP_MILLIS).errorOrNull(),
+                        "a crash whose announcement threw did not end the run",
+                    )
+                    assertEquals(
+                        listOf(crash),
+                        reported,
+                        "a crash whose announcement threw did not reach onCrashSurface exactly once",
+                    )
+                }
+
+                assertTrue(
+                    uncaught.any { it.causedBy(OBSERVER_FAILURE) },
+                    "the observer's exception was swallowed instead of left to fail fast",
+                )
+            }
+        }
+    }
+
+    /**
+     * Runs [block] with an apply observer that throws once, on this thread, as a surface's move to Crashed is
+     * announced, and returns what reached this thread's uncaught-exception handler meanwhile. Call it once the shell's
+     * surfaces exist: Compose runs apply observers in the order they registered, so this one's throw then keeps none
+     * of theirs from hearing a change.
+     */
+    private fun throwingAsCrashedIsAnnounced(block: () -> Unit): List<Throwable> {
+        val thread = Thread.currentThread()
+        val threw = AtomicBoolean(false)
+        val uncaught = CopyOnWriteArrayList<Throwable>()
+        val previousHandler = thread.uncaughtExceptionHandler
+        thread.uncaughtExceptionHandler = Thread.UncaughtExceptionHandler { _, failure -> uncaught += failure }
+        val observer = Snapshot.registerApplyObserver { changed, _ ->
+            // Only on this thread, where kortex announces the move: another thread's apply is Compose's own work.
+            if (Thread.currentThread() === thread && changed.holdsCrashed() && threw.compareAndSet(false, true)) {
+                error(OBSERVER_FAILURE)
+            }
+        }
+        try {
+            block()
+        } finally {
+            observer.dispose()
+            thread.uncaughtExceptionHandler = previousHandler
+        }
+        assertTrue(threw.get(), "the observer never saw a surface's move to Crashed announced")
+        return uncaught
+    }
+
+    // Read in the global snapshot, so no snapshot this thread has entered records the read or rejects it.
+    private fun Set<Any>.holdsCrashed(): Boolean =
+        Snapshot.global { any { (it as? SnapshotMutableState<*>)?.value is SurfaceState.Crashed } }
+
+    private fun Throwable.causedBy(message: String): Boolean =
+        generateSequence(this) { it.cause }.any { it.message == message }
+
     /** Connects, creates a shell of [specs] and hands it to [block], which closes it; the connection closes after. */
     private fun <T> onShell(
         vararg specs: SurfaceSpec,
@@ -364,6 +429,7 @@ class SurfaceStateTest {
         const val EFFECT_FAILURE = "an effect threw"
         const val SNAPSHOT_FAILURE = "content threw inside a read-only snapshot"
         const val CLEANUP_FAILURE = "cleanup threw as the shell closed"
+        const val OBSERVER_FAILURE = "an apply observer threw as a surface moved to Crashed"
         const val SETTLE_MILLIS = 300L
         const val EFFECT_DELAY_MILLIS = 50L
         const val PUMP_MILLIS = 4_000L
