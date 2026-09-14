@@ -59,11 +59,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: five entries are open. Two are decided and waiting to be built: under Foundations, a typed surface
-lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin layout. Three
+Next: seven entries are open. Two are decided and waiting to be built: under Foundations, a typed surface
+lifecycle state; under Keyboard and clipboard, a Latin fallback for shortcuts under a non-Latin layout. Five
 wait for a decision: under Foundations, AWT's toolkit, which Compose starts in a scene with a text field; under
-Keyboard and clipboard, the clipboard that content inside a `Popup` or `Dialog` reaches, and the harness gap
-that leaves `KeyboardDeliveryTest` proving only a value-based field.
+Keyboard and clipboard, the clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that
+leaves `KeyboardDeliveryTest` proving only a value-based field, images on the clipboard as PNG and JPEG, and
+drag and drop.
 
 ## Foundations
 
@@ -404,6 +405,19 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       it: `PlatformContext` carries no clipboard, `LocalComposeSceneContext` is internal, and
       `CanvasLayersComposeScene` takes no `ComposeSceneContext`. `LocalKortexHost.current.clipboard`, which
       no layer provides again, is still the shell's there. (`ComposeClipboardTest`)
+- [ ] **Copy and paste images, as PNG and JPEG.** The clipboard carries text only. A copy offers the five
+      text types and nothing else, a selection another client offers only as an image reads as
+      `ClipboardError.NoText`, and an image entry handed to `LocalClipboard` leaves the selection as it was
+      (`ComposeClipboard.kt`). Wanted: `image/png` and `image/jpeg`, both ways. Open: the typed call content
+      reads and writes an image through, an `ImageBitmap` or bytes under a named type, and its error for a
+      selection with no image; a size cap of its own, since the 16 MiB cap on a text paste was sized for
+      text; and turning Compose's desktop image entry, a `java.awt.Image` inside a `Transferable`, to and
+      from those bytes without starting AWT's toolkit.
+- [ ] **Drag and drop.** The data device serves the selection only. A drag's offer is given back as soon as
+      `enter` names it, `motion`, `leave` and `drop` do nothing (`DataDevice.kt`), and kortex never calls
+      `start_drag`, so nothing can be dropped onto a surface and nothing dragged out of one. Wanted: text and
+      the PNG and JPEG images above, both ways. Open: how a drop reaches content and how content starts a
+      drag, and which of the protocol's actions, copy, move or ask, kortex takes.
 
 ## Housekeeping
 
