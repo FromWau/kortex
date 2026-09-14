@@ -34,9 +34,11 @@ Every global is bound at the newest version its interface declares; `wl_registry
 the compositor offers. No legacy paths, no version-conditional branches, no migration shims.
 
 - [x] **1. Newest bind version, full listener arrays.** `wl_seat` 1 → 11, `wl_output` 2 → 4, `wl_shm`
-      2 → 3, `wl_compositor` 6 → 7. Listener arrays grew with them — `wl_pointer` 5 → 12 slots,
-      `wl_output` 4 → 6, `wl_keyboard` 5 → 6, `wl_seat` 1 → 2 — because libwayland indexes a listener
-      array by event opcode and calls straight through an empty slot. (`ProtocolVersionTest`)
+      2 → 3, `wl_compositor` 6 → 7, `wl_data_device_manager` 3 → 4. Listener arrays grew with them, because
+      libwayland indexes a listener array by event opcode and calls straight through an empty slot:
+      `wl_pointer` 5 → 12 slots, `wl_output` 4 → 6, `wl_keyboard` 5 → 6, `wl_seat` 1 → 2.
+      `wl_data_device_manager` v4 adds only its own `release`, sent where the compositor offers v4, so no
+      listener grew with it. (`ProtocolVersionTest`; `ClipboardTest` for `wl_data_device_manager`)
 - [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
       and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
       `get_layer_surface` with the event, so the first frame already has it — and nothing depends on that
@@ -347,28 +349,37 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       layout, so Compose's own text field shortcuts work too. A Latin layout keeps its own keys: German `ü`
       stays `Key.Unknown` rather than borrowing US `[`. With no Latin layout configured, nothing changes.
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
-      clipboard.** Each shell binds `wl_data_device_manager` once, takes a `wl_data_device` for a seat of its
-      own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's content.
-      Content outside a `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers UTF-8
-      under `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting the serial
-      of the latest key, keyboard enter or button, and reads the text out of the entry it is handed off the
-      loop thread. `setClipEntry(null)` clears the selection under the same serial, whichever client made it.
-      A paste asks for the first of those types the selection lists and reads it off the loop thread, for at
-      most 1000 ms and 16 MiB. Content that needs to know why a copy or paste failed calls
-      `LocalKortexHost.current.clipboard`, a `KortexClipboard` whose `setText`, `clear` and `readText` return
-      a public, sealed `ClipboardError`: `NoSelection`, `NoText`, `NoInputSerial`, `NoClipboard`,
-      `PipeFailed`, `ReadTimedOut` or `TooLarge`. Compose's locals keep Compose's contract over the same
-      clipboard: a failed paste gets no entry, and a failed copy does nothing and throws nothing. A value-based
-      `BasicTextField`'s Ctrl+C, Ctrl+X and Ctrl+V go through `LocalClipboard`, and so does a state-based
-      one's Ctrl+C and Ctrl+V. The AWT clipboard a text field's right-click Paste asks answers from a
-      snapshot and never reads: there is text while this client's own copy stands, no offer needed for that,
-      or while the compositor's last selection offer lists a text type. The deprecated
-      `ClipboardManager.getText` never waits on a read, since reading this client's own selection needs the
-      loop it runs on. It answers with the text this client set, until another selection or a clear replaces
-      it, and with nothing otherwise. The protocol hands a client the selection only while one of its surfaces
-      has keyboard focus, so the tests that need it take the keyboard and run only while the desktop is free.
-      (`ClipboardTest` and `ComposeClipboardTest`; `KeyboardDeliveryTest` for the value-based field;
-      `ClipboardFocusTest`, with the desktop free, for both)
+      clipboard.** Each shell binds `wl_data_device_manager` once, at v4, takes a `wl_data_device` for a seat
+      of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
+      content. Content outside a `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers
+      UTF-8 under exactly `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting
+      the serial of the latest key, keyboard enter or button, and reads the text out of the entry it is handed
+      off the loop thread. `setClipEntry(null)` clears the selection under the same serial, whichever client
+      made it, and the text this client set stops being its own at once.
+      The clipboard follows keyboard focus, which the protocol ties the selection to: every surface's keyboard
+      tells it of its enter, its leave and its release. Once none of the shell's keyboards has focus, the
+      clipboard gives back the selection offer it held, so another client's text reads as `NoSelection` and is
+      no text to paste until focus returns. This client's own copy reads back from memory, with focus or
+      without, through no pipe. A paste of another client's text asks for the first of those types the
+      selection lists and reads it off the loop thread, for at most 1000 ms and 16 MiB.
+      Content that needs to know why a copy or paste failed calls `LocalKortexHost.current.clipboard`, a
+      `KortexClipboard` whose `setText`, `clear` and `readText` return a public, sealed `ClipboardError`:
+      `NoSelection`, `NoText`, `NoInputSerial`, `NoClipboard`, `PipeFailed`, `ReadTimedOut` or `TooLarge`.
+      Content cannot close that clipboard, and it answers only while its shell runs: once the shell has
+      closed, every call throws `IllegalStateException` at once rather than waiting on a loop nothing runs.
+      Compose's locals keep Compose's contract over the same clipboard: a failed paste gets no entry, and a
+      failed copy does nothing and throws nothing. A value-based `BasicTextField`'s Ctrl+C, Ctrl+X and Ctrl+V
+      go through `LocalClipboard`, and so does a state-based one's Ctrl+C and Ctrl+V. The AWT clipboard a text
+      field's right-click Paste asks answers from a snapshot and never reads: there is text while this
+      client's own copy stands, no offer needed for that, or while the compositor's last selection offer lists
+      a text type. Its contents are this client's own text, and none for another client's, which pastes
+      through `LocalClipboard`. The deprecated `ClipboardManager.getText` never waits on a read, since reading
+      another client's text needs the loop it runs on. It answers with the text this client set, until
+      another selection or a clear replaces it, and with nothing otherwise. The protocol hands a client the
+      selection only while one of its surfaces has keyboard focus, so the tests that need it take the keyboard
+      and run only while the desktop is free. (`ClipboardTest`, `ComposeClipboardTest` and
+      `InputDeliveryTest`; `KeyboardDeliveryTest` for the value-based field; `ClipboardFocusTest`, with the
+      desktop free, for both field kinds, the offered types, a clear's own text and focus leaving)
 - [ ] **`KeyboardDeliveryTest` proves keyboard delivery for a value-based field only.** Its harness drives a
       scene's `render` and key delivery from the test thread but hands the scene a separate single-thread
       executor as its `frameContext`; a real shell's own loop thread does both instead. A
@@ -388,7 +399,7 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       creates (`RootNodeOwner.skiko.kt:471-472`). No seam short of reflection or copying Compose code reaches
       it: `PlatformContext` carries no clipboard, `LocalComposeSceneContext` is internal, and
       `CanvasLayersComposeScene` takes no `ComposeSceneContext`. `LocalKortexHost.current.clipboard`, which
-      no layer provides again, is still the shell's there.
+      no layer provides again, is still the shell's there. (`ComposeClipboardTest`)
 
 ## Housekeeping
 
