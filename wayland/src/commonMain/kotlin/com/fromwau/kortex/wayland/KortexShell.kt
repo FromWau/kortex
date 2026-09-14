@@ -562,6 +562,9 @@ public class KortexShell private constructor(
             platform: KortexPlatform = KortexPlatform.None,
             content: @Composable KortexApplicationScope.() -> Unit,
         ): Result<KortexShell, KortexError> {
+            // Before the content runs: its surfaces are placed in later passes, where a missing global would reach
+            // each one's onClose instead of ending the run.
+            missingSurfaceGlobal(display.globals)?.let { return Err(it) }
             val shell = create(display, emptyList(), platform, onCrashSurface = {}, contentClipboard = { it })
                 .getOrElse { return Err(it) }
             shell.startApplication(content)
@@ -572,6 +575,16 @@ public class KortexShell private constructor(
             }
             return Ok(shell)
         }
+
+        /** The first global a surface binds as it is placed that [globals] lacks; null when there is none. */
+        internal fun missingSurfaceGlobal(globals: List<WaylandGlobal>): KortexError.MissingGlobal? =
+            SURFACE_GLOBALS
+                .firstOrNull { interfaceName -> globals.none { it.interfaceName == interfaceName } }
+                ?.let(KortexError::MissingGlobal)
+
+        // What LayerShellSurface, Shm and WlCursorTheme bind for each surface. wl_seat is not here: the clipboard binds
+        // it as the shell is created, which fails without it.
+        private val SURFACE_GLOBALS = listOf("wl_compositor", "wl_shm", "zwlr_layer_shell_v1")
 
         private const val WL_OUTPUT = "wl_output"
 

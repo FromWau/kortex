@@ -30,6 +30,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -580,6 +581,30 @@ class ShowTest {
             val crash = assertIs<KortexError.ApplicationCrashed>(error, "an application whose content is UI started")
             assertIs<IllegalStateException>(crash.cause, "the crash did not carry the rejected UI's failure")
         }
+    }
+
+    @Test
+    fun `an application needs wl_compositor, wl_shm and zwlr_layer_shell_v1 from the compositor`() {
+        val all = listOf("wl_compositor", "wl_shm", "zwlr_layer_shell_v1", "wl_seat")
+            .mapIndexed { name, interfaceName -> WaylandGlobal(name, interfaceName, version = 1) }
+        fun lacking(interfaceName: String) = all.filterNot { it.interfaceName == interfaceName }
+
+        assertNull(KortexShell.missingSurfaceGlobal(all), "a compositor advertising every global was found lacking one")
+        assertEquals(
+            KortexError.MissingGlobal("wl_compositor"),
+            KortexShell.missingSurfaceGlobal(lacking("wl_compositor")),
+            "a compositor without wl_compositor was not found lacking it",
+        )
+        assertEquals(
+            KortexError.MissingGlobal("wl_shm"),
+            KortexShell.missingSurfaceGlobal(lacking("wl_shm")),
+            "a compositor without wl_shm was not found lacking it",
+        )
+        assertEquals(
+            KortexError.MissingGlobal("zwlr_layer_shell_v1"),
+            KortexShell.missingSurfaceGlobal(lacking("zwlr_layer_shell_v1")),
+            "a compositor without zwlr_layer_shell_v1 was not found lacking it",
+        )
     }
 
     /**
