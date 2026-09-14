@@ -3,12 +3,14 @@ package com.fromwau.kortex.wayland
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -120,10 +122,48 @@ class ClipboardFocusTest {
     }
 
     @Test
+    fun `a text wl-copy sets is what Ctrl+V pastes into a focused state-based text field`() {
+        val field = AtomicReference("")
+        val focused = AtomicBoolean(false)
+        withFocusedShell(content = { FocusedStateTextField(field, focused) }) { shell, _ ->
+            try {
+                shell.awaitFocus(focused)
+                runWlCopy(COPIED)
+                // Read back first, so the paste below cannot run ahead of the selection reaching this client.
+                val read = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
+                assertEquals(Ok(COPIED), read, "the clipboard never read back the text wl-copy set")
+
+                shell.pressWithCtrl(KEY_V)
+                val pasted = shell.pumpOrFail(PROCESS_MILLIS) { field.get() == COPIED }
+                assertTrue(pasted, "Ctrl+V left the state-based field holding '${field.get()}'")
+            } finally {
+                runWlCopy("--clear")
+            }
+        }
+    }
+
+    @Test
     fun `a focused text field's text, selected and copied with Ctrl+C, is what wl-paste prints`() {
         val field = AtomicReference(FIELD_TEXT)
         val focused = AtomicBoolean(false)
         withFocusedShell(content = { FocusedTextField(field, focused) }) { shell, display ->
+            shell.awaitFocus(focused)
+            shell.pressWithCtrl(KEY_A)
+            shell.pressWithCtrl(KEY_C)
+            // So the compositor has taken the selection before wl-paste asks it for one.
+            display.roundtrip()
+
+            val paste = shell.runWlPaste()
+            assertEquals(0, paste.exitCode, "wl-paste failed: ${paste.complaint}")
+            assertEquals(FIELD_TEXT, paste.printed, "wl-paste printed something other than the field's copied text")
+        }
+    }
+
+    @Test
+    fun `a focused state-based text field's text, selected and copied with Ctrl+C, is what wl-paste prints`() {
+        val field = AtomicReference(FIELD_TEXT)
+        val focused = AtomicBoolean(false)
+        withFocusedShell(content = { FocusedStateTextField(field, focused) }) { shell, display ->
             shell.awaitFocus(focused)
             shell.pressWithCtrl(KEY_A)
             shell.pressWithCtrl(KEY_C)
@@ -272,6 +312,21 @@ class ClipboardFocusTest {
                 text = it
                 field.set(it)
             },
+            modifier = Modifier
+                .focusRequester(requester)
+                .onFocusChanged { focused.set(it.isFocused) },
+        )
+        LaunchedEffect(Unit) { requester.requestFocus() }
+    }
+
+    /** [FocusedTextField], built on `BasicTextField(TextFieldState)` instead of the value-based overload. */
+    @Composable
+    private fun FocusedStateTextField(field: AtomicReference<String>, focused: AtomicBoolean) {
+        val state = remember { TextFieldState(field.get()) }
+        val requester = remember { FocusRequester() }
+        LaunchedEffect(state) { snapshotFlow { state.text.toString() }.collect(field::set) }
+        BasicTextField(
+            state = state,
             modifier = Modifier
                 .focusRequester(requester)
                 .onFocusChanged { focused.set(it.isFocused) },
