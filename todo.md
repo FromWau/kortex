@@ -171,26 +171,28 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       the shell's `LoopQueue`, recomposed in a loop pass once it asks for a frame, over an applier that takes no
       node, so UI placed in it ends the run as `KortexError.ApplicationCrashed`. It runs in a `KortexShell` beside
       the spec path, on the same outputs, clipboard, loop queue and display. A surface is a `LayerSurface<E>`
-      subclass: its constructor values are its settings, and its `invoke()` is its content. `Show(surface)` queues
-      a placement from a `DisposableEffect` keyed on the settings, and the shell places the surface in its next
-      pass, never inside composition, under its namespace as written, on the output the compositor chooses. A new
-      instance of the same class with the same settings keeps the surface, which composes the newest instance's
-      `invoke()` and reports to its `onClose`; another class or changed settings replace the surface and report
-      nothing. Every ending reports once,
-      on the loop thread, after the surface has gone: `close()`, the compositor closing it and its `Show` leaving
-      composition report `Ok(Unit)`, `close(error)` reports `Err(SurfaceError.Closed(error))`, and a surface that
-      cannot be placed reports `SurfaceError.Failed` with the reason. Content that throws ends only its own
-      surface, reporting `Failed(SurfaceCrashed)` with the scene's first failure, and so does cleanup that throws
-      as the surface goes, whatever else ended it. An ending and a removal in one pass report the ending, and a
-      `Show` taken out after its surface ended reports nothing more. `close()` and `close(error)` act on the
-      `Show`'s surface from any of its instances of the class it shows, from any thread, the first deciding; on an
-      instance never shown, or of a class its `Show` has since left, they do nothing. `exitApplication()`, from any
-      thread and more than once, ends the run, and closing
-      the shell takes every `Show` out, each reporting `Ok(Unit)`. The host's own code throwing, its content or an
-      `onClose`, ends the run as `ApplicationCrashed`, and no `onClose` is called after it. Nothing else ends the
-      run: an application with nothing on screen keeps running. A connection that dies under it ends the run with
-      the connection's error, and a shown surface whose tick fails ends as `Failed`; neither is exercised by a
-      test. (`ShowTest`)
+      subclass: its class and the values it passes to `LayerSurface`'s constructor are its settings, and its
+      `invoke()` is its content. `Show(surface)` queues a placement from a `DisposableEffect` keyed on the
+      settings, and the shell places the surface in its next pass, never inside composition, under its namespace
+      as written, on the output the compositor chooses. Content reads the surface's size from its first
+      composition on. A new instance with the same settings keeps the surface, which composes the newest
+      instance's `invoke()` and reports to its `onClose`; changed settings, another class among them, replace the
+      surface and report nothing. Every ending reports once, on the loop thread, after the surface has gone:
+      `close()`, the compositor closing it and its `Show` leaving composition report `Ok(Unit)`, `close(error)`
+      reports `Err(SurfaceError.Closed(error))`, and a surface that cannot be placed reports `SurfaceError.Failed`
+      with the reason. Content that throws ends only its own surface, reporting `Failed(SurfaceCrashed)` with the
+      scene's first failure, and so does cleanup that throws as the surface goes, whatever else ended it. An
+      ending and a removal in one pass report the ending, and a `Show` taken out after its surface ended reports
+      nothing more. `close()` and `close(error)` act on the `Show`'s surface from any of its instances of the
+      class it shows, from any thread, the first deciding; on an instance never shown, or of a class its `Show`
+      has since left, they do nothing. `exitApplication()`, from any thread and more than once, ends the run, and
+      closing the shell takes every `Show` out, each reporting `Ok(Unit)`. The host's own code throwing, its
+      content or an `onClose`, ends the run as `ApplicationCrashed`: no `onClose` is called after it, and nothing
+      more is placed. Nothing else ends the run: an application with nothing on screen keeps running. An
+      application whose compositor lacks `wl_compositor`, `wl_shm` or `zwlr_layer_shell_v1` fails as it starts,
+      with `MissingGlobal`. Three paths are covered by reading rather than by a test: a connection that dies under
+      the run, which ends it with the connection's error; a shown surface whose tick fails, which ends as
+      `Failed`; and that startup check's call, whose check itself is tested. (`ShowTest`)
 - [ ] **Two failures of one scene on two threads can end a spec surface's run with a different failure than the
       scene keeps.** `KortexScene.record` sets the first failure by compare-and-set and then calls `onFailure`
       (`KortexScene.kt:227-230`). Two threads can make those calls in either order, so the failure the scene

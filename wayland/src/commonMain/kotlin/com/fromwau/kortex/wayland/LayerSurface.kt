@@ -12,7 +12,8 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
 import kotlin.reflect.KClass
 
 /**
- * A layer-shell surface of your own: its settings are the constructor's values, and its content is [invoke].
+ * A layer-shell surface of your own: its settings are your class and the values you pass to `LayerSurface`'s
+ * constructor, and its content is [invoke].
  *
  * Subclass it, pass the settings that suit its kind, and draw in [invoke]. [Show] puts it on screen inside
  * [kortexApplication]:
@@ -42,17 +43,23 @@ import kotlin.reflect.KClass
  * ```
  *
  * The application builds a new instance each time it recomposes, so keep state inside [invoke] behind `remember`,
- * never in the class's fields. [Show] treats two instances of one class whose settings are equal, every constructor
- * value but [onClose], as the same surface: it keeps running, with the newest instance's content and `onClose`.
+ * never in the class's fields. [Show] treats two instances as the same surface when they are of your same class and
+ * pass `LayerSurface`'s constructor equal values, [onClose] aside: it keeps running, with the newest instance's
+ * content and `onClose`. A value only your own constructor takes, such as `level` above, is not a setting: a new one
+ * reaches the running surface's content.
  *
- * A surface with no error of its own extends `LayerSurface<Nothing>`, so `close(error)` cannot be called on it.
+ * A surface with no error of its own extends `LayerSurface<Nothing>`, so `close(error)` cannot be called on it. A
+ * class generic in `E` must reach one [Show] with a single type argument: instances with two share a surface, so a
+ * `close(error)` on one reaches the other's `onClose` with an error of the wrong type, and handling it can end the
+ * application.
  *
  * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`, exactly as written.
  * @property layer which layer the surface sits in.
  * @property anchor the edges the surface is pinned to. Pinning both edges of an [Axis] spans that axis, and pinning
  *   none centres the surface.
  * @property width 0 asks the compositor to choose, which needs [anchor] to pin both [Edge.Left] and [Edge.Right];
- *   without them the surface is not placed, and [onClose] receives [KortexError.UnspannableAxis].
+ *   without them the surface is not placed, and [onClose] receives
+ *   `Err(SurfaceError.Failed(KortexError.UnspannableAxis(...)))`.
  * @property height 0 asks the compositor to choose, like [width], and needs both [Edge.Top] and [Edge.Bottom].
  * @property margins insets from the anchor point; an edge [anchor] does not pin ignores its margin.
  * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows into.
@@ -89,19 +96,23 @@ public abstract class LayerSurface<E : IError>(
      * The logical size of the surface this instance's [Show] holds; [IntSize.Zero] while it holds none, before
      * the surface is placed and after it has ended.
      */
-    override val size: IntSize get() = heldBy?.surface?.logicalSize ?: IntSize.Zero
+    final override val size: IntSize get() = heldBy?.surface?.logicalSize ?: IntSize.Zero
 
     /**
      * Ends the surface this instance's [Show] holds, whichever of that `Show`'s instances of this class you call it
-     * on: [onClose] receives `Ok(Unit)`. Safe from any thread, more than once, and after the surface has gone; the
-     * first `close()` or `close(error)` decides what `onClose` receives, and later ones do nothing. It does nothing on
-     * an instance never handed to a [Show], or once that `Show` has been handed an instance of another class.
+     * on: the `onClose` of the newest instance handed to that `Show` receives `Ok(Unit)`. Safe from any thread, more
+     * than once, and after the surface has gone; the first `close()` or `close(error)` decides what `onClose`
+     * receives, and later ones do nothing. It does nothing on an instance never handed to a [Show], or once that
+     * `Show` has been handed an instance of another class.
      */
-    override fun close() {
+    final override fun close() {
         heldBy?.requestEnd(this, Ok(Unit))
     }
 
-    /** Ends the surface as `close()` does, except that [onClose] receives `Err(SurfaceError.Closed(error))`. */
+    /**
+     * Ends the surface as `close()` does, except that the newest instance's `onClose` receives
+     * `Err(SurfaceError.Closed(error))`.
+     */
     public fun close(error: E) {
         heldBy?.requestEnd(this, Err(SurfaceError.Closed(error)))
     }
