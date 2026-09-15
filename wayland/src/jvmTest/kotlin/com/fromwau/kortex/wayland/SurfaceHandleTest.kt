@@ -2,73 +2,67 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexSurfaceHandle
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
  * Content has no other way to end its own surface's life, so this drives that path against a real
- * compositor: whether a self-close actually reaps the surface, whether it ends a host with nothing
- * left to show, and whether the size content reads tracks a later configure rather than a snapshot
- * taken once at creation.
+ * compositor: whether a self-close actually reaps the surface, and whether the size content reads
+ * tracks a later configure rather than a snapshot taken once at creation.
  */
 class SurfaceHandleTest {
     @Test
     fun `close from the composition drops the surface and removes the namespace from hyprctl layers`() {
-        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val handleRef = AtomicReference<KortexSurfaceHandle>()
         val closeRequested = mutableStateOf(false)
-
-        display.use { wayland ->
-            val spec = SurfaceSpec(CONFIG) {
-                val surface = LocalKortexSurface.current
-                handleRef.set(surface)
-                val requested = closeRequested.value
-                LaunchedEffect(requested) {
-                    // The composition's own call site, run by the loop that `pump` drives; the test below sets the
-                    // flag only once the surface is confirmed visible. Calling it twice proves a double-close
-                    // content itself triggers is a no-op too.
-                    if (requested) {
-                        surface.close()
-                        surface.close()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE) {
+                    val surface = LocalKortexSurface.current
+                    handleRef.set(surface)
+                    val requested = closeRequested.value
+                    LaunchedEffect(requested) {
+                        // The composition's own call site, run by the loop that `pump` drives; the test below sets
+                        // the flag only once the surface is confirmed visible. Calling it twice proves a
+                        // double-close content itself triggers is a no-op too.
+                        if (requested) {
+                            surface.close()
+                            surface.close()
+                        }
                     }
-                }
-                Box(Modifier.fillMaxSize())
-            }
-            val shell = KortexShell.create(wayland, spec)
-                .getOrElse { error -> fail("shell creation failed: $error") }
+                },
+            )
+        }
 
-            shell.useOrFail {
-                val appeared = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { kortexNamespace() != null }
-                assertTrue(appeared, "hyprctl never reported a $NAMESPACE- namespace; nothing to prove close() removes")
-                assertNotNull(handleRef.get(), "content never saw a LocalKortexSurface")
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            assertNotNull(handleRef.get(), "content never saw a LocalKortexSurface")
 
-                // Nothing in this test calls close() directly: only this flag flip can make the surface drop
-                // below, so a pass proves the composition's own close() did it.
-                closeRequested.value = true
+            // Nothing in this test calls close() directly: only this flag flip can make the surface drop
+            // below, so a pass proves the composition's own close() did it.
+            closeRequested.value = true
 
-                val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.isEmpty() }
-                assertTrue(dropped, "the shell never dropped the surface after content called close()")
+            val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.shownSurfaces.isEmpty() }
+            assertTrue(dropped, "the application never dropped the surface after content called close()")
 
-                val gone = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { kortexNamespace() == null }
-                assertTrue(gone, "hyprctl layers still reports a $NAMESPACE- namespace after close()")
+            val gone = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(NAMESPACE) == null }
+            assertTrue(gone, "hyprctl layers still reports $NAMESPACE after close()")
 
-                // A call after teardown (surface removed and closed) must be a no-op, not a crash.
-                handleRef.get().close()
-            }
+            // A call after teardown (surface removed and closed) must be a no-op, not a crash.
+            handleRef.get().close()
         }
     }
 
@@ -103,29 +97,6 @@ class SurfaceHandleTest {
             }
         }
     }
-
-    @Test
-    fun `the host stops once content has closed the last surface`() {
-        val spec = SurfaceSpec(CONFIG) {
-            val surface = LocalKortexSurface.current
-            LaunchedEffect(Unit) { surface.close() }
-            Box(Modifier.fillMaxSize())
-        }
-        val exit = AtomicReference<EmptyResult<KortexError>>()
-
-        val host = Thread { exit.set(runSurfaces(spec)) }
-        host.isDaemon = true
-        host.start()
-        host.join(PUMP_TIMEOUT_MILLIS)
-
-        assertFalse(host.isAlive, "the host kept running with nothing left on screen")
-        assertNotNull(exit.get(), "the host returned nothing at all")
-            .getOrElse { error -> fail("the host failed rather than ran out of surfaces: $error") }
-    }
-
-    /** [KortexShell] suffixes the configured namespace with the output's id, unlike a bare [KortexSurface]. */
-    private fun kortexNamespace(): String? =
-        Hyprctl.namespaces().firstOrNull { it.startsWith("$NAMESPACE-") }
 
     private companion object {
         const val NAMESPACE = "kortex"
