@@ -88,7 +88,10 @@ private val SurfaceError<Nothing>.crash: KortexError.SurfaceCrashed?
     get() = (this as? SurfaceError.Failed)?.error as? KortexError.SurfaceCrashed
 
 /** Appends the crash a surface ended with to the crash log at [path], if it ended with one. */
-private fun logIfCrashed(path: Path, result: EmptyResult<SurfaceError<Nothing>>) {
+private fun logIfCrashed(
+    path: Path,
+    result: EmptyResult<SurfaceError<Nothing>>,
+) {
     result.onError { failure -> failure.crash?.let { crash -> logCrash(path, crash) } }
 }
 

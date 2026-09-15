@@ -184,13 +184,26 @@ private class ApplicationApplier : Applier<Any> {
 
     override fun up() = Unit
 
-    override fun insertTopDown(index: Int, instance: Any) = rejectUi()
+    override fun insertTopDown(
+        index: Int,
+        instance: Any,
+    ) = rejectUi()
 
-    override fun insertBottomUp(index: Int, instance: Any) = rejectUi()
+    override fun insertBottomUp(
+        index: Int,
+        instance: Any,
+    ) = rejectUi()
 
-    override fun remove(index: Int, count: Int) = Unit
+    override fun remove(
+        index: Int,
+        count: Int,
+    ) = Unit
 
-    override fun move(from: Int, to: Int, count: Int) = Unit
+    override fun move(
+        from: Int,
+        to: Int,
+        count: Int,
+    ) = Unit
 
     override fun clear() = Unit
 

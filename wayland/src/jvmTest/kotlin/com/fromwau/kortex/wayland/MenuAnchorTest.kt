@@ -142,7 +142,10 @@ class MenuAnchorTest {
     }
 
     /** The anchor and margins of a [MENU_SIZE] ContextMenu at [at], on a monitor whose mode is [OUTPUT], turned. */
-    private fun placementOnMonitorTurnedBy(transform: OutputTransform, at: IntOffset): Pair<Set<Edge>, Margins> =
+    private fun placementOnMonitorTurnedBy(
+        transform: OutputTransform,
+        at: IntOffset,
+    ): Pair<Set<Edge>, Margins> =
         withUnboundMonitors(MONITOR_NAME, mode = OUTPUT, transform = transform) { (monitor) ->
             val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {
                 @Composable

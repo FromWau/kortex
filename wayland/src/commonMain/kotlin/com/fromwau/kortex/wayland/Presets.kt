@@ -227,11 +227,22 @@ public abstract class AppMenu<E : IError>(
  * can run past the monitor's edge. One that opens down and to the right still opens at [at].
  *
  * ```kotlin
- * class Menu(monitor: Monitor, at: IntOffset, onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit) :
- *     ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = IntSize(160, 120), onClose = onClose) {
+ * class Menu(
+ *     monitor: Monitor,
+ *     at: IntOffset,
+ *     onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
+ * ) : ContextMenu<Nothing>(
+ *     monitor = monitor,
+ *     at = at,
+ *     menuSize = IntSize(160, 120),
+ *     onClose = onClose,
+ * ) {
  *     @Composable
  *     override fun invoke() {
- *         Text("Close", Modifier.clickable { close() })
+ *         Text(
+ *             text = "Close",
+ *             modifier = Modifier.clickable { close() },
+ *         )
  *     }
  * }
  * ```

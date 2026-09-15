@@ -58,7 +58,12 @@ internal data class LayerGeometry(
  * Fails unless [geometry], [width] by [height], is centred in [before]'s usable area within a pixel of rounding, as a
  * surface anchored to nothing that yields is placed.
  */
-internal fun assertCentredInUsableArea(before: HyprMonitor, width: Int, height: Int, geometry: LayerGeometry) {
+internal fun assertCentredInUsableArea(
+    before: HyprMonitor,
+    width: Int,
+    height: Int,
+    geometry: LayerGeometry,
+) {
     val expectedX = before.usableX + (before.usableWidth - width) / 2
     val expectedY = before.usableY + (before.usableHeight - height) / 2
     assertTrue(abs(geometry.x - expectedX) <= 1, "expected x within a pixel of $expectedX, got ${geometry.x}")
@@ -69,7 +74,12 @@ internal fun assertCentredInUsableArea(before: HyprMonitor, width: Int, height: 
  * Pumps [shell] until [before]'s monitor reserves [amount] more against [edge] than it did, since a reservation lands a
  * frame late, and fails unless it then reserves exactly that.
  */
-internal fun assertReservesMore(shell: KortexShell, before: HyprMonitor, edge: Edge, amount: Int) {
+internal fun assertReservesMore(
+    shell: KortexShell,
+    before: HyprMonitor,
+    edge: Edge,
+    amount: Int,
+) {
     fun added() = Hyprctl.monitor(before.name).reservedAgainst(edge) - before.reservedAgainst(edge)
     shell.pumpOrFail(Screen.SETTLE_TIMEOUT_MILLIS) { added() == amount }
     assertEquals(amount, added(), "the surface did not reserve exactly $amount against $edge")

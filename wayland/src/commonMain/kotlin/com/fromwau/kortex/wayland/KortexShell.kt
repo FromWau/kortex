@@ -85,7 +85,10 @@ internal class ShownSurface(
      * from an instance of the class the Show shows decides. One from a class it no longer shows concerns a surface
      * already replaced, and does nothing.
      */
-    fun requestEnd(from: LayerSurface<*>, ending: EmptyResult<SurfaceError<IError>>) {
+    fun requestEnd(
+        from: LayerSurface<*>,
+        ending: EmptyResult<SurfaceError<IError>>,
+    ) {
         val ask = EndRequest(from::class, ending)
         if (standingRequest(ask) === ask) wake()
     }
@@ -96,7 +99,10 @@ internal class ShownSurface(
         listOfNotNull(current, ask).firstOrNull { it.kind == shownClass }
     }
 
-    private class EndRequest(val kind: KClass<*>, val ending: EmptyResult<SurfaceError<IError>>)
+    private class EndRequest(
+        val kind: KClass<*>,
+        val ending: EmptyResult<SurfaceError<IError>>,
+    )
 }
 
 /**
@@ -267,7 +273,10 @@ internal class KortexShell private constructor(
     }
 
     /** [shown]'s `Show` entered composition, or its settings changed: its surface is placed in the next pass. */
-    internal fun queuePlace(shown: ShownSurface, settings: SurfaceSettings) {
+    internal fun queuePlace(
+        shown: ShownSurface,
+        settings: SurfaceSettings,
+    ) {
         shown.wanted = settings
         changedShows += shown
         display.wake()
@@ -302,12 +311,18 @@ internal class KortexShell private constructor(
     }
 
     // The Show is still in composition, so nothing has ended for its host, unless its content failed as it went.
-    private fun replace(shown: ShownSurface, settings: SurfaceSettings) {
+    private fun replace(
+        shown: ShownSurface,
+        settings: SurfaceSettings,
+    ) {
         val crash = takeDown(shown) ?: return place(shown, settings)
         report(shown, Err(SurfaceError.Failed(crash)))
     }
 
-    private fun place(shown: ShownSurface, settings: SurfaceSettings) {
+    private fun place(
+        shown: ShownSurface,
+        settings: SurfaceSettings,
+    ) {
         val output = settings.monitor?.let { monitor ->
             // An unplugged monitor's proxy is already destroyed: the surface ends, as one on it does when it goes.
             monitor.output.takeIf { outputs[it.name] === it } ?: return report(shown, Ok(Unit))
@@ -355,7 +370,10 @@ internal class KortexShell private constructor(
         }
     }
 
-    private fun end(shown: ShownSurface, ending: EmptyResult<SurfaceError<IError>>) {
+    private fun end(
+        shown: ShownSurface,
+        ending: EmptyResult<SurfaceError<IError>>,
+    ) {
         // Content failing, its cleanup as the surface goes included, ends it as a crash whatever else ended it.
         val crash = takeDown(shown)
         report(shown, crash?.let { Err(SurfaceError.Failed(it)) } ?: ending)
@@ -372,7 +390,10 @@ internal class KortexShell private constructor(
         return surface.crash
     }
 
-    private fun report(shown: ShownSurface, ending: EmptyResult<SurfaceError<IError>>) {
+    private fun report(
+        shown: ShownSurface,
+        ending: EmptyResult<SurfaceError<IError>>,
+    ) {
         shown.reported = true
         // Once the application's own code has thrown, none of it runs again.
         if (applicationCrash.get() != null) return

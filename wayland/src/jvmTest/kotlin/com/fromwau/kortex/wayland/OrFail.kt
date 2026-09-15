@@ -47,7 +47,10 @@ internal fun onApplication(
 }
 
 /** Pumps [shell] until [count] of its Shows' surfaces are on screen; the test fails if they never are. */
-internal fun awaitPlaced(shell: KortexShell, count: Int = 1) {
+internal fun awaitPlaced(
+    shell: KortexShell,
+    count: Int = 1,
+) {
     assertTrue(
         shell.pumpOrFail(PLACED_WITHIN_MILLIS) { shell.shownSurfaces.size == count },
         "the application never had $count surfaces on screen",
