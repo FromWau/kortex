@@ -53,6 +53,7 @@ import kotlin.reflect.KClass
  * `close(error)` on one reaches the other's `onClose` with an error of the wrong type, and handling it can end the
  * application.
  *
+ * @property monitor the monitor to put the surface on, one [rememberMonitors] lists; null lets the compositor choose.
  * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`, exactly as written.
  * @property layer which layer the surface sits in.
  * @property anchor the edges the surface is pinned to. Pinning both edges of an [Axis] spans that axis, and pinning
@@ -73,6 +74,7 @@ import kotlin.reflect.KClass
  *   the application ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
  */
 public abstract class LayerSurface<E : IError>(
+    public val monitor: Monitor? = null,
     public val namespace: String = "kortex",
     public val layer: Layer = Layer.Top,
     public val anchor: Set<Edge> = emptySet(),
@@ -127,6 +129,7 @@ public abstract class LayerSurface<E : IError>(
     internal val settings: SurfaceSettings
         get() = SurfaceSettings(
             kind = this::class,
+            monitor = monitor,
             config = SurfaceConfig(
                 namespace = namespace,
                 layer = layer,
@@ -142,7 +145,11 @@ public abstract class LayerSurface<E : IError>(
 }
 
 /** What [Show] compares its instances by: two with equal settings are the same surface. */
-internal data class SurfaceSettings(val kind: KClass<*>, val config: SurfaceConfig)
+internal data class SurfaceSettings(
+    val kind: KClass<*>,
+    val monitor: Monitor?,
+    val config: SurfaceConfig,
+)
 
 /** Why a surface ended, when it did not end cleanly: what its `onClose` receives inside `Err`. */
 public sealed interface SurfaceError<out E : IError> : IError {

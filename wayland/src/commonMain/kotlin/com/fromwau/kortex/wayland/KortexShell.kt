@@ -443,11 +443,16 @@ public class KortexShell private constructor(
     }
 
     private fun place(shown: ShownSurface, settings: SurfaceSettings) {
+        val output = settings.monitor?.let { monitor ->
+            // An unplugged monitor's proxy is already destroyed: the surface ends, as one on it does when it goes.
+            monitor.output.takeIf { outputs[it.name] === it } ?: return report(shown, Ok(Unit))
+        }
         KortexSurface
             .create(
                 display,
                 settings.config,
                 platform = platform,
+                output = output?.proxy ?: MemorySegment.NULL,
                 loopQueue = loopQueue,
                 // Only a wake: the next pass reads the scene's first failure, which this one may not be.
                 onCrash = { wake() },

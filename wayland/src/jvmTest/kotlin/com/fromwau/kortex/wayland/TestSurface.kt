@@ -12,6 +12,7 @@ import com.fromwau.kern.result.IError
  */
 internal class TestSurface<E : IError>(
     namespace: String,
+    monitor: Monitor? = null,
     layer: Layer = Layer.Overlay,
     anchor: Set<Edge> = setOf(Edge.Bottom, Edge.Right),
     width: Dp = SPECK.dp,
@@ -23,6 +24,7 @@ internal class TestSurface<E : IError>(
     onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
     private val content: @Composable TestSurface<E>.() -> Unit = {},
 ) : LayerSurface<E>(
+    monitor = monitor,
     namespace = namespace,
     layer = layer,
     anchor = anchor,
