@@ -52,7 +52,7 @@ public abstract class Bar<E : IError>(
 
 /**
  * A surface along one edge of its monitor, spanning that edge and reserving its own thickness there, so windows tile
- * clear of it. It takes no keyboard focus; a [Dock] is placed the same way and takes it on demand.
+ * clear of it. It takes no keyboard focus; a [Dock] is placed the same way and can take it.
  *
  * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
  * `close(error)`, or `Nothing` for none.
@@ -83,6 +83,38 @@ public abstract class Panel<E : IError>(
 )
 
 /**
+ * Placed as a [Panel] is, along one edge of its monitor, spanning that edge and reserving its own thickness there, and
+ * able to take keyboard focus, as a text field in it needs.
+ *
+ * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
+ * `close(error)`, or `Nothing` for none.
+ *
+ * @param monitor the monitor to put the dock on, one [rememberMonitors] lists; null lets the compositor choose.
+ * @param edge the edge the dock runs along. It is pinned to that edge and the two beside it.
+ * @param thickness how far the dock reaches in from [edge], which is also the space it reserves there. It must round
+ *   to at least one logical pixel, or the dock is not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
+ * @param length how far the dock runs along [edge]; 0 spans the whole edge.
+ * @param margins insets from the edges the dock is pinned to; a margin on the edge opposite [edge] has no effect.
+ * @param namespace what the compositor calls the dock, e.g. in `hyprctl layers`, exactly as written.
+ * @param onClose called once when the dock ends, as [LayerSurface.onClose] describes.
+ */
+public abstract class Dock<E : IError>(
+    monitor: Monitor? = null,
+    edge: Edge,
+    thickness: Dp,
+    length: Dp = 0.dp,
+    margins: Margins = Margins.None,
+    namespace: String = "kortex",
+    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+) : LayerSurface<E>(
+    monitor = monitor,
+    config = SurfaceConfig
+        .dock(edge, thickness, length)
+        .copy(namespace = namespace, margins = margins),
+    onClose = onClose,
+)
+
+/**
  * Fills its whole monitor on the lowest layer, beneath every window: a wallpaper, say. It reserves nothing, takes no
  * keyboard focus, and covers the space other surfaces reserve rather than moving out of their way.
  *
@@ -104,9 +136,34 @@ public abstract class DesktopBackground<E : IError>(
 )
 
 /**
+ * Fills its whole monitor on the topmost layer, above every window, and takes the keyboard for as long as it is shown.
+ * It reserves nothing, and covers the space other surfaces reserve rather than moving out of their way.
+ *
+ * It does not lock the session. kortex does not use `ext-session-lock-v1`, the protocol that locks one, so nothing
+ * stops another surface from drawing over or beside it, or the compositor from switching away from it. Mistaking it
+ * for a session lock is a security problem, not a layout one.
+ *
+ * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
+ * `close(error)`, or `Nothing` for none.
+ *
+ * @param monitor the monitor to cover, one [rememberMonitors] lists; null lets the compositor choose.
+ * @param namespace what the compositor calls the lock screen, e.g. in `hyprctl layers`, exactly as written.
+ * @param onClose called once when the lock screen ends, as [LayerSurface.onClose] describes.
+ */
+public abstract class LockScreen<E : IError>(
+    monitor: Monitor? = null,
+    namespace: String = "kortex",
+    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+) : LayerSurface<E>(
+    monitor = monitor,
+    config = SurfaceConfig.lockScreen().copy(namespace = namespace),
+    onClose = onClose,
+)
+
+/**
  * A floating surface of exactly [width] by [height] on the topmost layer, above every window: a volume indicator, say.
  * It is centred in the space other surfaces leave free on its monitor, so a bar's reserved space shifts it off the
- * monitor's true centre. It takes no keyboard focus; an [AppMenu] is placed the same way and takes it on demand.
+ * monitor's true centre. It takes no keyboard focus; an [AppMenu] is placed the same way and can take it.
  *
  * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
  * `close(error)`, or `Nothing` for none.
@@ -127,6 +184,33 @@ public abstract class Osd<E : IError>(
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig.osd(width, height).copy(namespace = namespace),
+    onClose = onClose,
+)
+
+/**
+ * Placed as an [Osd] is, a floating surface of exactly [width] by [height] centred in the space other surfaces leave
+ * free on its monitor, and able to take keyboard focus: a launcher you type into, say, which its content dismisses
+ * with `close()`.
+ *
+ * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
+ * `close(error)`, or `Nothing` for none.
+ *
+ * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
+ * @param width its width. It must round to at least one logical pixel, or it is not placed and `onClose` receives
+ *   `Err(SurfaceError.Failed(...))`.
+ * @param height its height, which must round to at least one logical pixel as [width] must.
+ * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
+ * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
+ */
+public abstract class AppMenu<E : IError>(
+    monitor: Monitor? = null,
+    width: Dp,
+    height: Dp,
+    namespace: String = "kortex",
+    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+) : LayerSurface<E>(
+    monitor = monitor,
+    config = SurfaceConfig.appMenu(width, height).copy(namespace = namespace),
     onClose = onClose,
 )
 

@@ -334,14 +334,80 @@ class PresetClassTest {
         }
     }
 
-    /**
-     * Pumps [shell] until [before]'s monitor reserves [amount] more against [edge] than it did, since a reservation
-     * lands a frame late, and fails if it never reserves exactly that.
-     */
-    private fun assertReservesMore(shell: KortexShell, before: HyprMonitor, edge: Edge, amount: Int) {
-        fun added() = Hyprctl.monitor(before.name).reservedAgainst(edge) - before.reservedAgainst(edge)
-        shell.pumpOrFail(PUMP_MILLIS) { added() == amount }
-        assertEquals(amount, added(), "the surface did not reserve exactly $amount against $edge")
+    @Test
+    fun `a Dock's settings are a SurfaceConfig dock's, with every value it was given`() {
+        withUnboundMonitors(MONITOR_NAME) { (monitor) ->
+            val dock = object : Dock<Nothing>(
+                monitor = monitor,
+                edge = Edge.Bottom,
+                thickness = THICKNESS.dp,
+                length = LENGTH.dp,
+                margins = MARGINS,
+                namespace = DOCK_NAMESPACE,
+            ) {
+                @Composable
+                override fun invoke() = Unit
+            }
+
+            assertEquals(KeyboardInteractivity.OnDemand, dock.keyboard, "the dock does not take the keyboard on demand")
+            assertSame(monitor, dock.monitor, "the dock was not put on the monitor it was given")
+            assertEquals(
+                SurfaceConfig
+                    .dock(Edge.Bottom, THICKNESS.dp, LENGTH.dp)
+                    .copy(namespace = DOCK_NAMESPACE, margins = MARGINS),
+                dock.settings.config,
+                "the dock's settings are not a dock's with the values it was given",
+            )
+        }
+    }
+
+    @Test
+    fun `an AppMenu's settings are a SurfaceConfig appMenu's, with every value it was given`() {
+        withUnboundMonitors(MONITOR_NAME) { (monitor) ->
+            val appMenu = object : AppMenu<Nothing>(
+                monitor = monitor,
+                width = OSD_WIDTH.dp,
+                height = OSD_HEIGHT.dp,
+                namespace = APP_MENU_NAMESPACE,
+            ) {
+                @Composable
+                override fun invoke() = Unit
+            }
+
+            assertEquals(
+                KeyboardInteractivity.OnDemand,
+                appMenu.keyboard,
+                "the app menu does not take the keyboard on demand",
+            )
+            assertSame(monitor, appMenu.monitor, "the app menu was not put on the monitor it was given")
+            assertEquals(
+                SurfaceConfig.appMenu(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = APP_MENU_NAMESPACE),
+                appMenu.settings.config,
+                "the app menu's settings are not an appMenu's with the values it was given",
+            )
+        }
+    }
+
+    @Test
+    fun `a LockScreen's settings are a SurfaceConfig lockScreen's, with every value it was given`() {
+        withUnboundMonitors(MONITOR_NAME) { (monitor) ->
+            val lock = object : LockScreen<Nothing>(monitor = monitor, namespace = LOCK_NAMESPACE) {
+                @Composable
+                override fun invoke() = Unit
+            }
+
+            assertEquals(
+                KeyboardInteractivity.Exclusive,
+                lock.keyboard,
+                "the lock screen does not take the keyboard exclusively",
+            )
+            assertSame(monitor, lock.monitor, "the lock screen was not put on the monitor it was given")
+            assertEquals(
+                SurfaceConfig.lockScreen().copy(namespace = LOCK_NAMESPACE),
+                lock.settings.config,
+                "the lock screen's settings are not a lockScreen's with the values it was given",
+            )
+        }
     }
 
     private companion object {
@@ -351,8 +417,10 @@ class PresetClassTest {
         const val OSD_NAMESPACE = "kortex-preset-class-osd"
         const val MENU_NAMESPACE = "kortex-preset-class-context-menu"
         const val MENU_PANEL_NAMESPACE = "kortex-preset-class-context-menu-panel"
+        const val DOCK_NAMESPACE = "kortex-preset-class-dock"
+        const val APP_MENU_NAMESPACE = "kortex-preset-class-app-menu"
+        const val LOCK_NAMESPACE = "kortex-preset-class-lock"
         const val MONITOR_NAME = "PRESET-1"
-        const val PUMP_MILLIS = 4_000L
 
         // An unbound monitor's mode at scale 1, so its logical size too.
         val MONITOR_MODE = IntSize(1920, 1080)

@@ -65,6 +65,16 @@ internal fun assertCentredInUsableArea(before: HyprMonitor, width: Int, height: 
     assertTrue(abs(geometry.y - expectedY) <= 1, "expected y within a pixel of $expectedY, got ${geometry.y}")
 }
 
+/**
+ * Pumps [shell] until [before]'s monitor reserves [amount] more against [edge] than it did, since a reservation lands a
+ * frame late, and fails unless it then reserves exactly that.
+ */
+internal fun assertReservesMore(shell: KortexShell, before: HyprMonitor, edge: Edge, amount: Int) {
+    fun added() = Hyprctl.monitor(before.name).reservedAgainst(edge) - before.reservedAgainst(edge)
+    shell.pumpOrFail(Screen.SETTLE_TIMEOUT_MILLIS) { added() == amount }
+    assertEquals(amount, added(), "the surface did not reserve exactly $amount against $edge")
+}
+
 /** Reads back what a layer surface actually put on screen. */
 internal object Screen {
     /** Where the layer named [namespace] is, or null if no monitor lists it. */
