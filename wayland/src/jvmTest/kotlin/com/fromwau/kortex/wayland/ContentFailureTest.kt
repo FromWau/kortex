@@ -111,14 +111,14 @@ class ContentFailureTest {
     }
 
     @Test
-    fun `content that throws while drawing a later frame ends only its own surface, not the process`() {
+    fun `content that throws while drawing a later frame reports the crash, and the process survives`() {
         val probe = runProbe(PROBE_MAIN_CLASS)
         val raw = probe.output.joinToString("\n")
 
         assertEquals(0, probe.exitCode, "the probe did not exit cleanly; output:\n$raw")
         assertTrue(
             "$PROBE_MARKER crashed=$PROBE_NAMESPACE failure=Composition cause=$PROBE_FAILURE" in probe.output,
-            "the run did not end in the later frame's crash; output:\n$raw",
+            "the later frame's crash was not reported; output:\n$raw",
         )
         assertTrue(
             "$PROBE_MARKER hook crashed=$PROBE_NAMESPACE cause=$PROBE_FAILURE" in probe.output,
