@@ -205,9 +205,9 @@ rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
 - [ ] **A failure after a surface has reported reaches no one.** A crash in a closed scene's leftover work,
       such as a `delay` in a `NonCancellable` `finally`, is recorded by the scene but only wakes the loop
-      (`KortexShell.kt:323`, `:367-373`): the surface has reported by then, and nothing reads its crash
+      (`KortexShell.kt:338`, `:385-391`): the surface has reported by then, and nothing reads its crash
       again. When the connection has died, an `ApplicationCrashed` from an `onClose` called as the
-      application closes is dropped for the connection's error (`KortexApplication.kt:63-64`). Open:
+      application closes is dropped for the connection's error (`KortexApplication.kt:64-65`). Open:
       whether a surface's report waits for its closed scene's leftover work, within a bound, or `onClose`'s
       KDoc says such failures go unreported; decided with spec B, which reworks teardown.
 
@@ -269,7 +269,7 @@ rejects, images on the clipboard as PNG and JPEG, and drag and drop.
 - [ ] **A fractionally scaled monitor measures short.** `OutputGeometry`'s width and height over its
       `scale` are the monitor's logical size only at a whole-number scale. `wl_output.scale` is an
       integer, and Hyprland rounds a fractional scale up, so at 1.5 the monitor measures a quarter short.
-      `ContextMenu` measures its monitor that way (`Presets.kt:264-268`), so it can flip early and open
+      `ContextMenu` measures its monitor that way (`Presets.kt:275-279`), so it can flip early and open
       away from its point; its KDoc says so. Open: a true logical size, which needs a protocol kortex does
       not bind yet, such as `zxdg_output_v1`'s `logical_size`.
 
