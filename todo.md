@@ -316,7 +316,11 @@ the bar would begin if nothing else reserved that edge.
       roundtrip or dispatch inside a pass makes the next wait return at once, since the events it ran can
       change what that pass already checked. A close that content asks for wakes the loop, which reaps the
       surface before it waits again. Another source, D-Bus or a timerfd, would be one more fd in that `poll`.
-      (`EventLoopWakeTest`, `KeyRepeatTest`, `WaylandDisplayTest`)
+      A `close()` from another thread wakes the loop through `requestEnd`'s `wake()`, which is covered by
+      reading rather than by a test: no test closes a surface from another thread while the loop sleeps.
+      (`EventLoopWakeTest` for an idle loop, a `Show` entering composition and coroutine work that keeps
+      yielding; `ShowTest` for `exitApplication()` from another thread; `KeyRepeatTest`;
+      `WaylandDisplayTest`)
 - [x] **Content that throws ends its own surface with a typed error, not the process.** The reference's
       gradient, a `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`, does throw
       `Can't wrap nullptr` from the desktop Skia kortex draws with. Frames after the first are drawn inside a
@@ -328,7 +332,8 @@ the bar would begin if nothing else reserved that edge.
       with the scene's first failure, once, while the run goes on. Content whose cleanup throws as its surface
       goes ends it the same way, whatever else ended it. A surface that cannot be placed, and a failed shm
       reallocation on resize, reach `onClose` as `Failed` with their `KortexError` the same way instead of
-      throwing. (`KortexSceneTest`, `KeyboardDeliveryTest`, `ContentFailureTest`)
+      throwing; the failed reallocation is covered by reading rather than by a test. (`KortexSceneTest`,
+      `KeyboardDeliveryTest`, `ContentFailureTest`, and `ShowTest` for a surface that cannot be placed)
 - [x] **A state change read only while drawing or placing redraws.** Compose reports a change that
       recomposes nothing through the scene's `invalidateDraw` and `invalidateLayout`, not the recomposer.
       That covers a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
