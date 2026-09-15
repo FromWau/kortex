@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
 import com.fromwau.kern.result.getOrElse
+import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /** [KortexShell.createApplication] for a test whose application starts cleanly: an error fails the test. */
@@ -35,3 +36,22 @@ internal inline fun <T> KortexShell.useOrFail(block: (KortexShell) -> T): T {
     close().getOrElse { error -> fail("closing the shell failed: $error") }
     return value
 }
+
+/** Starts an application of [content] and hands it to [block]; the application and connection close after. */
+internal fun onApplication(
+    content: @Composable KortexApplicationScope.() -> Unit,
+    block: (KortexShell) -> Unit,
+) {
+    val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+    display.use { KortexShell.createApplicationOrFail(display, content).useOrFail(block) }
+}
+
+/** Pumps [shell] until [count] of its Shows' surfaces are on screen; the test fails if they never are. */
+internal fun awaitPlaced(shell: KortexShell, count: Int = 1) {
+    assertTrue(
+        shell.pumpOrFail(PLACED_WITHIN_MILLIS) { shell.shownSurfaces.size == count },
+        "the application never had $count surfaces on screen",
+    )
+}
+
+private const val PLACED_WITHIN_MILLIS = 4_000L

@@ -821,20 +821,6 @@ class ShowTest {
         override fun invoke() = Unit
     }
 
-    /** Pumps [shell] until [count] of its Shows' surfaces are on screen; the test fails if they never are. */
-    private fun awaitPlaced(shell: KortexShell, count: Int = 1) {
-        assertTrue(
-            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == count },
-            "the application never had $count surfaces on screen",
-        )
-    }
-
-    /** Starts an application of [content] and hands it to [block]; the application and connection close after. */
-    private fun onApplication(content: @Composable KortexApplicationScope.() -> Unit, block: (KortexShell) -> Unit) {
-        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        display.use { KortexShell.createApplicationOrFail(display, content).useOrFail(block) }
-    }
-
     private companion object {
         const val NAMESPACE = "kortex-show"
         const val SECOND_NAMESPACE = "kortex-show-second"

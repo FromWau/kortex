@@ -123,6 +123,7 @@ public class KortexShell private constructor(
     private val hostClipboard: KortexClipboard = HostClipboard(contentClipboard)
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
+    private val listedMonitors = mutableStateOf<List<Monitor>>(emptyList())
     private val surfaces = mutableListOf<ActiveSurface>()
 
     // Filled by each surface's scene, on whichever thread its content fails, and emptied by reportCrashes.
@@ -164,6 +165,9 @@ public class KortexShell private constructor(
 
     /** Every surface a [Show] holds on screen, in the order they were placed; a test reads them. */
     internal val shownSurfaces: List<KortexSurface> get() = placed.mapNotNull { it.surface }
+
+    /** What [rememberMonitors] hands content: each bound output that has described itself, in the order bound. */
+    internal val monitors: State<List<Monitor>> get() = listedMonitors
 
     // A future output could still complete an EveryOutput spec, or the one output a NamedOutput spec names.
     private val awaitingAnOutput: Boolean
@@ -301,6 +305,7 @@ public class KortexShell private constructor(
         val output = bindOutput(global)
         // The output has no name until its own done arrives, and a NamedOutput match needs it now.
         display.roundtrip()
+        listMonitors()
         specs.filter { spec ->
             when (val target = spec.target) {
                 OutputTarget.EveryOutput -> true
@@ -317,6 +322,13 @@ public class KortexShell private constructor(
         val listener = OutputListener()
         listener.install(proxy)
         return ShellOutput(global.name, proxy, listener).also { outputs[global.name] = it }
+    }
+
+    // An output is a monitor from its first done on, which the round trip after each bind waits for.
+    private fun listMonitors() {
+        listedMonitors.value = outputs.values
+            .filter { it.listener.geometry != null }
+            .map(::Monitor)
     }
 
     // wl_output.name (what a NamedOutput target carries) is not ShellOutput.name, the registry id.
@@ -571,6 +583,7 @@ public class KortexShell private constructor(
                 .forEach(shell::bindOutput)
             // A NamedOutput spec placed before any output's own done arrives would match no name at all.
             display.roundtrip()
+            shell.listMonitors()
             for (spec in specs) {
                 shell.placeSurfaces(spec, standing = true).getOrElse {
                     // Its crashes reach onCrashSurface; what this returns is why placing failed.

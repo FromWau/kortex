@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composition
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -91,9 +92,13 @@ public fun Show(surface: LayerSurface<*>) {
     }
 }
 
+/** The monitors connected to the desktop, as state. */
+@Composable
+public fun rememberMonitors(): State<List<Monitor>> = LocalKortexShell.current.monitors
+
 /** The shell a [Show] queues its surface with, provided around the application's content. */
 internal val LocalKortexShell: ProvidableCompositionLocal<KortexShell> =
-    staticCompositionLocalOf { error("Show is only called inside kortexApplication's content") }
+    staticCompositionLocalOf { error("Show and rememberMonitors() work only inside kortexApplication") }
 
 /**
  * The composition [kortexApplication]'s content runs in. It has no UI of its own, and recomposes on the loop's
