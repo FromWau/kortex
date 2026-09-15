@@ -34,7 +34,7 @@ import org.jetbrains.skia.Surface
  * Frames are paced off `wl_surface.frame` and drawn only when the composition asks for one, so an idle
  * surface costs nothing.
  */
-public class KortexSurface private constructor(
+internal class KortexSurface private constructor(
     private val namespace: String,
     private val display: WaylandDisplay,
     private val layer: LayerShellSurface,
@@ -93,7 +93,7 @@ public class KortexSurface private constructor(
     internal val logicalSize: IntSize get() = sizeState.value
 
     /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
-    public val bufferSize: IntSize
+    val bufferSize: IntSize
         get() = IntSize(frames.first().buffer.width, frames.first().buffer.height)
 
     /** How many times the compositor has handed a buffer back. */
@@ -129,7 +129,7 @@ public class KortexSurface private constructor(
     }
 
     /** Composes [content] and draws its first frame, failing as [KortexError.SurfaceCrashed] if content throws. */
-    public fun setContent(content: @Composable () -> Unit): EmptyResult<KortexError> {
+    fun setContent(content: @Composable () -> Unit): EmptyResult<KortexError> {
         scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
             .onSuccess { renderNow(frameTimeNanos = 0L) }
         return crash?.let { Err(it) } ?: Ok(Unit)
@@ -140,7 +140,7 @@ public class KortexSurface private constructor(
      *
      * @return what [LayerShellSurface.setSize] rejected, leaving the surface at the size it already had.
      */
-    public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
+    fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
         layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
     /**
@@ -316,8 +316,8 @@ public class KortexSurface private constructor(
         }
     }
 
-    public companion object {
-        internal fun create(
+    companion object {
+        fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
             platform: KortexPlatform = KortexPlatform.None,

@@ -87,9 +87,9 @@ internal object LayerShellProtocol {
  * A `zwlr_layer_shell_v1` surface: a panel the compositor places and other windows tile around.
  *
  * The compositor answers the first commit with `configure`, and a buffer must not be attached before
- * that serial is acknowledged — doing so is a protocol error and a disconnect.
+ * that serial is acknowledged: doing so is a protocol error and a disconnect.
  */
-public class LayerShellSurface internal constructor(
+internal class LayerShellSurface(
     private val display: WaylandDisplay,
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
@@ -102,13 +102,13 @@ public class LayerShellSurface internal constructor(
     private val arena: Arena,
 ) : AutoCloseable {
 
-    // Paired with the public closed, which is the compositor's word rather than this teardown latch.
+    // Paired with closed, which says the surface must be torn down rather than that it has been.
     private var disposed = false
 
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
-    public val logicalWidth: Int get() = state.width
-    public val logicalHeight: Int get() = state.height
-    public val closed: Boolean get() = state.closeReason != null
+    val logicalWidth: Int get() = state.width
+    val logicalHeight: Int get() = state.height
+    val closed: Boolean get() = state.closeReason != null
     internal val closeReason: CloseReason? get() = state.closeReason
 
     /**
@@ -117,10 +117,10 @@ public class LayerShellSurface internal constructor(
      * It reflects the output this surface is actually on, so two surfaces on a mixed-DPI setup report
      * different scales. Reads 1 until the compositor says otherwise, as the protocol prescribes.
      */
-    public val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
+    val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
 
     /** Blocks until the compositor has configured this surface, acknowledging the serial it sent. */
-    public fun waitForConfigure(): Boolean {
+    fun waitForConfigure(): Boolean {
         display.roundtrip()
         var spins = 0
         while (!state.configured && state.closeReason == null && spins < MAX_SPINS) {
@@ -144,7 +144,7 @@ public class LayerShellSurface internal constructor(
     }
 
     /** Attaches [buffer] and marks the whole surface damaged. Must follow an acknowledged configure. */
-    public fun attach(buffer: ShmBuffer) {
+    fun attach(buffer: ShmBuffer) {
         LibWayland.marshal(
             surface, WL_SURFACE_ATTACH,
             args = listOf(WlArg.Ptr(buffer.buffer), WlArg.Num(0), WlArg.Num(0)),
@@ -156,7 +156,7 @@ public class LayerShellSurface internal constructor(
     }
 
     /** Double-buffered like every pending surface state: takes effect only at the next [commit]. */
-    public fun setBufferScale(scale: Int) {
+    fun setBufferScale(scale: Int) {
         LibWayland.marshal(surface, WL_SURFACE_SET_BUFFER_SCALE, args = listOf(WlArg.Num(scale)))
     }
 
@@ -167,7 +167,7 @@ public class LayerShellSurface internal constructor(
      * @return [KortexError.UnspannableAxis] under the same rule [create] applies, since the anchor this
      *   surface was created with is fixed for its lifetime.
      */
-    public fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
+    fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
         unspannableAxis(width, height, anchor)?.let { return Err(it) }
         LibWayland.marshal(
             layerSurface, LayerShellProtocol.SET_SIZE,
@@ -176,7 +176,7 @@ public class LayerShellSurface internal constructor(
         return Ok(Unit)
     }
 
-    public fun commit() {
+    fun commit() {
         LibWayland.marshal(surface, WL_SURFACE_COMMIT)
         display.flush()
     }
@@ -197,7 +197,7 @@ public class LayerShellSurface internal constructor(
         display.flush()
     }
 
-    public companion object {
+    companion object {
         /**
          * Creates a layer surface and drives it to its first configure.
          *
@@ -212,12 +212,12 @@ public class LayerShellSurface internal constructor(
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
          *   Sent only when non-null.
-         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored
-         *   — a request the compositor answers by dropping the connection —
-         *   [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge], or
-         *   [KortexError.InvalidExclusiveZone] when an [ExclusiveZone.Reserve] reserves nothing.
+         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored,
+         *   a request the compositor answers by dropping the connection; [KortexError.InvalidExclusiveEdge]
+         *   when [anchor] does not pin [exclusiveEdge]; or [KortexError.InvalidExclusiveZone] when an
+         *   [ExclusiveZone.Reserve] reserves nothing.
          */
-        public fun create(
+        fun create(
             display: WaylandDisplay,
             namespace: String,
             height: Int,
