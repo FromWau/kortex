@@ -6,7 +6,7 @@ import kotlinx.serialization.json.Json
 
 /** One entry of `hyprctl monitors -j`. */
 @Serializable
-internal data class Monitor(
+internal data class HyprMonitor(
     val name: String,
     val x: Int,
     val y: Int,
@@ -69,9 +69,9 @@ internal object Hyprctl {
     }
 
     /** Every connected monitor, in the order Hyprland lists them. */
-    fun monitors(): List<Monitor> = JSON.decodeFromString(run("monitors", "-j"))
+    fun monitors(): List<HyprMonitor> = JSON.decodeFromString(run("monitors", "-j"))
 
-    fun monitorNames(): Set<String> = monitors().mapTo(mutableSetOf(), Monitor::name)
+    fun monitorNames(): Set<String> = monitors().mapTo(mutableSetOf(), HyprMonitor::name)
 
     /** Every monitor's layer-shell surfaces, keyed by monitor name. */
     fun layers(): Map<String, MonitorLayers> = JSON.decodeFromString(run("layers", "-j"))

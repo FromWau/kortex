@@ -266,7 +266,7 @@ class SurfacePresetTest {
         }
     }
 
-    private fun assertCentredInUsableArea(before: Monitor, width: Int, height: Int, geometry: LayerGeometry) {
+    private fun assertCentredInUsableArea(before: HyprMonitor, width: Int, height: Int, geometry: LayerGeometry) {
         val expectedX = before.usableX + (before.usableWidth - width) / 2
         val expectedY = before.usableY + (before.usableHeight - height) / 2
         assertTrue(
@@ -279,11 +279,11 @@ class SurfacePresetTest {
         )
     }
 
-    private fun monitor(name: String): Monitor =
+    private fun monitor(name: String): HyprMonitor =
         assertNotNull(Hyprctl.monitors().firstOrNull { it.name == name }, "hyprctl lost monitor $name")
 
     /** Polls [monitorName]'s reservation until [predicate] holds, since a reservation lands a frame late. */
-    private fun awaitReserved(monitorName: String, predicate: (Monitor) -> Boolean): Monitor {
+    private fun awaitReserved(monitorName: String, predicate: (HyprMonitor) -> Boolean): HyprMonitor {
         val deadline = System.nanoTime() + SETTLE_TIMEOUT_MILLIS * NANOS_PER_MILLI
         var reported = monitor(monitorName)
         while (!predicate(reported) && System.nanoTime() < deadline) {

@@ -27,7 +27,7 @@ class MultiSurfaceTest {
     @Test
     fun `a panel and an OSD keep their own level, size and content, and only the panel reserves space`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        val before = Hyprctl.monitors().associateBy(Monitor::name)
+        val before = Hyprctl.monitors().associateBy(HyprMonitor::name)
 
         display.use { wayland ->
             val shell = KortexShell.create(wayland, panelSpec(), osdSpec())
@@ -172,7 +172,7 @@ class MultiSurfaceTest {
     }
 
     /** Polls [monitor] until its usable area starts at [expected], since a reservation lands a frame late. */
-    private fun awaitUsableTop(monitor: String, expected: Int): Monitor {
+    private fun awaitUsableTop(monitor: String, expected: Int): HyprMonitor {
         val deadline = System.nanoTime() + HYPRCTL_SETTLE_MILLIS * NANOS_PER_MILLI
         var reported = monitor(monitor)
         while (reported.usableY != expected && System.nanoTime() < deadline) {
@@ -192,7 +192,7 @@ class MultiSurfaceTest {
         return namespaces
     }
 
-    private fun monitor(name: String): Monitor =
+    private fun monitor(name: String): HyprMonitor =
         assertNotNull(Hyprctl.monitors().firstOrNull { it.name == name }, "hyprctl lost monitor $name")
 
     /** Distinct, because a namespace mid-hotplug can transiently be reported under two monitors. */

@@ -12,7 +12,7 @@ import kotlin.test.assertNotNull
  * compositor's origin. Driving the client afterwards is the caller's, since what has to be pumped to
  * see the motion differs per test.
  */
-internal fun VirtualPointer.moveTo(monitor: Monitor, x: Int, y: Int) {
+internal fun VirtualPointer.moveTo(monitor: HyprMonitor, x: Int, y: Int) {
     motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
     frame()
 }
@@ -21,7 +21,7 @@ internal fun VirtualPointer.moveTo(monitor: Monitor, x: Int, y: Int) {
  * Clicks the left button at logical ([x], [y]) on [monitor]. The move and both buttons reach the compositor
  * together, so no other pointer device's motion can come between them and carry the click off its target.
  */
-internal fun VirtualPointer.clickAt(monitor: Monitor, x: Int, y: Int) {
+internal fun VirtualPointer.clickAt(monitor: HyprMonitor, x: Int, y: Int) {
     moveTo(monitor, x, y)
     button(BTN_LEFT, pressed = true)
     frame()

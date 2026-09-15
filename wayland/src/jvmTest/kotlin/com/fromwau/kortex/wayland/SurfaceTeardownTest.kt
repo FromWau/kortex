@@ -94,7 +94,7 @@ class SurfaceTeardownTest {
     }
 
     /** Moves the pointer and lets the compositor deliver the enter and leave the move produces. */
-    private fun moveTo(shell: KortexShell, pointer: VirtualPointer, monitor: Monitor, x: Int, y: Int) {
+    private fun moveTo(shell: KortexShell, pointer: VirtualPointer, monitor: HyprMonitor, x: Int, y: Int) {
         pointer.moveTo(monitor, x, y)
         shell.pumpOrFail(SETTLE_MILLIS)
     }
