@@ -60,7 +60,12 @@ class OutputGeometryTest {
                 assertEquals(expected.y, geometry.y, "${geometry.name}: y position mismatch")
                 assertEquals(expected.width, geometry.width, "${geometry.name}: mode width mismatch")
                 assertEquals(expected.height, geometry.height, "${geometry.name}: mode height mismatch")
-                assertEquals(expected.transform, geometry.transform, "${geometry.name}: transform mismatch")
+                // hyprctl reports a transform by the number wl_output.transform gives it.
+                assertEquals(
+                    expected.transform,
+                    TRANSFORM_WIRE_VALUES[geometry.transform],
+                    "${geometry.name}: transform mismatch, kortex published ${geometry.transform}",
+                )
                 // wl_output.scale is an integer and Hyprland ceil-rounds a fractional monitor scale.
                 assertEquals(ceil(expected.scale).toInt(), geometry.scale, "${geometry.name}: scale mismatch")
             }
@@ -108,7 +113,16 @@ class OutputGeometryTest {
         val strings = Arena.ofAuto()
 
         listener.onGeometry(
-            NONE, NONE, X, Y, 0, 0, 0, strings.allocateFrom("make"), strings.allocateFrom("model"), TRANSFORM,
+            NONE,
+            NONE,
+            X,
+            Y,
+            0,
+            0,
+            0,
+            strings.allocateFrom("make"),
+            strings.allocateFrom("model"),
+            TRANSFORM_WIRE_VALUES.getValue(TRANSFORM),
         )
         listener.onMode(NONE, NONE, flags = NOT_CURRENT, width = 640, height = 480, refresh = 0)
         listener.onMode(NONE, NONE, flags = CURRENT, width = 1920, height = 1080, refresh = 60_000)
@@ -130,6 +144,18 @@ class OutputGeometryTest {
         assertEquals(SCALE, geometry.scale)
         assertEquals(1920, geometry.width, "took a mode other than the one flagged current")
         assertEquals(1080, geometry.height, "took a mode other than the one flagged current")
+    }
+
+    @Test
+    fun `each of wl_output's eight transforms publishes as its own OutputTransform, and any other as Unrecognized`() {
+        val expected = TRANSFORM_WIRE_VALUES.entries.associate { (transform, wireValue) -> wireValue to transform } +
+            (UNLISTED_TRANSFORM_WIRE_VALUE to OutputTransform.Unrecognized(UNLISTED_TRANSFORM_WIRE_VALUE))
+
+        assertEquals(
+            expected,
+            expected.keys.associateWith(::publishedTransform),
+            "a wl_output.transform number did not publish as its own OutputTransform",
+        )
     }
 
     /**
@@ -160,6 +186,18 @@ class OutputGeometryTest {
         )
     }
 
+    /** The transform a listener publishes once a `geometry` carrying [wireValue], then `done`, have arrived. */
+    private fun publishedTransform(wireValue: Int): OutputTransform? {
+        val listener = OutputListener()
+        try {
+            listener.onGeometry(NONE, NONE, X, Y, 0, 0, 0, NONE, NONE, wireValue)
+            listener.onDone(NONE, NONE)
+            return listener.geometry?.transform
+        } finally {
+            listener.close()
+        }
+    }
+
     private companion object {
         const val WL_OUTPUT = "wl_output"
         const val CURRENT = 0x1
@@ -168,7 +206,7 @@ class OutputGeometryTest {
         const val Y = 13
         const val SCALE = 2
         const val RESCALED = 3
-        const val TRANSFORM = 3
+        val TRANSFORM = OutputTransform.Rotated270
         const val NAME = "SYNTH-1"
         const val DESCRIPTION = "Synthetic output for the current-mode-flag test"
         const val NAMESPACE = "kortex-geometry-test"

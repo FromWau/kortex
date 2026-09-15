@@ -68,8 +68,10 @@ JPEG, and drag and drop.
 ## Foundations
 
 - [x] **Output geometry.** `OutputListener` publishes position, transform, mode size, name, description
-      and scale on `done` (`WlOutput.kt`), reachable through a shown surface's own `monitor.geometry`.
-      (`OutputGeometryTest`)
+      and scale on `done` (`WlOutput.kt`), reachable through a shown surface's own `monitor.geometry`. The
+      transform is an `OutputTransform`: one of `wl_output.transform`'s eight values, or `Unrecognized` with
+      the number the compositor sent, so a value kortex does not know stays typed and nothing throws inside
+      the listener. (`OutputGeometryTest`)
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
       composition local; `compose` still knows nothing about wayland. A `LayerSurface` is a handle, and a
       shown surface's content reaches its own instance through the local. `size` is logical (surface-local)
@@ -236,9 +238,10 @@ JPEG, and drag and drop.
 - [x] `ContextMenu(monitor, at, menuSize)`, over `SurfaceConfig.contextMenu(at, menuSize, outputSize)`: places a menu so
       its top-left corner sits at `at`, flipping to whichever corner keeps it inside its monitor, independently per
       axis. `outputSize` is the monitor's logical size, its geometry's width and height over its scale, read as the
-      instance is built, so a host passes none. A monitor turned a quarter (`wl_output.transform` 90, 270, flipped_90
-      or flipped_270) has the two swapped, since `wl_output.mode` is the output's unturned size. The flip is a pure
-      function of its three inputs, so it needs no compositor to test. A menu wider
+      instance is built, so a host passes none. A monitor whose `OutputTransform` is a quarter turn, `Rotated90`,
+      `Rotated270`, `Flipped90` or `Flipped270`, has the two swapped, since `wl_output.mode` is the output's unturned
+      size; an `Unrecognized` transform counts as unturned. The flip is a pure function of its three inputs, so it
+      needs no compositor to test. A menu wider
       or taller than its monitor still flips on that axis: the anchored corner sits at `at` and the excess runs off
       the opposite edge, so the answer stays one consistent corner rather than a special case. It carries
       `ExclusiveZone.Overlap`, which is what makes `at` and `outputSize` the monitor's coordinates: a yielding menu

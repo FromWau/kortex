@@ -257,10 +257,7 @@ public abstract class ContextMenu<E : IError>(
 
 // A mode is the output's unturned size, so a quarter turn swaps its width and height on screen.
 private val OutputGeometry.logicalSize: IntSize
-    get() = when (transform) {
-        in QUARTER_TURNS -> IntSize(height / scale, width / scale)
+    get() = when {
+        transform.isQuarterTurn -> IntSize(height / scale, width / scale)
         else -> IntSize(width / scale, height / scale)
     }
-
-// wl_output.transform's 90, 270, flipped_90 and flipped_270.
-private val QUARTER_TURNS = setOf(1, 3, 5, 7)

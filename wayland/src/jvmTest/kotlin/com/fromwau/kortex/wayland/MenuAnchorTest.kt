@@ -142,7 +142,7 @@ class MenuAnchorTest {
     }
 
     /** The anchor and margins of a [MENU_SIZE] ContextMenu at [at], on a monitor whose mode is [OUTPUT], turned. */
-    private fun placementOnMonitorTurnedBy(transform: Int, at: IntOffset): Pair<Set<Edge>, Margins> =
+    private fun placementOnMonitorTurnedBy(transform: OutputTransform, at: IntOffset): Pair<Set<Edge>, Margins> =
         withUnboundMonitors(MONITOR_NAME, mode = OUTPUT, transform = transform) { (monitor) ->
             val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {
                 @Composable
@@ -164,9 +164,21 @@ class MenuAnchorTest {
         const val SCALE = 2
         const val MONITOR_NAME = "MENU-1"
 
-        // wl_output.transform's 90, 270, flipped_90 and flipped_270, then the other four.
-        val QUARTER_TURNS = listOf(1, 3, 5, 7)
-        val OTHER_TRANSFORMS = listOf(0, 2, 4, 6)
+        val QUARTER_TURNS = listOf(
+            OutputTransform.Rotated90,
+            OutputTransform.Rotated270,
+            OutputTransform.Flipped90,
+            OutputTransform.Flipped270,
+        )
+
+        // Unrecognized among them: a transform kortex does not know counts as unturned.
+        val OTHER_TRANSFORMS = listOf(
+            OutputTransform.Normal,
+            OutputTransform.Rotated180,
+            OutputTransform.Flipped,
+            OutputTransform.Flipped180,
+            OutputTransform.Unrecognized(UNLISTED_TRANSFORM_WIRE_VALUE),
+        )
 
         // A menu CLEAR_MARGIN in from the bottom-right corner of the size it is measured against.
         val FLIPPED_BOTH_AXES =

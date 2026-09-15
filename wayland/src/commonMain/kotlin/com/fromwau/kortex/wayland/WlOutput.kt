@@ -16,8 +16,8 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  * @property description a human-readable label for the output.
  * @property x the output's position in the compositor's global logical space.
  * @property y the output's position in the compositor's global logical space.
- * @property transform `wl_output.transform`'s wire value: 0 is unrotated, and higher values are the
- *   rotations and flips the protocol enumerates from there.
+ * @property transform how the monitor is turned and mirrored. [width] and [height] are its unturned mode, so on a
+ *   monitor turned a quarter they swap on screen.
  * @property width the current mode's width in physical (buffer) pixels. Dividing by [scale] gives the
  *   width in logical pixels, the unit a surface's size and a [ContextMenu]'s `at` are in, but only exactly
  *   at an integer [scale]. kortex binds no `wp_fractional_scale_v1`, so a fractionally scaled output's
@@ -32,11 +32,54 @@ public data class OutputGeometry(
     public val description: String,
     public val x: Int,
     public val y: Int,
-    public val transform: Int,
+    public val transform: OutputTransform,
     public val width: Int,
     public val height: Int,
     public val scale: Int,
 )
+
+/**
+ * How the compositor turns and mirrors a monitor's picture. Turns run counter-clockwise, and a flipped transform
+ * mirrors the picture around a vertical axis before it turns it.
+ */
+public sealed interface OutputTransform {
+    /**
+     * Whether the monitor is turned a quarter, 90 or 270 degrees, mirrored or not, which swaps its width and height
+     * on screen. [Unrecognized] is not.
+     */
+    public val isQuarterTurn: Boolean
+        get() = when (this) {
+            Rotated90, Rotated270, Flipped90, Flipped270 -> true
+            Normal, Rotated180, Flipped, Flipped180, is Unrecognized -> false
+        }
+
+    /** Neither turned nor mirrored. */
+    public data object Normal : OutputTransform
+
+    /** Turned 90 degrees. */
+    public data object Rotated90 : OutputTransform
+
+    /** Turned 180 degrees. */
+    public data object Rotated180 : OutputTransform
+
+    /** Turned 270 degrees. */
+    public data object Rotated270 : OutputTransform
+
+    /** Mirrored, and not turned. */
+    public data object Flipped : OutputTransform
+
+    /** Mirrored, then turned 90 degrees. */
+    public data object Flipped90 : OutputTransform
+
+    /** Mirrored, then turned 180 degrees. */
+    public data object Flipped180 : OutputTransform
+
+    /** Mirrored, then turned 270 degrees. */
+    public data object Flipped270 : OutputTransform
+
+    /** A transform kortex does not know, with the number the compositor sent for it. */
+    public data class Unrecognized(public val wireValue: Int) : OutputTransform
+}
 
 /**
  * Reads a `wl_output`'s geometry (position and transform), current mode, name, description and scale,
@@ -56,7 +99,7 @@ internal class OutputListener {
 
     private var pendingX = 0
     private var pendingY = 0
-    private var pendingTransform = 0
+    private var pendingTransform: OutputTransform = OutputTransform.Normal
     private var pendingName = ""
     private var pendingDescription = ""
     private var pendingWidth = 0
@@ -77,7 +120,7 @@ internal class OutputListener {
     ) {
         pendingX = x
         pendingY = y
-        pendingTransform = transform
+        pendingTransform = outputTransform(transform)
     }
 
     fun onMode(data: MemorySegment, proxy: MemorySegment, flags: Int, width: Int, height: Int, refresh: Int) {
@@ -159,5 +202,18 @@ internal class OutputListener {
 
         // wl_output.xml: "the client should assume a scale of 1" if the event is never sent.
         private const val DEFAULT_SCALE = 1
+
+        // wayland.xml's wl_output.transform numbering. Never throws: it runs inside a libwayland callback.
+        private fun outputTransform(wireValue: Int): OutputTransform = when (wireValue) {
+            0 -> OutputTransform.Normal
+            1 -> OutputTransform.Rotated90
+            2 -> OutputTransform.Rotated180
+            3 -> OutputTransform.Rotated270
+            4 -> OutputTransform.Flipped
+            5 -> OutputTransform.Flipped90
+            6 -> OutputTransform.Flipped180
+            7 -> OutputTransform.Flipped270
+            else -> OutputTransform.Unrecognized(wireValue)
+        }
     }
 }
