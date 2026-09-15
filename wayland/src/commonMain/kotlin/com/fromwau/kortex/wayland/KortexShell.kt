@@ -73,10 +73,10 @@ internal class ShownSurface(
     /**
      * How its surface ended by itself, once it has: the first ending an instance of the class it shows asked for,
      * else its content's crash, else the compositor's close, or a test's [KortexSurface.simulateCompositorClose]. Loop
-     * thread only; reading it forgets an ending asked for by a class the Show no longer shows.
+     * thread only; calling it forgets an ending asked for by a class the Show no longer shows.
      */
-    val ownEnding: EmptyResult<SurfaceError<IError>>?
-        get() = standingRequest(ask = null)?.ending ?: surface?.let { placed ->
+    fun ownEnding(): EmptyResult<SurfaceError<IError>>? =
+        standingRequest(ask = null)?.ending ?: surface?.let { placed ->
             placed.crash?.let { Err(SurfaceError.Failed(it)) } ?: Ok(Unit).takeIf { placed.closed }
         }
 
@@ -263,7 +263,7 @@ internal class KortexShell private constructor(
         // A monitor's surfaces end with it, whether or not the compositor closes them, and before its output goes.
         placed
             .filter { it.placedWith?.monitor?.output === output }
-            .forEach { shown -> end(shown, shown.ownEnding ?: Ok(Unit)) }
+            .forEach { shown -> end(shown, shown.ownEnding() ?: Ok(Unit)) }
         output.destroy()
     }
 
@@ -298,7 +298,7 @@ internal class KortexShell private constructor(
         if (shown.reported) return
         // Once the application's own code has thrown, surfaces only go: nothing more is placed.
         if (applicationCrash.get() != null) return end(shown, Ok(Unit))
-        val ownEnding = shown.ownEnding
+        val ownEnding = shown.ownEnding()
         // Not left to the Show's own dispose, which Compose skips once an earlier cleanup in that content throws.
         val wanted = shown.wanted.takeUnless { shown.parentGone }
         when {
