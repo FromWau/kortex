@@ -1,11 +1,13 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshots.Snapshot
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.ceil
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -66,22 +68,25 @@ class OutputGeometryTest {
     }
 
     @Test
-    fun `a surface's monitor geometry is reachable through the surface that was shown on it`() {
+    fun `a surface's monitor geometry is reachable through the surface's own monitor, not just rememberMonitors()`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val shown = AtomicReference<TestSurface<Nothing>>()
 
         display.use { wayland ->
             val content: @Composable KortexApplicationScope.() -> Unit = {
                 val monitors by rememberMonitors()
-                monitors.firstOrNull()?.let { Show(TestSurface<Nothing>(NAMESPACE, monitor = it)) }
+                monitors.firstOrNull()?.let { monitor ->
+                    val surface = TestSurface<Nothing>(NAMESPACE, monitor = monitor)
+                    SideEffect { shown.set(surface) }
+                    Show(surface)
+                }
             }
             val shell = KortexShell.createApplicationOrFail(wayland, content)
 
             shell.useOrFail {
                 awaitPlaced(shell)
-                val monitor = assertNotNull(
-                    shell.monitors.value.firstOrNull(),
-                    "the application listed no monitor to read geometry through",
-                )
+                val surface = assertNotNull(shown.get(), "content never built a surface to read geometry through")
+                val monitor = assertNotNull(surface.monitor, "the shown surface was not put on a monitor")
                 val published = monitor.geometry
                 val expected = assertNotNull(
                     Hyprctl.monitors().firstOrNull { it.name == published.name },

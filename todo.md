@@ -68,17 +68,14 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
 ## Foundations
 
 - [x] **Output geometry.** `OutputListener` publishes position, transform, mode size, name, description
-      and scale on `done` (`WlOutput.kt`), reachable through `KortexShell.activeSurfaces` and
-      `ActiveSurface.geometry` — both public, so a host can read an output's logical size and hand it to
-      `SurfaceConfig.contextMenu`. (`OutputGeometryTest`)
+      and scale on `done` (`WlOutput.kt`), reachable through a shown surface's own `monitor.geometry`.
+      (`OutputGeometryTest`)
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
       composition local, provided by `KortexSurface.setContent` around the caller's content; `compose`
       still knows nothing about wayland. `size` is logical (surface-local) pixels, backed by Compose state,
       and a configure recomposes a reader (`RecompositionTest`). `close()` posts onto the surface's queue
       and sets the same flag a real `zwlr_layer_surface_v1.closed` would, so `KortexShell.serviceSurfaces`
-      reaps a self-close through the one existing teardown path. No `awaitClose()`: the blocking entry
-      point is already the host's wait, and it returns once content has closed the last surface.
-      (`SurfaceHandleTest`)
+      reaps a self-close through the one existing teardown path. (`SurfaceHandleTest`)
 - [x] **Several independent surfaces on one connection.** `runSurfaces(vararg SurfaceSpec)` is the general
       entry point and `runBar` is one spec over it. A `SurfaceSpec` pairs a `SurfaceConfig` with an
       `OutputTarget` — `EveryOutput` for one surface per `wl_output`, following hotplug, `CompositorChoice`
@@ -349,7 +346,10 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       those while closing included, reaches the host's `onCrashSurface` once, so the host can log its cause's
       stack trace; `runSurfaces`, `runBar` and `KortexShell.create` take it. A surface that fails to open or
       to be placed on hotplug, and a failed shm reallocation on resize, return their `KortexError` the same way
-      instead of throwing. (`KortexSceneTest`, `ContentFailureTest`, `KeyboardDeliveryTest`)
+      instead of throwing. A `Show`n surface's crash does not end the run this way: it reports
+      `Failed(SurfaceCrashed)` to its own `onClose` and the run goes on, which `ContentFailureTest` now pins;
+      the "shown surface reports each ending" entry above covers the rest of that rule.
+      (`KortexSceneTest`, `KeyboardDeliveryTest`)
 - [x] **A state change read only while drawing or placing redraws.** Compose reports a change that
       recomposes nothing through the scene's `invalidateDraw` and `invalidateLayout`, not the recomposer.
       That covers a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
@@ -366,8 +366,8 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       child JVM the way `ContentFailureTest` runs `CrashedSurfaceProbe`, both through one shared
       `runProbe` helper, since a throw escaping a real `wl_pointer` callback would otherwise end the JVM
       running the tests. The click reaches it through `VirtualPointer.clickAt`, the same path
-      `VirtualPointerClickTest` drives; the run ends with `KortexError.SurfaceCrashed` whose failure is
-      `ContentFailure.PointerInput`, reaching `onCrashSurface` once, while the probe's own process exits
+      `VirtualPointerClickTest` drives; the surface ends with `KortexError.SurfaceCrashed` whose failure is
+      `ContentFailure.PointerInput`, reaching its own `onClose` once, while the probe's own process exits
       cleanly. Its content closes its own surface if no click ever lands, so a missed click fails the test
       on the probe's own output instead of a kill. (`VirtualPointerCrashTest`)
 - [x] **The bar demo logs its crashes.** `Main.kt`'s `onCrashSurface` appends each crash's ISO-8601 instant,
@@ -533,12 +533,12 @@ opened at y=56, its own height, which is where the bar would begin if nothing el
       Its close returns once the bound's rounds have run, the shell's passes run the rest beside every
       other surface's work, and the shell's final drain stops at the same bound.
       (`LoopQueueTest`, `SurfaceCloseCancellationTest`, `SurfaceCreateFailureTest`)
-- [x] **Ten tests across seven classes hotplug an output, and the default build leaves them out.**
+- [x] **Seven tests across six classes hotplug an output, and the default build leaves them out.**
       `@Hotplug` (`Hotplug.kt`, `wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland`) tags every test
       in `KortexShellTest`, `MultiSurfaceTest`, `NamedOutputTest`, `OutputHotplugTest`,
-      `OutputReleaseWireTest`, `SurfaceOpenTest` and `SurfaceScaleTest` that reaches
-      `Hyprctl.createHeadlessOutput`, and `settings.gradle.kts` excludes the tag from every `Test` task
-      unless `-Pkortex.hotplugTests=true`, which also sets the `kortex.hotplugTests` system property.
+      `OutputReleaseWireTest` and `SurfaceScaleTest` that reaches `Hyprctl.createHeadlessOutput`, and
+      `settings.gradle.kts` excludes the tag from every `Test` task unless `-Pkortex.hotplugTests=true`,
+      which also sets the `kortex.hotplugTests` system property.
       Outside Gradle, IntelliJ's own JUnit runner included, the tagged tests are reported disabled unless
       that system property is `true`.
       That opt-in still hotplugs the live desktop the tests run on: Hyprland (0.56.2) re-sends dmabuf
