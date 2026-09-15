@@ -618,6 +618,33 @@ class ShowTest {
     }
 
     @Test
+    fun `a Show queued in the pass the application crashes in is never placed`() {
+        val showSecond = mutableStateOf(false)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val first = TestSurface<Nothing>(NAMESPACE, onClose = { error(ON_CLOSE_FAILURE) })
+            Show(first)
+            if (showSecond.value) {
+                Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT))
+                // Ending the first as the second is shown brings both to one pass, which reconciles the first first.
+                SideEffect { first.close() }
+            }
+        }
+
+        onCrashingApplication(content) { shell ->
+            awaitPlaced(shell)
+
+            showSecond.value = true
+
+            val crash = assertIs<KortexError.ApplicationCrashed>(
+                shell.pump(PUMP_MILLIS).errorOrNull(),
+                "an onClose that threw did not end the run as ApplicationCrashed",
+            )
+            assertTrue(shell.shownSurfaces.isEmpty(), "a Show queued in the pass the application crashed in was placed")
+            crash
+        }
+    }
+
+    @Test
     fun `UI placed directly in the application's content ends the run as ApplicationCrashed with no onClose`() {
         val addUi = mutableStateOf(false)
         val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()

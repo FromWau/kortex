@@ -411,6 +411,8 @@ public class KortexShell private constructor(
 
     private fun reconcile(shown: ShownSurface) {
         if (shown.reported) return
+        // Once the application's own code has thrown, surfaces only go: nothing more is placed.
+        if (applicationCrash.get() != null) return end(shown, Ok(Unit))
         val ownEnding = shown.ownEnding
         val wanted = shown.wanted
         when {
