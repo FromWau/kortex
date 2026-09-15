@@ -54,7 +54,9 @@ import kotlin.reflect.KClass
  * application.
  *
  * @property monitor the monitor to put the surface on, one [rememberMonitors] lists; null lets the compositor choose.
- * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`, exactly as written.
+ *   When that monitor is unplugged, the surface ends, and [onClose] receives `Ok(Unit)`.
+ * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`, exactly as written, whichever
+ *   monitor it is on: name a surface you show on every monitor `"bar-${monitor.name}"`, say, to tell them apart.
  * @property layer which layer the surface sits in.
  * @property anchor the edges the surface is pinned to. Pinning both edges of an [Axis] spans that axis, and pinning
  *   none centres the surface.
@@ -68,10 +70,11 @@ import kotlin.reflect.KClass
  *   corner.
  * @property keyboard whether the surface can take keyboard focus.
  * @property onClose called once when the surface ends, after it has gone, on the thread that runs
- *   [kortexApplication]. It receives `Ok(Unit)` when `close()` is called, the compositor closes the surface, or its
- *   [Show] leaves composition, `exitApplication()` included. It receives [SurfaceError.Closed] when `close(error)`
- *   is called, and [SurfaceError.Failed] when the surface could not be placed or its content threw. If it throws,
- *   the application ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
+ *   [kortexApplication]. It receives `Ok(Unit)` when `close()` is called, the compositor closes the surface, its
+ *   [monitor] is unplugged, or its [Show] leaves composition: taken out, gone with the surface whose content showed
+ *   it, or ended by `exitApplication()`. It receives [SurfaceError.Closed] when `close(error)` is called, and
+ *   [SurfaceError.Failed] when the surface could not be placed or its content threw. If it throws, the application
+ *   ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
  */
 public abstract class LayerSurface<E : IError>(
     public val monitor: Monitor? = null,
@@ -90,7 +93,11 @@ public abstract class LayerSurface<E : IError>(
     @Volatile
     internal var heldBy: ShownSurface? = null
 
-    /** The content drawn on the surface, with this instance as `this`. */
+    /**
+     * The content drawn on the surface, with this instance as `this`. Composables further down reach this instance as
+     * `LocalKortexSurface.current` and the clipboard as [LocalKortexClipboard]; a [Show] in here puts a surface of its
+     * own on screen for as long as this one runs.
+     */
     @Composable
     public abstract fun invoke()
 

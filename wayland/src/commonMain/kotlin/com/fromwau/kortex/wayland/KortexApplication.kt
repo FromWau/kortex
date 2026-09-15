@@ -67,17 +67,21 @@ public fun kortexApplication(
     }
 
 /**
- * Keeps [surface] on screen while this call is in composition in [kortexApplication]'s content.
+ * Keeps [surface] on screen while this call is in composition, in [kortexApplication]'s content or in a surface's
+ * own content.
  *
  * The surface appears shortly after `Show` enters composition, and goes when `Show` leaves it, reporting `Ok(Unit)`
- * to its `onClose`. Each recomposition hands `Show` a new instance. While the instances keep one class and equal
- * settings, the surface keeps running with the newest instance's content and `onClose`. When the class or the
- * settings change, a new surface replaces it, and no `onClose` is called.
+ * to its `onClose`. A `Show` in a surface's `invoke()` leaves composition when that surface ends, however it ends,
+ * so the surface it shows goes then too.
+ *
+ * Each recomposition hands `Show` a new instance. While the instances keep one class and equal settings, the
+ * surface keeps running with the newest instance's content and `onClose`. When the class or the settings change, a
+ * new surface replaces it, and no `onClose` is called.
  *
  * Once the surface has ended by itself, in any of the ways [LayerSurface.onClose] lists, `Show` shows nothing until
  * you take it out of composition and put it back. Taking it out reports nothing more.
  *
- * @throws IllegalStateException when called outside [kortexApplication]'s content.
+ * @throws IllegalStateException when called anywhere else.
  */
 @Composable
 public fun Show(surface: LayerSurface<*>) {
@@ -92,7 +96,25 @@ public fun Show(surface: LayerSurface<*>) {
     }
 }
 
-/** The monitors connected to the desktop, as state. */
+/**
+ * The monitors connected to the desktop, as state: content that reads it recomposes when a monitor is plugged in or
+ * unplugged. Key what you show by the monitor, so each surface stays with its own monitor as others come and go:
+ *
+ * ```kotlin
+ * kortexApplication {
+ *     val monitors by rememberMonitors()
+ *     for (monitor in monitors) key(monitor) {
+ *         Show(StatusBar(monitor))
+ *     }
+ * }
+ * ```
+ *
+ * A monitor is listed once the compositor has described it. It leaves the list when it is unplugged, and every
+ * surface on it ends then, as [LayerSurface.onClose] describes. Call it in [kortexApplication]'s content or in a
+ * surface's content.
+ *
+ * @throws IllegalStateException when called anywhere else.
+ */
 @Composable
 public fun rememberMonitors(): State<List<Monitor>> = LocalKortexShell.current.monitors
 

@@ -174,7 +174,7 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       subclass: its class and the values it passes to `LayerSurface`'s constructor are its settings, and its
       `invoke()` is its content. `Show(surface)` queues a placement from a `DisposableEffect` keyed on the
       settings, and the shell places the surface in its next pass, never inside composition, under its namespace
-      as written, on the output the compositor chooses. Content reads the surface's size from its first
+      as written, on its monitor or the compositor's choice. Content reads the surface's size from its first
       composition on. A new instance with the same settings keeps the surface, which composes the newest
       instance's `invoke()` and reports to its `onClose`; changed settings, another class among them, replace the
       surface and report nothing. Every ending reports once, on the loop thread, after the surface has gone:
@@ -190,9 +190,21 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       content or an `onClose`, ends the run as `ApplicationCrashed`: no `onClose` is called after it, and nothing
       more is placed. Nothing else ends the run: an application with nothing on screen keeps running. An
       application whose compositor lacks `wl_compositor`, `wl_shm` or `zwlr_layer_shell_v1` fails as it starts,
-      with `MissingGlobal`. Three paths are covered by reading rather than by a test: a connection that dies under
-      the run, which ends it with the connection's error; a shown surface whose tick fails, which ends as
-      `Failed`; and that startup check's call, whose check itself is tested. (`ShowTest`)
+      with `MissingGlobal`. `rememberMonitors()`, in the application's content or a surface's, is snapshot state
+      listing a `Monitor` for each bound `wl_output` once the round trip after its bind has brought its first
+      `done`, and dropping it as its global is removed. A `Monitor` is equal by the output it stands for; its
+      `name` is `wl_output.name` and its `geometry` the output's own snapshot state, so a new mode makes no new
+      monitor. `LayerSurface.monitor` puts a surface on that output's own `wl_output`, under its namespace as
+      written, and is one of the settings, so a changed monitor replaces the surface. A surface asked for on a
+      monitor that has gone reports `Ok(Unit)` and is never placed, and one on a monitor whose global is removed
+      ends then, reporting `Ok(Unit)` whether or not the compositor closes it. A surface's content reaches its
+      instance as `LocalKortexSurface.current`, the typed clipboard as `LocalKortexClipboard.current` and the
+      shell, so a `Show` there places a surface of its own; a surface that ends, removed or crashed, takes the
+      surfaces its content showed with it, each reporting `Ok(Unit)`. Four paths are covered by reading rather
+      than by a test: a connection that dies under the run, which ends it with the connection's error; a shown
+      surface whose tick fails, which ends as `Failed`; that startup check's call, whose check itself is tested;
+      and a monitor plugged in while the application runs, which is listed after the round trip that follows its
+      bind. (`ShowTest`, `MonitorTest`)
 - [ ] **Two failures of one scene on two threads can end a spec surface's run with a different failure than the
       scene keeps.** `KortexScene.record` sets the first failure by compare-and-set and then calls `onFailure`
       (`KortexScene.kt:227-230`). Two threads can make those calls in either order, so the failure the scene
