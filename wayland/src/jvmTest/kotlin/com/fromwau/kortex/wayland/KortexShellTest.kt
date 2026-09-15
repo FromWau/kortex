@@ -51,6 +51,7 @@ class KortexShellTest {
             val shell = KortexShell.createApplicationOrFail(wayland, content)
 
             shell.useOrFail {
+                awaitPlaced(shell)
                 assertEquals(1, shell.shownSurfaces.size, "expected exactly one surface before any hotplug")
 
                 var pending: String? = null
@@ -108,8 +109,8 @@ class KortexShellTest {
     }
 
     /**
-     * Every distinct namespace on screen this content could have shown, i.e. "$NAMESPACE-<monitor name>" —
-     * distinct because a namespace mid-hotplug can transiently be reported under two monitors, and that
+     * Every distinct namespace on screen this content could have shown, i.e. "$NAMESPACE-<monitor name>".
+     * Distinct because a namespace mid-hotplug can transiently be reported under two monitors, and that
      * must count as one namespace, not two.
      */
     private fun kortexLayerNamespaces(): Set<String> =
