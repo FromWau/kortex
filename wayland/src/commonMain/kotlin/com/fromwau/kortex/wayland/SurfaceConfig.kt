@@ -57,8 +57,8 @@ internal enum class MenuAnchor {
 }
 
 /**
- * Insets from the anchor point, in `set_margin`'s wire order (top, right, bottom, left) — not the CSS
- * order a reader may assume. A margin on an edge that is not anchored has no effect.
+ * Insets from the anchor point, top, right, bottom and left, in the order CSS writes them. A margin on an edge that
+ * is not anchored has no effect.
  */
 public data class Margins(
     public val top: Dp = 0.dp,
