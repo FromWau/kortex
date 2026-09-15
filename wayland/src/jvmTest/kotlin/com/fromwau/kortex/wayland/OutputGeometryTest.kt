@@ -129,8 +129,8 @@ class OutputGeometryTest {
 
     /**
      * A re-sent scale or mode replaces the published geometry whole, at any time, so content reading it
-     * through [KortexHost] has to recompose; that needs both the read and the write to reach the
-     * snapshot system rather than a plain field.
+     * through a surface's own [Monitor.geometry] has to recompose; that needs both the read and the write
+     * to reach the snapshot system rather than a plain field.
      */
     @Test
     fun `reading and republishing geometry reaches the snapshot system`() {
