@@ -174,9 +174,9 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       surface and report nothing. Every ending reports once, on the loop thread, after the surface has gone, and
       names how it ended: `close()` reports `Ok(SurfaceEnd.Closed)`, the compositor closing it
       `Ok(SurfaceEnd.ClosedByCompositor)`, its monitor unplugged `Ok(SurfaceEnd.MonitorUnplugged)`, and its `Show`
-      leaving composition `Ok(SurfaceEnd.LeftComposition)`, each case pinned by a test that fails if another comes
-      back; `close(error)` reports `Err(SurfaceError.Closed(error))`, and an unplaceable surface `SurfaceError.Failed`
-      with the reason. Content that throws ends only its own surface, reporting `Failed(SurfaceCrashed)` with the
+      leaving composition `Ok(SurfaceEnd.LeftComposition)`; `close(error)` reports `Err(SurfaceError.Closed(error))`,
+      and an unplaceable surface `SurfaceError.Failed` with the reason. Content that throws ends only its own
+      surface, reporting `Failed(SurfaceCrashed)` with the
       scene's first failure, and so does cleanup that throws as the surface goes, whatever else ended it. An
       ending and a removal in one pass report the ending, and a `Show` taken out after its surface ended reports
       nothing more. `close()` and `close(error)` act on the `Show`'s surface from any of its instances of the

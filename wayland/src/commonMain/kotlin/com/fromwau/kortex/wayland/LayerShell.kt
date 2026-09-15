@@ -122,7 +122,8 @@ internal class LayerShellSurface(
     /**
      * Blocks until the compositor has configured this surface, acknowledging the serial it sent.
      *
-     * @return the connection's error when it died before a configure came, else [KortexError.SurfaceNotConfigured].
+     * @return `Ok` once configured; else the connection's error when it died before a configure came, else
+     *   [KortexError.SurfaceNotConfigured].
      */
     fun waitForConfigure(): EmptyResult<KortexError> {
         display.roundtrip()
@@ -212,11 +213,10 @@ internal class LayerShellSurface(
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
          *   Sent only when non-null.
-         * @return [KortexError.NegativeSize] when [width] or [height] is below 0, which `set_size` would read as a
-         *   size above four billion; [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges
-         *   anchored, a request the compositor answers by dropping the connection; [KortexError.InvalidExclusiveEdge]
-         *   when [anchor] does not pin [exclusiveEdge]; or [KortexError.InvalidExclusiveZone] when an
-         *   [ExclusiveZone.Reserve] reserves nothing.
+         * @return [KortexError.NegativeSize] when [width] or [height] is below 0; [KortexError.UnspannableAxis] when an
+         *   axis is left 0 without both of its edges anchored, a request the compositor answers by dropping the
+         *   connection; [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge]; or
+         *   [KortexError.InvalidExclusiveZone] when an [ExclusiveZone.Reserve] reserves nothing.
          */
         fun create(
             display: WaylandDisplay,
