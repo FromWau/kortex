@@ -78,9 +78,11 @@ import kotlin.reflect.KClass
  *   is unplugged, and [SurfaceEnd.LeftComposition] when its [Show] leaves composition: taken out, gone with the
  *   surface whose content showed it, or ended by `exitApplication()`. It receives [SurfaceError.Closed] when
  *   `close(error)` is called, and [SurfaceError.Failed] when the surface could not be placed, failed to follow a
- *   new size or scale from the compositor, or its content threw. Content that throws before the surface has gone,
- *   its cleanup as it goes included, makes it [SurfaceError.Failed] whatever else ended it. If `onClose` itself
- *   throws, the application ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
+ *   new size or scale from the compositor, its content threw, or the connection to the compositor failed. For a
+ *   failed connection, [SurfaceError.Failed] carries the same error [kortexApplication] returns. Content that
+ *   throws before the surface has gone, its cleanup as it goes included, makes it [SurfaceError.Failed] whatever
+ *   else ended it. If `onClose` itself throws, the application ends with [KortexError.ApplicationCrashed], and no
+ *   other `onClose` is called.
  */
 public abstract class LayerSurface<E : IError>(
     public val monitor: Monitor? = null,
@@ -212,8 +214,9 @@ public sealed interface SurfaceError<out E : IError> : IError {
 
     /**
      * kortex ended the surface: its content threw, as [KortexError.SurfaceCrashed]; it could not be placed, as
-     * [KortexError.UnspannableAxis], say; or it failed to follow a new size or scale from the compositor, as
-     * [KortexError.ShmAllocationFailed].
+     * [KortexError.UnspannableAxis], say; it failed to follow a new size or scale from the compositor, as
+     * [KortexError.ShmAllocationFailed]; or the connection to the compositor failed, as the same error
+     * [kortexApplication] returns.
      */
     public data class Failed(public val error: KortexError) : SurfaceError<Nothing>
 }

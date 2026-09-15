@@ -193,14 +193,16 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       removed ends then, reporting it too, whether or not the compositor closes it. A surface's content reaches its
       instance as `LocalKortexSurface.current`, the typed clipboard as `LocalKortexClipboard.current` and the
       shell, so a `Show` there places a surface of its own; a surface that ends, removed or crashed, takes the
-      surfaces its content showed with it, each reporting `LeftComposition`. Three paths are covered by reading rather
-      than by a test: a connection that dies under the run, which ends it with the connection's error; a shown
-      surface whose tick fails, which ends as `Failed`; and that startup check's call, whose check itself is
-      tested. A monitor plugged in while the application runs, listed after the round trip that follows its
-      bind, is tested only by `@Hotplug` tests, which run once `-Pkortex.hotplugTests=true` opts them in.
-      (`ShowTest`, which pins `Closed` and `LeftComposition`, and `ClosedByCompositor` with `CompositorChoiceTest`;
-      `MonitorTest`, which pins `MonitorUnplugged` on both of its paths; and `KortexShellTest` and `MultiSurfaceTest`
-      for a monitor plugged in)
+      surfaces its content showed with it, each reporting `LeftComposition`. A connection that dies under the run
+      ends it with the connection's error, and every surface still shown reports that same error to its `onClose`
+      as `Failed`; the test ends only its own connection, with a bind of a global the compositor never advertised.
+      Two paths are covered by reading rather than by a test: a shown surface whose tick fails, which ends as
+      `Failed`; and that startup check's call, whose check itself is tested. A monitor plugged in while the
+      application runs, listed after the round trip that follows its bind, is tested only by `@Hotplug` tests,
+      which run once `-Pkortex.hotplugTests=true` opts them in.
+      (`ShowTest`, which pins `Closed`, `LeftComposition` and a dying connection's `Failed`, and `ClosedByCompositor`
+      with `CompositorChoiceTest`; `MonitorTest`, which pins `MonitorUnplugged` on both of its paths; and
+      `KortexShellTest` and `MultiSurfaceTest` for a monitor plugged in)
 - [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
       `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
       clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.

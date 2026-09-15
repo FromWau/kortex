@@ -630,6 +630,41 @@ class ShowTest {
     }
 
     @Test
+    fun `a connection that dies under the run ends it with its error, which each shown surface reports as Failed`() {
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+                    LaunchedEffect(Unit) { killConnection(display) }
+                },
+            )
+            // Ends a run the kill failed to end, which then returns Ok and fails the test.
+            LaunchedEffect(Unit) {
+                delay(PUMP_MILLIS)
+                exitApplication()
+            }
+        }
+
+        display.use {
+            val shell = KortexShell.createApplicationOrFail(display, content)
+            val run = shell.runEventLoop()
+            assertEquals(Ok(Unit), shell.close(), "closing the application on a dead connection did not return Ok")
+
+            val violation = assertIs<KortexError.ProtocolViolation>(
+                run.errorOrNull(),
+                "a run whose connection died did not end with its protocol error: $run",
+            )
+            assertEquals("wl_registry", violation.interfaceName, "the run's protocol error named another object")
+            assertEquals(
+                listOf(Err(SurfaceError.Failed(violation))),
+                reports.toList(),
+                "the shown surface did not report the connection's error as Failed once",
+            )
+        }
+    }
+
+    @Test
     fun `an application with no surface shown keeps running, and a Show added later still places`() {
         val showing = mutableStateOf(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {

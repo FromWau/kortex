@@ -50,7 +50,9 @@ public interface KortexApplicationScope {
  *   `invoke()`.
  * @return `Ok(Unit)` once `exitApplication()` has ended the application, with every surface's `onClose` called.
  *   [KortexError.NoCompositorResponse], [KortexError.ConnectionError], [KortexError.ProtocolViolation] or
- *   [KortexError.MissingGlobal] when the compositor cannot be reached, goes away, or lacks what kortex needs.
+ *   [KortexError.MissingGlobal] when the compositor cannot be reached, goes away, or lacks what kortex needs. When
+ *   the connection fails while the application runs, the `onClose` of every surface you still show receives that
+ *   same error, as `Err(SurfaceError.Failed(error))`.
  *   [KortexError.ApplicationCrashed] when your own code threw, UI placed directly in [content] included.
  */
 public fun kortexApplication(

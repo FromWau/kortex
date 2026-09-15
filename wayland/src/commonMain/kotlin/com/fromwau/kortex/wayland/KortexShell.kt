@@ -150,6 +150,10 @@ internal class KortexShell private constructor(
     // The first throw of the application's own code, which ends the run; no onClose is called after it.
     private val applicationCrash = AtomicReference<KortexError.ApplicationCrashed?>(null)
 
+    // What a Show that leaves composition reports. Once the connection has died, every Show leaves because of it, not
+    // the host, so they report its error. Loop thread only.
+    private var leaving: Result<SurfaceEnd, SurfaceError<IError>> = Ok(SurfaceEnd.LeftComposition)
+
     private val application = ApplicationComposition(loopQueue, display::wake, ::applicationFailed)
 
     private val applicationScope = object : KortexApplicationScope {
@@ -190,7 +194,9 @@ internal class KortexShell private constructor(
             if (exitRequested) break
             if (!display.awaitWork(nextDeadlineNanos())) {
                 // The application did not ask to stop, so the connection dying is its error.
-                return display.requireAlive().flatMap { Err(KortexError.NoCompositorResponse) }
+                return display.requireAlive()
+                    .flatMap { Err(KortexError.NoCompositorResponse) }
+                    .onError { lost -> leaving = Err(SurfaceError.Failed(lost)) }
             }
             serviceSurfaces().getOrElse { return Err(it) }
         }
@@ -322,14 +328,14 @@ internal class KortexShell private constructor(
     private fun reconcile(shown: ShownSurface) {
         if (shown.reported) return
         // Once the application's own code has thrown, surfaces only go: nothing more is placed.
-        if (applicationCrash.get() != null) return end(shown, Ok(SurfaceEnd.LeftComposition))
+        if (applicationCrash.get() != null) return end(shown, leaving)
         val ownEnding = shown.ownEnding()
         // Not left to the Show's own dispose, which Compose skips once an earlier cleanup in that content throws.
         val wanted = shown.wanted.takeUnless { shown.parentGone }
         when {
             // First: a surface that ended by itself before its Show left reports how it ended.
             ownEnding is OwnEnding.Ended -> end(shown, ownEnding.ending)
-            wanted == null -> end(shown, Ok(SurfaceEnd.LeftComposition))
+            wanted == null -> end(shown, leaving)
             shown.surface == null -> place(shown, wanted)
             shown.placedWith != wanted -> replace(shown, wanted)
         }
