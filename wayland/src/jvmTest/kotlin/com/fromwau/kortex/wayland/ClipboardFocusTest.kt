@@ -166,7 +166,7 @@ class ClipboardFocusTest {
         val focused = AtomicBoolean(false)
         withFocusedShell(content = { FocusedTextField(field, focused) }) { shell, display ->
             shell.awaitFocus(focused)
-            val surface = shell.activeSurfaces.single().surface
+            val surface = shell.shownSurfaces.single()
             val before = surface.renders
             shell.pressWithCtrl(KEY_A)
             // Either field kind holds Ctrl+A's selection after a frame; the value-based one applies it only then.
@@ -192,7 +192,7 @@ class ClipboardFocusTest {
         val focused = AtomicBoolean(false)
         withFocusedShell(content = { FocusedStateTextField(field, focused) }) { shell, display ->
             shell.awaitFocus(focused)
-            val surface = shell.activeSurfaces.single().surface
+            val surface = shell.shownSurfaces.single()
             val before = surface.renders
             shell.pressWithCtrl(KEY_A)
             // Either field kind holds Ctrl+A's selection after a frame; the value-based one applies it only then.
@@ -308,14 +308,19 @@ class ClipboardFocusTest {
         }
 
     private fun withFocusedShell(
-        content: @Composable () -> Unit = { Box(Modifier.fillMaxSize()) },
+        content: @Composable TestSurface<Nothing>.() -> Unit = { Box(Modifier.fillMaxSize()) },
         block: (KortexShell, WaylandDisplay) -> Unit,
     ) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland ->
-            val focus = SurfaceSpec(FOCUS_CONFIG, OutputTarget.CompositorChoice, content)
-            val shell = KortexShell.create(wayland, focus).getOrElse { error -> fail("shell creation failed: $error") }
-            shell.useOrFail { block(it, wayland) }
+            val application: @Composable KortexApplicationScope.() -> Unit = {
+                Show(TestSurface(NAMESPACE, keyboard = KeyboardInteractivity.Exclusive, content = content))
+            }
+            val shell = KortexShell.createApplicationOrFail(wayland, application)
+            shell.useOrFail {
+                awaitPlaced(it)
+                block(it, wayland)
+            }
         }
     }
 
@@ -352,7 +357,7 @@ class ClipboardFocusTest {
      */
     private fun KortexShell.pressWithCtrl(code: Int) {
         val keyboard = assertNotNull(
-            activeSurfaces.single().surface.keyboardInput,
+            shownSurfaces.single().keyboardInput,
             "the focused surface has no keyboard",
         )
         assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
@@ -366,7 +371,7 @@ class ClipboardFocusTest {
     /** Makes up a leave on the focused surface's own keyboard, on this side only: the compositor keeps it focused. */
     private fun KortexShell.makeUpKeyboardLeave() {
         val keyboard = assertNotNull(
-            activeSurfaces.single().surface.keyboardInput,
+            shownSurfaces.single().keyboardInput,
             "the focused surface has no keyboard",
         )
         val serial = assertNotNull(clipboard.inputSerial, "no input event has reached the shell's surface")
@@ -444,7 +449,6 @@ class ClipboardFocusTest {
 
     private companion object {
         const val NAMESPACE = "kortex-clipboard-focus"
-        const val SPECK_SIZE = 8
         const val COPIED = "Grüße aus kortex"
         const val PASTED = "kortex hat kopiert"
         const val MARKER = "kortex vor dem Bild"
@@ -475,15 +479,5 @@ class ClipboardFocusTest {
         const val KEY_A = 30
         const val KEY_C = 46
         const val KEY_V = 47
-
-        val FOCUS_CONFIG = SurfaceConfig(
-            namespace = NAMESPACE,
-            layer = Layer.Overlay,
-            anchor = setOf(Edge.Bottom, Edge.Right),
-            width = SPECK_SIZE.dp,
-            height = SPECK_SIZE.dp,
-            exclusiveZone = ExclusiveZone.Yield,
-            keyboard = KeyboardInteractivity.Exclusive,
-        )
     }
 }

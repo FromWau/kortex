@@ -4,15 +4,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -40,13 +42,12 @@ class SurfaceTeardownTest {
             val manager = VirtualPointerManager.bind(wayland)
                 .getOrElse { error -> fail("virtual pointer manager bind failed: $error") }
             val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no usable monitor")
-            val shell = KortexShell.create(wayland, panelSpec(clicks), menuSpec(closeRequested, menuHovers))
-                .getOrElse { error -> fail("shell creation failed: $error") }
+            val shell = KortexShell.createApplicationOrFail(wayland, content(clicks, closeRequested, menuHovers))
 
             shell.useOrFail {
                 val panelNamespace = awaitPanel(shell)
                 val menu = awaitMenu(shell)
-                val before = shell.activeSurfaces.size
+                val before = shell.shownSurfaces.size
 
                 manager.createVirtualPointer().use { pointer ->
                     try {
@@ -69,8 +70,8 @@ class SurfaceTeardownTest {
                         // Nothing on the test thread calls close(): only this flag can drop the menu, and it
                         // does so from the composition's own thread.
                         closeRequested.value = true
-                        val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before - 1 }
-                        assertTrue(dropped, "the shell never dropped the menu after its content called close()")
+                        val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.shownSurfaces.size == before - 1 }
+                        assertTrue(dropped, "the application never dropped the menu after its content called close()")
 
                         val panel =
                             assertNotNull(Screen.geometry(panelNamespace), "the panel went away with the menu")
@@ -99,33 +100,57 @@ class SurfaceTeardownTest {
         shell.pumpOrFail(SETTLE_MILLIS)
     }
 
-    private fun panelSpec(clicks: AtomicInteger): SurfaceSpec =
-        SurfaceSpec(PANEL_CONFIG) { Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() }) }
-
     /**
-     * Its content closes the surface itself once [closeRequested] flips, on the composition's own thread.
+     * A clickable panel per monitor, and an [AppMenu] closing itself once [closeRequested] flips.
      *
-     * An [SurfaceConfig.appMenu], not an OSD, so the surface that goes owns a `wl_keyboard` as well as a
+     * The menu is an [AppMenu], not an [Osd], so the surface that goes owns a `wl_keyboard` as well as a
      * `wl_pointer` and both teardown paths are exercised.
      */
-    private fun menuSpec(closeRequested: MutableState<Boolean>, hovers: AtomicInteger): SurfaceSpec =
-        SurfaceSpec(MENU_CONFIG, OutputTarget.CompositorChoice) {
-            val surface = LocalKortexSurface.current
-            val requested = closeRequested.value
-            LaunchedEffect(requested) { if (requested) surface.close() }
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                if (event.type == PointerEventType.Enter) hovers.incrementAndGet()
-                            }
+    private fun content(
+        clicks: AtomicInteger,
+        closeRequested: MutableState<Boolean>,
+        hovers: AtomicInteger,
+    ): @Composable KortexApplicationScope.() -> Unit = {
+        val monitors by rememberMonitors()
+        for (monitor in monitors) {
+            key(monitor) {
+                Show(
+                    object : Panel<Nothing>(
+                        monitor = monitor,
+                        edge = Edge.Top,
+                        thickness = PANEL_HEIGHT.dp,
+                        namespace = "$PANEL_NAMESPACE-${monitor.name}",
+                    ) {
+                        @Composable
+                        override fun invoke() {
+                            Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() })
                         }
                     },
-            )
+                )
+            }
         }
+        Show(
+            object : AppMenu<Nothing>(width = MENU_SIZE.dp, height = MENU_SIZE.dp, namespace = MENU_NAMESPACE) {
+                @Composable
+                override fun invoke() {
+                    val requested = closeRequested.value
+                    LaunchedEffect(requested) { if (requested) close() }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        if (event.type == PointerEventType.Enter) hovers.incrementAndGet()
+                                    }
+                                }
+                            },
+                    )
+                }
+            },
+        )
+    }
 
     /** Pumps [shell] until the panel reaches `hyprctl layers`, and returns the namespace it was filed under. */
     private fun awaitPanel(shell: KortexShell): String {
@@ -154,8 +179,5 @@ class SurfaceTeardownTest {
 
         const val PUMP_TIMEOUT_MILLIS = 4000L
         const val SETTLE_MILLIS = 300L
-
-        val PANEL_CONFIG = SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE)
-        val MENU_CONFIG = SurfaceConfig.appMenu(MENU_SIZE.dp, MENU_SIZE.dp).copy(namespace = MENU_NAMESPACE)
     }
 }
