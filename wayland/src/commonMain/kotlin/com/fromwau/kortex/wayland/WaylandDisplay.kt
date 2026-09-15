@@ -13,14 +13,14 @@ import java.lang.foreign.ValueLayout.JAVA_LONG
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** A global the compositor advertises on the registry. */
-public data class WaylandGlobal(
-    public val name: Int,
-    public val interfaceName: String,
-    public val version: Int,
+internal data class WaylandGlobal(
+    val name: Int,
+    val interfaceName: String,
+    val version: Int,
 )
 
 /** A connection to a Wayland compositor. */
-public class WaylandDisplay private constructor(
+internal class WaylandDisplay private constructor(
     internal val display: MemorySegment,
     private val registry: MemorySegment,
     // The eventfd wake() counts up from any thread; only awaitWork, on the loop thread, reads it back down.
@@ -53,13 +53,13 @@ public class WaylandDisplay private constructor(
         private set
 
     /** Live registry snapshot; safe to read from another thread while upcalls append or remove during dispatch. */
-    public val globals: List<WaylandGlobal> get() = mutableGlobals
+    val globals: List<WaylandGlobal> get() = mutableGlobals
 
     /** Fires on whichever thread is dispatching when the compositor advertises a new global. */
-    public var onGlobalAdded: ((WaylandGlobal) -> Unit)? = null
+    var onGlobalAdded: ((WaylandGlobal) -> Unit)? = null
 
     /** Fires on whichever thread is dispatching when a previously advertised global goes away. */
-    public var onGlobalRemoved: ((WaylandGlobal) -> Unit)? = null
+    var onGlobalRemoved: ((WaylandGlobal) -> Unit)? = null
 
     internal fun addGlobal(global: WaylandGlobal) {
         mutableGlobals += global
@@ -73,15 +73,15 @@ public class WaylandDisplay private constructor(
         onGlobalRemoved?.invoke(removed)
     }
 
-    public fun roundtrip(): Int = LibWayland.displayRoundtrip(display).also { dispatchedOutsideWait = true }
+    fun roundtrip(): Int = LibWayland.displayRoundtrip(display).also { dispatchedOutsideWait = true }
 
-    public fun dispatch(): Int = LibWayland.displayDispatch(display).also { dispatchedOutsideWait = true }
+    fun dispatch(): Int = LibWayland.displayDispatch(display).also { dispatchedOutsideWait = true }
 
     /** Dispatches for at most [timeoutMillis], so a loop can also do other work. */
-    public fun dispatch(timeoutMillis: Long): Int =
+    fun dispatch(timeoutMillis: Long): Int =
         LibWayland.displayDispatchTimeout(display, timeoutMillis).also { dispatchedOutsideWait = true }
 
-    public fun flush(): Int = LibWayland.displayFlush(display)
+    fun flush(): Int = LibWayland.displayFlush(display)
 
     /**
      * Makes the loop's current or next [awaitWork] return. Any thread may call it, even after [close].
@@ -132,7 +132,7 @@ public class WaylandDisplay private constructor(
     }
 
     /** Why the connection failed, or null while it is healthy. */
-    public fun protocolError(): KortexError? {
+    fun protocolError(): KortexError? {
         val errno = LibWayland.displayGetError(display)
         if (errno == 0) return null
         // Only EPROTO means the compositor rejected a request; any other errno is the socket dying,
@@ -149,7 +149,7 @@ public class WaylandDisplay private constructor(
         return KortexError.ProtocolViolation(raw.code, name, raw.id)
     }
 
-    public fun global(interfaceName: String): WaylandGlobal? = globals.firstOrNull { it.interfaceName == interfaceName }
+    fun global(interfaceName: String): WaylandGlobal? = globals.firstOrNull { it.interfaceName == interfaceName }
 
     /** `wl_registry_bind`: binds a global at the lower of the compositor's version and [maxVersion]. */
     internal fun bind(global: WaylandGlobal, iface: MemorySegment, maxVersion: Int): MemorySegment {
@@ -205,9 +205,9 @@ public class WaylandDisplay private constructor(
         registryListener = listener
     }
 
-    public companion object {
+    companion object {
         /** Connects to [name], or to `$WAYLAND_DISPLAY` when null. */
-        public fun connect(name: String? = null): Result<WaylandDisplay, KortexError> {
+        fun connect(name: String? = null): Result<WaylandDisplay, KortexError> {
             // Before connecting, so failing here leaves nothing built to give back.
             val wakeFd = LibC.eventfd().getOrElse { return Err(it) }
             // libwayland copies the name into the socket address, so it has to outlive only the call.
