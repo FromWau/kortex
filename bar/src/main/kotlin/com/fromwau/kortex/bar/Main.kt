@@ -114,8 +114,8 @@ private class DemoBar(
 ) : Bar<Nothing>(
     monitor = screen,
     thickness = 56.dp,
-    // Static keyboard interactivity, like the reference's dock preset: a layer surface that changes it at runtime
-    // never gets the keyboard back to the focused window (hyprwm/Hyprland#8293).
+    // Static keyboard interactivity: a layer surface that changes it at runtime never gets the keyboard back to the
+    // focused window (hyprwm/Hyprland#8293).
     keyboard = KeyboardInteractivity.OnDemand,
     namespace = "kortex-${screen.name}",
     onClose = onClose,
@@ -201,7 +201,7 @@ private class BarMenu(
 ) : ContextMenu<Nothing>(
     monitor = monitor,
     at = at,
-    menuSize = IntSize(MENU_WIDTH, MENU_HEIGHT),
+    menuSize = IntSize(width = 160, height = 120),
     namespace = "kortex-menu",
     onClose = onClose,
 ) {
@@ -268,6 +268,4 @@ private class CrashPopup(
     }
 }
 
-private const val MENU_WIDTH = 160
-private const val MENU_HEIGHT = 120
 private val MENU_ITEMS = listOf("Option 1", "Option 2", "Option 3")
