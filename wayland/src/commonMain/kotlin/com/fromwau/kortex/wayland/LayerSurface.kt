@@ -53,6 +53,7 @@ import kotlin.reflect.KClass
  * `close(error)` on one reaches the other's `onClose` with an error of the wrong type, and handling it can end the
  * application.
  *
+ * @param E the error your content can end the surface with through `close(error)`, or `Nothing` for none.
  * @property monitor the monitor to put the surface on, one [rememberMonitors] lists; null lets the compositor choose.
  *   When that monitor is unplugged, the surface ends, and [onClose] receives `Ok(Unit)`.
  * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`, exactly as written, whichever

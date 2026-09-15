@@ -20,9 +20,9 @@ import com.fromwau.kern.result.IError
  * }
  * ```
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the bar on, one [rememberMonitors] lists; null lets the compositor choose.
  * @param edge the edge the bar runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the bar reaches in from [edge], which is also the space it reserves there. It must round to
@@ -54,9 +54,9 @@ public abstract class Bar<E : IError>(
  * A surface along one edge of its monitor, spanning that edge and reserving its own thickness there, so windows tile
  * clear of it. It takes no keyboard focus; a [Dock] is placed the same way and can take it.
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the panel on, one [rememberMonitors] lists; null lets the compositor choose.
  * @param edge the edge the panel runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the panel reaches in from [edge], which is also the space it reserves there. It must round
@@ -86,9 +86,9 @@ public abstract class Panel<E : IError>(
  * Placed as a [Panel] is, along one edge of its monitor, spanning that edge and reserving its own thickness there, and
  * able to take keyboard focus, as a text field in it needs.
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the dock on, one [rememberMonitors] lists; null lets the compositor choose.
  * @param edge the edge the dock runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the dock reaches in from [edge], which is also the space it reserves there. It must round
@@ -118,9 +118,9 @@ public abstract class Dock<E : IError>(
  * Fills its whole monitor on the lowest layer, beneath every window: a wallpaper, say. It reserves nothing, takes no
  * keyboard focus, and covers the space other surfaces reserve rather than moving out of their way.
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to fill, one [rememberMonitors] lists; null lets the compositor choose.
  * @param namespace what the compositor calls the background, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when the background ends, as [LayerSurface.onClose] describes.
@@ -143,9 +143,9 @@ public abstract class DesktopBackground<E : IError>(
  * stops another surface from drawing over or beside it, or the compositor from switching away from it. Mistaking it
  * for a session lock is a security problem, not a layout one.
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to cover, one [rememberMonitors] lists; null lets the compositor choose.
  * @param namespace what the compositor calls the lock screen, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when the lock screen ends, as [LayerSurface.onClose] describes.
@@ -165,9 +165,9 @@ public abstract class LockScreen<E : IError>(
  * It is centred in the space other surfaces leave free on its monitor, so a bar's reserved space shifts it off the
  * monitor's true centre. It takes no keyboard focus; an [AppMenu] is placed the same way and can take it.
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
  * @param width its width, which must round to at least one logical pixel. One that rounds to 0 leaves it unplaced,
  *   and `onClose` receives `Err(SurfaceError.Failed(...))`; one that rounds below 0 is not checked.
@@ -192,9 +192,9 @@ public abstract class Osd<E : IError>(
  * free on its monitor, and able to take keyboard focus: a launcher you type into, say, which its content dismisses
  * with `close()`.
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
  * @param width its width, which must round to at least one logical pixel. One that rounds to 0 leaves it unplaced,
  *   and `onClose` receives `Err(SurfaceError.Failed(...))`; one that rounds below 0 is not checked.
@@ -247,9 +247,9 @@ public abstract class AppMenu<E : IError>(
  * }
  * ```
  *
- * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
- * `close(error)`, or `Nothing` for none.
+ * Extend it as you would [LayerSurface] and show it with [Show].
  *
+ * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor the menu opens on, one [rememberMonitors] lists.
  * @param at where the menu opens, in logical pixels from [monitor]'s top-left corner, however much of the monitor
  *   other surfaces reserve.

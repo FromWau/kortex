@@ -42,10 +42,11 @@ public interface KortexApplicationScope {
  * on that thread, which also draws, so blocking inside an effect stalls every surface; move blocking work off it,
  * e.g. with `withContext(Dispatchers.IO)`.
  *
- * [content] holds state and [Show] calls and draws nothing itself: UI belongs in a surface's `invoke()`. An
- * application with no surface on screen keeps running until [KortexApplicationScope.exitApplication] is called.
+ * An application with no surface on screen keeps running until [KortexApplicationScope.exitApplication] is called.
  *
  * @param platform hooks the surfaces' content drives, e.g. the cursor shape a hover asks for.
+ * @param content your application's state and [Show] calls. It draws nothing itself: UI belongs in a surface's
+ *   `invoke()`.
  * @return `Ok(Unit)` once `exitApplication()` has ended the application, with every surface's `onClose` called.
  *   [KortexError.NoCompositorResponse], [KortexError.ConnectionError], [KortexError.ProtocolViolation] or
  *   [KortexError.MissingGlobal] when the compositor cannot be reached, goes away, or lacks what kortex needs.
