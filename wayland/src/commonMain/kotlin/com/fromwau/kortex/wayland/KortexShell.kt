@@ -176,7 +176,7 @@ internal class KortexShell private constructor(
             if (exitRequested) break
             if (!display.awaitWork(nextDeadlineNanos())) {
                 // The application did not ask to stop, so the connection dying is its error.
-                return Err(display.protocolError() ?: KortexError.NoCompositorResponse)
+                return display.requireAlive().flatMap { Err(KortexError.NoCompositorResponse) }
             }
             serviceSurfaces().getOrElse { return Err(it) }
         }

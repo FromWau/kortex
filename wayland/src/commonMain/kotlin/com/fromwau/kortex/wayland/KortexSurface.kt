@@ -382,7 +382,7 @@ internal class KortexSurface private constructor(
                 unwind += layer::close
                 if (!layer.waitForConfigure()) {
                     // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-                    return Err(display.protocolError() ?: KortexError.SurfaceNotConfigured)
+                    return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
                 }
                 // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
                 val bufferScale = layer.preferredBufferScale
@@ -423,8 +423,7 @@ internal class KortexSurface private constructor(
                 // Tested before the surface exists so this exit unwinds too; Seat.bind has already round-tripped.
                 if (!seat.hasPointer) {
                     // A dead connection surfaces first as a seat with no devices; prefer the real cause.
-                    val missingPointer = KortexError.MissingSeatDevice(SeatDevice.Pointer)
-                    return Err(display.protocolError() ?: missingPointer)
+                    return display.requireAlive().flatMap { Err(KortexError.MissingSeatDevice(SeatDevice.Pointer)) }
                 }
                 surface = KortexSurface(
                     config.namespace, display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface),

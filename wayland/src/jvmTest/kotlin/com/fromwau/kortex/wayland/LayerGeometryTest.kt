@@ -7,7 +7,6 @@ import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -178,7 +177,7 @@ class LayerGeometryTest {
                 // harmless; had set_size gone out, this is where invalid_size would come back.
                 bar.commit()
                 wayland.roundtrip()
-                assertNull(wayland.protocolError(), "the rejected set_size still reached the compositor")
+                assertEquals(Ok(Unit), wayland.requireAlive(), "the rejected set_size still reached the compositor")
             }
         }
     }

@@ -7,7 +7,6 @@ import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -98,8 +97,9 @@ class ExclusiveZoneTest {
                 val configured = corner.waitForConfigure()
                 // A rejected edge kills the connection, so the surface just never configures. Reading the
                 // error first turns that opaque timeout into the violation that caused it.
-                assertNull(
-                    display.protocolError(),
+                assertEquals(
+                    Ok(Unit),
+                    display.requireAlive(),
                     "an exclusiveEdge the surface is actually anchored to must not raise invalid_exclusive_edge",
                 )
                 assertTrue(configured, "corner surface never configured")

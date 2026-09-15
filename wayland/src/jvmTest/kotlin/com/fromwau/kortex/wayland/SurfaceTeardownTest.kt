@@ -81,9 +81,8 @@ class SurfaceTeardownTest {
                         pointer.clickAt(monitor, panel.x + TARGET_DP / 2, panel.y + TARGET_DP / 2)
 
                         val delivered = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
-                        val protocolError = wayland.protocolError()
-                        if (protocolError != null) {
-                            fail("wayland protocol error after the menu was torn down: $protocolError")
+                        wayland.requireAlive().getOrElse { error ->
+                            fail("wayland protocol error after the menu was torn down: $error")
                         }
                         assertTrue(delivered, "a click never reached the panel that outlived the menu")
                         assertEquals(1, clicks.get(), "one press and release must be one click")

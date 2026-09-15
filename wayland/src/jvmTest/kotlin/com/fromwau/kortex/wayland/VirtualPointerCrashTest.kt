@@ -55,9 +55,8 @@ class VirtualPointerCrashTest {
             }
             val raw = probe.output.joinToString("\n")
 
-            val protocolError = it.protocolError()
-            if (protocolError != null) {
-                fail("wayland protocol error while driving the virtual pointer: $protocolError")
+            it.requireAlive().getOrElse { error ->
+                fail("wayland protocol error while driving the virtual pointer: $error")
             }
             assertEquals(0, probe.exitCode, "the probe did not exit cleanly; output:\n$raw")
             val crashLine = "$PROBE_MARKER crashed=$POINTER_PROBE_NAMESPACE failure=PointerInput " +

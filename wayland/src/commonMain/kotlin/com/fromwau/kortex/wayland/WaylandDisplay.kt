@@ -1,8 +1,10 @@
 package com.fromwau.kortex.wayland
 
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
@@ -131,13 +133,13 @@ internal class WaylandDisplay private constructor(
         return LibWayland.displayDispatchPending(display) >= 0
     }
 
-    /** Why the connection failed, or null while it is healthy. */
-    fun protocolError(): KortexError? {
+    /** Checks that the connection still works: `Ok` while it does, else why it stopped. */
+    fun requireAlive(): EmptyResult<KortexError> {
         val errno = LibWayland.displayGetError(display)
-        if (errno == 0) return null
+        if (errno == 0) return Ok(Unit)
         // Only EPROTO means the compositor rejected a request; any other errno is the socket dying,
         // and asking for protocol details would return meaningless zeros.
-        if (errno != EPROTO) return KortexError.ConnectionError(errno)
+        if (errno != EPROTO) return Err(KortexError.ConnectionError(errno))
 
         val raw = LibWayland.displayGetProtocolError(display)
         val name = if (raw.iface.equals(MemorySegment.NULL)) {
@@ -146,7 +148,7 @@ internal class WaylandDisplay private constructor(
             // The name pointer comes back zero-length; it must be reinterpreted before it can be read as a string.
             LibWayland.interfaceName(raw.iface).reinterpret(Long.MAX_VALUE).getString(0)
         }
-        return KortexError.ProtocolViolation(raw.code, name, raw.id)
+        return Err(KortexError.ProtocolViolation(raw.code, name, raw.id))
     }
 
     fun global(interfaceName: String): WaylandGlobal? = globals.firstOrNull { it.interfaceName == interfaceName }
@@ -175,7 +177,7 @@ internal class WaylandDisplay private constructor(
     ): Result<MemorySegment, KortexError> {
         val global = global(interfaceName)
             // A dead connection surfaces first as a missing global; the connection itself knows the real cause.
-            ?: return Err(protocolError() ?: KortexError.MissingGlobal(interfaceName))
+            ?: return requireAlive().flatMap { Err(KortexError.MissingGlobal(interfaceName)) }
         return Ok(bind(global, iface, maxVersion))
     }
 
@@ -230,9 +232,9 @@ internal class WaylandDisplay private constructor(
             val waylandDisplay = WaylandDisplay(display, registry, wakeFd)
             waylandDisplay.installRegistryListener()
             if (LibWayland.displayRoundtrip(display) < 0) {
-                val failure = waylandDisplay.protocolError() ?: KortexError.NoCompositorResponse
+                val failure = waylandDisplay.requireAlive().flatMap { Err(KortexError.NoCompositorResponse) }
                 waylandDisplay.close()
-                return Err(failure)
+                return failure
             }
 
             return Ok(waylandDisplay)

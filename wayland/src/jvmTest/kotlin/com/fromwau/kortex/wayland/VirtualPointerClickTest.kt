@@ -64,9 +64,8 @@ class VirtualPointerClickTest {
                         landed
                     }
 
-                    val protocolError = it.protocolError()
-                    if (protocolError != null) {
-                        fail("wayland protocol error while driving the virtual pointer: $protocolError")
+                    it.requireAlive().getOrElse { error ->
+                        fail("wayland protocol error while driving the virtual pointer: $error")
                     }
                     assertTrue(
                         delivered, "a virtual-pointer click at $targetX,$targetY never reached the composable",

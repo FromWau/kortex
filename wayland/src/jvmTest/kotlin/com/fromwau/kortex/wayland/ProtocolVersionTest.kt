@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexScene
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -21,7 +22,6 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -98,7 +98,7 @@ class ProtocolVersionTest {
                     negotiated, LibWayland.proxyGetVersion(keyboard.keyboardProxy),
                     "wl_keyboard must be created at the seat's own version",
                 )
-                assertNull(wayland.protocolError(), "the seat's devices did not survive a roundtrip")
+                assertEquals(Ok(Unit), wayland.requireAlive(), "the seat's devices did not survive a roundtrip")
             }
         }
     }
@@ -114,7 +114,7 @@ class ProtocolVersionTest {
                     bar.setContent { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
                     bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS)
 
-                    assertNull(wayland.protocolError(), "the connection reported a protocol error")
+                    assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
                     assertTrue(bar.renders > 0, "the bar never rendered a frame")
                 }
         }
@@ -190,7 +190,7 @@ class ProtocolVersionTest {
                     val delivered =
                         bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { scrolled.get() != Offset.Zero }
 
-                    assertNull(wayland.protocolError(), "the connection reported a protocol error")
+                    assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
                     assertTrue(delivered, "a wheel scroll over the bar never reached the composition")
                     assertTrue(scrolled.get().y != 0f, "the scroll arrived on the wrong axis: ${scrolled.get()}")
                 }

@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -51,8 +51,9 @@ class SurfaceLifetimeTest {
                         panel.serviceTick()
                         menu.close()
                         panel.pumpOrFail(SETTLE_MILLIS)
-                        assertNull(
-                            wayland.protocolError(),
+                        assertEquals(
+                            Ok(Unit),
+                            wayland.requireAlive(),
                             "the connection reported a protocol error on teardown cycle $cycle",
                         )
                     }
@@ -78,7 +79,11 @@ class SurfaceLifetimeTest {
                         landed
                     }
 
-                    assertNull(wayland.protocolError(), "the connection reported a protocol error after the click")
+                    assertEquals(
+                        Ok(Unit),
+                        wayland.requireAlive(),
+                        "the connection reported a protocol error after the click",
+                    )
                     assertTrue(delivered, "a click never reached the panel that outlived $CYCLES surfaces")
                     assertEquals(1, clicks.get(), "one press and release must be one click")
                 }
@@ -118,7 +123,11 @@ class SurfaceLifetimeTest {
             layer.close()
             wayland.roundtrip()
 
-            assertNull(wayland.protocolError(), "a second close gave back something the first already released")
+            assertEquals(
+                Ok(Unit),
+                wayland.requireAlive(),
+                "a second close gave back something the first already released",
+            )
         }
     }
 
