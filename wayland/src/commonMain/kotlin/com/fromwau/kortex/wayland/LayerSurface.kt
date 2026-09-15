@@ -63,10 +63,10 @@ import kotlin.reflect.KClass
  *   none centres the surface.
  * @property width 0 asks the compositor to choose, which needs [anchor] to pin both [Edge.Left] and [Edge.Right];
  *   without them the surface is not placed, and [onClose] receives
- *   `Err(SurfaceError.Failed(KortexError.UnspannableAxis(...)))`. A width that rounds below 0 is not placed either,
- *   and [onClose] receives `Err(SurfaceError.Failed(KortexError.NegativeSize(...)))`.
- * @property height 0 asks the compositor to choose, like [width], and needs both [Edge.Top] and [Edge.Bottom]. A
- *   height that rounds below 0 is not placed either, as for [width].
+ *   `Err(SurfaceError.Failed(KortexError.UnspannableAxis(...)))`. One that rounds below 0 leaves the surface unplaced
+ *   too, and [onClose] receives `Err(SurfaceError.Failed(KortexError.NegativeSize(...)))`.
+ * @property height 0 asks the compositor to choose, like [width], and needs both [Edge.Top] and [Edge.Bottom]. One
+ *   that rounds below 0 leaves the surface unplaced, as for [width].
  * @property margins insets from the anchor point; an edge [anchor] does not pin ignores its margin.
  * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows into.
  * @property exclusiveEdge which anchored edge [exclusiveZone] is measured from, needed only when [anchor] pins a
