@@ -65,7 +65,10 @@ public sealed interface KortexClipboard {
     public suspend fun readText(): Result<String, ClipboardError>
 }
 
-/** The desktop's clipboard, in the content of every surface [Show] puts on screen. */
+/**
+ * The desktop's clipboard, in the content of every surface [Show] puts on screen. Reading it anywhere else, the
+ * application's own content included, throws [IllegalStateException].
+ */
 public val LocalKortexClipboard: ProvidableCompositionLocal<KortexClipboard> =
     staticCompositionLocalOf { error("LocalKortexClipboard is provided only in a surface's content") }
 
