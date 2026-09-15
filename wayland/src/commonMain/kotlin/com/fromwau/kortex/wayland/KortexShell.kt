@@ -257,7 +257,7 @@ public class KortexShell private constructor(
             opens.forEach { spec -> placeSurfaces(spec, standing = false).getOrElse { return Err(it) } }
         }
         reconcileShows()
-        // An onClose that threw as reconciling reported to it.
+        // Reconciling calls each onClose, and one that threw there ends the run here.
         return applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
     }
 
@@ -465,7 +465,9 @@ public class KortexShell private constructor(
         report(shown, crash?.let { Err(SurfaceError.Failed(it)) } ?: ending)
     }
 
-    /** Closes [shown]'s surface, if it has one, and returns what its content threw, as it went included. */
+    /**
+     * Closes [shown]'s surface, if any, and returns its content's crash, including one its cleanup threw while closing.
+     */
     private fun takeDown(shown: ShownSurface): KortexError.SurfaceCrashed? {
         val surface = shown.surface ?: return null
         placed.remove(shown)
