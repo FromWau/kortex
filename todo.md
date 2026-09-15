@@ -59,12 +59,13 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: nine entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: ten entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field, and a failure after a surface has reported, which reaches no one; under
-Surface presets, a fractionally scaled monitor, which measures short; under Keyboard and clipboard, the letter a
-Ctrl+letter types with no Latin layout configured, the clipboard that content inside a `Popup` or `Dialog`
-reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb
-rejects, images on the clipboard as PNG and JPEG, and drag and drop.
+Surface presets, a fractionally scaled monitor, which measures short, and a size below 0, which reaches the
+compositor unchecked; under Keyboard and clipboard, the letter a Ctrl+letter types with no Latin layout
+configured, the clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that leaves
+`KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG and
+JPEG, and drag and drop.
 
 ## Foundations
 
@@ -272,6 +273,15 @@ rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       `ContextMenu` measures its monitor that way (`Presets.kt:275-279`), so it can flip early and open
       away from its point; its KDoc says so. Open: a true logical size, which needs a protocol kortex does
       not bind yet, such as `zxdg_output_v1`'s `logical_size`.
+- [ ] **A size that rounds below 0 reaches the compositor unchecked.** `Dp.toLogicalPx` rounds without
+      clamping, and `requireSpannableAxes` (`LayerShell.kt`) rejects only a 0 on an axis the surface cannot
+      span, so a negative `width` or `height`, or a preset's negative `thickness` or `length`, goes to
+      `set_size`, whose `uint` arguments read it as a size above four billion. A negative `thickness` also
+      reaches `set_exclusive_zone` as a negative zone. No test covers it, and what Hyprland does with it is
+      untested. `Osd`'s and `AppMenu`'s KDoc says so; `Bar`'s, `Panel`'s and `Dock`'s say a `thickness` under
+      one logical pixel leaves the surface unplaced, which holds only for 0. Open: a typed error reported to
+      `onClose`, as `UnspannableAxis` is, or a `require`. Either belongs beside `requireSpannableAxes`, which
+      both `create` and `setSize` run, so a size a surface changes to is checked as its first one is.
 
 ## Raising a surface while the host runs
 
