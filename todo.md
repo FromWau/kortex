@@ -93,8 +93,8 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       `KortexHost.open` is how its content opens one later. `KortexSurface.create` is internal, since
       filling its `wl_output` needs a proxy only this module can bind. The shell's loop ends when no
       surface is left and none can return, so a host whose content closed itself stops instead of
-      spinning on an empty screen, while an `EveryOutput` spec with no output waits for one.
-      (`MultiSurfaceTest`)
+      spinning on an empty screen, while an `EveryOutput` spec with no output waits for one. This is
+      covered by reading `KortexShell.kt` rather than by a test.
 - [x] **The rest of that teardown.** `Shm`, `WlCursorTheme` and `WlCursorSurface` each have a `close()`
       now, so the `wl_shm` a surface binds, the second `wl_shm` behind its cursor theme, the
       `wl_compositor` `WlCursorSurface` binds, its cursor `wl_surface` and every `wl_cursor_theme` handle
@@ -158,14 +158,14 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       test provokes the latest exit this machine can reach, a withdrawn `wl_seat`; the pointer-less seat,
       `waitForConfigure`, `createFrames`, the cursor theme and the cursor surface cannot be reached on this
       machine and are covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
-- [x] **`KortexHost.output` recomposes a reader.** Content reads `LocalKortexHost.current.output` during
-      composition and records every value it composes with. Its first, real composition already sees a
-      non-null value, since `KortexShell.create` round-trips before placing. The test then drives it past
-      that with a fabricated event group, called directly on the live surface's own `OutputListener` from
-      the test thread: `onGeometry`, `onMode` flagged current, `onScale`, `onName`, `onDescription`, then
-      `onDone`. That stands in for what a real re-send would dispatch on the loop thread. Content
-      recomposes with the fabricated geometry, which needs no real output added, removed or changed, so it
-      runs untagged in the default build. (`RecompositionTest`)
+- [x] **A surface's `monitor.geometry` recomposes a reader.** Content reads its own surface's
+      `monitor.geometry` during composition and records every value it composes with. Its first, real
+      composition already sees the output's real geometry, since the application rounds-trips before
+      placing. The test then drives it past that with a fabricated event group, called directly on the
+      live surface's own `OutputListener` from the test thread: `onGeometry`, `onMode` flagged current,
+      `onScale`, `onName`, `onDescription`, then `onDone`. That stands in for what a real re-send would
+      dispatch on the loop thread. Content recomposes with the fabricated geometry, which needs no real
+      output added, removed or changed, so it runs untagged in the default build. (`RecompositionTest`)
 - [x] **A shown surface reports each ending to its host once, through `onClose`.** `kortexApplication` runs the
       host's content as an application composition on the thread that calls it: Compose's `FrameRecomposer` on
       the shell's `LoopQueue`, recomposed in a loop pass once it asks for a frame, over an applier that takes no
@@ -282,7 +282,8 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       content through `LocalKortexHost.current`, carries `open(spec: SurfaceSpec)`: it places `spec` the
       next time the shell applies pending work and does not retain it, so an output arriving later never
       replays it. This is what makes `osd`, `appMenu` and `contextMenu` reachable: a context menu can now
-      be built from the position of a click that has already happened. (`SurfaceOpenTest`)
+      be built from the position of a click that has already happened. Covered by reading `KortexHost.open`
+      rather than by a test.
 - [x] **A surface can be aimed at a chosen output.** `OutputTarget.NamedOutput(name)` places a surface on
       the `wl_output` whose `wl_output.name`, the same string `hyprctl monitors` prints, matches `name`.
       The named output not being connected when this is placed is a lost race, not an error: nothing is
@@ -291,17 +292,14 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       assumed: its headless output names are a monotonically increasing counter that survives removal and
       is never reused within one compositor session (it restarts with Hyprland), which is what makes the
       hotplug path deterministic enough to test. A compositor whose output names are reused is untested.
-      (`NamedOutputTest`)
+      Covered by reading `OutputTarget.NamedOutput` rather than by a test.
 - [x] **A `CompositorChoice` surface the compositor takes away is placed again**, as long as an output is
       still connected; content closing its own surface, or a spec placed through `KortexHost.open`, stays
       gone either way. With no output at all connected at that moment there is nowhere to place the
       replacement, and it stays gone until asked for again, and a replacement that fails to be placed is
-      dropped rather than ending the run, unless its content threw, which ends the run as a crash. Two of
-      `CompositorChoiceTest`'s three tests reach this through `KortexSurface.simulateCompositorClose`, the
-      shell's own seam: the standing surface being placed
-      again, and an opened surface not being replaced. The third, content closing its own surface, does
-      not need it. The end-to-end trigger, an output going away under the surface, is not exercised
-      anywhere. (`CompositorChoiceTest`)
+      dropped rather than ending the run, unless its content threw, which ends the run as a crash. The
+      end-to-end trigger, an output going away under the surface, is not exercised anywhere. Covered by
+      reading `KortexShell.shouldReplace` rather than by a test.
 
 The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a right click on
 the bar's own background, not on its button or its text field, opens a `SurfaceConfig.contextMenu` through
