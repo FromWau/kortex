@@ -59,12 +59,13 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: nine entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: eleven entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field, and a failure after a surface has reported, which reaches no one; under
 Surface presets, a fractionally scaled monitor, which measures short; under Keyboard and clipboard, the character
 a Ctrl+key types when no layout has an ASCII one on that key, the clipboard that content inside a `Popup` or
 `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap
-xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
+xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop; under Housekeeping, the protocol errors
+libwayland prints to stderr, and the Compose error `KortexSceneTest` prints.
 
 ## Foundations
 
@@ -146,12 +147,12 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       one added later included, runs them newest first from a `finally`. Once the surface is constructed,
       its own `close()` is the one owner of every piece. The pointer check comes before that point, which
       `Seat.bind`'s round trip already allows, so no exit returns an error once the surface exists. The
-      test provokes the latest exit this machine can reach, a withdrawn `wl_seat`; the pointer-less seat,
-      `createFrames`, the cursor theme and the cursor surface cannot be reached on this machine, and they and
-      `waitForConfigure` are covered by the mechanism rather than by a test. `waitForConfigure` returns the
-      connection's error when the connection died before a configure came, which `LayerShellSurfaceTest` pins on
-      a connection it ends itself; a live connection that never configures, `SurfaceNotConfigured`, is not
-      tested. (`SurfaceCreateFailureTest`, `LayerShellSurfaceTest`)
+      test provokes the latest exit this machine can reach, a withdrawn `wl_seat`. The exits for a seat with no
+      pointer and for `createFrames`, the cursor theme or the cursor surface failing cannot be reached on this
+      machine, and they and the exit for a failed `waitForConfigure` are covered by the mechanism rather than by a
+      test. `waitForConfigure` itself returns the connection's error when the connection died before a configure
+      came, which `LayerShellSurfaceTest` pins on a connection it ends itself; a live connection that never
+      configures, `SurfaceNotConfigured`, is not tested. (`SurfaceCreateFailureTest`, `LayerShellSurfaceTest`)
 - [x] **A surface's `monitor.geometry` recomposes a reader.** Content reads its own surface's
       `monitor.geometry` during composition and records every value it composes with. Its first, real
       composition already sees the output's real geometry, since the application round-trips before
@@ -176,14 +177,14 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       `Ok(SurfaceEnd.ClosedByCompositor)`, its monitor unplugged `Ok(SurfaceEnd.MonitorUnplugged)`, and its `Show`
       leaving composition `Ok(SurfaceEnd.LeftComposition)`; `close(error)` reports `Err(SurfaceError.Closed(error))`,
       and an unplaceable surface `SurfaceError.Failed` with the reason. Content that throws ends only its own
-      surface, reporting `Failed(SurfaceCrashed)` with the
-      scene's first failure, and so does cleanup that throws as the surface goes, whatever else ended it. An
-      ending and a removal in one pass report the ending, and a `Show` taken out after its surface ended reports
-      nothing more. `close()` and `close(error)` act on the `Show`'s surface from any of its instances of the
-      class it shows, from any thread, the first deciding; on an instance never shown, or of a class its `Show`
-      has since left, they do nothing. `exitApplication()`, from any thread and more than once, ends the run, and
-      closing the shell takes every `Show` out, each reporting `LeftComposition`. The host's own code throwing, its
-      content or an `onClose`, ends the run as `ApplicationCrashed`: no `onClose` is called after it, and nothing
+      surface, reporting `Failed(SurfaceCrashed)` with the scene's first failure, and so does cleanup that throws
+      as the surface goes, whatever else ended it. An ending and a removal in one pass report the ending, and a
+      `Show` taken out after its surface ended reports nothing more. `close()` and `close(error)` act on the
+      `Show`'s surface from any of its instances of the class it shows, from any thread, the first deciding; on
+      an instance never shown, or of a class its `Show` has since left, they do nothing. `exitApplication()`, from
+      any thread and more than once, ends the run, and closing the shell takes every `Show` out, each reporting
+      `LeftComposition` unless its content throws as it goes. The host's own code throwing, its content or an
+      `onClose`, ends the run as `ApplicationCrashed`: no `onClose` is called after it, and nothing
       more is placed. Nothing else ends the run: an application with nothing on screen keeps running. An
       application whose compositor lacks `wl_compositor`, `wl_shm` or `zwlr_layer_shell_v1` fails as it starts,
       with `MissingGlobal`. `rememberMonitors()`, in the application's content or a surface's, is snapshot state
@@ -624,6 +625,21 @@ the bar would begin if nothing else reserved that edge.
       (`OutputRescaleTest`, `ProtocolVersionTest`, `VirtualPointerClickTest`, `SurfaceLifetimeTest`,
       `SurfaceTeardownTest`). Each window is now only as long as delivery takes, so the pointer tests
       still want nobody at the mouse, and a fullscreen game has kept their moves off the bar altogether.
+- [ ] **libwayland prints each protocol error to stderr, outside every test's results.** kortex installs no log
+      handler, so libwayland's default, `wl_log_stderr_handler` (1.26's `wayland-util.c`), writes a protocol
+      error to the process's own stderr as the error is read: `wl_registry#2: error 0: global wl_output
+      (2147483647) is unavailable` for each connection `killConnection` (`KillConnection.kt`) ends, in
+      `LayerShellSurfaceTest` and `ShowTest`. Gradle's results record only `System.err`, so the line shows on
+      the console and in no test's `system-err`. A host's stderr gets the same line, though the error already
+      comes back typed from `WaylandDisplay.requireAlive`. Open: a handler through `wl_log_set_handler_client`,
+      whose `void (*)(const char *fmt, va_list args)` an upcall can read only by handing the `va_list` to
+      `vsnprintf`, and what it does with the text: drop it, since the typed error carries the same facts, or
+      pass it on somewhere a host can reach.
+- [ ] **`KortexSceneTest` prints a Compose error on every run.** One test's content throws while recomposing,
+      on purpose, and Compose prints its own report of it, "Error was captured in composition." and the
+      `IllegalStateException` it caught, 109 lines of the class's `system-err`. `ShowTest` keeps the same report
+      off its output with `capturingStderr` (`LoopThread.kt`), which the `compose` module's tests have no copy
+      of. Open: a helper there, or one test fixture both modules share.
 
 ## Deliberately not doing
 
