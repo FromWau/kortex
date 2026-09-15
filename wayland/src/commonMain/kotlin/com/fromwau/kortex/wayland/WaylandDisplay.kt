@@ -77,7 +77,7 @@ internal class WaylandDisplay private constructor(
 
     fun dispatch(): Int = LibWayland.displayDispatch(display).also { dispatchedOutsideWait = true }
 
-    /** Dispatches for at most [timeoutMillis], so a loop can also do other work. */
+    /** Dispatches for at most [timeoutMillis]; exposed so a test can watch events arrive as they are sent. */
     fun dispatch(timeoutMillis: Long): Int =
         LibWayland.displayDispatchTimeout(display, timeoutMillis).also { dispatchedOutsideWait = true }
 
