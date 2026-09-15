@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -48,6 +49,8 @@ class SurfaceTeardownTest {
                 val panelNamespace = awaitPanel(shell)
                 val menu = awaitMenu(shell)
                 val before = shell.shownSurfaces.size
+                // Kept past the menu's own removal below, so its scene can still be asked whether it crashed.
+                val menuSurface = shell.shownSurfaces.last()
 
                 manager.createVirtualPointer().use { pointer ->
                     try {
@@ -84,6 +87,10 @@ class SurfaceTeardownTest {
                         }
                         assertTrue(delivered, "a click never reached the panel that outlived the menu")
                         assertEquals(1, clicks.get(), "one press and release must be one click")
+                        assertNull(
+                            menuSurface.crash,
+                            "the panel's click also reached the closed menu's own, already-torn-down scene",
+                        )
                     } finally {
                         // Unconditional, so an assertion failing above still can't leave the cursor on a
                         // target and deny the next test's own move here the enter it depends on.
