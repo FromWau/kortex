@@ -424,10 +424,8 @@ private class Spin {
     val stop = AtomicBoolean(false)
     val steps = AtomicLong()
 
-    // Set once Spinning has drawn its first real frame, safe to poll cross-thread: hyprctl lists a namespace as
-    // soon as the compositor maps it, which can race the client's own first composition, so a test that flips
-    // go off hyprctl alone can catch KortexSurface.setContent's own synchronous flush with go already true,
-    // spinning forever before that flush returns.
+    // Set once Spinning draws a frame outside setContent. hyprctl lists the surface sooner, and a go set that early
+    // can start the spin inside setContent's own flush, which then never returns.
     val composed = AtomicBoolean(false)
 
     /** Runs [block], setting [stop] if it has not returned within [boundMillis]; returns whether it had to. */
