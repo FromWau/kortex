@@ -221,6 +221,11 @@ public abstract class AppMenu<E : IError>(
  *
  * On a rotated monitor, the right and bottom edges are those of the monitor as it is turned.
  *
+ * At a fractional scale, kortex measures the monitor short, since the compositor reports the scale as a whole number:
+ * Hyprland reports 1.5 as 2, which makes the monitor a quarter smaller than it is. The menu then opens to the left or
+ * upwards near an edge it would have cleared, and a menu that opens to the left or upwards sits away from [at], and
+ * can run past the monitor's edge. One that opens down and to the right still opens at [at].
+ *
  * ```kotlin
  * class Menu(monitor: Monitor, at: IntOffset, onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit) :
  *     ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = IntSize(160, 120), onClose = onClose) {
