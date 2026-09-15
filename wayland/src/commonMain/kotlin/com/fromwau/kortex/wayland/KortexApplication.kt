@@ -86,8 +86,9 @@ public fun kortexApplication(
 @Composable
 public fun Show(surface: LayerSurface<*>) {
     val shell = LocalKortexShell.current
+    val parent = LocalShownSurface.current
     val newest = rememberUpdatedState(surface)
-    val shown = remember { ShownSurface(newest, shell::wake) }
+    val shown = remember { ShownSurface(newest, shell::wake, parent) }
     SideEffect { surface.heldBy = shown }
     val settings = surface.settings
     DisposableEffect(settings) {
@@ -117,6 +118,9 @@ public fun Show(surface: LayerSurface<*>) {
  */
 @Composable
 public fun rememberMonitors(): State<List<Monitor>> = LocalKortexShell.current.monitors
+
+/** The Show whose surface's content this is, provided around that content; null in the application's own content. */
+internal val LocalShownSurface: ProvidableCompositionLocal<ShownSurface?> = staticCompositionLocalOf { null }
 
 /** The shell a [Show] queues its surface with, provided around the application's content. */
 internal val LocalKortexShell: ProvidableCompositionLocal<KortexShell> =

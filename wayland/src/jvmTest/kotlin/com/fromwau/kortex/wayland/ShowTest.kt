@@ -799,6 +799,14 @@ class ShowTest {
     }
 
     @Test
+    fun `a parent whose cleanup throws as it goes, composed after its child, reports the crash and the child Ok`() =
+        takeOutParentWithThrowingCleanup(ParentContent.ChildThenCleanup)
+
+    @Test
+    fun `a parent whose cleanup throws as it goes, composed before its child, reports the crash and the child Ok`() =
+        takeOutParentWithThrowingCleanup(ParentContent.CleanupThenChild)
+
+    @Test
     fun `LocalKortexSurface below a surface's invoke() is its instance, and closing it closes the surface`() {
         val closeRequested = mutableStateOf(false)
         val instance = AtomicReference<LayerSurface<*>?>(null)
@@ -943,6 +951,56 @@ class ShowTest {
         val surface = LocalKortexSurface.current
         SideEffect { seen.set(surface) }
         CloseWhen(requested)
+    }
+
+    /**
+     * Shows a parent whose content holds a child's Show and cleanup that throws, composed in [order], then takes the
+     * parent's Show out: the parent must report the crash and the child `Ok(Unit)`, whichever Compose disposes first.
+     */
+    private fun takeOutParentWithThrowingCleanup(order: ParentContent) {
+        val showing = mutableStateOf(true)
+        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) {
+                Show(
+                    TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) {
+                        when (order) {
+                            ParentContent.ChildThenCleanup -> {
+                                ShowChild(childReports)
+                                ThrowingCleanup()
+                            }
+                            ParentContent.CleanupThenChild -> {
+                                ThrowingCleanup()
+                                ShowChild(childReports)
+                            }
+                        }
+                    },
+                )
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell, count = 2)
+
+            showing.value = false
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { parentReports.isNotEmpty() && childReports.isNotEmpty() },
+                "taking the parent's Show out left a surface unreported: parent $parentReports, child $childReports",
+            )
+            shell.pumpOrFail(SETTLE_MILLIS)
+            val crash = crashIn(parentReports.single(), "the parent's cleanup that threw did not report a crash")
+            assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what the cleanup threw")
+            assertEquals(listOf(Ok(Unit)), childReports.toList(), "the child did not report Ok once")
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived the parent's Show")
+        }
+    }
+
+    /** In which order a parent's content composes its child's Show and its cleanup that throws. */
+    private enum class ParentContent {
+        ChildThenCleanup,
+        CleanupThenChild,
     }
 
     private sealed interface Dismissal : IError {

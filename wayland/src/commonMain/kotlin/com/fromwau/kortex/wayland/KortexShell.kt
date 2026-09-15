@@ -42,8 +42,20 @@ private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipb
 /**
  * What the shell holds for one [Show]: the newest instance it was handed, what it asks for, its surface, and the
  * ending one of its instances asked for.
+ *
+ * @param parent the Show whose surface's content this Show is in; null for one in the application's own content.
  */
-internal class ShownSurface(val newest: State<LayerSurface<*>>, private val wake: () -> Unit) {
+internal class ShownSurface(
+    val newest: State<LayerSurface<*>>,
+    private val wake: () -> Unit,
+    private val parent: ShownSurface?,
+) {
+    // The parent's surface as this Show entered its content: a replace or an ending takes this Show out with it.
+    private val parentSurface: KortexSurface? = parent?.surface
+
+    /** Whether the surface whose content this Show is in has gone. */
+    val parentGone: Boolean get() = parent != null && parent.surface !== parentSurface
+
     // The settings its Show asks for while in composition, and null once it has left. Loop thread only.
     var wanted: SurfaceSettings? = null
 
@@ -155,7 +167,7 @@ public class KortexShell private constructor(
         }
     }
 
-    // Each Show whose surface is on screen, in the order placed.
+    // Each Show whose surface is on screen, in the order placed: one in a surface's content after that surface's own.
     private val placed = mutableListOf<ShownSurface>()
 
     // Filled by Show's effects, which run inside a composition's apply, and acted on in the next pass.
@@ -432,7 +444,8 @@ public class KortexShell private constructor(
         // Once the application's own code has thrown, surfaces only go: nothing more is placed.
         if (applicationCrash.get() != null) return end(shown, Ok(Unit))
         val ownEnding = shown.ownEnding
-        val wanted = shown.wanted
+        // Not left to the Show's own dispose, which Compose skips once an earlier cleanup in that content throws.
+        val wanted = shown.wanted.takeUnless { shown.parentGone }
         when {
             // First: a surface that ended by itself before its Show left reports how it ended.
             ownEnding != null -> end(shown, ownEnding)
@@ -488,6 +501,7 @@ public class KortexShell private constructor(
         val instance = shown.newest.value
         CompositionLocalProvider(
             LocalKortexShell provides this,
+            LocalShownSurface provides shown,
             LocalKortexSurface provides instance,
             LocalKortexClipboard provides hostClipboard,
         ) {
