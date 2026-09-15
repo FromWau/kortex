@@ -17,6 +17,7 @@ import com.fromwau.kern.result.map
 import com.fromwau.kern.result.onError
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexPlatform
+import com.fromwau.kortex.compose.LocalKortexSurface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
@@ -463,7 +464,7 @@ public class KortexShell private constructor(
                 // Before the content composes, so its first composition already reads the surface's size.
                 shown.surface = surface
                 surface
-                    .setContent { ProvideClipboard(contentClipboard) { shown.newest.value.invoke() } }
+                    .setContent { ShownContent(shown) }
                     .onError {
                         shown.surface = null
                         surface.close()
@@ -474,6 +475,19 @@ public class KortexShell private constructor(
                 placed += shown
             }
             .onError { reason -> report(shown, Err(SurfaceError.Failed(reason))) }
+    }
+
+    /** What a shown surface's scene composes: its newest instance's content, and around it what content reaches. */
+    @Composable
+    private fun ShownContent(shown: ShownSurface) {
+        val instance = shown.newest.value
+        CompositionLocalProvider(
+            LocalKortexShell provides this,
+            LocalKortexSurface provides instance,
+            LocalKortexClipboard provides hostClipboard,
+        ) {
+            ProvideClipboard(contentClipboard) { instance.invoke() }
+        }
     }
 
     private fun end(shown: ShownSurface, ending: EmptyResult<SurfaceError<IError>>) {
@@ -599,16 +613,20 @@ public class KortexShell private constructor(
             return Ok(shell)
         }
 
-        /** A shell that runs [content] as an application composition, and no spec. */
+        /**
+         * A shell that runs [content] as an application composition, and no spec. Its surfaces' content copies and
+         * pastes through what [contentClipboard] makes of the shell's own clipboard; a test hands it a stand-in.
+         */
         internal fun createApplication(
             display: WaylandDisplay,
             platform: KortexPlatform = KortexPlatform.None,
+            contentClipboard: (WaylandClipboard) -> TextClipboard = { it },
             content: @Composable KortexApplicationScope.() -> Unit,
         ): Result<KortexShell, KortexError> {
             // Before the content runs: its surfaces are placed in later passes, where a missing global would reach
             // each one's onClose instead of ending the run.
             missingSurfaceGlobal(display.globals)?.let { return Err(it) }
-            val shell = create(display, emptyList(), platform, onCrashSurface = {}, contentClipboard = { it })
+            val shell = create(display, emptyList(), platform, onCrashSurface = {}, contentClipboard = contentClipboard)
                 .getOrElse { return Err(it) }
             shell.startApplication(content)
             // The first composition runs the application's content, which can already have thrown.

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -16,10 +17,13 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.ContentFailure
+import com.fromwau.kortex.compose.KortexSurfaceHandle
+import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
@@ -29,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertIsNot
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -729,6 +734,154 @@ class ShowTest {
         assertSame<LayerSurface<Nothing>>(surface, surfaces.first(), "first() did not return the list's surface")
     }
 
+    @Test
+    fun `a Show inside content places a child, and taking the parent's Show out ends both, each reporting Ok`() {
+        val showing = mutableStateOf(true)
+        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) {
+                Show(TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) { ShowChild(childReports) })
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell, count = 2)
+            assertNotNull(Screen.awaitGeometry(SECOND_NAMESPACE), "hyprctl never listed the child, $SECOND_NAMESPACE")
+
+            showing.value = false
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { parentReports.isNotEmpty() && childReports.isNotEmpty() },
+                "taking the parent's Show out left a surface unreported: parent $parentReports, child $childReports",
+            )
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertEquals(listOf(Ok(Unit)), parentReports.toList(), "the parent did not report Ok once")
+            assertEquals(listOf(Ok(Unit)), childReports.toList(), "the child did not report Ok once")
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived the parent's Show")
+        }
+    }
+
+    @Test
+    fun `a parent whose content crashes reports the crash, and the child it showed reports Ok`() {
+        val crashing = mutableStateOf(false)
+        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) {
+                    ShowChild(childReports)
+                    val crashNow = crashing.value
+                    LaunchedEffect(crashNow) { if (crashNow) error(EFFECT_FAILURE) }
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell, count = 2)
+
+            crashing.value = true
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { parentReports.isNotEmpty() && childReports.isNotEmpty() },
+                "the parent's crash left a surface unreported: parent $parentReports, child $childReports",
+            )
+            shell.pumpOrFail(SETTLE_MILLIS)
+            val crash = crashIn(parentReports.single(), "the parent's crash did not report Failed(SurfaceCrashed)")
+            assertEquals(EFFECT_FAILURE, crash.failure.cause.message, "the crash did not carry what the effect threw")
+            assertEquals(
+                listOf(Ok(Unit)),
+                childReports.toList(),
+                "the child of a crashed parent did not report Ok once",
+            )
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived its crashed parent")
+        }
+    }
+
+    @Test
+    fun `LocalKortexSurface below a surface's invoke() is its instance, and closing it closes the surface`() {
+        val closeRequested = mutableStateOf(false)
+        val instance = AtomicReference<LayerSurface<*>?>(null)
+        val below = AtomicReference<KortexSurfaceHandle?>(null)
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val surface = TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+                SurfaceBelow(below, closeRequested)
+            }
+            SideEffect { instance.set(surface) }
+            Show(surface)
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { below.get() != null }, "the surface's content never composed")
+            assertSame<Any?>(
+                instance.get(),
+                below.get(),
+                "LocalKortexSurface below invoke() was not the surface's instance",
+            )
+
+            closeRequested.value = true
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "closing LocalKortexSurface reported nothing",
+            )
+            assertEquals(listOf(Ok(Unit)), reports.toList(), "closing LocalKortexSurface did not report Ok once")
+            assertTrue(shell.shownSurfaces.isEmpty(), "closing LocalKortexSurface left the surface on screen")
+        }
+    }
+
+    @Test
+    fun `content reaches the shell's clipboard through LocalKortexClipboard, failures included`() {
+        val clipboard = FakeTextClipboard(read = { Ok(OTHER_CLIENTS) }, set = { Err(ClipboardError.NoInputSerial) })
+        val results = CopyOnWriteArrayList<Result<Any, ClipboardError>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE) {
+                    val typed = LocalKortexClipboard.current
+                    LaunchedEffect(typed) {
+                        results += typed.readText()
+                        results += typed.setText(COPIED)
+                        results += typed.clear()
+                    }
+                },
+            )
+        }
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            val shell = KortexShell
+                .createApplication(display, contentClipboard = { clipboard }, content = content)
+                .getOrElse { error -> fail("the application failed to start: $error") }
+            shell.useOrFail {
+                assertTrue(
+                    shell.pumpOrFail(PUMP_MILLIS) { results.size == CLIPBOARD_CALLS },
+                    "content's clipboard calls never returned",
+                )
+            }
+        }
+        assertEquals(
+            listOf(Ok(OTHER_CLIENTS), Err(ClipboardError.NoInputSerial), Ok(Unit)),
+            results.toList(),
+            "content did not get the shell's clipboard's own results",
+        )
+        assertEquals(listOf(COPIED), clipboard.setTexts.toList(), "the copy did not reach the shell's clipboard")
+        assertEquals(1, clipboard.clears.get(), "the clear did not reach the shell's clipboard")
+    }
+
+    @Test
+    fun `content's LocalKortexClipboard cannot close the shell's clipboard`() {
+        val typed = AtomicReference<KortexClipboard?>(null)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface<Nothing>(NAMESPACE) { typed.set(LocalKortexClipboard.current) })
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { typed.get() != null }, "content was handed no clipboard")
+            assertIsNot<AutoCloseable>(typed.get(), "content was handed a clipboard it could close")
+        }
+    }
+
     /**
      * Starts an application of [content] and hands it to [crash], which drives it into a crash and returns it; closing
      * the application must then return that same crash.
@@ -773,6 +926,23 @@ class ShowTest {
     @Composable
     private fun OnLeave(left: AtomicBoolean) {
         DisposableEffect(Unit) { onDispose { left.set(true) } }
+    }
+
+    /** Shows a speck under [SECOND_NAMESPACE] from the surface content it is called in, reporting to [reports]. */
+    @Composable
+    private fun ShowChild(reports: MutableList<EmptyResult<SurfaceError<Nothing>>>) {
+        Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { reports += it }))
+    }
+
+    /** Hands [seen] the LocalKortexSurface it finds, and closes that surface once [requested] turns true. */
+    @Composable
+    private fun SurfaceBelow(
+        seen: AtomicReference<KortexSurfaceHandle?>,
+        requested: MutableState<Boolean>,
+    ) {
+        val surface = LocalKortexSurface.current
+        SideEffect { seen.set(surface) }
+        CloseWhen(requested)
     }
 
     private sealed interface Dismissal : IError {
@@ -835,6 +1005,9 @@ class ShowTest {
         const val EFFECT_DELAY_MILLIS = 50L
         const val IDLE_MILLIS = 500L
         const val PRINTED_EXCERPT = 300
+        const val COPIED = "copied in kortex"
+        const val OTHER_CLIENTS = "from another client"
+        const val CLIPBOARD_CALLS = 3
 
         // Clear of the default speck's corner, so a second surface is told apart on screen too.
         val BOTTOM_LEFT = setOf(Edge.Bottom, Edge.Left)

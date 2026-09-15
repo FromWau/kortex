@@ -1,12 +1,14 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.ProvidableCompositionLocal
+import androidx.compose.runtime.staticCompositionLocalOf
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Result
 
 /**
- * The desktop's clipboard, as a shell's content reaches it through `LocalKortexHost.current.clipboard`: put text
- * on it, clear it, or read the text on it, each call returning a typed result.
+ * The desktop's clipboard, as a surface's content reaches it through [LocalKortexClipboard]: put text on it, clear
+ * it, or read the text on it, each call returning a typed result.
  *
  * Compose's `LocalClipboard`, which Compose's own text fields use, reaches the same clipboard, except inside a
  * `Popup` or `Dialog`, where it is AWT's. It cannot say why a copy or paste failed: a failed paste gets no entry,
@@ -14,7 +16,7 @@ import com.fromwau.kern.result.Result
  * inside a `Popup` or `Dialog` too.
  *
  * ```kotlin
- * val clipboard = LocalKortexHost.current.clipboard
+ * val clipboard = LocalKortexClipboard.current
  * val scope = rememberCoroutineScope()
  * Button(onClick = { scope.launch { copied = clipboard.setText(link) } }) { Text("Copy link") }
  * ```
@@ -62,6 +64,10 @@ public sealed interface KortexClipboard {
      */
     public suspend fun readText(): Result<String, ClipboardError>
 }
+
+/** The desktop's clipboard, in the content of every surface [Show] puts on screen. */
+public val LocalKortexClipboard: ProvidableCompositionLocal<KortexClipboard> =
+    staticCompositionLocalOf { error("LocalKortexClipboard is provided only in a surface's content") }
 
 /** Why a [KortexClipboard] call failed. */
 public sealed interface ClipboardError : IError {

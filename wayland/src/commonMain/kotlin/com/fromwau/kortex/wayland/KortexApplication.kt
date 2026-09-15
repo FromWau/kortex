@@ -57,7 +57,7 @@ public fun kortexApplication(
 ): EmptyResult<KortexError> =
     WaylandDisplay.connect().flatMap { display ->
         display.use {
-            KortexShell.createApplication(display, platform, content).flatMap { shell ->
+            KortexShell.createApplication(display, platform, content = content).flatMap { shell ->
                 val run = shell.runEventLoop()
                 // Whatever the run returned: this is where exitApplication's Shows leave and their surfaces report.
                 val closed = shell.close()

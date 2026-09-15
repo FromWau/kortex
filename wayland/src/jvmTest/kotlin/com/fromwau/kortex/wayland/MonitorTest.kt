@@ -40,6 +40,35 @@ class MonitorTest {
     }
 
     @Test
+    fun `rememberMonitors() inside a surface's content lists the same monitors as the application`() {
+        val inApplication = AtomicReference<List<Monitor>>(emptyList())
+        val inContent = AtomicReference<List<Monitor>?>(null)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            SideEffect { inApplication.set(monitors) }
+            Show(
+                TestSurface<Nothing>(NAMESPACE) {
+                    val seen by rememberMonitors()
+                    SideEffect { inContent.set(seen) }
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { inContent.get() != null },
+                "the surface's content listed nothing",
+            )
+            assertTrue(inApplication.get().isNotEmpty(), "the application listed no monitor")
+            assertEquals(
+                inApplication.get(),
+                inContent.get(),
+                "the surface's content listed other monitors than the application",
+            )
+        }
+    }
+
+    @Test
     fun `a surface shown on a monitor lands on it, under its namespace as written`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
