@@ -1,7 +1,8 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshots.Snapshot
-import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -65,29 +66,29 @@ class OutputGeometryTest {
     }
 
     @Test
-    fun `a surface's published geometry is reachable through the shell that owns it`() {
+    fun `a surface's monitor geometry is reachable through the surface that was shown on it`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, SurfaceSpec(CONFIG) { })
-                .getOrElse { error -> fail("shell creation failed: $error") }
+            val content: @Composable KortexApplicationScope.() -> Unit = {
+                val monitors by rememberMonitors()
+                monitors.firstOrNull()?.let { Show(TestSurface<Nothing>(NAMESPACE, monitor = it)) }
+            }
+            val shell = KortexShell.createApplicationOrFail(wayland, content)
 
             shell.useOrFail {
-                val active = shell.activeSurfaces
-                assertTrue(active.isNotEmpty(), "shell has no surfaces to read geometry through")
-
-                active.forEach { entry ->
-                    val published = assertNotNull(
-                        entry.geometry,
-                        "a live surface's output geometry never reached the shell",
-                    )
-                    val expected = assertNotNull(
-                        Hyprctl.monitors().firstOrNull { it.name == published.name },
-                        "hyprctl monitors -j reported nothing named ${published.name}",
-                    )
-                    assertEquals(expected.width, published.width, "${published.name}: mode width mismatch")
-                    assertEquals(expected.height, published.height, "${published.name}: mode height mismatch")
-                }
+                awaitPlaced(shell)
+                val monitor = assertNotNull(
+                    shell.monitors.value.firstOrNull(),
+                    "the application listed no monitor to read geometry through",
+                )
+                val published = monitor.geometry
+                val expected = assertNotNull(
+                    Hyprctl.monitors().firstOrNull { it.name == published.name },
+                    "hyprctl monitors -j reported nothing named ${published.name}",
+                )
+                assertEquals(expected.width, published.width, "${published.name}: mode width mismatch")
+                assertEquals(expected.height, published.height, "${published.name}: mode height mismatch")
             }
         }
     }
@@ -165,12 +166,7 @@ class OutputGeometryTest {
         const val TRANSFORM = 3
         const val NAME = "SYNTH-1"
         const val DESCRIPTION = "Synthetic output for the current-mode-flag test"
-        const val SHELL_NAMESPACE = "kortex-geometry-test"
-        const val SURFACE_HEIGHT = 32
+        const val NAMESPACE = "kortex-geometry-test"
         val NONE: MemorySegment = MemorySegment.NULL
-
-        val CONFIG = SurfaceConfig
-            .panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp)
-            .copy(namespace = SHELL_NAMESPACE)
     }
 }
