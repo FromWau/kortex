@@ -73,7 +73,9 @@ import kotlin.reflect.KClass
  *   [kortexApplication]. It receives `Ok(Unit)` when `close()` is called, the compositor closes the surface, its
  *   [monitor] is unplugged, or its [Show] leaves composition: taken out, gone with the surface whose content showed
  *   it, or ended by `exitApplication()`. It receives [SurfaceError.Closed] when `close(error)` is called, and
- *   [SurfaceError.Failed] when the surface could not be placed or its content threw. If it throws, the application
+ *   [SurfaceError.Failed] when the surface could not be placed, failed to follow a new size or scale from the
+ *   compositor, or its content threw. Content that throws before the surface has gone, its cleanup as it goes
+ *   included, makes it [SurfaceError.Failed] whatever else ended it. If `onClose` itself throws, the application
  *   ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
  */
 public abstract class LayerSurface<E : IError>(
@@ -187,8 +189,9 @@ public sealed interface SurfaceError<out E : IError> : IError {
     public data class Closed<out E : IError>(public val error: E) : SurfaceError<E>
 
     /**
-     * kortex ended the surface: its content threw, as [KortexError.SurfaceCrashed], or it could not be placed, as
-     * [KortexError.UnspannableAxis], say.
+     * kortex ended the surface: its content threw, as [KortexError.SurfaceCrashed]; it could not be placed, as
+     * [KortexError.UnspannableAxis], say; or it failed to follow a new size or scale from the compositor, as
+     * [KortexError.ShmAllocationFailed].
      */
     public data class Failed(public val error: KortexError) : SurfaceError<Nothing>
 }
