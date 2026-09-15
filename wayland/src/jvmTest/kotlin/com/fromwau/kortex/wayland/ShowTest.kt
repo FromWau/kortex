@@ -807,6 +807,70 @@ class ShowTest {
         takeOutParentWithThrowingCleanup(ParentContent.CleanupThenChild)
 
     @Test
+    fun `a parent whose composable body throws reports the crash, and the child it showed reports Ok`() {
+        val crashing = mutableStateOf(false)
+        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) {
+                    ShowChild(childReports)
+                    if (crashing.value) error(BODY_FAILURE)
+                },
+            )
+        }
+
+        // Compose prints the failure of the composition it ran as well, which is kept off the test's own output.
+        val printed = capturingStderr {
+            onApplication(content) { shell ->
+                awaitPlaced(shell, count = 2)
+
+                crashing.value = true
+
+                assertTrue(
+                    shell.pumpOrFail(PUMP_MILLIS) { parentReports.isNotEmpty() && childReports.isNotEmpty() },
+                    "the parent's crash left a surface unreported: parent $parentReports, child $childReports",
+                )
+                shell.pumpOrFail(SETTLE_MILLIS)
+                assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived its crashed parent")
+            }
+        }
+        val crash = crashIn(parentReports.single(), "a parent whose body threw did not report Failed(SurfaceCrashed)")
+        assertEquals(BODY_FAILURE, crash.failure.cause.message, "the crash did not carry what the body threw")
+        assertEquals(listOf(Ok(Unit)), childReports.toList(), "the child of a crashed parent did not report Ok once")
+        assertTrue(
+            BODY_FAILURE in printed,
+            "what Compose printed did not name the body's failure: ${printed.take(PRINTED_EXCERPT)}",
+        )
+    }
+
+    @Test
+    fun `exitApplication reports Ok once to a surface and to the surface its content showed`() {
+        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) { ShowChild(childReports) })
+        }
+
+        val result = LoopThread.runApplication(content) { scope, loop ->
+            assertTrue(LoopThread.awaitNamespace(NAMESPACE, present = true), "hyprctl never listed $NAMESPACE")
+            assertTrue(
+                LoopThread.awaitNamespace(SECOND_NAMESPACE, present = true),
+                "hyprctl never listed the child, $SECOND_NAMESPACE",
+            )
+
+            scope.exitApplication()
+
+            loop.join(LoopThread.JOIN_MILLIS)
+            assertFalse(loop.isAlive, "exitApplication did not end the run")
+        }
+
+        assertEquals(Ok(Unit), result, "an application ended by exitApplication did not return Ok")
+        assertEquals(listOf(Ok(Unit)), parentReports.toList(), "exitApplication did not report Ok to the parent once")
+        assertEquals(listOf(Ok(Unit)), childReports.toList(), "exitApplication did not report Ok to the child once")
+    }
+
+    @Test
     fun `LocalKortexSurface below a surface's invoke() is its instance, and closing it closes the surface`() {
         val closeRequested = mutableStateOf(false)
         val instance = AtomicReference<LayerSurface<*>?>(null)
@@ -1063,6 +1127,7 @@ class ShowTest {
         const val EFFECT_DELAY_MILLIS = 50L
         const val IDLE_MILLIS = 500L
         const val PRINTED_EXCERPT = 300
+        const val BODY_FAILURE = "a surface's content threw as it composed"
         const val COPIED = "copied in kortex"
         const val OTHER_CLIENTS = "from another client"
         const val CLIPBOARD_CALLS = 3
