@@ -35,7 +35,7 @@ internal class ShellOutput(
     }
 }
 
-/** [clipboard]'s calls without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
+/** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
 
 /**

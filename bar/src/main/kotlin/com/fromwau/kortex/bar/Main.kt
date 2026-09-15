@@ -121,9 +121,8 @@ private class DemoBar(
                             awaitPointerEventScope {
                                 while (true) {
                                     val event = awaitPointerEvent()
-                                    if (event.type != PointerEventType.Press || event.button != PointerButton.Secondary) {
-                                        continue
-                                    }
+                                    if (event.type != PointerEventType.Press) continue
+                                    if (event.button != PointerButton.Secondary) continue
                                     // This scope's Density is the very buffer scale the offset was produced
                                     // at, so it converts exactly into the logical space ContextMenu wants.
                                     val x = (event.changes.first().position.x / density).roundToInt()

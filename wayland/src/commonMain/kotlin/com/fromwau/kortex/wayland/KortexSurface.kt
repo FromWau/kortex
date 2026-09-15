@@ -162,7 +162,7 @@ internal class KortexSurface private constructor(
         return crash?.let { Err(it) } ?: Ok(predicate())
     }
 
-    internal fun drainQueue() {
+    private fun drainQueue() {
         generateSequence(queue::poll).forEach { it() }
     }
 
