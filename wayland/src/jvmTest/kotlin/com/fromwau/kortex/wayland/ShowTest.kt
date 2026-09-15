@@ -36,7 +36,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertIsNot
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -760,20 +759,24 @@ class ShowTest {
             .mapIndexed { name, interfaceName -> WaylandGlobal(name, interfaceName, version = 1) }
         fun lacking(interfaceName: String) = all.filterNot { it.interfaceName == interfaceName }
 
-        assertNull(KortexShell.missingSurfaceGlobal(all), "a compositor advertising every global was found lacking one")
         assertEquals(
-            KortexError.MissingGlobal("wl_compositor"),
-            KortexShell.missingSurfaceGlobal(lacking("wl_compositor")),
+            Ok(Unit),
+            KortexShell.requireSurfaceGlobals(all),
+            "a compositor advertising every global was found lacking one",
+        )
+        assertEquals(
+            Err(KortexError.MissingGlobal("wl_compositor")),
+            KortexShell.requireSurfaceGlobals(lacking("wl_compositor")),
             "a compositor without wl_compositor was not found lacking it",
         )
         assertEquals(
-            KortexError.MissingGlobal("wl_shm"),
-            KortexShell.missingSurfaceGlobal(lacking("wl_shm")),
+            Err(KortexError.MissingGlobal("wl_shm")),
+            KortexShell.requireSurfaceGlobals(lacking("wl_shm")),
             "a compositor without wl_shm was not found lacking it",
         )
         assertEquals(
-            KortexError.MissingGlobal("zwlr_layer_shell_v1"),
-            KortexShell.missingSurfaceGlobal(lacking("zwlr_layer_shell_v1")),
+            Err(KortexError.MissingGlobal("zwlr_layer_shell_v1")),
+            KortexShell.requireSurfaceGlobals(lacking("zwlr_layer_shell_v1")),
             "a compositor without zwlr_layer_shell_v1 was not found lacking it",
         )
     }

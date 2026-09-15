@@ -454,7 +454,7 @@ internal class KortexShell private constructor(
         ): Result<KortexShell, KortexError> {
             // Before the content runs: its surfaces are placed in later passes, where a missing global would reach
             // each one's onClose instead of ending the run.
-            missingSurfaceGlobal(display.globals)?.let { return Err(it) }
+            requireSurfaceGlobals(display.globals).getOrElse { return Err(it) }
             val loopQueue = LoopQueue(display::wake)
             // Before any surface can take focus: the selection comes as focus arrives, to the devices there are then.
             val clipboard = WaylandClipboard.bind(display, loopQueue).getOrElse { return Err(it) }
@@ -480,11 +480,12 @@ internal class KortexShell private constructor(
             return Ok(shell)
         }
 
-        /** The first global a surface binds as it is placed that [globals] lacks; null when there is none. */
-        internal fun missingSurfaceGlobal(globals: List<WaylandGlobal>): KortexError.MissingGlobal? =
+        /** Checks that [globals] has every global a surface binds as it is placed, failing with the first it lacks. */
+        internal fun requireSurfaceGlobals(globals: List<WaylandGlobal>): EmptyResult<KortexError.MissingGlobal> =
             SURFACE_GLOBALS
                 .firstOrNull { interfaceName -> globals.none { it.interfaceName == interfaceName } }
-                ?.let(KortexError::MissingGlobal)
+                ?.let { Err(KortexError.MissingGlobal(it)) }
+                ?: Ok(Unit)
 
         // What LayerShellSurface, Shm and WlCursorTheme bind for each surface. wl_seat is not here: the clipboard binds
         // it as the shell is created, which fails without it.
