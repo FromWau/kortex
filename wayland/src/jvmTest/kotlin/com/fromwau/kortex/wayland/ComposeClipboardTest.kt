@@ -322,7 +322,10 @@ class ComposeClipboardTest {
             val shell = KortexShell
                 .createApplication(wayland, contentClipboard = contentClipboard, content = application)
                 .getOrElse { error -> fail("shell creation failed: $error") }
-            shell.useOrFail { awaitPlaced(it); block(it) }
+            shell.useOrFail {
+                awaitPlaced(it)
+                block(it)
+            }
         }
     }
 

@@ -157,7 +157,7 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
       machine and are covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
 - [x] **A surface's `monitor.geometry` recomposes a reader.** Content reads its own surface's
       `monitor.geometry` during composition and records every value it composes with. Its first, real
-      composition already sees the output's real geometry, since the application rounds-trips before
+      composition already sees the output's real geometry, since the application round-trips before
       placing. The test then drives it past that with a fabricated event group, called directly on the
       live surface's own `OutputListener` from the test thread: `onGeometry`, `onMode` flagged current,
       `onScale`, `onName`, `onDescription`, then `onDone`. That stands in for what a real re-send would
