@@ -3,14 +3,13 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.compose.LocalKortexSurface
+import androidx.compose.runtime.withFrameNanos
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlin.test.fail
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 
@@ -20,7 +19,7 @@ class EventLoopWakeTest {
     fun `an idle application's loop stays asleep`() {
         val content: @Composable KortexApplicationScope.() -> Unit = { Show(TestSurface<Nothing>(IDLE_NAMESPACE)) }
 
-        withDisplay(content) { display, _, _ ->
+        LoopThread.runApplicationOnDisplay(content) { display, _, _ ->
             assertTrue(
                 LoopThread.awaitNamespace(IDLE_NAMESPACE, present = true),
                 "hyprctl layers never reported $IDLE_NAMESPACE",
@@ -54,7 +53,7 @@ class EventLoopWakeTest {
         }
 
         val printed = capturingStdout {
-            withDisplay(content) { _, _, _ ->
+            LoopThread.runApplicationOnDisplay(content) { _, _, _ ->
                 assertTrue(
                     LoopThread.awaitNamespace(OPENER_NAMESPACE, present = true),
                     "hyprctl layers never reported $OPENER_NAMESPACE",
@@ -80,11 +79,20 @@ class EventLoopWakeTest {
     @Test
     fun `an effect that keeps yielding still lets the loop wait between yields`() {
         val yieldRequested = mutableStateOf(false)
+        val composed = AtomicBoolean(false)
         val loopDisplay = AtomicReference<WaylandDisplay>()
         val waitsWhileYielding = AtomicReference<Long?>(null)
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(YIELDING_NAMESPACE) {
+                    // Twice: hyprctl lists this namespace once the compositor maps it, which can race this
+                    // surface's own first composition; a first frame can still land inside
+                    // KortexSurface.setContent's own synchronous flush, a second cannot.
+                    LaunchedEffect(Unit) {
+                        withFrameNanos {}
+                        withFrameNanos {}
+                        composed.set(true)
+                    }
                     val requested = yieldRequested.value
                     LaunchedEffect(requested) {
                         if (!requested) return@LaunchedEffect
@@ -97,10 +105,14 @@ class EventLoopWakeTest {
             )
         }
 
-        withDisplay(content) { display, _, _ ->
+        LoopThread.runApplicationOnDisplay(content) { display, _, _ ->
             assertTrue(
                 LoopThread.awaitNamespace(YIELDING_NAMESPACE, present = true),
                 "hyprctl layers never reported $YIELDING_NAMESPACE",
+            )
+            assertTrue(
+                LoopThread.waitUntil { composed.get() },
+                "$YIELDING_NAMESPACE's content never drew its first frame",
             )
             loopDisplay.set(display)
             yieldRequested.value = true
@@ -109,41 +121,6 @@ class EventLoopWakeTest {
             val waits = assertNotNull(waitsWhileYielding.get(), "the yielding effect never finished its yields")
             // A pass per yield; half of that already rules out yields running back to back inside one pass.
             assertTrue(waits >= YIELDS / 2, "the loop waited only $waits times while an effect yielded $YIELDS times")
-        }
-    }
-
-    /**
-     * Runs [content] as an application on a thread of its own, as [LoopThread.runApplication] does, but keeps the
-     * connection: only this file's tests need [WaylandDisplay.waits] to prove the loop is, or is not, doing wasted
-     * work.
-     */
-    private fun withDisplay(
-        content: @Composable KortexApplicationScope.() -> Unit,
-        block: (display: WaylandDisplay, scope: KortexApplicationScope, loop: Thread) -> Unit,
-    ) {
-        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        val scopeRef = AtomicReference<KortexApplicationScope?>(null)
-        val loop = Thread(
-            {
-                val shell = KortexShell.createApplicationOrFail(display) {
-                    scopeRef.set(this)
-                    content()
-                }
-                shell.useOrFail { it.runEventLoop().getOrElse { error -> fail("the run ended in $error") } }
-            },
-            "kortex-test-application",
-        )
-        loop.isDaemon = true
-        loop.start()
-        LoopThread.waitUntil { scopeRef.get() != null || !loop.isAlive }
-        val scope = scopeRef.get() ?: fail("the application never composed its content")
-        try {
-            block(display, scope, loop)
-        } finally {
-            scope.exitApplication()
-            loop.join(LoopThread.JOIN_MILLIS)
-            if (!loop.isAlive) display.close()
-            assertTrue(!loop.isAlive, "the loop never returned, so its connection and thread stay live for later tests")
         }
     }
 

@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
@@ -74,6 +75,63 @@ internal object LoopThread {
         }
         threw.get()?.let { throw AssertionError("the application's thread threw", it) }
         return assertNotNull(returned.get(), "the application returned nothing")
+    }
+
+    /**
+     * As [runApplication], but keeps the connection and hands it to [block] too: a test that needs
+     * [WaylandDisplay.waits], to prove the loop is, or is not, doing wasted work, cannot reach the connection
+     * through the public [kortexApplication] entry point [runApplication] itself runs.
+     */
+    fun runApplicationOnDisplay(
+        content: @Composable KortexApplicationScope.() -> Unit,
+        block: (display: WaylandDisplay, scope: KortexApplicationScope, loop: Thread) -> Unit,
+    ) {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val scope = AtomicReference<KortexApplicationScope?>(null)
+        val threw = AtomicReference<Throwable?>(null)
+        val loop = Thread(
+            {
+                // Caught so a throw reaches the test thread as a failure, rather than dying unreported.
+                try {
+                    val shell = KortexShell.createApplicationOrFail(display) {
+                        scope.set(this)
+                        content()
+                    }
+                    shell.useOrFail { it.runEventLoop().getOrElse { error -> fail("the run ended in $error") } }
+                } catch (thrown: Throwable) {
+                    threw.set(thrown)
+                }
+            },
+            "kortex-test-application",
+        )
+        loop.isDaemon = true
+        loop.start()
+
+        // Set in catch, read in finally: what finally finds attaches to the failure that surfaced first.
+        var primary: Throwable? = null
+        try {
+            waitUntil { scope.get() != null || !loop.isAlive }
+            val started = scope.get() ?: fail("the application never composed its content: ${threw.get()}")
+            block(display, started, loop)
+        } catch (thrown: Throwable) {
+            primary = thrown
+            throw thrown
+        } finally {
+            scope.get()?.exitApplication()
+            loop.join(JOIN_MILLIS)
+            if (!loop.isAlive) display.close()
+            val trouble = when {
+                loop.isAlive -> AssertionError(
+                    "the application never returned, so its connection, its surfaces and the thread stay live for " +
+                        "the rest of this test JVM",
+                )
+                else -> threw.get()?.let { AssertionError("the application's thread threw", it) }
+            }
+            if (trouble != null) {
+                val existing = primary
+                if (existing != null) existing.addSuppressed(trouble) else throw trouble
+            }
+        }
     }
 
     /** Polls [condition] until it holds, for at most [timeoutMillis]; the loop thread is the one making it true. */
