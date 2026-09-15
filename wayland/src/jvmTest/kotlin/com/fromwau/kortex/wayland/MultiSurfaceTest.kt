@@ -193,10 +193,10 @@ class MultiSurfaceTest {
     /** Polls [monitor] until its usable area starts at [expected], since a reservation lands a frame late. */
     private fun awaitUsableTop(monitor: String, expected: Int): HyprMonitor {
         val deadline = System.nanoTime() + HYPRCTL_SETTLE_MILLIS * NANOS_PER_MILLI
-        var reported = monitor(monitor)
+        var reported = Hyprctl.monitor(monitor)
         while (reported.usableY != expected && System.nanoTime() < deadline) {
             Thread.sleep(HYPRCTL_POLL_MILLIS)
-            reported = monitor(monitor)
+            reported = Hyprctl.monitor(monitor)
         }
         return reported
     }
@@ -210,9 +210,6 @@ class MultiSurfaceTest {
         }
         return namespaces
     }
-
-    private fun monitor(name: String): HyprMonitor =
-        assertNotNull(Hyprctl.monitors().firstOrNull { it.name == name }, "hyprctl lost monitor $name")
 
     /** Distinct, because a namespace mid-hotplug can transiently be reported under two monitors. */
     private fun panelNamespaces(): Set<String> =
