@@ -19,19 +19,17 @@ import kotlin.test.assertSame
  */
 class PresetClassTest {
     @Test
-    fun `a Bar left at its defaults spans the top edge, 32 dp thick, and reserves 32 dp`() {
-        val content: @Composable KortexApplicationScope.() -> Unit = {
-            Show(
-                object : Bar<Nothing>(namespace = BAR_NAMESPACE) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
+    fun `a Bar left at its defaults takes no keyboard focus, spans the top edge, 32 dp thick, and reserves 32 dp`() {
+        val bar = object : Bar<Nothing>(namespace = BAR_NAMESPACE) {
+            @Composable
+            override fun invoke() = Unit
         }
+        // Before anything is shown: Hyprland hands a surface that takes the keyboard the user's focus as it maps.
+        assertEquals(KeyboardInteractivity.None, bar.keyboard, "a Bar left at its defaults takes the keyboard")
         // Every monitor's usable area: the compositor picks the bar's monitor, and a desktop bar may reserve space.
         val before = Hyprctl.monitors().associateBy { it.name }
 
-        onApplication(content) { shell ->
+        onApplication({ Show(bar) }) { shell ->
             awaitPlaced(shell)
 
             val geometry = assertNotNull(Screen.awaitGeometry(BAR_NAMESPACE), "hyprctl never listed $BAR_NAMESPACE")
