@@ -147,8 +147,11 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       its own `close()` is the one owner of every piece. The pointer check comes before that point, which
       `Seat.bind`'s round trip already allows, so no exit returns an error once the surface exists. The
       test provokes the latest exit this machine can reach, a withdrawn `wl_seat`; the pointer-less seat,
-      `waitForConfigure`, `createFrames`, the cursor theme and the cursor surface cannot be reached on this
-      machine and are covered by the mechanism rather than by a test. (`SurfaceCreateFailureTest`)
+      `createFrames`, the cursor theme and the cursor surface cannot be reached on this machine, and they and
+      `waitForConfigure` are covered by the mechanism rather than by a test. `waitForConfigure` returns the
+      connection's error when the connection died before a configure came, which `LayerShellSurfaceTest` pins on
+      a connection it ends itself; a live connection that never configures, `SurfaceNotConfigured`, is not
+      tested. (`SurfaceCreateFailureTest`, `LayerShellSurfaceTest`)
 - [x] **A surface's `monitor.geometry` recomposes a reader.** Content reads its own surface's
       `monitor.geometry` during composition and records every value it composes with. Its first, real
       composition already sees the output's real geometry, since the application round-trips before
