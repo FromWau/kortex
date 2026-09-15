@@ -380,10 +380,7 @@ internal class KortexSurface private constructor(
                     exclusiveEdge = config.exclusiveEdge,
                 ).getOrElse { return Err(it) }
                 unwind += layer::close
-                if (!layer.waitForConfigure()) {
-                    // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-                    return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
-                }
+                layer.waitForConfigure().getOrElse { return Err(it) }
                 // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
                 val bufferScale = layer.preferredBufferScale
                 // Pending state only; it is committed together with the first attach() below.

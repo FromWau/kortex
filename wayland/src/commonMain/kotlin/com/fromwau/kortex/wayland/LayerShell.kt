@@ -5,6 +5,7 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
@@ -105,7 +106,7 @@ internal class LayerShellSurface(
     // Paired with closed, which says the surface must be torn down rather than that it has been.
     private var disposed = false
 
-    /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
+    /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns `Ok`. */
     val logicalWidth: Int get() = state.width
     val logicalHeight: Int get() = state.height
     val closed: Boolean get() = state.closed
@@ -118,15 +119,21 @@ internal class LayerShellSurface(
      */
     val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
 
-    /** Blocks until the compositor has configured this surface, acknowledging the serial it sent. */
-    fun waitForConfigure(): Boolean {
+    /**
+     * Blocks until the compositor has configured this surface, acknowledging the serial it sent.
+     *
+     * @return the connection's error when it died before a configure came, else [KortexError.SurfaceNotConfigured].
+     */
+    fun waitForConfigure(): EmptyResult<KortexError> {
         display.roundtrip()
         var spins = 0
         while (!state.configured && !state.closed && spins < MAX_SPINS) {
             display.dispatch()
             spins++
         }
-        return state.configured
+        if (state.configured) return Ok(Unit)
+        // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
+        return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
     }
 
     /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */

@@ -5,7 +5,6 @@ import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -79,7 +78,7 @@ class SurfaceConfigTest {
             ).getOrElse { error -> fail("panel creation failed: $error") }
 
             panel.use {
-                assertTrue(panel.waitForConfigure(), "panel never configured")
+                panel.waitForConfigure().getOrElse { error -> fail("panel never configured: $error") }
                 wayland.roundtrip()
 
                 val config = SurfaceConfig(

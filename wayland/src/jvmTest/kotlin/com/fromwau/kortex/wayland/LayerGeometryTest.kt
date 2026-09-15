@@ -42,7 +42,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 wayland.roundtrip()
 
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers does not report $NAMESPACE")
@@ -78,7 +79,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 wayland.roundtrip()
 
                 val geometry = assertNotNull(
@@ -118,7 +120,10 @@ class LayerGeometryTest {
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
-            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
         }
     }
 
@@ -145,7 +150,10 @@ class LayerGeometryTest {
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
-            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
         }
     }
 
@@ -165,7 +173,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
 
                 when (val result = bar.setSize(SPAN_ANCHORED_AXIS, HEIGHT)) {
                     is Ok -> fail("a 0 width on a surface anchored to Top alone must be rejected")
@@ -200,7 +209,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("a fully anchored surface must be allowed to omit both axes: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 wayland.roundtrip()
 
                 val geometry = assertNotNull(

@@ -20,7 +20,8 @@ class LayerShellSurfaceTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 assertTrue(!bar.closed, "compositor closed the layer surface")
 
                 assertTrue(bar.logicalWidth > 0, "configure carried a zero width")
@@ -46,7 +47,8 @@ class LayerShellSurfaceTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             overlay.use {
-                assertTrue(overlay.waitForConfigure(), "compositor never configured the layer surface")
+                overlay.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
 
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
                 assertEquals(layer, geometry.layer, "$NAMESPACE landed at the wrong layer level")

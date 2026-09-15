@@ -7,7 +7,6 @@ import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -33,7 +32,7 @@ class ExclusiveZoneTest {
             ).getOrElse { error -> fail("panel creation failed: $error") }
 
             panel.use {
-                assertTrue(panel.waitForConfigure(), "panel never configured")
+                panel.waitForConfigure().getOrElse { error -> fail("panel never configured: $error") }
                 wayland.roundtrip()
 
                 val background = LayerShellSurface.create(
@@ -48,7 +47,7 @@ class ExclusiveZoneTest {
                 ).getOrElse { error -> fail("background creation failed: $error") }
 
                 background.use {
-                    assertTrue(background.waitForConfigure(), "background never configured")
+                    background.waitForConfigure().getOrElse { error -> fail("background never configured: $error") }
                     wayland.roundtrip()
 
                     val geometry = assertNotNull(
@@ -94,15 +93,7 @@ class ExclusiveZoneTest {
             ).getOrElse { error -> fail("corner surface creation failed: $error") }
 
             corner.use {
-                val configured = corner.waitForConfigure()
-                // A rejected edge kills the connection, so the surface just never configures. Reading the
-                // error first turns that opaque timeout into the violation that caused it.
-                assertEquals(
-                    Ok(Unit),
-                    display.requireAlive(),
-                    "an exclusiveEdge the surface is actually anchored to must not raise invalid_exclusive_edge",
-                )
-                assertTrue(configured, "corner surface never configured")
+                corner.waitForConfigure().getOrElse { error -> fail("corner surface never configured: $error") }
                 wayland.roundtrip()
 
                 val cornerGeometry = assertNotNull(
@@ -133,7 +124,7 @@ class ExclusiveZoneTest {
                 ).getOrElse { error -> fail("probe surface creation failed: $error") }
 
                 probe.use {
-                    assertTrue(probe.waitForConfigure(), "probe surface never configured")
+                    probe.waitForConfigure().getOrElse { error -> fail("probe surface never configured: $error") }
                     wayland.roundtrip()
 
                     val probeGeometry = assertNotNull(
@@ -174,7 +165,9 @@ class ExclusiveZoneTest {
                 height = CORNER_HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(1.dp),
             ).getOrElse { error -> fail("a one-pixel reservation must be accepted: $error") }
-            smallest.use { assertTrue(smallest.waitForConfigure(), "the compositor never configured it") }
+            smallest.use {
+                smallest.waitForConfigure().getOrElse { error -> fail("the compositor never configured it: $error") }
+            }
         }
     }
 
@@ -205,7 +198,10 @@ class ExclusiveZoneTest {
                 wayland, namespace = REJECTED_NAMESPACE, height = CORNER_HEIGHT,
                 exclusiveZone = ExclusiveZone.Yield,
             ).getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
-            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
         }
     }
 

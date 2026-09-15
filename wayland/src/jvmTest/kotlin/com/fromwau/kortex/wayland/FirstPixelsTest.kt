@@ -46,7 +46,8 @@ class FirstPixelsTest {
                 .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl did not report $NAMESPACE")
 
                 body { argb ->
