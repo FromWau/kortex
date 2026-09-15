@@ -84,7 +84,7 @@ internal object LayerShellProtocol {
 }
 
 /**
- * A `zwlr_layer_shell_v1` surface: a panel the compositor places and other windows tile around.
+ * A `zwlr_layer_shell_v1` surface: the protocol side of every [LayerSurface].
  *
  * The compositor answers the first commit with `configure`, and a buffer must not be attached before
  * that serial is acknowledged: doing so is a protocol error and a disconnect.
@@ -162,7 +162,7 @@ internal class LayerShellSurface(
      *   surface was created with is fixed for its lifetime.
      */
     fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
-        unspannableAxis(width, height, anchor)?.let { return Err(it) }
+        requireSpannableAxes(width, height, anchor).getOrElse { return Err(it) }
         LibWayland.marshal(
             layerSurface, LayerShellProtocol.SET_SIZE,
             args = listOf(WlArg.Num(width), WlArg.Num(height)),
@@ -200,8 +200,7 @@ internal class LayerShellSurface(
          * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
          *   to pin both [Edge.Left] and [Edge.Right].
          * @param exclusiveZone how much screen space this surface reserves, measured inward from the
-         *   anchored edge; a top or bottom bar reserves its [height], a side dock its [width], which is
-         *   why it has no default.
+         *   anchored edge; a top or bottom bar reserves its [height], a side dock its [width].
          * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
@@ -224,7 +223,7 @@ internal class LayerShellSurface(
             output: MemorySegment = MemorySegment.NULL,
             exclusiveEdge: Edge? = null,
         ): Result<LayerShellSurface, KortexError> {
-            unspannableAxis(width, height, anchor)?.let { return Err(it) }
+            requireSpannableAxes(width, height, anchor).getOrElse { return Err(it) }
             if (exclusiveEdge != null && exclusiveEdge !in anchor) {
                 return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
             }
@@ -313,23 +312,21 @@ internal class LayerShellSurface(
         }
 
         /**
-         * Which axis, if either, was left for the compositor to size without both of its edges anchored.
-         *
-         * Omitting a dimension asks the compositor to pick it, which the protocol allows only when both
-         * of that axis's edges are anchored; anything else it answers by dropping the connection.
+         * Checks that an axis left for the compositor to size has both of its edges anchored: the protocol allows
+         * omitting a dimension only then, and answers anything else by dropping the connection.
          */
-        private fun unspannableAxis(
+        private fun requireSpannableAxes(
             width: Int,
             height: Int,
             anchor: Set<Edge>,
-        ): KortexError.UnspannableAxis? = when {
+        ): EmptyResult<KortexError.UnspannableAxis> = when {
             width == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Horizontal.edges) ->
-                KortexError.UnspannableAxis(Axis.Horizontal, anchor)
+                Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
 
             height == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Vertical.edges) ->
-                KortexError.UnspannableAxis(Axis.Vertical, anchor)
+                Err(KortexError.UnspannableAxis(Axis.Vertical, anchor))
 
-            else -> null
+            else -> Ok(Unit)
         }
 
         private const val WL_COMPOSITOR_CREATE_SURFACE = 0
