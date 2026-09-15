@@ -201,8 +201,8 @@ internal data class SurfaceConfig(
         )
 
         /**
-         * An [osd] that also takes keyboard focus on demand, for a floating panel dismissed through its
-         * own handle. It inherits [osd]'s placement rules.
+         * An [osd] that also takes keyboard focus on demand, for a floating panel whose content dismisses it
+         * with `close()`. It inherits [osd]'s placement rules.
          */
         fun appMenu(width: Dp, height: Dp): SurfaceConfig =
             osd(width, height).copy(keyboard = KeyboardInteractivity.OnDemand)

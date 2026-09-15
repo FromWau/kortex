@@ -43,7 +43,7 @@ import kotlin.reflect.KClass
  * ```
  *
  * The application builds a new instance each time it recomposes, so keep state inside [invoke] behind `remember`,
- * never in the class's fields. [Show] treats two instances as the same surface when they are of your same class and
+ * never in the class's fields. [Show] treats two instances as the same surface when they are of the same class and
  * pass `LayerSurface`'s constructor equal values, [onClose] aside: it keeps running, with the newest instance's
  * content and `onClose`. A value only your own constructor takes, such as `level` above, is not a setting: a new one
  * reaches the running surface's content.
