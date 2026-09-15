@@ -3,14 +3,16 @@ package com.fromwau.kortex.wayland
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.compose.LocalKortexSurface
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -18,10 +20,9 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Runs two unrelated surfaces on one connection against a real compositor: a panel on every output
- * that reserves screen space, and one compositor-placed OSD floating over it that reserves none. Each
- * carries its own layer, size and content, so a shell that let one spec's configuration or composition
- * reach the other's surface shows up here.
+ * Runs two unrelated surfaces on one application: a [Panel] per monitor that reserves screen space, and one
+ * compositor-placed [Osd] floating over it that reserves none. Each carries its own layer, size and content,
+ * so an application that let one surface's settings or composition reach the other's shows up here.
  */
 class MultiSurfaceTest {
     @Test
@@ -30,8 +31,7 @@ class MultiSurfaceTest {
         val before = Hyprctl.monitors().associateBy(HyprMonitor::name)
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, panelSpec(), osdSpec())
-                .getOrElse { error -> fail("shell creation failed: $error") }
+            val shell = KortexShell.createApplicationOrFail(wayland, multiSurfaceContent())
 
             shell.useOrFail {
                 awaitPanel(shell)
@@ -42,11 +42,11 @@ class MultiSurfaceTest {
                 )
                 val panel = assertNotNull(Screen.geometry(panelNamespace))
 
-                assertEquals(Layer.Top, panel.layer, "the panel is not on the layer its own config names")
-                assertEquals(Layer.Overlay, osd.layer, "the OSD is not on the layer its own config names")
-                assertEquals(PANEL_HEIGHT, panel.logicalHeight, "the panel is not the height its own config asks for")
-                assertEquals(OSD_HEIGHT, osd.logicalHeight, "the OSD is not the height its own config asks for")
-                assertEquals(OSD_WIDTH, osd.logicalWidth, "the OSD is not the width its own config asks for")
+                assertEquals(Layer.Top, panel.layer, "the panel is not on the layer its own settings name")
+                assertEquals(Layer.Overlay, osd.layer, "the OSD is not on the layer its own settings name")
+                assertEquals(PANEL_HEIGHT, panel.logicalHeight, "the panel is not the height its own settings ask for")
+                assertEquals(OSD_HEIGHT, osd.logicalHeight, "the OSD is not the height its own settings ask for")
+                assertEquals(OSD_WIDTH, osd.logicalWidth, "the OSD is not the width its own settings ask for")
 
                 val was = assertNotNull(before[osd.monitor], "hyprctl did not report ${osd.monitor} before the shell")
                 val now = awaitUsableTop(osd.monitor, was.usableY + PANEL_HEIGHT)
@@ -77,23 +77,22 @@ class MultiSurfaceTest {
         val closeRequested = mutableStateOf(false)
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, panelSpec(), osdSpec(closeRequested))
-                .getOrElse { error -> fail("shell creation failed: $error") }
+            val shell = KortexShell.createApplicationOrFail(wayland, multiSurfaceContent(closeRequested))
 
             shell.useOrFail {
                 val panelNamespace = awaitPanel(shell)
                 awaitOsd(shell)
-                val panelsAlone = shell.activeSurfaces.size - 1
+                val panelsAlone = shell.shownSurfaces.size - 1
 
-                // Nothing on the test thread calls close(): only this flag can drop the OSD, and it does
-                // so from the composition's own thread.
+                // Nothing on the test thread ends the OSD: only this flag can drop it, and it does so from the
+                // composition's own thread.
                 closeRequested.value = true
 
-                val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == panelsAlone }
-                assertTrue(dropped, "the shell never dropped the OSD after its content called close()")
+                val dropped = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.shownSurfaces.size == panelsAlone }
+                assertTrue(dropped, "the application never dropped the OSD after its content closed it")
                 assertTrue(
                     shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) == null },
-                    "hyprctl layers still reports $OSD_NAMESPACE after close()",
+                    "hyprctl layers still reports $OSD_NAMESPACE after it closed itself",
                 )
 
                 val panel = assertNotNull(Screen.geometry(panelNamespace), "the panel went away with the OSD")
@@ -104,39 +103,34 @@ class MultiSurfaceTest {
 
     @Hotplug
     @Test
-    fun `a hotplugged output grows the per-output surface and nothing else`() {
+    fun `a hotplugged output grows the per-monitor panel and nothing else`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, panelSpec(), osdSpec())
-                .getOrElse { error -> fail("shell creation failed: $error") }
+            val shell = KortexShell.createApplicationOrFail(wayland, multiSurfaceContent())
 
             shell.useOrFail {
                 awaitPanel(shell)
                 awaitOsd(shell)
-                val before = shell.activeSurfaces.size
                 val panelsBefore = panelNamespaces().size
 
                 var pending: String? = null
                 try {
                     pending = Hyprctl.createHeadlessOutput()
 
-                    val grew = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before + 1 }
-                    assertTrue(grew, "the per-output spec did not follow the new output")
-
                     val panels = awaitPanelCount(panelsBefore + 1)
                     assertEquals(
                         panelsBefore + 1, panels.size,
-                        "expected one panel namespace per output, got $panels",
+                        "expected one panel namespace per monitor, got $panels",
                     )
-                    assertEquals(1, osdCount(), "the compositor-placed spec was placed a second time")
+                    assertEquals(1, osdCount(), "the compositor-placed OSD was placed a second time")
 
                     Hyprctl.removeHeadlessOutput(pending)
                     pending = null
 
-                    val shrank = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { shell.activeSurfaces.size == before }
+                    val shrank = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { panelNamespaces().size == panelsBefore }
                     assertTrue(shrank, "the removed output's panel outlived it")
-                    assertEquals(1, osdCount(), "the compositor-placed surface went with the output")
+                    assertEquals(1, osdCount(), "the compositor-placed OSD went with the removed output")
                 } finally {
                     // Guarantees the virtual output never survives a failed assertion above.
                     pending?.let(Hyprctl::removeHeadlessOutput)
@@ -145,17 +139,42 @@ class MultiSurfaceTest {
         }
     }
 
-    private fun panelSpec(): SurfaceSpec =
-        SurfaceSpec(PANEL_CONFIG) { Box(Modifier.fillMaxSize().background(PANEL_COLOUR)) }
-
-    /** Its content closes the surface itself once [closeRequested] flips, on the composition's own thread. */
-    private fun osdSpec(closeRequested: MutableState<Boolean> = mutableStateOf(false)): SurfaceSpec =
-        SurfaceSpec(OSD_CONFIG, OutputTarget.CompositorChoice) {
-            val surface = LocalKortexSurface.current
-            val requested = closeRequested.value
-            LaunchedEffect(requested) { if (requested) surface.close() }
-            Box(Modifier.fillMaxSize().background(OSD_COLOUR))
+    /**
+     * A panel per monitor, and a compositor-placed OSD over it; the OSD closes itself once [osdClosed] turns
+     * true.
+     */
+    private fun multiSurfaceContent(
+        osdClosed: MutableState<Boolean> = mutableStateOf(false),
+    ): @Composable KortexApplicationScope.() -> Unit = {
+        val monitors by rememberMonitors()
+        for (monitor in monitors) {
+            key(monitor) {
+                Show(
+                    object : Panel<Nothing>(
+                        monitor = monitor,
+                        edge = Edge.Top,
+                        thickness = PANEL_HEIGHT.dp,
+                        namespace = "$PANEL_NAMESPACE-${monitor.name}",
+                    ) {
+                        @Composable
+                        override fun invoke() {
+                            Box(Modifier.fillMaxSize().background(PANEL_COLOUR))
+                        }
+                    },
+                )
+            }
         }
+        Show(
+            object : Osd<Nothing>(width = OSD_WIDTH.dp, height = OSD_HEIGHT.dp, namespace = OSD_NAMESPACE) {
+                @Composable
+                override fun invoke() {
+                    val requested = osdClosed.value
+                    LaunchedEffect(requested) { if (requested) close() }
+                    Box(Modifier.fillMaxSize().background(OSD_COLOUR))
+                }
+            },
+        )
+    }
 
     /** Pumps [shell] until a panel reaches `hyprctl layers`, and returns the namespace it was filed under. */
     private fun awaitPanel(shell: KortexShell): String {
@@ -220,8 +239,5 @@ class MultiSurfaceTest {
         val OSD_COLOUR = Color(0x20, 0x60, 0xC0)
         const val PANEL_PIXEL = 0xFF808080.toInt()
         const val OSD_PIXEL = 0xFF2060C0.toInt()
-
-        val PANEL_CONFIG = SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE)
-        val OSD_CONFIG = SurfaceConfig.osd(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = OSD_NAMESPACE)
     }
 }
