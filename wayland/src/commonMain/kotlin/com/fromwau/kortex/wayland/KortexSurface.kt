@@ -74,8 +74,7 @@ internal class KortexSurface private constructor(
         override val size: IntSize get() = sizeState.value
 
         override fun close() {
-            // markClosed() itself needs no thread confinement, but the hop keeps this on setCursor's
-            // pattern and stays correct if closing ever grows a real libwayland call.
+            // No shown surface's content reaches this: ShownContent provides its LayerSurface as LocalKortexSurface.
             post { layer.markClosed() }
         }
     }
@@ -110,7 +109,10 @@ internal class KortexSurface private constructor(
     /** The composition's current density; exposed so a test can assert a rescale updated it too. */
     internal val density: Density get() = scene.density
 
-    /** True once the compositor has closed this surface, or its content has; either way it must be torn down. */
+    /**
+     * True once the compositor has closed this surface, or a test has in its place through [simulateCompositorClose];
+     * either way it must be torn down.
+     */
     internal val closed: Boolean get() = layer.closed
 
     /** What this surface's content threw, once it has; the scene then runs none of it. */

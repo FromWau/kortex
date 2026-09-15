@@ -132,7 +132,7 @@ internal class LayerShellSurface(
     /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */
     internal fun consumeResize(): Boolean = state.consumeResize()
 
-    /** Sets the flag a real `closed` event sets, so a self-close reaps through that one path. */
+    /** Sets the flag a real `closed` event sets, as though the compositor had closed the surface. */
     internal fun markClosed() {
         state.closed = true
     }

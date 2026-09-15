@@ -72,8 +72,8 @@ internal class ShownSurface(
 
     /**
      * How its surface ended by itself, once it has: the first ending an instance of the class it shows asked for,
-     * else its content's crash, else a close by the compositor or through the surface's own handle. Loop thread only;
-     * reading it forgets an ending asked for by a class the Show no longer shows.
+     * else its content's crash, else the compositor's close, or a test's [KortexSurface.simulateCompositorClose]. Loop
+     * thread only; reading it forgets an ending asked for by a class the Show no longer shows.
      */
     val ownEnding: EmptyResult<SurfaceError<IError>>?
         get() = standingRequest(ask = null)?.ending ?: surface?.let { placed ->
