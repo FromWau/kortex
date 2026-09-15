@@ -25,6 +25,14 @@ internal data class HyprMonitor(
     val usableY: Int get() = y + reserved[TOP]
     val usableWidth: Int get() = logicalWidth - reserved[LEFT] - reserved[RIGHT]
     val usableHeight: Int get() = logicalHeight - reserved[TOP] - reserved[BOTTOM]
+
+    /** What the exclusive zones held here reserve against [edge]. */
+    fun reservedAgainst(edge: Edge): Int = when (edge) {
+        Edge.Left -> reserved[LEFT]
+        Edge.Top -> reserved[TOP]
+        Edge.Right -> reserved[RIGHT]
+        Edge.Bottom -> reserved[BOTTOM]
+    }
 }
 
 // hyprctl reports `reserved` in this order, which is neither CSS's nor set_margin's.
@@ -72,6 +80,10 @@ internal object Hyprctl {
     fun monitors(): List<HyprMonitor> = JSON.decodeFromString(run("monitors", "-j"))
 
     fun monitorNames(): Set<String> = monitors().mapTo(mutableSetOf(), HyprMonitor::name)
+
+    /** The connected monitor named [name]. */
+    fun monitor(name: String): HyprMonitor =
+        checkNotNull(monitors().firstOrNull { it.name == name }) { "hyprctl lost monitor $name" }
 
     /** Every monitor's layer-shell surfaces, keyed by monitor name. */
     fun layers(): Map<String, MonitorLayers> = JSON.decodeFromString(run("layers", "-j"))

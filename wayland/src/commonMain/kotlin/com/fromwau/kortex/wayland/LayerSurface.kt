@@ -93,6 +93,25 @@ public abstract class LayerSurface<E : IError>(
     @Volatile
     internal var heldBy: ShownSurface? = null
 
+    /** Every setting but [monitor] from [config]: the presets' route to their kind's [SurfaceConfig] preset. */
+    internal constructor(
+        monitor: Monitor?,
+        config: SurfaceConfig,
+        onClose: (EmptyResult<SurfaceError<E>>) -> Unit,
+    ) : this(
+        monitor = monitor,
+        namespace = config.namespace,
+        layer = config.layer,
+        anchor = config.anchor,
+        width = config.width,
+        height = config.height,
+        margins = config.margins,
+        exclusiveZone = config.exclusiveZone,
+        exclusiveEdge = config.exclusiveEdge,
+        keyboard = config.keyboard,
+        onClose = onClose,
+    )
+
     /**
      * The content drawn on the surface, with this instance as `this`. Composables further down reach this instance as
      * `LocalKortexSurface.current` and the clipboard as [LocalKortexClipboard]; a [Show] in here puts a surface of its
