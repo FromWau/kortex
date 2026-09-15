@@ -129,9 +129,13 @@ public abstract class LayerSurface<E : IError>(
     /**
      * Ends the surface this instance's [Show] holds, whichever of that `Show`'s instances of this class you call it
      * on: the `onClose` of the newest instance handed to that `Show` receives `Ok(Unit)`. Safe from any thread, more
-     * than once, and after the surface has gone; the first `close()` or `close(error)` decides what `onClose`
-     * receives, and later ones do nothing. It does nothing on an instance never handed to a [Show], or once that
+     * than once, and after the surface has gone. It does nothing on an instance never handed to a [Show], or once that
      * `Show` has been handed an instance of another class.
+     *
+     * The first `close()` or `close(error)` decides what `onClose` receives, and later ones do nothing, unless the
+     * surface fails. If its content throws before the surface has gone, its cleanup as the surface goes included,
+     * `onClose` receives `Err(SurfaceError.Failed(...))` instead. It receives that too when the surface failed to
+     * follow a new size or scale from the compositor before your first call.
      */
     final override fun close() {
         heldBy?.requestEnd(this, Ok(Unit))
