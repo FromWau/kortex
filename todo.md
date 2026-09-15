@@ -222,44 +222,59 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
 
 ## Surface presets
 
-- [x] `SurfaceConfig.panel(edge, thickness, length)` — anchored to `edge` plus the two edges
-      perpendicular to it; `thickness` is both the surface's extent perpendicular to `edge` and exactly
-      what it reserves, `length` runs along `edge` and 0 spans it. `runBar` is rebuilt on it. Still wants
-      `ContentPosition`, a Compose-side layout concern. (`SurfacePresetTest`)
-- [x] `SurfaceConfig.dock(edge, thickness, length)` — `panel` with `OnDemand` keyboard. (`SurfacePresetTest`)
-- [x] `SurfaceConfig.desktopBackground()` — `Layer.Background`, anchored to all four edges, with
-      `ExclusiveZone.Overlap` so it reserves nothing and is never displaced by a panel's zone.
-      (`SurfacePresetTest`)
-- [x] `SurfaceConfig.osd(width, height)` — floating, centred on the output by anchoring nothing, sized
-      exactly `width` by `height`. Anchoring nothing forces `ExclusiveZone.Yield`, because `Overlap`
-      extends a surface to its anchored edges and one with no anchor has nothing to extend to: Hyprland
-      lists such a surface in `hyprctl layers` and draws nothing. The cost is that a yielding OSD is
-      centred in the *usable* area, so another surface's own exclusive zone can push it off true centre.
-      A preset that must sit dead centre has to anchor and place itself with margins, which also lets it
-      `Overlap`. (`SurfacePresetTest`)
-- [x] `SurfaceConfig.appMenu(width, height)` — an `osd` that also takes keyboard focus on demand, for a
-      floating panel whose content dismisses it through its `KortexSurfaceHandle`. (`SurfacePresetTest`)
-- [x] `SurfaceConfig.contextMenu(at, menuSize, outputSize)` — places a menu so its top-left corner
-      sits at `at`, flipping to whichever corner keeps it inside `outputSize`,
-      independently per axis. A pure function of its three inputs, so the flip logic needs no compositor
-      to test. A menu wider or taller than `outputSize` still flips on that axis: the anchored corner
-      sits at `at` and the excess runs off the opposite edge, so the answer stays one consistent corner
-      rather than a special case. It carries `ExclusiveZone.Overlap`, which is what makes `at` and
-      `outputSize` output coordinates: a yielding menu is anchored and margined inside whatever the
-      surfaces that reserve space leave over, so a bar's zone displaces it by that bar's thickness.
-      A corner anchor is two perpendicular edges, so `Overlap` has edges to extend to and the explicit
-      size survives — the restriction that forces `osd` onto `Yield` does not reach here.
-      (`MenuAnchorTest` for the flip, `SurfacePresetTest` for the coordinate space)
-- [x] `SurfaceConfig.lockScreen()` — `Layer.Overlay` with `KeyboardInteractivity.Exclusive`, anchored to
-      all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no `ext-session-lock-v1`.
-      (`SurfacePresetTest`)
-- [x] The escape hatch is `SurfaceConfig`'s own constructor: layer, anchor, size, exclusive zone,
-      keyboard, margins, namespace and exclusiveEdge are all public, so a caller a preset doesn't cover
-      constructs one directly. The four fields that decide the shape — `anchor`, `width`, `height` and
-      `exclusiveZone` — have no default, because each is only sensible in the light of the others: a
-      caller who omits an anchored axis's extent gets a compile error, and one who asks the compositor
-      to span an axis it has no anchor for gets `KortexError.UnspannableAxis`. `runBar` is the one
-      published statement of the default bar's shape. (`SurfaceConfigTest`)
+- [x] **The presets are classes a host extends.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`, `Osd`,
+      `AppMenu` and `ContextMenu` (`Presets.kt`) are abstract `LayerSurface<E>` subclasses, generic in `E` as
+      `LayerSurface` is, which a host extends with its own `invoke()` and shows with `Show`. Each takes the parameters
+      its kind needs, plus `namespace`, `onClose` and a `monitor`, optional except on `ContextMenu`; none takes a
+      setting that would change its kind, such as a panel's anchors or a lock screen's keyboard. Each hands the
+      `SurfaceConfig` preset of its kind to an internal `LayerSurface` constructor, so each placement rule below is
+      written once, in `SurfaceConfig`'s companion. `PresetClassTest` checks every class's settings against that
+      preset and shows each class that takes no keyboard focus; `SurfacePresetTest`, which needs the desktop to
+      itself, shows `Dock`, `AppMenu` and `LockScreen`, which take the keyboard as they map.
+      (`PresetClassTest`, `SurfacePresetTest`)
+- [x] `Bar`: a panel with every parameter defaulted, along the top edge, 32 dp thick, spanning it and reserving
+      32 dp, the shape `runBar` draws by default. Its edge, thickness, length, margins and keyboard are its own to
+      set, the keyboard for a bar with a text field in it. (`PresetClassTest`)
+- [x] `Panel(edge, thickness, length)`, over `SurfaceConfig.panel`: anchored to `edge` plus the two edges
+      perpendicular to it; `thickness` is both the surface's extent perpendicular to `edge` and exactly what it
+      reserves, `length` runs along `edge` and 0 spans it. `runBar` is built on the same preset. Still wants
+      `ContentPosition`, a Compose-side layout concern. (`PresetClassTest`, `SurfacePresetTest`)
+- [x] `Dock(edge, thickness, length)`, over `SurfaceConfig.dock`: a panel with `OnDemand` keyboard.
+      (`PresetClassTest`, `SurfacePresetTest`)
+- [x] `DesktopBackground`, over `SurfaceConfig.desktopBackground()`: `Layer.Background`, anchored to all four
+      edges, with `ExclusiveZone.Overlap` so it reserves nothing and is never displaced by a panel's zone.
+      (`PresetClassTest`, `SurfacePresetTest`)
+- [x] `Osd(width, height)`, over `SurfaceConfig.osd`: floating, centred on its monitor by anchoring nothing, sized
+      exactly `width` by `height`. Anchoring nothing forces `ExclusiveZone.Yield`, because `Overlap` extends a
+      surface to its anchored edges and one with no anchor has nothing to extend to: Hyprland lists such a surface
+      in `hyprctl layers` and draws nothing. The cost is that a yielding OSD is centred in the *usable* area, so
+      another surface's own exclusive zone can push it off true centre. A surface that must sit dead centre has to
+      anchor and place itself with margins, which also lets it `Overlap`. (`PresetClassTest`, `SurfacePresetTest`)
+- [x] `AppMenu(width, height)`, over `SurfaceConfig.appMenu`: an osd that also takes keyboard focus on demand, for
+      a floating panel whose content dismisses it with `close()`. (`PresetClassTest`, `SurfacePresetTest`)
+- [x] `ContextMenu(monitor, at, size)`, over `SurfaceConfig.contextMenu(at, menuSize, outputSize)`: places a menu so
+      its top-left corner sits at `at`, flipping to whichever corner keeps it inside its monitor, independently per
+      axis. `outputSize` is the monitor's logical size, its geometry's width and height over its scale, read as the
+      instance is built, so a host passes none. The geometry's transform is not applied: `wl_output.mode` is in the
+      output's hardware orientation, so on a monitor turned a quarter the flip measures against the unturned width
+      and height. The flip is a pure function of its three inputs, so it needs no compositor to test. A menu wider
+      or taller than its monitor still flips on that axis: the anchored corner sits at `at` and the excess runs off
+      the opposite edge, so the answer stays one consistent corner rather than a special case. It carries
+      `ExclusiveZone.Overlap`, which is what makes `at` and `outputSize` the monitor's coordinates: a yielding menu
+      is anchored and margined inside whatever the surfaces that reserve space leave over, so a bar's zone displaces
+      it by that bar's thickness. A corner anchor is two perpendicular edges, so `Overlap` has edges to extend to
+      and the explicit size survives: the restriction that forces `osd` onto `Yield` does not reach here.
+      (`MenuAnchorTest` for the flip and the logical size, `PresetClassTest` for the coordinate space and the flip
+      on the live monitor, `SurfacePresetTest`)
+- [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
+      anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
+      `ext-session-lock-v1`. (`PresetClassTest`, `SurfacePresetTest`)
+- [x] The escape hatch is `LayerSurface`'s own constructor, which takes every setting with a default, so a surface
+      no preset covers extends it directly. One that asks the compositor to span an axis it has no anchor for is not
+      placed, and reports `SurfaceError.Failed(KortexError.UnspannableAxis)` to its `onClose`. `SurfaceConfig`'s
+      constructor, which `SurfaceSpec` takes, is public too; its four fields that decide the shape, `anchor`,
+      `width`, `height` and `exclusiveZone`, have no default, because each is only sensible in the light of the
+      others, so a caller who omits an anchored axis's extent gets a compile error. (`ShowTest`, `SurfaceConfigTest`)
 
 ## Raising a surface while the host runs
 
