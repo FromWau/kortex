@@ -59,13 +59,14 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: eleven entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field, and a failure after a surface has reported, which reaches no one; under
 Surface presets, a fractionally scaled monitor, which measures short; under Keyboard and clipboard, the character
 a Ctrl+key types when no layout has an ASCII one on that key, the clipboard that content inside a `Popup` or
 `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap
 xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop; under Housekeeping, the protocol errors
-libwayland prints to stderr, and the Compose error `KortexSceneTest` prints.
+libwayland prints to stderr, the Compose error `KortexSceneTest` prints, and a closed surface's `wl_pointer`,
+which no test sees outlive it.
 
 ## Foundations
 
@@ -84,7 +85,8 @@ libwayland prints to stderr, and the Compose error `KortexSceneTest` prints.
       a surface's, places a surface of its own on the application's one connection, so a dock, an OSD and a
       menu run side by side, each on its own monitor or the compositor's choice. Closing one surface releases
       the `wl_pointer`, `wl_keyboard` and `wl_seat` it bound before its scene goes, so a sibling on the same
-      connection keeps taking input and the closed scene records no crash (`SurfaceTeardownTest`).
+      connection keeps taking input and the closed scene records no crash. `SurfaceTeardownTest` pins the
+      sibling's input and the clean scene, but not the release itself, which Hyprland hides (see Housekeeping).
       `KortexSurface.create` is internal, since filling its `wl_output` needs a proxy only this module can
       bind. (`MultiSurfaceTest`, `ShowTest`)
 - [x] **The rest of that teardown.** `Shm`, `WlCursorTheme` and `WlCursorSurface` each have a `close()`
@@ -119,8 +121,10 @@ libwayland prints to stderr, and the Compose error `KortexSceneTest` prints.
       arena unloads the library under every downcall bound to it, and the `wl_interface` tables, which
       libwayland reads through every proxy made against them. No RSS assertion guards this, because a
       threshold loose enough not to flake would miss one listener put in the wrong arena.
-      `SurfaceLifetimeTest` and `SurfaceTeardownTest` cover the half that can crash, a stub freed before
-      its proxy.
+      The half that can crash, a stub freed before its proxy, is covered by the mechanism, each `release()`
+      destroying its proxy before it closes the arena, rather than by a test: `SurfaceTeardownTest` passes with
+      a pointer's stubs freed before its proxy (see Housekeeping), and whether `SurfaceLifetimeTest` catches it
+      is untested.
 - [x] **A connection frees what it allocated, and a string a call only reads is freed with the call.**
       `WaylandDisplay` owns the arena its registry listener lives in. `close()` destroys the registry
       proxy, disconnects and then closes that arena, and a first roundtrip that fails in `connect` closes
@@ -640,6 +644,15 @@ the bar would begin if nothing else reserved that edge.
       `IllegalStateException` it caught, 109 lines of the class's `system-err`. `ShowTest` keeps the same report
       off its output with `capturingStderr` (`LoopThread.kt`), which the `compose` module's tests have no copy
       of. Open: a helper there, or one test fixture both modules share.
+- [ ] **No test sees a closed surface's `wl_pointer` outlive it.** `KortexSurface.close` releases the
+      surface's `wl_pointer`, then its `wl_seat`. On Hyprland 0.56.2 a released `wl_seat` leaves the list its
+      seat manager sends enters, motion and buttons through (`SeatManager.cpp`'s `SSeatResourceContainer`
+      erases it on the seat's destroy event), so that seat's pointer gets none of them again, whatever became
+      of it. `SurfaceTeardownTest` passes with `pointerInput?.release()` removed from `close`, and with
+      `PointerInput.release` freeing its stubs while the proxy stays alive, the half that crashes a process.
+      Open: a desktop-free test that keeps its `wl_seat` bound while it releases a pointer taken from it and
+      then clicks, where a pointer whose stubs go before its proxy would take the test worker down; or accept
+      it as covered by the order in `release()`.
 
 ## Deliberately not doing
 

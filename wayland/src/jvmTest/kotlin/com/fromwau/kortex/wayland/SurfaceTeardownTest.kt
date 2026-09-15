@@ -24,12 +24,12 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Tears one surface down while a second stays live and keeps taking pointer input, on one connection.
+ * Tears one surface down while a second stays live and keeps taking pointer input, on one connection: the sibling
+ * still takes a click, the teardown costs the connection nothing, and the closed scene records no crash.
  *
- * The seat devices the closed surface bound are the hazard: each surface binds its own `wl_seat`, so
- * leaving its `wl_pointer` and `wl_keyboard` alive lets libwayland keep dispatching through listeners
- * that forward into an already-closed `KortexScene`. That throws inside an FFM upcall, which takes the
- * JVM down rather than failing an assertion, so a regression here shows up as a dead test worker.
+ * It cannot see the closed surface's own `wl_pointer` outlive it. On Hyprland 0.56.2 the surface's released
+ * `wl_seat` takes that pointer out of the devices the compositor sends clicks to, so this test passes with the
+ * pointer left alive, and with it left alive after its listener stubs are freed.
  */
 class SurfaceTeardownTest {
     @Test
