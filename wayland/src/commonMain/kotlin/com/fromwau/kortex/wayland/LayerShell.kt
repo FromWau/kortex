@@ -165,11 +165,11 @@ internal class LayerShellSurface(
      * Requests a new size in logical (surface-local) pixels; pending until [commit], which the
      * compositor answers with a fresh configure.
      *
-     * @return [KortexError.UnspannableAxis] under the same rule [create] applies, since the anchor this
-     *   surface was created with is fixed for its lifetime.
+     * @return [KortexError.NegativeSize] or [KortexError.UnspannableAxis] under the same rules [create] applies,
+     *   since the anchor this surface was created with is fixed for its lifetime.
      */
     fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
-        requireSpannableAxes(width, height, anchor).getOrElse { return Err(it) }
+        requirePlaceableSize(width, height, anchor).getOrElse { return Err(it) }
         LibWayland.marshal(
             layerSurface, LayerShellProtocol.SET_SIZE,
             args = listOf(WlArg.Num(width), WlArg.Num(height)),
@@ -212,8 +212,9 @@ internal class LayerShellSurface(
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
          *   Sent only when non-null.
-         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored,
-         *   a request the compositor answers by dropping the connection; [KortexError.InvalidExclusiveEdge]
+         * @return [KortexError.NegativeSize] when [width] or [height] is below 0, which `set_size` would read as a
+         *   size above four billion; [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges
+         *   anchored, a request the compositor answers by dropping the connection; [KortexError.InvalidExclusiveEdge]
          *   when [anchor] does not pin [exclusiveEdge]; or [KortexError.InvalidExclusiveZone] when an
          *   [ExclusiveZone.Reserve] reserves nothing.
          */
@@ -230,7 +231,7 @@ internal class LayerShellSurface(
             output: MemorySegment = MemorySegment.NULL,
             exclusiveEdge: Edge? = null,
         ): Result<LayerShellSurface, KortexError> {
-            requireSpannableAxes(width, height, anchor).getOrElse { return Err(it) }
+            requirePlaceableSize(width, height, anchor).getOrElse { return Err(it) }
             if (exclusiveEdge != null && exclusiveEdge !in anchor) {
                 return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
             }
@@ -319,14 +320,20 @@ internal class LayerShellSurface(
         }
 
         /**
-         * Checks that an axis left for the compositor to size has both of its edges anchored: the protocol allows
-         * omitting a dimension only then, and answers anything else by dropping the connection.
+         * Checks that a surface anchored to [anchor] can ask for [width] by [height]. Neither may be below 0, which
+         * `set_size`'s unsigned arguments would read as a size above four billion. An axis left 0 for the compositor
+         * to size needs both of its edges anchored: the protocol allows omitting a dimension only then, and answers
+         * anything else by dropping the connection.
          */
-        private fun requireSpannableAxes(
+        private fun requirePlaceableSize(
             width: Int,
             height: Int,
             anchor: Set<Edge>,
-        ): EmptyResult<KortexError.UnspannableAxis> = when {
+        ): EmptyResult<KortexError> = when {
+            width < 0 -> Err(KortexError.NegativeSize(Axis.Horizontal, width))
+
+            height < 0 -> Err(KortexError.NegativeSize(Axis.Vertical, height))
+
             width == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Horizontal.edges) ->
                 Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
 

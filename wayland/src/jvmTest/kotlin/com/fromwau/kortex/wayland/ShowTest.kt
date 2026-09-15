@@ -425,6 +425,29 @@ class ShowTest {
     }
 
     @Test
+    fun `a surface with a width below 0 reports Failed with NegativeSize once, and the run goes on`() {
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val negative: @Composable KortexApplicationScope.() -> Unit = {
+            // A corner anchor: should the width go out, Hyprland answers its commit by ending the connection.
+            Show(TestSurface<Nothing>(NAMESPACE, width = NEGATIVE_WIDTH.dp, onClose = { reports += it }))
+        }
+
+        onApplication(negative) { shell ->
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "the surface with a width below 0 reported nothing",
+            )
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertEquals(
+                listOf(Err(SurfaceError.Failed(KortexError.NegativeSize(Axis.Horizontal, NEGATIVE_WIDTH)))),
+                reports.toList(),
+                "a surface with a width below 0 did not report Failed with NegativeSize once",
+            )
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface with a width below 0 is listed as shown")
+        }
+    }
+
+    @Test
     fun `content whose effect throws reports Failed with the crash, and another shown surface keeps drawing`() {
         val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
         val tick = mutableIntStateOf(0)
@@ -1170,6 +1193,7 @@ class ShowTest {
         const val SETTLE_MILLIS = 300L
         const val SHORT = 8
         const val TALL = 16
+        const val NEGATIVE_WIDTH = -SHORT
         const val EFFECT_FAILURE = "an effect threw"
         const val CLEANUP_FAILURE = "cleanup threw as the surface went"
         const val APPLICATION_FAILURE = "the application's content threw"

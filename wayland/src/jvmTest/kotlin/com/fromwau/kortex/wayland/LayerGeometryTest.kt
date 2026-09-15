@@ -158,6 +158,34 @@ class LayerGeometryTest {
     }
 
     @Test
+    fun `a width below 0 is rejected before any request is sent`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            // Anchored to Top alone: should the width go out, Hyprland answers its commit by ending the connection.
+            val result = LayerShellSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, width = NEGATIVE_WIDTH,
+                anchor = setOf(Edge.Top), exclusiveZone = ExclusiveZone.Yield,
+            )
+
+            when (result) {
+                is Ok -> fail("a surface with a width below 0 must be rejected: ${result.value}")
+                is Err -> assertEquals(KortexError.NegativeSize(Axis.Horizontal, NEGATIVE_WIDTH), result.error)
+            }
+
+            val sanity = LayerShellSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
+            )
+                .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
+        }
+    }
+
+    @Test
     fun `setSize leaving an axis at 0 is rejected against the anchor the surface was created with`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
@@ -184,6 +212,36 @@ class LayerGeometryTest {
 
                 // A rejected request must not have reached the wire at all, so committing after it is
                 // harmless; had set_size gone out, this is where invalid_size would come back.
+                bar.commit()
+                wayland.roundtrip()
+                assertEquals(Ok(Unit), wayland.requireAlive(), "the rejected set_size still reached the compositor")
+            }
+        }
+    }
+
+    @Test
+    fun `setSize to a height below 0 is rejected before any request is sent`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val bar = LayerShellSurface.create(
+                wayland,
+                namespace = RESIZED_NAMESPACE,
+                height = HEIGHT,
+                width = WIDTH,
+                anchor = setOf(Edge.Top),
+                exclusiveZone = ExclusiveZone.Yield,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+
+            bar.use {
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
+
+                when (val result = bar.setSize(WIDTH, NEGATIVE_HEIGHT)) {
+                    is Ok -> fail("a height below 0 must be rejected")
+                    is Err -> assertEquals(KortexError.NegativeSize(Axis.Vertical, NEGATIVE_HEIGHT), result.error)
+                }
+
                 bar.commit()
                 wayland.roundtrip()
                 assertEquals(Ok(Unit), wayland.requireAlive(), "the rejected set_size still reached the compositor")
@@ -248,5 +306,7 @@ class LayerGeometryTest {
 
         const val DEFAULT_HEIGHT = 32
         const val SPAN_ANCHORED_AXIS = 0
+        const val NEGATIVE_WIDTH = -WIDTH
+        const val NEGATIVE_HEIGHT = -HEIGHT
     }
 }

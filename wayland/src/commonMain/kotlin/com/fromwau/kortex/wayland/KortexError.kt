@@ -37,6 +37,9 @@ public sealed interface KortexError : IError {
     /** [axis] was left 0 ("you choose") while [anchor] does not pin both of its edges; the protocol forbids it. */
     public data class UnspannableAxis(public val axis: Axis, public val anchor: Set<Edge>) : KortexError
 
+    /** [axis] was given a size that rounds below 0, to [size] logical pixels. */
+    public data class NegativeSize(public val axis: Axis, public val size: Int) : KortexError
+
     /** [anchor] does not pin [edge], and reserving space against an unanchored edge is a protocol error. */
     public data class InvalidExclusiveEdge(public val edge: Edge, public val anchor: Set<Edge>) : KortexError
 

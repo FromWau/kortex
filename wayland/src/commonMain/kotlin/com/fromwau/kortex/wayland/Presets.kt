@@ -27,7 +27,8 @@ import com.fromwau.kern.result.IError
  * @param edge the edge the bar runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the bar reaches in from [edge], which is also the space it reserves there. It must round to
  *   at least one logical pixel, or the bar is not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
- * @param length how far the bar runs along [edge]; 0 spans the whole edge.
+ * @param length how far the bar runs along [edge]; 0 spans the whole edge. It must not round below 0, or the bar is
+ *   not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param margins insets from the edges the bar is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param keyboard whether the bar can take keyboard focus, as a text field in it needs.
  * @param namespace what the compositor calls the bar, e.g. in `hyprctl layers`, exactly as written.
@@ -61,7 +62,8 @@ public abstract class Bar<E : IError>(
  * @param edge the edge the panel runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the panel reaches in from [edge], which is also the space it reserves there. It must round
  *   to at least one logical pixel, or the panel is not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
- * @param length how far the panel runs along [edge]; 0 spans the whole edge.
+ * @param length how far the panel runs along [edge]; 0 spans the whole edge. It must not round below 0, or the panel
+ *   is not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param margins insets from the edges the panel is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the panel, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when the panel ends, as [LayerSurface.onClose] describes.
@@ -93,7 +95,8 @@ public abstract class Panel<E : IError>(
  * @param edge the edge the dock runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the dock reaches in from [edge], which is also the space it reserves there. It must round
  *   to at least one logical pixel, or the dock is not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
- * @param length how far the dock runs along [edge]; 0 spans the whole edge.
+ * @param length how far the dock runs along [edge]; 0 spans the whole edge. It must not round below 0, or the dock is
+ *   not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param margins insets from the edges the dock is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the dock, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when the dock ends, as [LayerSurface.onClose] describes.
@@ -169,8 +172,8 @@ public abstract class LockScreen<E : IError>(
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
- * @param width its width, which must round to at least one logical pixel. One that rounds to 0 leaves it unplaced,
- *   and `onClose` receives `Err(SurfaceError.Failed(...))`; one that rounds below 0 is not checked.
+ * @param width its width, which must round to at least one logical pixel. One that rounds to 0 or below leaves it
+ *   unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
@@ -196,8 +199,8 @@ public abstract class Osd<E : IError>(
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
- * @param width its width, which must round to at least one logical pixel. One that rounds to 0 leaves it unplaced,
- *   and `onClose` receives `Err(SurfaceError.Failed(...))`; one that rounds below 0 is not checked.
+ * @param width its width, which must round to at least one logical pixel. One that rounds to 0 or below leaves it
+ *   unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
@@ -253,7 +256,8 @@ public abstract class AppMenu<E : IError>(
  * @param monitor the monitor the menu opens on, one [rememberMonitors] lists.
  * @param at where the menu opens, in logical pixels from [monitor]'s top-left corner, however much of the monitor
  *   other surfaces reserve.
- * @param menuSize the menu's size in logical pixels.
+ * @param menuSize the menu's size in logical pixels, each at least 1. A width or height of 0 or below leaves the
+ *   menu unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param namespace what the compositor calls the menu, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when the menu ends, as [LayerSurface.onClose] describes.
  */
