@@ -18,9 +18,8 @@ import kotlin.test.fail
  * The headless output is created before [WaylandDisplay.connect], so it is one of the outputs the
  * application binds and rounds-trips before its first composition, the path placing on a monitor at
  * startup depends on, since the compositor has not yet named a freshly bound output otherwise. A
- * [Monitor] exists only once its output is connected, so waiting for one that is not yet, and predicting
- * a still-to-be-hotplugged output's name, are no longer meaningful cases: [MonitorTest] already covers
- * placement on a monitor that goes away.
+ * [Monitor] exists only once its output is connected, so this file has nothing to place on one that is
+ * not yet there; [MonitorTest] covers placement on a monitor that goes away.
  */
 @Hotplug
 class NamedOutputTest {
