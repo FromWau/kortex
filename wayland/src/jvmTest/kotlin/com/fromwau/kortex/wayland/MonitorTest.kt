@@ -277,7 +277,11 @@ class MonitorTest {
     }
 
     /** Where a test's surface asks to go. */
-    private enum class Placement { CompositorChoice, Listed, EqualToListed }
+    private enum class Placement {
+        CompositorChoice,
+        Listed,
+        EqualToListed,
+    }
 
     private companion object {
         const val NAMESPACE = "kortex-monitor"
