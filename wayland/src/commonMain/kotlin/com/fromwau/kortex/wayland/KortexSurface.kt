@@ -113,9 +113,6 @@ internal class KortexSurface private constructor(
     /** True once the compositor has closed this surface, or its content has; either way it must be torn down. */
     internal val closed: Boolean get() = layer.closed
 
-    /** Which side closed this surface, once [closed] is true; null beforehand. */
-    internal val closeReason: CloseReason? get() = layer.closeReason
-
     /** What this surface's content threw, once it has; the scene then runs none of it. */
     internal val crash: KortexError.SurfaceCrashed?
         get() = scene.failure?.let { KortexError.SurfaceCrashed(namespace, it) }
@@ -125,7 +122,7 @@ internal class KortexSurface private constructor(
 
     /** A test cannot make the compositor close this surface: that needs removing whatever output it chose. */
     internal fun simulateCompositorClose() {
-        layer.simulateCompositorClose()
+        layer.markClosed()
     }
 
     /** Composes [content] and draws its first frame, failing as [KortexError.SurfaceCrashed] if content throws. */

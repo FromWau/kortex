@@ -108,8 +108,7 @@ internal class LayerShellSurface(
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
     val logicalWidth: Int get() = state.width
     val logicalHeight: Int get() = state.height
-    val closed: Boolean get() = state.closeReason != null
-    internal val closeReason: CloseReason? get() = state.closeReason
+    val closed: Boolean get() = state.closed
 
     /**
      * The buffer scale the compositor wants for this surface, from `wl_surface.preferred_buffer_scale`.
@@ -123,7 +122,7 @@ internal class LayerShellSurface(
     fun waitForConfigure(): Boolean {
         display.roundtrip()
         var spins = 0
-        while (!state.configured && state.closeReason == null && spins < MAX_SPINS) {
+        while (!state.configured && !state.closed && spins < MAX_SPINS) {
             display.dispatch()
             spins++
         }
@@ -133,14 +132,9 @@ internal class LayerShellSurface(
     /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */
     internal fun consumeResize(): Boolean = state.consumeResize()
 
-    /** Sets the same reason a real `closed` event would, so a self-close reaps through that one path. */
+    /** Sets the flag a real `closed` event sets, so a self-close reaps through that one path. */
     internal fun markClosed() {
-        state.closeReason = CloseReason.Content
-    }
-
-    // A test seam: in production only the compositor's own closed event sets this reason.
-    internal fun simulateCompositorClose() {
-        state.closeReason = CloseReason.Compositor
+        state.closed = true
     }
 
     /** Attaches [buffer] and marks the whole surface damaged. Must follow an acknowledged configure. */
@@ -353,14 +347,11 @@ internal class LayerShellSurface(
     }
 }
 
-/** Why a layer surface stopped being usable: the compositor took it away, or its own content did. */
-internal enum class CloseReason { Compositor, Content }
-
 internal class ConfigureState(private val layerSurface: MemorySegment) {
     @Volatile var width: Int = 0
     @Volatile var height: Int = 0
     @Volatile var configured: Boolean = false
-    @Volatile var closeReason: CloseReason? = null
+    @Volatile var closed: Boolean = false
     @Volatile private var resized: Boolean = false
 
     fun onConfigure(data: MemorySegment, proxy: MemorySegment, serial: Int, width: Int, height: Int) {
@@ -374,7 +365,7 @@ internal class ConfigureState(private val layerSurface: MemorySegment) {
     }
 
     fun onClosed(data: MemorySegment, proxy: MemorySegment) {
-        closeReason = CloseReason.Compositor
+        closed = true
     }
 
     fun consumeResize(): Boolean {
