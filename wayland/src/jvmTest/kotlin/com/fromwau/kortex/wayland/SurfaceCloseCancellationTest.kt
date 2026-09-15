@@ -8,6 +8,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Recomposer
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Ok
@@ -139,34 +140,37 @@ class SurfaceCloseCancellationTest {
         }
 
         LoopThread.runApplication(content) { _, _ ->
-            assertTrue(
-                LoopThread.awaitNamespace(QUIET_NAMESPACE, present = true),
-                "hyprctl layers never reported $QUIET_NAMESPACE",
-            )
-            assertTrue(
-                LoopThread.awaitNamespace(SPINNING_NAMESPACE, present = true),
-                "hyprctl layers never reported $SPINNING_NAMESPACE",
-            )
-            spin.go.value = true
-            assertTrue(
-                LoopThread.waitUntil { spin.steps.get() > 0 },
-                "$SPINNING_NAMESPACE's content never started yielding",
-            )
+            try {
+                assertTrue(
+                    LoopThread.awaitNamespace(QUIET_NAMESPACE, present = true),
+                    "hyprctl layers never reported $QUIET_NAMESPACE",
+                )
+                assertTrue(
+                    LoopThread.waitUntil { spin.composed.get() },
+                    "$SPINNING_NAMESPACE's content never drew its first frame",
+                )
+                spin.go.value = true
+                assertTrue(
+                    LoopThread.waitUntil { spin.steps.get() > 0 },
+                    "$SPINNING_NAMESPACE's content never started yielding",
+                )
 
-            closeQuiet.value = true
+                closeQuiet.value = true
 
-            // The wl_surface is destroyed only after the close has run the Compose work it waits for.
-            assertTrue(
-                LoopThread.awaitNamespace(QUIET_NAMESPACE, present = false),
-                "hyprctl layers still reports $QUIET_NAMESPACE after its content closed it beside a yielding sibling",
-            )
-            val stepsOnceClosed = spin.steps.get()
-            assertTrue(
-                LoopThread.waitUntil { spin.steps.get() > stepsOnceClosed },
-                "$SPINNING_NAMESPACE's content stopped yielding once $QUIET_NAMESPACE closed",
-            )
-            // Lets exitApplication's own teardown, right after this block, actually finish.
-            spin.stop.set(true)
+                // The wl_surface is destroyed only after the close has run the Compose work it waits for.
+                assertTrue(
+                    LoopThread.awaitNamespace(QUIET_NAMESPACE, present = false),
+                    "hyprctl layers still reports $QUIET_NAMESPACE after its content closed it beside a yielding sibling",
+                )
+                val stepsOnceClosed = spin.steps.get()
+                assertTrue(
+                    LoopThread.waitUntil { spin.steps.get() > stepsOnceClosed },
+                    "$SPINNING_NAMESPACE's content stopped yielding once $QUIET_NAMESPACE closed",
+                )
+            } finally {
+                // Lets exitApplication's own teardown, right after this block, actually finish, on every path.
+                spin.stop.set(true)
+            }
         }
     }
 
@@ -261,33 +265,36 @@ class SurfaceCloseCancellationTest {
         }
 
         LoopThread.runApplication(content) { _, loop ->
-            assertTrue(
-                LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = true),
-                "hyprctl layers never reported $CLEANUP_NAMESPACE",
-            )
-            assertTrue(
-                LoopThread.awaitNamespace(CLEANUP_SIBLING_NAMESPACE, present = true),
-                "hyprctl layers never reported $CLEANUP_SIBLING_NAMESPACE",
-            )
+            try {
+                assertTrue(
+                    LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = true),
+                    "hyprctl layers never reported $CLEANUP_NAMESPACE",
+                )
+                assertTrue(
+                    LoopThread.awaitNamespace(CLEANUP_SIBLING_NAMESPACE, present = true),
+                    "hyprctl layers never reported $CLEANUP_SIBLING_NAMESPACE",
+                )
 
-            closeCleanup.value = true
+                closeCleanup.value = true
 
-            assertTrue(
-                LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = false),
-                "hyprctl layers still reports $CLEANUP_NAMESPACE after its content closed it, its cleanup yielding",
-            )
-            val stepsOnceClosed = spin.steps.get()
-            assertTrue(
-                LoopThread.waitUntil { spin.steps.get() > stepsOnceClosed },
-                "$CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed",
-            )
-            // Checked after the steps: an application that had ended would have advanced them in its final drain.
-            assertTrue(loop.isAlive, "the application ended while $CLEANUP_SIBLING_NAMESPACE was still shown")
-            assertTrue(
-                CLEANUP_SIBLING_NAMESPACE in Hyprctl.namespaces(),
-                "hyprctl layers stopped reporting $CLEANUP_SIBLING_NAMESPACE once $CLEANUP_NAMESPACE closed",
-            )
-            spin.stop.set(true)
+                assertTrue(
+                    LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = false),
+                    "hyprctl layers still reports $CLEANUP_NAMESPACE after its content closed it, its cleanup yielding",
+                )
+                val stepsOnceClosed = spin.steps.get()
+                assertTrue(
+                    LoopThread.waitUntil { spin.steps.get() > stepsOnceClosed },
+                    "$CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed",
+                )
+                // Checked after the steps: an application that had ended would have advanced them in its final drain.
+                assertTrue(loop.isAlive, "the application ended while $CLEANUP_SIBLING_NAMESPACE was still shown")
+                assertTrue(
+                    CLEANUP_SIBLING_NAMESPACE in Hyprctl.namespaces(),
+                    "hyprctl layers stopped reporting $CLEANUP_SIBLING_NAMESPACE once $CLEANUP_NAMESPACE closed",
+                )
+            } finally {
+                spin.stop.set(true)
+            }
         }
     }
 
@@ -417,6 +424,12 @@ private class Spin {
     val stop = AtomicBoolean(false)
     val steps = AtomicLong()
 
+    // Set once Spinning has drawn its first real frame, safe to poll cross-thread: hyprctl lists a namespace as
+    // soon as the compositor maps it, which can race the client's own first composition, so a test that flips
+    // go off hyprctl alone can catch KortexSurface.setContent's own synchronous flush with go already true,
+    // spinning forever before that flush returns.
+    val composed = AtomicBoolean(false)
+
     /** Runs [block], setting [stop] if it has not returned within [boundMillis]; returns whether it had to. */
     fun stopIfHeldPast(boundMillis: Long, block: () -> Unit): Boolean {
         val returned = CountDownLatch(1)
@@ -437,10 +450,15 @@ private class Spin {
     }
 }
 
-/** Yields for as long as [spin] runs, from once its `go` turns true. */
+/** Yields for as long as [spin] runs, from once its `go` turns true and its own first frame has drawn. */
 @Composable
 private fun Spinning(spin: Spin) {
     LaunchedEffect(Unit) {
+        // Twice: a first frame can still land inside setContent's own initial flush; a second one cannot,
+        // since nothing but a later, separate loop pass produces it.
+        withFrameNanos {}
+        withFrameNanos {}
+        spin.composed.set(true)
         // Read outside composition: a recomposition renders, and a render's flush would run this loop to its end.
         snapshotFlow { spin.go.value }.first { it }
         while (!spin.stop.get()) {
