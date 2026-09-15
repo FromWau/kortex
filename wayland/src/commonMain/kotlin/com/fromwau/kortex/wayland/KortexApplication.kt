@@ -52,7 +52,7 @@ public interface KortexApplicationScope {
  *   [KortexError.NoCompositorResponse], [KortexError.ConnectionError], [KortexError.ProtocolViolation] or
  *   [KortexError.MissingGlobal] when the compositor cannot be reached, goes away, or lacks what kortex needs. When
  *   the connection fails while the application runs, the `onClose` of every surface you still show receives that
- *   same error, as `Err(SurfaceError.Failed(error))`.
+ *   same error, as `Err(SurfaceError.Failed(error))`, unless its content throws as it goes.
  *   [KortexError.ApplicationCrashed] when your own code threw, UI placed directly in [content] included.
  */
 public fun kortexApplication(
@@ -75,8 +75,9 @@ public fun kortexApplication(
  * own content.
  *
  * The surface appears shortly after `Show` enters composition, and goes when `Show` leaves it, reporting
- * `Ok(SurfaceEnd.LeftComposition)` to its `onClose`. A `Show` in a surface's `invoke()` leaves composition when that
- * surface ends, however it ends, so the surface it shows goes then too.
+ * `Ok(SurfaceEnd.LeftComposition)` to its `onClose`, or the connection's error as `Err(SurfaceError.Failed(error))`
+ * when `Show` leaves because the connection to the compositor failed. A `Show` in a surface's `invoke()` leaves
+ * composition when that surface ends, however it ends, so the surface it shows goes then too.
  *
  * Each recomposition hands `Show` a new instance. While the instances keep one class and equal settings, the
  * surface keeps running with the newest instance's content and `onClose`. When the class or the settings change, a
