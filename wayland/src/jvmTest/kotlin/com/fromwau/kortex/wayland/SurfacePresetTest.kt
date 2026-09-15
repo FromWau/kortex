@@ -4,11 +4,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
-import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -264,19 +262,6 @@ class SurfacePresetTest {
                 }
             }
         }
-    }
-
-    private fun assertCentredInUsableArea(before: HyprMonitor, width: Int, height: Int, geometry: LayerGeometry) {
-        val expectedX = before.usableX + (before.usableWidth - width) / 2
-        val expectedY = before.usableY + (before.usableHeight - height) / 2
-        assertTrue(
-            abs(geometry.x - expectedX) <= 1,
-            "expected x within a pixel of $expectedX, got ${geometry.x}",
-        )
-        assertTrue(
-            abs(geometry.y - expectedY) <= 1,
-            "expected y within a pixel of $expectedY, got ${geometry.y}",
-        )
     }
 
     private fun monitor(name: String): HyprMonitor =

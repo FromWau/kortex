@@ -79,3 +79,51 @@ public abstract class Panel<E : IError>(
         .copy(namespace = namespace, margins = margins),
     onClose = onClose,
 )
+
+/**
+ * Fills its whole monitor on the lowest layer, beneath every window: a wallpaper, say. It reserves nothing, takes no
+ * keyboard focus, and covers the space other surfaces reserve rather than moving out of their way.
+ *
+ * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
+ * `close(error)`, or `Nothing` for none.
+ *
+ * @param monitor the monitor to fill, one [rememberMonitors] lists; null lets the compositor choose.
+ * @param namespace what the compositor calls the background, e.g. in `hyprctl layers`, exactly as written.
+ * @param onClose called once when the background ends, as [LayerSurface.onClose] describes.
+ */
+public abstract class DesktopBackground<E : IError>(
+    monitor: Monitor? = null,
+    namespace: String = "kortex",
+    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+) : LayerSurface<E>(
+    monitor = monitor,
+    config = SurfaceConfig.desktopBackground().copy(namespace = namespace),
+    onClose = onClose,
+)
+
+/**
+ * A floating surface of exactly [width] by [height] on the topmost layer, above every window: a volume indicator, say.
+ * It is centred in the space other surfaces leave free on its monitor, so a bar's reserved space shifts it off the
+ * monitor's true centre. It takes no keyboard focus; an [AppMenu] is placed the same way and takes it on demand.
+ *
+ * Extend it as you would [LayerSurface] and show it with [Show]. [E] is the error your content can end it with through
+ * `close(error)`, or `Nothing` for none.
+ *
+ * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
+ * @param width its width. It must round to at least one logical pixel, or it is not placed and `onClose` receives
+ *   `Err(SurfaceError.Failed(...))`.
+ * @param height its height, which must round to at least one logical pixel as [width] must.
+ * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
+ * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
+ */
+public abstract class Osd<E : IError>(
+    monitor: Monitor? = null,
+    width: Dp,
+    height: Dp,
+    namespace: String = "kortex",
+    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+) : LayerSurface<E>(
+    monitor = monitor,
+    config = SurfaceConfig.osd(width, height).copy(namespace = namespace),
+    onClose = onClose,
+)

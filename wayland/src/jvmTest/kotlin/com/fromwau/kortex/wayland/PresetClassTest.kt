@@ -132,6 +132,103 @@ class PresetClassTest {
         }
     }
 
+    @Test
+    fun `a DesktopBackground covers its whole monitor on the background layer`() {
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            Show(
+                object : DesktopBackground<Nothing>(monitor = monitors.first(), namespace = BACKGROUND_NAMESPACE) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            val monitor = Hyprctl.monitor(shell.monitors.value.first().name)
+            awaitPlaced(shell)
+
+            val geometry = assertNotNull(
+                Screen.awaitGeometry(BACKGROUND_NAMESPACE),
+                "hyprctl never listed $BACKGROUND_NAMESPACE",
+            )
+            assertEquals(Layer.Background, geometry.layer, "the background did not land on Layer.Background")
+            assertEquals(monitor.x, geometry.x, "the background did not cover its whole monitor")
+            assertEquals(monitor.y, geometry.y, "the background did not cover its whole monitor")
+            assertEquals(monitor.logicalWidth, geometry.logicalWidth, "the background did not cover its whole monitor")
+            assertEquals(monitor.logicalHeight, geometry.logicalHeight, "the background did not cover its whole monitor")
+        }
+    }
+
+    @Test
+    fun `an Osd is exactly its own size, centred in the usable area above every other layer`() {
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            Show(
+                object : Osd<Nothing>(
+                    monitor = monitors.first(),
+                    width = OSD_WIDTH.dp,
+                    height = OSD_HEIGHT.dp,
+                    namespace = OSD_NAMESPACE,
+                ) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            // The usable area, not the raw monitor: yielding centres an unanchored surface in what others leave free.
+            val before = Hyprctl.monitor(shell.monitors.value.first().name)
+            awaitPlaced(shell)
+
+            val geometry = assertNotNull(Screen.awaitGeometry(OSD_NAMESPACE), "hyprctl never listed $OSD_NAMESPACE")
+            assertEquals(Layer.Overlay, geometry.layer, "the osd did not land above every other layer")
+            assertEquals(OSD_WIDTH, geometry.logicalWidth, "the osd is not its own width")
+            assertEquals(OSD_HEIGHT, geometry.logicalHeight, "the osd is not its own height")
+            assertCentredInUsableArea(before, OSD_WIDTH, OSD_HEIGHT, geometry)
+        }
+    }
+
+    @Test
+    fun `a DesktopBackground's settings are a SurfaceConfig desktopBackground's, with every value it was given`() {
+        withUnboundMonitors(MONITOR_NAME) { (monitor) ->
+            val background = object : DesktopBackground<Nothing>(monitor = monitor, namespace = BACKGROUND_NAMESPACE) {
+                @Composable
+                override fun invoke() = Unit
+            }
+
+            assertSame(monitor, background.monitor, "the background was not put on the monitor it was given")
+            assertEquals(
+                SurfaceConfig.desktopBackground().copy(namespace = BACKGROUND_NAMESPACE),
+                background.settings.config,
+                "the background's settings are not a desktopBackground's with the values it was given",
+            )
+        }
+    }
+
+    @Test
+    fun `an Osd's settings are a SurfaceConfig osd's, with every value it was given`() {
+        withUnboundMonitors(MONITOR_NAME) { (monitor) ->
+            val osd = object : Osd<Nothing>(
+                monitor = monitor,
+                width = OSD_WIDTH.dp,
+                height = OSD_HEIGHT.dp,
+                namespace = OSD_NAMESPACE,
+            ) {
+                @Composable
+                override fun invoke() = Unit
+            }
+
+            assertSame(monitor, osd.monitor, "the osd was not put on the monitor it was given")
+            assertEquals(
+                SurfaceConfig.osd(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = OSD_NAMESPACE),
+                osd.settings.config,
+                "the osd's settings are not an osd's with the values it was given",
+            )
+        }
+    }
+
     /**
      * Pumps [shell] until [before]'s monitor reserves [amount] more against [edge] than it did, since a reservation
      * lands a frame late, and fails if it never reserves exactly that.
@@ -145,6 +242,8 @@ class PresetClassTest {
     private companion object {
         const val BAR_NAMESPACE = "kortex-preset-class-bar"
         const val PANEL_NAMESPACE = "kortex-preset-class-panel"
+        const val BACKGROUND_NAMESPACE = "kortex-preset-class-background"
+        const val OSD_NAMESPACE = "kortex-preset-class-osd"
         const val MONITOR_NAME = "PRESET-1"
         const val PUMP_MILLIS = 4_000L
 
@@ -156,6 +255,8 @@ class PresetClassTest {
         const val PANEL_THICKNESS = 67
         const val THICKNESS = 41
         const val LENGTH = 307
+        const val OSD_WIDTH = 239
+        const val OSD_HEIGHT = 43
         val MARGINS = Margins(top = 3.dp, right = 5.dp, bottom = 7.dp, left = 11.dp)
     }
 }

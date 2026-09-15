@@ -2,8 +2,10 @@ package com.fromwau.kortex.wayland
 
 import java.io.File
 import javax.imageio.ImageIO
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * Moves the pointer to logical ([x], [y]) on [monitor], the space [Screen.geometry] reports in.
@@ -50,6 +52,17 @@ internal data class LayerGeometry(
     val grimArea: String get() = "$x,$y ${logicalWidth}x$logicalHeight"
 
     override fun toString(): String = grimArea
+}
+
+/**
+ * Fails unless [geometry], [width] by [height], is centred in [before]'s usable area within a pixel of rounding, as a
+ * surface anchored to nothing that yields is placed.
+ */
+internal fun assertCentredInUsableArea(before: HyprMonitor, width: Int, height: Int, geometry: LayerGeometry) {
+    val expectedX = before.usableX + (before.usableWidth - width) / 2
+    val expectedY = before.usableY + (before.usableHeight - height) / 2
+    assertTrue(abs(geometry.x - expectedX) <= 1, "expected x within a pixel of $expectedX, got ${geometry.x}")
+    assertTrue(abs(geometry.y - expectedY) <= 1, "expected y within a pixel of $expectedY, got ${geometry.y}")
 }
 
 /** Reads back what a layer surface actually put on screen. */
