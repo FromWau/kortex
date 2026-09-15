@@ -275,13 +275,13 @@ JPEG, and drag and drop.
       not bind yet, such as `zxdg_output_v1`'s `logical_size`.
 - [ ] **A size that rounds below 0 reaches the compositor unchecked.** `Dp.toLogicalPx` rounds without
       clamping, and `requireSpannableAxes` (`LayerShell.kt`) rejects only a 0 on an axis the surface cannot
-      span, so a negative `width` or `height`, or a preset's negative `thickness` or `length`, goes to
-      `set_size`, whose `uint` arguments read it as a size above four billion. A negative `thickness` also
-      reaches `set_exclusive_zone` as a negative zone. No test covers it, and what Hyprland does with it is
-      untested. `Osd`'s and `AppMenu`'s KDoc says so; `Bar`'s, `Panel`'s and `Dock`'s say a `thickness` under
-      one logical pixel leaves the surface unplaced, which holds only for 0. Open: a typed error reported to
-      `onClose`, as `UnspannableAxis` is, or a `require`. Either belongs beside `requireSpannableAxes`, which
-      both `create` and `setSize` run, so a size a surface changes to is checked as its first one is.
+      span, so a negative `width` or `height`, a preset's negative `length` or a `ContextMenu`'s negative
+      `menuSize` goes to `set_size`, whose `uint` arguments read it as a size above four billion. No test
+      covers it, and what Hyprland does with it is untested; `Osd`'s and `AppMenu`'s KDoc says it is not
+      checked. A `thickness` below one logical pixel is caught, as `InvalidExclusiveZone`, because `Bar`,
+      `Panel` and `Dock` reserve it. Open: a typed error reported to `onClose`, as `UnspannableAxis` is, or a
+      `require`. Either belongs beside `requireSpannableAxes`, which both `create` and `setSize` run, so a
+      size a surface changes to is checked as its first one is.
 
 ## Raising a surface while the host runs
 
