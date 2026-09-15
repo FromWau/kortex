@@ -2,8 +2,8 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
-import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -16,8 +16,8 @@ import kotlin.test.assertTrue
  */
 class CompositorChoiceTest {
     @Test
-    fun `the compositor closing a shown surface reports Ok, and it is not placed again`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+    fun `the compositor closing a shown surface reports ClosedByCompositor, and it is not placed again`() {
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(TestSurface<Nothing>(OSD_NAMESPACE, onClose = { reports += it }))
         }
@@ -31,7 +31,11 @@ class CompositorChoiceTest {
                 shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { reports.isNotEmpty() },
                 "the compositor's close reported nothing",
             )
-            assertEquals(listOf(Ok(Unit)), reports.toList(), "the compositor's close did not report Ok once")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.ClosedByCompositor)),
+                reports.toList(),
+                "the compositor's close did not report ClosedByCompositor once",
+            )
             shell.pumpOrFail(SETTLE_MILLIS)
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface the compositor closed was placed again")
             assertTrue(
@@ -44,7 +48,7 @@ class CompositorChoiceTest {
     @Test
     fun `a surface shown from inside another's content is not placed again once the compositor closes it`() {
         val showChild = mutableStateOf(false)
-        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(PANEL_NAMESPACE) {
@@ -75,7 +79,11 @@ class CompositorChoiceTest {
                 shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { childReports.isNotEmpty() },
                 "the compositor's close reported nothing",
             )
-            assertEquals(listOf(Ok(Unit)), childReports.toList(), "the compositor's close did not report Ok once")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.ClosedByCompositor)),
+                childReports.toList(),
+                "the compositor's close did not report ClosedByCompositor once",
+            )
             shell.pumpOrFail(SETTLE_MILLIS)
             assertEquals(
                 panelAlone, shell.shownSurfaces.size,

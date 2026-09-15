@@ -38,6 +38,13 @@ internal class ShellOutput(
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
 
+/** What [ShownSurface.ownEnding] finds: whether its surface has ended by itself, and if so, how. */
+internal sealed interface OwnEnding {
+    data object NotEnded : OwnEnding
+
+    data class Ended(val ending: Result<SurfaceEnd, SurfaceError<IError>>) : OwnEnding
+}
+
 /**
  * What the shell holds for one [Show]: the newest instance it was handed, what it asks for, its surface, and the
  * ending one of its instances asked for.
@@ -71,14 +78,21 @@ internal class ShownSurface(
     private val requested = AtomicReference<EndRequest?>(null)
 
     /**
-     * How its surface ended by itself, once it has: the first ending an instance of the class it shows asked for,
+     * Whether its surface has ended by itself, and how: the first ending an instance of the class it shows asked for,
      * else its content's crash, else the compositor's close, or a test's [KortexSurface.simulateCompositorClose]. Loop
      * thread only; calling it forgets an ending asked for by a class the Show no longer shows.
      */
-    fun ownEnding(): EmptyResult<SurfaceError<IError>>? =
-        standingRequest(ask = null)?.ending ?: surface?.let { placed ->
-            placed.crash?.let { Err(SurfaceError.Failed(it)) } ?: Ok(Unit).takeIf { placed.closed }
+    fun ownEnding(): OwnEnding {
+        val standing = standingRequest(ask = null)
+        val placed = surface
+        val crash = placed?.crash
+        return when {
+            standing != null -> OwnEnding.Ended(standing.ending)
+            crash != null -> OwnEnding.Ended(Err(SurfaceError.Failed(crash)))
+            placed?.closed == true -> OwnEnding.Ended(Ok(SurfaceEnd.ClosedByCompositor))
+            else -> OwnEnding.NotEnded
         }
+    }
 
     /**
      * Asks for [ending] on behalf of [from], from any thread; the shell acts on it in its next pass. The first ask
@@ -87,7 +101,7 @@ internal class ShownSurface(
      */
     fun requestEnd(
         from: LayerSurface<*>,
-        ending: EmptyResult<SurfaceError<IError>>,
+        ending: Result<SurfaceEnd, SurfaceError<IError>>,
     ) {
         val ask = EndRequest(from::class, ending)
         if (standingRequest(ask) === ask) wake()
@@ -101,7 +115,7 @@ internal class ShownSurface(
 
     private class EndRequest(
         val kind: KClass<*>,
-        val ending: EmptyResult<SurfaceError<IError>>,
+        val ending: Result<SurfaceEnd, SurfaceError<IError>>,
     )
 }
 
@@ -269,7 +283,12 @@ internal class KortexShell private constructor(
         // A monitor's surfaces end with it, whether or not the compositor closes them, and before its output goes.
         placed
             .filter { it.placedWith?.monitor?.output === output }
-            .forEach { shown -> end(shown, shown.ownEnding() ?: Ok(Unit)) }
+            .forEach { shown ->
+                when (val own = shown.ownEnding()) {
+                    is OwnEnding.Ended -> end(shown, own.ending)
+                    OwnEnding.NotEnded -> end(shown, Ok(SurfaceEnd.MonitorUnplugged))
+                }
+            }
         output.destroy()
     }
 
@@ -303,14 +322,14 @@ internal class KortexShell private constructor(
     private fun reconcile(shown: ShownSurface) {
         if (shown.reported) return
         // Once the application's own code has thrown, surfaces only go: nothing more is placed.
-        if (applicationCrash.get() != null) return end(shown, Ok(Unit))
+        if (applicationCrash.get() != null) return end(shown, Ok(SurfaceEnd.LeftComposition))
         val ownEnding = shown.ownEnding()
         // Not left to the Show's own dispose, which Compose skips once an earlier cleanup in that content throws.
         val wanted = shown.wanted.takeUnless { shown.parentGone }
         when {
             // First: a surface that ended by itself before its Show left reports how it ended.
-            ownEnding != null -> end(shown, ownEnding)
-            wanted == null -> end(shown, Ok(Unit))
+            ownEnding is OwnEnding.Ended -> end(shown, ownEnding.ending)
+            wanted == null -> end(shown, Ok(SurfaceEnd.LeftComposition))
             shown.surface == null -> place(shown, wanted)
             shown.placedWith != wanted -> replace(shown, wanted)
         }
@@ -331,7 +350,7 @@ internal class KortexShell private constructor(
     ) {
         val output = settings.monitor?.let { monitor ->
             // An unplugged monitor's proxy is already destroyed: the surface ends, as one on it does when it goes.
-            monitor.output.takeIf { outputs[it.name] === it } ?: return report(shown, Ok(Unit))
+            monitor.output.takeIf { outputs[it.name] === it } ?: return report(shown, Ok(SurfaceEnd.MonitorUnplugged))
         }
         KortexSurface
             .create(
@@ -378,7 +397,7 @@ internal class KortexShell private constructor(
 
     private fun end(
         shown: ShownSurface,
-        ending: EmptyResult<SurfaceError<IError>>,
+        ending: Result<SurfaceEnd, SurfaceError<IError>>,
     ) {
         // Content failing, its cleanup as the surface goes included, ends it as a crash whatever else ended it.
         val crash = takeDown(shown)
@@ -398,7 +417,7 @@ internal class KortexShell private constructor(
 
     private fun report(
         shown: ShownSurface,
-        ending: EmptyResult<SurfaceError<IError>>,
+        ending: Result<SurfaceEnd, SurfaceError<IError>>,
     ) {
         shown.reported = true
         // Once the application's own code has thrown, none of it runs again.

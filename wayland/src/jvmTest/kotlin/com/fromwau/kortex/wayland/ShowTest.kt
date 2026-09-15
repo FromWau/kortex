@@ -14,7 +14,6 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
@@ -55,9 +54,9 @@ class ShowTest {
     }
 
     @Test
-    fun `taking a Show out of composition removes its surface and reports Ok once`() {
+    fun `taking a Show out of composition removes its surface and reports LeftComposition once`() {
         val showing = mutableStateOf(true)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             if (showing.value) Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
         }
@@ -69,7 +68,11 @@ class ShowTest {
 
             assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "taking the Show out reported nothing")
             shell.pumpOrFail(SETTLE_MILLIS)
-            assertEquals(listOf(Ok(Unit)), reports.toList(), "taking the Show out did not report Ok exactly once")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.LeftComposition)),
+                reports.toList(),
+                "taking the Show out did not report LeftComposition exactly once",
+            )
             assertTrue(shell.shownSurfaces.isEmpty(), "the surface outlived its Show")
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { Screen.geometry(NAMESPACE) == null },
@@ -113,7 +116,7 @@ class ShowTest {
     @Test
     fun `changed settings replace the surface with a new one and report nothing`() {
         val height = mutableIntStateOf(SHORT)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it }))
         }
@@ -140,8 +143,8 @@ class ShowTest {
     @Test
     fun `a Show handed an instance of another class replaces its surface, and only the new class can close it`() {
         val showRefusing = mutableStateOf(false)
-        val dismissals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
-        val refusals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Refusal>>>()
+        val dismissals = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Dismissal>>>()
+        val refusals = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Refusal>>>()
         val instances = CopyOnWriteArrayList<LayerSurface<*>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val surface = when {
@@ -190,8 +193,8 @@ class ShowTest {
     @Test
     fun `a close() that lands as its Show is handed another class does not end the Show when that class returns`() {
         val showRefusing = mutableStateOf(false)
-        val dismissals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
-        val refusals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Refusal>>>()
+        val dismissals = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Dismissal>>>()
+        val refusals = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Refusal>>>()
         val firstDismissing = AtomicReference<DismissingSurface?>(null)
         val closedAsItLeft = AtomicBoolean(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
@@ -240,10 +243,10 @@ class ShowTest {
     }
 
     @Test
-    fun `close() reports Ok and close(error) reports the error as Closed`() {
+    fun `close() reports Ok(Closed), and close(error) reports Err(Closed(error))`() {
         val closeRequested = mutableStateOf(false)
-        val plain = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
-        val withError = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val plain = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val withError = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Dismissal>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(NAMESPACE, onClose = { plain += it }) {
@@ -268,7 +271,7 @@ class ShowTest {
                 shell.pumpOrFail(PUMP_MILLIS) { plain.isNotEmpty() && withError.isNotEmpty() },
                 "closing from content left a surface unreported: close() $plain, close(error) $withError",
             )
-            assertEquals(listOf(Ok(Unit)), plain.toList(), "close() did not report Ok once")
+            assertEquals(listOf(Ok(SurfaceEnd.Closed)), plain.toList(), "close() did not report Closed once")
             assertEquals(
                 listOf(Err(SurfaceError.Closed(Dismissal.Dismissed))),
                 withError.toList(),
@@ -308,7 +311,7 @@ class ShowTest {
 
     @Test
     fun `close() and close(error) on an instance never handed to a Show do nothing`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Dismissal>>>()
         val stray = TestSurface<Dismissal>(NAMESPACE, onClose = { reports += it })
 
         onApplication({ Show(TestSurface<Nothing>(NAMESPACE)) }) { shell ->
@@ -371,10 +374,10 @@ class ShowTest {
     }
 
     @Test
-    fun `a surface the compositor closes reports Ok, is not replaced, and its Show taken out reports nothing more`() {
+    fun `a surface the compositor closes reports ClosedByCompositor, and nothing takes its place or reports again`() {
         val showing = mutableStateOf(true)
         val left = AtomicBoolean(false)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             if (showing.value) {
                 Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
@@ -391,7 +394,11 @@ class ShowTest {
                 shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
                 "the compositor's close reported nothing",
             )
-            assertEquals(listOf(Ok(Unit)), reports.toList(), "the compositor's close did not report Ok once")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.ClosedByCompositor)),
+                reports.toList(),
+                "the compositor's close did not report ClosedByCompositor once",
+            )
             shell.pumpOrFail(SETTLE_MILLIS)
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface the compositor closed was placed again")
 
@@ -399,13 +406,17 @@ class ShowTest {
             assertTrue(shell.pumpOrFail(PUMP_MILLIS) { left.get() }, "the Show never left composition")
             shell.passOrFail()
 
-            assertEquals(listOf(Ok(Unit)), reports.toList(), "taking out a Show whose surface had ended reported again")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.ClosedByCompositor)),
+                reports.toList(),
+                "taking out a Show whose surface had ended reported again",
+            )
         }
     }
 
     @Test
     fun `a surface that cannot be placed reports Failed with the reason, and the run goes on`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val unplaceable: @Composable KortexApplicationScope.() -> Unit = {
             Show(TestSurface<Nothing>(NAMESPACE, anchor = emptySet(), width = 0.dp, onClose = { reports += it }))
         }
@@ -426,7 +437,7 @@ class ShowTest {
 
     @Test
     fun `a surface with a width below 0 reports Failed with NegativeSize once, and the run goes on`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val negative: @Composable KortexApplicationScope.() -> Unit = {
             // A corner anchor: should the width go out, Hyprland answers its commit by ending the connection.
             Show(TestSurface<Nothing>(NAMESPACE, width = NEGATIVE_WIDTH.dp, onClose = { reports += it }))
@@ -449,7 +460,7 @@ class ShowTest {
 
     @Test
     fun `content whose effect throws reports Failed with the crash, and another shown surface keeps drawing`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val tick = mutableIntStateOf(0)
         val drawn = CopyOnWriteArrayList<Int>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
@@ -480,7 +491,7 @@ class ShowTest {
     @Test
     fun `content whose cleanup throws as its Show is taken out reports the crash, not Ok`() {
         val showing = mutableStateOf(true)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             if (showing.value) Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) { ThrowingCleanup() })
         }
@@ -499,7 +510,7 @@ class ShowTest {
     @Test
     fun `content whose cleanup throws as changed settings replace its surface reports the crash and places nothing`() {
         val height = mutableIntStateOf(SHORT)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it }) {
@@ -530,7 +541,7 @@ class ShowTest {
     @Test
     fun `a surface that ends in the pass its Show is taken out reports once`() {
         val showing = mutableStateOf(true)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Dismissal>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             if (showing.value) {
                 val surface = TestSurface<Dismissal>(NAMESPACE, onClose = { reports += it })
@@ -559,10 +570,10 @@ class ShowTest {
     }
 
     @Test
-    fun `exitApplication from another thread, twice, returns Ok and every onClose gets Ok on the loop thread`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+    fun `exitApplication from another thread, twice, returns Ok and reports LeftComposition on the loop thread`() {
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val reportingThreads = CopyOnWriteArraySet<Thread>()
-        val onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit = { result ->
+        val onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit = { result ->
             reports += result
             reportingThreads += Thread.currentThread()
         }
@@ -589,16 +600,16 @@ class ShowTest {
 
         assertEquals(Ok(Unit), result, "an application ended by exitApplication did not return Ok")
         assertEquals(
-            listOf(Ok(Unit), Ok(Unit)),
+            listOf(Ok(SurfaceEnd.LeftComposition), Ok(SurfaceEnd.LeftComposition)),
             reports.toList(),
-            "exitApplication did not report Ok to each surface once",
+            "exitApplication did not report LeftComposition to each surface once",
         )
         assertEquals(setOf(application.get()), reportingThreads.toSet(), "an onClose ran off the application's thread")
     }
 
     @Test
-    fun `closing the application reports Ok to every shown surface and returns Ok`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+    fun `closing the application reports LeftComposition to every shown surface and returns Ok`() {
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
             Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { reports += it }))
@@ -611,9 +622,9 @@ class ShowTest {
 
             assertEquals(Ok(Unit), shell.close(), "closing the application did not return Ok")
             assertEquals(
-                listOf(Ok(Unit), Ok(Unit)),
+                listOf(Ok(SurfaceEnd.LeftComposition), Ok(SurfaceEnd.LeftComposition)),
                 reports.toList(),
-                "closing the application did not report Ok to each surface once",
+                "closing the application did not report LeftComposition to each surface once",
             )
         }
     }
@@ -640,7 +651,7 @@ class ShowTest {
     @Test
     fun `the application's content throwing ends the run as ApplicationCrashed, and no onClose is called`() {
         val boom = mutableStateOf(false)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
             if (boom.value) error(APPLICATION_FAILURE)
@@ -671,7 +682,7 @@ class ShowTest {
     @Test
     fun `an onClose that throws ends the run as ApplicationCrashed, and no other onClose is called`() {
         val closeRequested = mutableStateOf(false)
-        val others = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val others = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(NAMESPACE, onClose = { error(ON_CLOSE_FAILURE) }) {
@@ -727,7 +738,7 @@ class ShowTest {
     @Test
     fun `UI placed directly in the application's content ends the run as ApplicationCrashed with no onClose`() {
         val addUi = mutableStateOf(false)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }))
             if (addUi.value) Box(Modifier.fillMaxSize())
@@ -814,10 +825,10 @@ class ShowTest {
     }
 
     @Test
-    fun `a Show inside content places a child, and taking the parent's Show out ends both, each reporting Ok`() {
+    fun `a Show inside content places a child, and taking the parent's Show out reports LeftComposition to both`() {
         val showing = mutableStateOf(true)
-        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
-        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val parentReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             if (showing.value) {
                 Show(TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) { ShowChild(childReports) })
@@ -835,17 +846,25 @@ class ShowTest {
                 "taking the parent's Show out left a surface unreported: parent $parentReports, child $childReports",
             )
             shell.pumpOrFail(SETTLE_MILLIS)
-            assertEquals(listOf(Ok(Unit)), parentReports.toList(), "the parent did not report Ok once")
-            assertEquals(listOf(Ok(Unit)), childReports.toList(), "the child did not report Ok once")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.LeftComposition)),
+                parentReports.toList(),
+                "the parent did not report LeftComposition once",
+            )
+            assertEquals(
+                listOf(Ok(SurfaceEnd.LeftComposition)),
+                childReports.toList(),
+                "the child did not report LeftComposition once",
+            )
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived the parent's Show")
         }
     }
 
     @Test
-    fun `a parent whose content crashes reports the crash, and the child it showed reports Ok`() {
+    fun `a parent whose content crashes reports the crash, and the child it showed reports LeftComposition`() {
         val crashing = mutableStateOf(false)
-        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
-        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val parentReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) {
@@ -869,27 +888,27 @@ class ShowTest {
             val crash = crashIn(parentReports.single(), "the parent's crash did not report Failed(SurfaceCrashed)")
             assertEquals(EFFECT_FAILURE, crash.failure.cause.message, "the crash did not carry what the effect threw")
             assertEquals(
-                listOf(Ok(Unit)),
+                listOf(Ok(SurfaceEnd.LeftComposition)),
                 childReports.toList(),
-                "the child of a crashed parent did not report Ok once",
+                "the child of a crashed parent did not report LeftComposition once",
             )
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived its crashed parent")
         }
     }
 
     @Test
-    fun `a parent whose cleanup throws as it goes, composed after its child, reports the crash and the child Ok`() =
+    fun `a parent whose cleanup throws, composed after its child, reports the crash, its child LeftComposition`() =
         takeOutParentWithThrowingCleanup(ParentContent.ChildThenCleanup)
 
     @Test
-    fun `a parent whose cleanup throws as it goes, composed before its child, reports the crash and the child Ok`() =
+    fun `a parent whose cleanup throws, composed before its child, reports the crash, its child LeftComposition`() =
         takeOutParentWithThrowingCleanup(ParentContent.CleanupThenChild)
 
     @Test
-    fun `a parent whose composable body throws reports the crash, and the child it showed reports Ok`() {
+    fun `a parent whose composable body throws reports the crash, and the child it showed reports LeftComposition`() {
         val crashing = mutableStateOf(false)
-        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
-        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val parentReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) {
@@ -916,7 +935,11 @@ class ShowTest {
         }
         val crash = crashIn(parentReports.single(), "a parent whose body threw did not report Failed(SurfaceCrashed)")
         assertEquals(BODY_FAILURE, crash.failure.cause.message, "the crash did not carry what the body threw")
-        assertEquals(listOf(Ok(Unit)), childReports.toList(), "the child of a crashed parent did not report Ok once")
+        assertEquals(
+            listOf(Ok(SurfaceEnd.LeftComposition)),
+            childReports.toList(),
+            "the child of a crashed parent did not report LeftComposition once",
+        )
         assertTrue(
             BODY_FAILURE in printed,
             "what Compose printed did not name the body's failure: ${printed.take(PRINTED_EXCERPT)}",
@@ -924,9 +947,9 @@ class ShowTest {
     }
 
     @Test
-    fun `exitApplication reports Ok once to a surface and to the surface its content showed`() {
-        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
-        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+    fun `exitApplication reports LeftComposition once to a surface and to the surface its content showed`() {
+        val parentReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(TestSurface<Nothing>(NAMESPACE, onClose = { parentReports += it }) { ShowChild(childReports) })
         }
@@ -945,8 +968,16 @@ class ShowTest {
         }
 
         assertEquals(Ok(Unit), result, "an application ended by exitApplication did not return Ok")
-        assertEquals(listOf(Ok(Unit)), parentReports.toList(), "exitApplication did not report Ok to the parent once")
-        assertEquals(listOf(Ok(Unit)), childReports.toList(), "exitApplication did not report Ok to the child once")
+        assertEquals(
+            listOf(Ok(SurfaceEnd.LeftComposition)),
+            parentReports.toList(),
+            "exitApplication did not report LeftComposition to the parent once",
+        )
+        assertEquals(
+            listOf(Ok(SurfaceEnd.LeftComposition)),
+            childReports.toList(),
+            "exitApplication did not report LeftComposition to the child once",
+        )
     }
 
     @Test
@@ -954,7 +985,7 @@ class ShowTest {
         val closeRequested = mutableStateOf(false)
         val instance = AtomicReference<LayerSurface<*>?>(null)
         val below = AtomicReference<KortexSurfaceHandle?>(null)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val surface = TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
                 SurfaceBelow(below, closeRequested)
@@ -977,7 +1008,11 @@ class ShowTest {
                 shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
                 "closing LocalKortexSurface reported nothing",
             )
-            assertEquals(listOf(Ok(Unit)), reports.toList(), "closing LocalKortexSurface did not report Ok once")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.Closed)),
+                reports.toList(),
+                "closing LocalKortexSurface did not report Closed once",
+            )
             assertTrue(shell.shownSurfaces.isEmpty(), "closing LocalKortexSurface left the surface on screen")
         }
     }
@@ -1075,7 +1110,7 @@ class ShowTest {
 
     /** Shows a speck under [SECOND_NAMESPACE] from the surface content it is called in, reporting to [reports]. */
     @Composable
-    private fun ShowChild(reports: MutableList<EmptyResult<SurfaceError<Nothing>>>) {
+    private fun ShowChild(reports: MutableList<Result<SurfaceEnd, SurfaceError<Nothing>>>) {
         Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { reports += it }))
     }
 
@@ -1092,12 +1127,13 @@ class ShowTest {
 
     /**
      * Shows a parent whose content holds a child's Show and cleanup that throws, composed in [order], then takes the
-     * parent's Show out: the parent must report the crash and the child `Ok(Unit)`, whichever Compose disposes first.
+     * parent's Show out: the parent must report the crash and the child `Ok(SurfaceEnd.LeftComposition)`, whichever
+     * Compose disposes first.
      */
     private fun takeOutParentWithThrowingCleanup(order: ParentContent) {
         val showing = mutableStateOf(true)
-        val parentReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
-        val childReports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val parentReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             if (showing.value) {
                 Show(
@@ -1129,7 +1165,11 @@ class ShowTest {
             shell.pumpOrFail(SETTLE_MILLIS)
             val crash = crashIn(parentReports.single(), "the parent's cleanup that threw did not report a crash")
             assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what the cleanup threw")
-            assertEquals(listOf(Ok(Unit)), childReports.toList(), "the child did not report Ok once")
+            assertEquals(
+                listOf(Ok(SurfaceEnd.LeftComposition)),
+                childReports.toList(),
+                "the child did not report LeftComposition once",
+            )
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived the parent's Show")
         }
     }
@@ -1149,7 +1189,7 @@ class ShowTest {
     }
 
     /** A speck in the default corner under [NAMESPACE]: the settings every subclass below shares. */
-    private abstract class SpeckSurface<E : IError>(onClose: (EmptyResult<SurfaceError<E>>) -> Unit) :
+    private abstract class SpeckSurface<E : IError>(onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit) :
         LayerSurface<E>(
             namespace = NAMESPACE,
             layer = Layer.Overlay,
@@ -1163,7 +1203,7 @@ class ShowTest {
     private class LabelSurface(
         private val label: Int,
         private val drawn: MutableList<Int>,
-        onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
+        onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
     ) : SpeckSurface<Nothing>(onClose) {
         @Composable
         override fun invoke() {
@@ -1173,14 +1213,14 @@ class ShowTest {
 
     // Two classes with equal settings and an error of each's own, for one Show handed first one, then the other.
     private class DismissingSurface(
-        onClose: (EmptyResult<SurfaceError<Dismissal>>) -> Unit,
+        onClose: (Result<SurfaceEnd, SurfaceError<Dismissal>>) -> Unit,
     ) : SpeckSurface<Dismissal>(onClose) {
         @Composable
         override fun invoke() = Unit
     }
 
     private class RefusingSurface(
-        onClose: (EmptyResult<SurfaceError<Refusal>>) -> Unit,
+        onClose: (Result<SurfaceEnd, SurfaceError<Refusal>>) -> Unit,
     ) : SpeckSurface<Refusal>(onClose) {
         @Composable
         override fun invoke() = Unit

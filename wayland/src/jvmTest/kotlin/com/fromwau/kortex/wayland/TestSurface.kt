@@ -3,8 +3,8 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.IError
+import com.fromwau.kern.result.Result
 
 /**
  * A [LayerSurface] whose content is a lambda, so a test writes a surface inline. Left at its defaults it is a speck
@@ -21,7 +21,7 @@ internal class TestSurface<E : IError>(
     exclusiveZone: ExclusiveZone = ExclusiveZone.Yield,
     exclusiveEdge: Edge? = null,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     private val content: @Composable TestSurface<E>.() -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,

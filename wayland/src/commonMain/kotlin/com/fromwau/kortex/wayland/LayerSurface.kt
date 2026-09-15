@@ -4,10 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import com.fromwau.kortex.compose.KortexSurfaceHandle
 import kotlin.reflect.KClass
 
@@ -23,7 +23,7 @@ import kotlin.reflect.KClass
  *
  * class VolumeOsd(
  *     private val level: Float,
- *     onClose: (EmptyResult<SurfaceError<OsdError>>) -> Unit = {},
+ *     onClose: (Result<SurfaceEnd, SurfaceError<OsdError>>) -> Unit = {},
  * ) : LayerSurface<OsdError>(
  *     namespace = "volume",
  *     layer = Layer.Overlay,
@@ -55,7 +55,7 @@ import kotlin.reflect.KClass
  *
  * @param E the error your content can end the surface with through `close(error)`, or `Nothing` for none.
  * @property monitor the monitor to put the surface on, one [rememberMonitors] lists; null lets the compositor choose.
- *   When that monitor is unplugged, the surface ends, and [onClose] receives `Ok(Unit)`.
+ *   When that monitor is unplugged, the surface ends, and [onClose] receives `Ok(SurfaceEnd.MonitorUnplugged)`.
  * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`, exactly as written, whichever
  *   monitor it is on: name a surface you show on every monitor `"bar-${monitor.name}"`, say, to tell them apart.
  * @property layer which layer the surface sits in.
@@ -73,13 +73,14 @@ import kotlin.reflect.KClass
  *   corner.
  * @property keyboard whether the surface can take keyboard focus.
  * @property onClose called once when the surface ends, after it has gone, on the thread that runs
- *   [kortexApplication]. It receives `Ok(Unit)` when `close()` is called, the compositor closes the surface, its
- *   [monitor] is unplugged, or its [Show] leaves composition: taken out, gone with the surface whose content showed
- *   it, or ended by `exitApplication()`. It receives [SurfaceError.Closed] when `close(error)` is called, and
- *   [SurfaceError.Failed] when the surface could not be placed, failed to follow a new size or scale from the
- *   compositor, or its content threw. Content that throws before the surface has gone, its cleanup as it goes
- *   included, makes it [SurfaceError.Failed] whatever else ended it. If `onClose` itself throws, the application
- *   ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
+ *   [kortexApplication]. It receives `Ok` with how the surface ended: [SurfaceEnd.Closed] when `close()` is called,
+ *   [SurfaceEnd.ClosedByCompositor] when the compositor closes it, [SurfaceEnd.MonitorUnplugged] when its [monitor]
+ *   is unplugged, and [SurfaceEnd.LeftComposition] when its [Show] leaves composition: taken out, gone with the
+ *   surface whose content showed it, or ended by `exitApplication()`. It receives [SurfaceError.Closed] when
+ *   `close(error)` is called, and [SurfaceError.Failed] when the surface could not be placed, failed to follow a
+ *   new size or scale from the compositor, or its content threw. Content that throws before the surface has gone,
+ *   its cleanup as it goes included, makes it [SurfaceError.Failed] whatever else ended it. If `onClose` itself
+ *   throws, the application ends with [KortexError.ApplicationCrashed], and no other `onClose` is called.
  */
 public abstract class LayerSurface<E : IError>(
     public val monitor: Monitor? = null,
@@ -92,7 +93,7 @@ public abstract class LayerSurface<E : IError>(
     public val exclusiveZone: ExclusiveZone = ExclusiveZone.Yield,
     public val exclusiveEdge: Edge? = null,
     public val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-    public val onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    public val onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : KortexSurfaceHandle {
     // The Show this instance was last handed to; null for an instance never shown.
     @Volatile
@@ -102,7 +103,7 @@ public abstract class LayerSurface<E : IError>(
     internal constructor(
         monitor: Monitor?,
         config: SurfaceConfig,
-        onClose: (EmptyResult<SurfaceError<E>>) -> Unit,
+        onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit,
     ) : this(
         monitor = monitor,
         namespace = config.namespace,
@@ -133,9 +134,9 @@ public abstract class LayerSurface<E : IError>(
 
     /**
      * Ends the surface this instance's [Show] holds, whichever of that `Show`'s instances of this class you call it
-     * on: the `onClose` of the newest instance handed to that `Show` receives `Ok(Unit)`. Safe from any thread, more
-     * than once, and after the surface has gone. It does nothing on an instance never handed to a [Show], or once that
-     * `Show` has been handed an instance of another class.
+     * on: the `onClose` of the newest instance handed to that `Show` receives `Ok(SurfaceEnd.Closed)`. Safe from any
+     * thread, more than once, and after the surface has gone. It does nothing on an instance never handed to a [Show],
+     * or once that `Show` has been handed an instance of another class.
      *
      * The first `close()` or `close(error)` decides what `onClose` receives, and later ones do nothing, unless the
      * surface fails. If its content throws before the surface has gone, its cleanup as the surface goes included,
@@ -143,7 +144,7 @@ public abstract class LayerSurface<E : IError>(
      * follow a new size or scale from the compositor before your first call.
      */
     final override fun close() {
-        heldBy?.requestEnd(this, Ok(Unit))
+        heldBy?.requestEnd(this, Ok(SurfaceEnd.Closed))
     }
 
     /**
@@ -154,10 +155,10 @@ public abstract class LayerSurface<E : IError>(
         heldBy?.requestEnd(this, Err(SurfaceError.Closed(error)))
     }
 
-    internal fun report(ending: EmptyResult<SurfaceError<IError>>) {
-        // Safe for a class that fixes E: a Closed ending is honoured only when asked for by an instance of this class.
+    internal fun report(ending: Result<SurfaceEnd, SurfaceError<IError>>) {
+        // Safe for a class that fixes E: a close(error) is honoured only when an instance of this class made it.
         @Suppress("UNCHECKED_CAST")
-        (onClose as (EmptyResult<SurfaceError<IError>>) -> Unit)(ending)
+        (onClose as (Result<SurfaceEnd, SurfaceError<IError>>) -> Unit)(ending)
     }
 
     /** Its class and every constructor value but [onClose]: what makes two instances the same surface to [Show]. */
@@ -185,6 +186,24 @@ internal data class SurfaceSettings(
     val monitor: Monitor?,
     val config: SurfaceConfig,
 )
+
+/** How a surface ended cleanly: what its `onClose` receives inside `Ok`. */
+public sealed interface SurfaceEnd {
+    /** `close()` was called on it. */
+    public data object Closed : SurfaceEnd
+
+    /** The compositor closed it. */
+    public data object ClosedByCompositor : SurfaceEnd
+
+    /** Its monitor was unplugged. */
+    public data object MonitorUnplugged : SurfaceEnd
+
+    /**
+     * Its [Show] left composition: your content took it out, the surface whose content showed it ended, or
+     * `exitApplication()` ended the application.
+     */
+    public data object LeftComposition : SurfaceEnd
+}
 
 /** Why a surface ended, when it did not end cleanly: what its `onClose` receives inside `Err`. */
 public sealed interface SurfaceError<out E : IError> : IError {

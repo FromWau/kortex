@@ -4,8 +4,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.IError
+import com.fromwau.kern.result.Result
 
 /**
  * A bar along one edge of its monitor, spanning that edge and reserving its own thickness there, so windows tile clear
@@ -42,7 +42,7 @@ public abstract class Bar<E : IError>(
     margins: Margins = Margins.None,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig
@@ -75,7 +75,7 @@ public abstract class Panel<E : IError>(
     length: Dp = 0.dp,
     margins: Margins = Margins.None,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig
@@ -108,7 +108,7 @@ public abstract class Dock<E : IError>(
     length: Dp = 0.dp,
     margins: Margins = Margins.None,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig
@@ -131,7 +131,7 @@ public abstract class Dock<E : IError>(
 public abstract class DesktopBackground<E : IError>(
     monitor: Monitor? = null,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig.desktopBackground().copy(namespace = namespace),
@@ -156,7 +156,7 @@ public abstract class DesktopBackground<E : IError>(
 public abstract class LockScreen<E : IError>(
     monitor: Monitor? = null,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig.lockScreen().copy(namespace = namespace),
@@ -183,7 +183,7 @@ public abstract class Osd<E : IError>(
     width: Dp,
     height: Dp,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig.osd(width, height).copy(namespace = namespace),
@@ -210,7 +210,7 @@ public abstract class AppMenu<E : IError>(
     width: Dp,
     height: Dp,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig.appMenu(width, height).copy(namespace = namespace),
@@ -233,7 +233,7 @@ public abstract class AppMenu<E : IError>(
  * class Menu(
  *     monitor: Monitor,
  *     at: IntOffset,
- *     onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
+ *     onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
  * ) : ContextMenu<Nothing>(
  *     monitor = monitor,
  *     at = at,
@@ -266,7 +266,7 @@ public abstract class ContextMenu<E : IError>(
     at: IntOffset,
     menuSize: IntSize,
     namespace: String = "kortex",
-    onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
+    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig

@@ -168,16 +168,18 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       as written, on its monitor or the compositor's choice. Content reads the surface's size from its first
       composition on. A new instance with the same settings keeps the surface, which composes the newest
       instance's `invoke()` and reports to its `onClose`; changed settings, another class among them, replace the
-      surface and report nothing. Every ending reports once, on the loop thread, after the surface has gone:
-      `close()`, the compositor closing it and its `Show` leaving composition report `Ok(Unit)`, `close(error)`
-      reports `Err(SurfaceError.Closed(error))`, and a surface that cannot be placed reports `SurfaceError.Failed`
+      surface and report nothing. Every ending reports once, on the loop thread, after the surface has gone, and
+      names how it ended: `close()` reports `Ok(SurfaceEnd.Closed)`, the compositor closing it
+      `Ok(SurfaceEnd.ClosedByCompositor)`, its monitor unplugged `Ok(SurfaceEnd.MonitorUnplugged)`, and its `Show`
+      leaving composition `Ok(SurfaceEnd.LeftComposition)`, each case pinned by a test that fails if another comes
+      back; `close(error)` reports `Err(SurfaceError.Closed(error))`, and an unplaceable surface `SurfaceError.Failed`
       with the reason. Content that throws ends only its own surface, reporting `Failed(SurfaceCrashed)` with the
       scene's first failure, and so does cleanup that throws as the surface goes, whatever else ended it. An
       ending and a removal in one pass report the ending, and a `Show` taken out after its surface ended reports
       nothing more. `close()` and `close(error)` act on the `Show`'s surface from any of its instances of the
       class it shows, from any thread, the first deciding; on an instance never shown, or of a class its `Show`
       has since left, they do nothing. `exitApplication()`, from any thread and more than once, ends the run, and
-      closing the shell takes every `Show` out, each reporting `Ok(Unit)`. The host's own code throwing, its
+      closing the shell takes every `Show` out, each reporting `LeftComposition`. The host's own code throwing, its
       content or an `onClose`, ends the run as `ApplicationCrashed`: no `onClose` is called after it, and nothing
       more is placed. Nothing else ends the run: an application with nothing on screen keeps running. An
       application whose compositor lacks `wl_compositor`, `wl_shm` or `zwlr_layer_shell_v1` fails as it starts,
@@ -187,16 +189,18 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       `name` is `wl_output.name` and its `geometry` the output's own snapshot state, so a new mode makes no new
       monitor. `LayerSurface.monitor` puts a surface on that output's own `wl_output`, under its namespace as
       written, and is one of the settings, so a changed monitor replaces the surface. A surface asked for on a
-      monitor that has gone reports `Ok(Unit)` and is never placed, and one on a monitor whose global is removed
-      ends then, reporting `Ok(Unit)` whether or not the compositor closes it. A surface's content reaches its
+      monitor that has gone reports `MonitorUnplugged` and is never placed, and one on a monitor whose global is
+      removed ends then, reporting it too, whether or not the compositor closes it. A surface's content reaches its
       instance as `LocalKortexSurface.current`, the typed clipboard as `LocalKortexClipboard.current` and the
       shell, so a `Show` there places a surface of its own; a surface that ends, removed or crashed, takes the
-      surfaces its content showed with it, each reporting `Ok(Unit)`. Three paths are covered by reading rather
+      surfaces its content showed with it, each reporting `LeftComposition`. Three paths are covered by reading rather
       than by a test: a connection that dies under the run, which ends it with the connection's error; a shown
       surface whose tick fails, which ends as `Failed`; and that startup check's call, whose check itself is
       tested. A monitor plugged in while the application runs, listed after the round trip that follows its
       bind, is tested only by `@Hotplug` tests, which run once `-Pkortex.hotplugTests=true` opts them in.
-      (`ShowTest`, `MonitorTest`, and `KortexShellTest` and `MultiSurfaceTest` for a monitor plugged in)
+      (`ShowTest`, which pins `Closed` and `LeftComposition`, and `ClosedByCompositor` with `CompositorChoiceTest`;
+      `MonitorTest`, which pins `MonitorUnplugged` on both of its paths; and `KortexShellTest` and `MultiSurfaceTest`
+      for a monitor plugged in)
 - [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
       `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
       clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
@@ -291,20 +295,20 @@ xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       application's own or a surface's, places its surface in the shell's next pass, and taking the `Show` out
       removes the surface again. So a context menu can be built from the position of a click that has already
       happened, and an OSD raised in answer to an event such as a volume change. A `Show` in a surface's content
-      leaves with that surface, crashed or removed, its own surface reporting `Ok(Unit)`. (`SurfaceOpenTest`,
-      `ShowTest`)
+      leaves with that surface, crashed or removed, its own surface reporting `Ok(SurfaceEnd.LeftComposition)`.
+      (`SurfaceOpenTest`, `ShowTest`)
 - [x] **A surface can be aimed at a chosen monitor.** `LayerSurface.monitor` puts a surface on the `wl_output`
       behind a `Monitor` that `rememberMonitors()` lists, whose `name` is `wl_output.name`, the same string
       `hyprctl monitors` prints; null leaves the choice to the compositor. A `Monitor` exists only while its
       output is connected, so there is no name to wait for: a surface asked for on a monitor that has gone
-      reports `Ok(Unit)` and is never placed, and one whose monitor is unplugged ends, reporting `Ok(Unit)`,
-      while the surfaces on the other monitors stand. (`MonitorTest`; `NamedOutputTest`, with
+      reports `Ok(SurfaceEnd.MonitorUnplugged)` and is never placed, and one whose monitor is unplugged ends,
+      reporting the same, while the surfaces on the other monitors stand. (`MonitorTest`; `NamedOutputTest`, with
       `-Pkortex.hotplugTests=true`)
-- [x] **A surface the compositor closes reports `Ok(Unit)`, and nothing takes its place**, whether it was shown
-      in the application's content or in another surface's. Its `Show` then shows nothing until the host takes
-      it out and puts it back. The end-to-end trigger, the output under a surface left to the compositor's
-      choice going away, is not exercised anywhere: `KortexSurface.simulateCompositorClose` stands in for it.
-      (`CompositorChoiceTest`)
+- [x] **A surface the compositor closes reports `Ok(SurfaceEnd.ClosedByCompositor)`, and nothing takes its
+      place**, whether it was shown in the application's content or in another surface's. Its `Show` then shows
+      nothing until the host takes it out and puts it back. The end-to-end trigger, the output under a surface
+      left to the compositor's choice going away, is not exercised anywhere: `KortexSurface.simulateCompositorClose`
+      stands in for it. (`CompositorChoiceTest`, `ShowTest`)
 
 The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a `Bar` on each
 monitor `rememberMonitors()` lists, 56 dp thick with `OnDemand` keyboard for its text field. A right click on

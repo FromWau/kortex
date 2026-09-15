@@ -1,7 +1,7 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
-import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
 import kotlin.test.assertIs
@@ -62,7 +62,7 @@ internal fun awaitPlaced(
 
 /** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
 internal fun crashIn(
-    report: EmptyResult<SurfaceError<*>>,
+    report: Result<SurfaceEnd, SurfaceError<*>>,
     message: String,
 ): KortexError.SurfaceCrashed {
     val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")

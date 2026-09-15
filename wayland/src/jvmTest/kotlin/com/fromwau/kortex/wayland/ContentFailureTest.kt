@@ -9,7 +9,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Result
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.CopyOnWriteArrayList
@@ -24,7 +24,7 @@ import kotlinx.coroutines.delay
 class ContentFailureTest {
     @Test
     fun `content that throws on its first frame reports the crash, and the run goes on`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
@@ -49,7 +49,7 @@ class ContentFailureTest {
 
     @Test
     fun `content that closes itself and whose cleanup then throws reports the crash, not Ok`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(
                 TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
@@ -79,7 +79,7 @@ class ContentFailureTest {
     @Test
     fun `a replacement's content that throws on its first frame reports the crash, and nothing takes its place`() {
         val height = mutableIntStateOf(SHORT)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             Show(

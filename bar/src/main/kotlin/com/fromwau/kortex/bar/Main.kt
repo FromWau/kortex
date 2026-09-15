@@ -32,7 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.onError
 import com.fromwau.kortex.wayland.Bar
 import com.fromwau.kortex.wayland.ContextMenu
@@ -41,6 +41,7 @@ import com.fromwau.kortex.wayland.KortexError
 import com.fromwau.kortex.wayland.Monitor
 import com.fromwau.kortex.wayland.Osd
 import com.fromwau.kortex.wayland.Show
+import com.fromwau.kortex.wayland.SurfaceEnd
 import com.fromwau.kortex.wayland.SurfaceError
 import com.fromwau.kortex.wayland.kortexApplication
 import com.fromwau.kortex.wayland.rememberMonitors
@@ -90,7 +91,7 @@ private val SurfaceError<Nothing>.crash: KortexError.SurfaceCrashed?
 /** Appends the crash a surface ended with to the crash log at [path], if it ended with one. */
 private fun logIfCrashed(
     path: Path,
-    result: EmptyResult<SurfaceError<Nothing>>,
+    result: Result<SurfaceEnd, SurfaceError<Nothing>>,
 ) {
     result.onError { failure -> failure.crash?.let { crash -> logCrash(path, crash) } }
 }
@@ -110,7 +111,7 @@ private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
 private class DemoBar(
     private val screen: Monitor,
     private val crashLog: Path,
-    onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
+    onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
 ) : Bar<Nothing>(
     monitor = screen,
     thickness = 56.dp,
@@ -197,7 +198,7 @@ private class DemoBar(
 private class BarMenu(
     monitor: Monitor,
     at: IntOffset,
-    onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
+    onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
 ) : ContextMenu<Nothing>(
     monitor = monitor,
     at = at,
@@ -231,7 +232,7 @@ private class BarMenu(
 private class CrashPopup(
     monitor: Monitor,
     private val stopped: SurfaceError<Nothing>,
-    onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
+    onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
 ) : Osd<Nothing>(
     monitor = monitor,
     width = 480.dp,

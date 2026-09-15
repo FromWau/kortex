@@ -6,8 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.IntSize
-import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
@@ -148,7 +148,7 @@ class MonitorTest {
     fun `a Show replaces its surface when only the monitor changes, and keeps it for an equal monitor`() {
         val placement = mutableStateOf(Placement.CompositorChoice)
         val composed = AtomicReference<Placement?>(null)
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
             val listed = monitors.first()
@@ -187,8 +187,8 @@ class MonitorTest {
     }
 
     @Test
-    fun `a surface shown on a monitor that has gone reports Ok and is never placed`() {
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+    fun `a surface shown on a monitor that has gone reports MonitorUnplugged and is never placed`() {
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         withUnboundMonitors("GONE-1") { (gone) ->
             val content: @Composable KortexApplicationScope.() -> Unit = {
                 Show(TestSurface<Nothing>(NAMESPACE, monitor = gone, onClose = { reports += it }))
@@ -201,9 +201,9 @@ class MonitorTest {
                 )
                 shell.pumpOrFail(SETTLE_MILLIS)
                 assertEquals(
-                    listOf(Ok(Unit)),
+                    listOf(Ok(SurfaceEnd.MonitorUnplugged)),
                     reports.toList(),
-                    "a surface on a monitor that has gone did not report Ok once",
+                    "a surface on a monitor that has gone did not report MonitorUnplugged once",
                 )
                 assertTrue(shell.shownSurfaces.isEmpty(), "a surface on a monitor that has gone was placed")
                 assertNull(Screen.geometry(NAMESPACE), "hyprctl lists a surface on a monitor that has gone")
@@ -212,9 +212,9 @@ class MonitorTest {
     }
 
     @Test
-    fun `a monitor the registry removes leaves the list, and a surface on it ends reporting Ok`() {
+    fun `a monitor the registry removes leaves the list, and a surface on it ends reporting MonitorUnplugged`() {
         val listed = AtomicReference<List<Monitor>>(emptyList())
-        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
             // Kept once taken, so the Show stays in composition after its monitor has left the list.
@@ -239,9 +239,9 @@ class MonitorTest {
                 )
                 shell.pumpOrFail(SETTLE_MILLIS)
                 assertEquals(
-                    listOf(Ok(Unit)),
+                    listOf(Ok(SurfaceEnd.MonitorUnplugged)),
                     reports.toList(),
-                    "a surface on a monitor that went away did not report Ok once",
+                    "a surface on a monitor that went away did not report MonitorUnplugged once",
                 )
                 assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived its monitor")
                 assertTrue(listed.get().isEmpty(), "a monitor that went away stayed listed: ${listed.get()}")

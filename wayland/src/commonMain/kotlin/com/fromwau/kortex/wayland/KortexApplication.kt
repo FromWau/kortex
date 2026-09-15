@@ -20,8 +20,9 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 /** What your application's content can do besides composing: end the application. */
 public interface KortexApplicationScope {
     /**
-     * Ends the application: every [Show] leaves composition, each surface's `onClose` receives `Ok(Unit)` unless its
-     * content throws as it goes, and [kortexApplication] returns. Safe to call from any thread, and more than once.
+     * Ends the application: every [Show] leaves composition, each surface's `onClose` receives
+     * `Ok(SurfaceEnd.LeftComposition)` unless its content throws as it goes, and [kortexApplication] returns. Safe to
+     * call from any thread, and more than once.
      */
     public fun exitApplication()
 }
@@ -71,9 +72,9 @@ public fun kortexApplication(
  * Keeps [surface] on screen while this call is in composition, in [kortexApplication]'s content or in a surface's
  * own content.
  *
- * The surface appears shortly after `Show` enters composition, and goes when `Show` leaves it, reporting `Ok(Unit)`
- * to its `onClose`. A `Show` in a surface's `invoke()` leaves composition when that surface ends, however it ends,
- * so the surface it shows goes then too.
+ * The surface appears shortly after `Show` enters composition, and goes when `Show` leaves it, reporting
+ * `Ok(SurfaceEnd.LeftComposition)` to its `onClose`. A `Show` in a surface's `invoke()` leaves composition when that
+ * surface ends, however it ends, so the surface it shows goes then too.
  *
  * Each recomposition hands `Show` a new instance. While the instances keep one class and equal settings, the
  * surface keeps running with the newest instance's content and `onClose`. When the class or the settings change, a
