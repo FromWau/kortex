@@ -97,12 +97,11 @@ public sealed interface ExclusiveZone {
 }
 
 /**
- * What kind of surface to put on screen: where it sits, how much of the output it takes, and what it
- * reserves from the rest of the desktop.
+ * Every setting of a layer surface but its monitor, as [LayerSurface] places one. The companion's presets write each
+ * kind's placement rule once, for the preset classes to pass on.
  *
- * The three fields that decide the shape — [anchor], [width] and [height] — have no default, as
- * [exclusiveZone] does not: each is only sensible in the light of the others, and a default silently
- * shapes a surface the caller never asked for. The companion's presets are what supply a whole set.
+ * [anchor], [width], [height] and [exclusiveZone] have no default: each is only sensible in the light of the others,
+ * so a default would shape a surface nobody asked for.
  *
  * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`.
  * @property anchor the edges the surface is pinned to; pinning both edges of an [Axis] spans that axis.
@@ -119,27 +118,27 @@ public sealed interface ExclusiveZone {
  * @property exclusiveEdge which anchored edge [exclusiveZone] is measured from; only needed when
  *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
  */
-public data class SurfaceConfig(
-    public val namespace: String = "kortex",
-    public val layer: Layer = Layer.Top,
-    public val anchor: Set<Edge>,
-    public val width: Dp,
-    public val height: Dp,
-    public val margins: Margins = Margins.None,
-    public val exclusiveZone: ExclusiveZone,
-    public val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-    public val exclusiveEdge: Edge? = null,
+internal data class SurfaceConfig(
+    val namespace: String = "kortex",
+    val layer: Layer = Layer.Top,
+    val anchor: Set<Edge>,
+    val width: Dp,
+    val height: Dp,
+    val margins: Margins = Margins.None,
+    val exclusiveZone: ExclusiveZone,
+    val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
+    val exclusiveEdge: Edge? = null,
 ) {
-    public companion object {
+    companion object {
         /**
          * A surface that hugs [edge] and spans it, anchored to [edge] plus the two edges perpendicular
-         * to it — a top bar anchors Top, Left and Right, for example.
+         * to it: a top bar anchors Top, Left and Right, for example.
          *
          * @param thickness how far the surface extends from [edge], and the screen space it reserves.
          *   It must round to at least one logical pixel, as [ExclusiveZone.Reserve] does.
          * @param length how far the surface runs along [edge]; 0 (the default) spans the whole edge.
          */
-        public fun panel(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig {
+        fun panel(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig {
             val (width, height, perpendicular) = when (edge) {
                 Edge.Top, Edge.Bottom -> Triple(length, thickness, Axis.Horizontal.edges)
                 Edge.Left, Edge.Right -> Triple(thickness, length, Axis.Vertical.edges)
@@ -153,14 +152,14 @@ public data class SurfaceConfig(
         }
 
         /** A [panel] with [KeyboardInteractivity.OnDemand], for one a user types or clicks into. */
-        public fun dock(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig =
+        fun dock(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig =
             panel(edge, thickness, length).copy(keyboard = KeyboardInteractivity.OnDemand)
 
         /**
          * Fills the whole output beneath every other surface, reserving nothing and never moved out of
          * another surface's way.
          */
-        public fun desktopBackground(): SurfaceConfig = SurfaceConfig(
+        fun desktopBackground(): SurfaceConfig = SurfaceConfig(
             layer = Layer.Background,
             anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
             width = 0.dp,
@@ -176,7 +175,7 @@ public data class SurfaceConfig(
          * another surface from drawing over or beside it, or the compositor from switching away.
          * Mistaking this for an actual session lock is a security problem, not a layout one.
          */
-        public fun lockScreen(): SurfaceConfig = SurfaceConfig(
+        fun lockScreen(): SurfaceConfig = SurfaceConfig(
             layer = Layer.Overlay,
             anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
             width = 0.dp,
@@ -192,11 +191,8 @@ public data class SurfaceConfig(
          * means "extend to the anchored edges", and an unanchored surface has none, so the request says
          * nothing and a compositor may show no surface at all. [ExclusiveZone.Yield] centres it in the *usable*
          * area instead, so another surface's own exclusive zone can shift it off the output's true centre.
-         *
-         * Raise one at startup in [runSurfaces]'s spec list, or later, in response to an event such as a
-         * volume change, through [KortexHost.open].
          */
-        public fun osd(width: Dp, height: Dp): SurfaceConfig = SurfaceConfig(
+        fun osd(width: Dp, height: Dp): SurfaceConfig = SurfaceConfig(
             layer = Layer.Overlay,
             anchor = emptySet(),
             width = width,
@@ -208,7 +204,7 @@ public data class SurfaceConfig(
          * An [osd] that also takes keyboard focus on demand, for a floating panel dismissed through its
          * own handle. It inherits [osd]'s placement rules.
          */
-        public fun appMenu(width: Dp, height: Dp): SurfaceConfig =
+        fun appMenu(width: Dp, height: Dp): SurfaceConfig =
             osd(width, height).copy(keyboard = KeyboardInteractivity.OnDemand)
 
         /**
@@ -225,11 +221,8 @@ public data class SurfaceConfig(
          * A [menuSize] wider or taller than [outputSize] still flips on that axis: the anchored corner
          * sits at [at] and the excess runs off the opposite edge, so the answer stays one consistent
          * corner rather than a special case.
-         *
-         * Typically raised at the moment of the click whose position it is built from, by calling
-         * [KortexHost.open] with a [SurfaceSpec] wrapping this config.
          */
-        public fun contextMenu(at: IntOffset, menuSize: IntSize, outputSize: IntSize): SurfaceConfig {
+        fun contextMenu(at: IntOffset, menuSize: IntSize, outputSize: IntSize): SurfaceConfig {
             val overflowsRight = at.x + menuSize.width > outputSize.width
             val overflowsBottom = at.y + menuSize.height > outputSize.height
             val anchor = when {

@@ -19,10 +19,10 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  * @property transform `wl_output.transform`'s wire value: 0 is unrotated, and higher values are the
  *   rotations and flips the protocol enumerates from there.
  * @property width the current mode's width in physical (buffer) pixels. Dividing by [scale] gives the
- *   logical size a `configure` reports — such as [SurfaceConfig.contextMenu]'s `outputSize` — but only
- *   exactly at an integer [scale]. kortex binds no `wp_fractional_scale_v1`, so a fractionally scaled
- *   output's logical size cannot be obtained through this type at all: at 1.5, [scale] reads 2 and the
- *   division comes out a quarter short.
+ *   width in logical pixels, the unit a surface's size and a [ContextMenu]'s `at` are in, but only exactly
+ *   at an integer [scale]. kortex binds no `wp_fractional_scale_v1`, so a fractionally scaled output's
+ *   logical size cannot be obtained through this type at all: at 1.5, [scale] reads 2 and the division
+ *   comes out a quarter short.
  * @property height the current mode's height in physical (buffer) pixels, like [width].
  * @property scale `wl_output.scale`, an integer that overstates a fractional compositor scale (Hyprland
  *   ceil-rounds it).
@@ -50,7 +50,7 @@ internal class OutputListener {
     private val arena: Arena = Arena.ofShared()
 
     // Snapshot state, not a plain field: an output may publish again at any time, and content reading
-    // its geometry through KortexHost has to recompose when it does.
+    // its geometry through a Monitor has to recompose when it does.
     var geometry: OutputGeometry? by mutableStateOf(null)
         private set
 
