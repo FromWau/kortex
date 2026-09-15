@@ -1,8 +1,7 @@
 package com.fromwau.kortex.wayland
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,7 +14,6 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
@@ -203,8 +201,8 @@ class KeyRepeatTest {
     }
 
     /**
-     * Runs [block] on a shell of two specks, each handed a keyboard bound here rather than one of its own: a
-     * keyboard-interactive surface would take the user's focus as it maps.
+     * Runs [block] on an application of two specks, each handed a keyboard bound here rather than one of its own:
+     * a keyboard-interactive surface would take the user's focus as it maps.
      */
     private fun withShellKeyboards(block: (shell: KortexShell, first: KeyboardInput, second: KeyboardInput) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
@@ -215,12 +213,16 @@ class KeyRepeatTest {
         try {
             val seat = Seat.bind(display).getOrElse { error -> fail("seat bind failed: $error") }
             try {
-                val shell = KortexShell.create(display, speckSpec(FIRST_NAMESPACE), speckSpec(SECOND_NAMESPACE))
-                    .getOrElse { error -> fail("shell creation failed: $error") }
+                val content: @Composable KortexApplicationScope.() -> Unit = {
+                    Show(TestSurface<Nothing>(FIRST_NAMESPACE))
+                    Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT))
+                }
+                val shell = KortexShell.createApplicationOrFail(display, content)
                 shell.useOrFail {
-                    val (first, second) = shell.activeSurfaces.map { active ->
+                    awaitPlaced(shell, count = 2)
+                    val (first, second) = shell.shownSurfaces.map { surface ->
                         assertNotNull(seat.attachKeyboard(scene), "the seat announced no keyboard")
-                            .also { active.surface.keyboardInput = it }
+                            .also { surface.keyboardInput = it }
                     }
                     // The compositor sends each new keyboard its keymap, without which no key is understood.
                     display.roundtrip()
@@ -236,10 +238,6 @@ class KeyRepeatTest {
             dispatcher.close()
             display.close()
         }
-    }
-
-    private fun speckSpec(namespace: String): SurfaceSpec = SurfaceSpec(SPECK_CONFIG.copy(namespace = namespace)) {
-        Box(Modifier.fillMaxSize())
     }
 
     private fun render(scene: KortexScene, surface: Surface) {
@@ -351,15 +349,7 @@ class KeyRepeatTest {
         const val LATE_DELAY_MILLIS = 1000
         const val FIRST_NAMESPACE = "kortex-repeat-first"
         const val SECOND_NAMESPACE = "kortex-repeat-second"
-        const val SPECK_SIZE = 8
 
-        // A speck in the corner, where the pointer is least likely to be.
-        val SPECK_CONFIG = SurfaceConfig(
-            layer = Layer.Overlay,
-            anchor = setOf(Edge.Bottom, Edge.Right),
-            width = SPECK_SIZE.dp,
-            height = SPECK_SIZE.dp,
-            exclusiveZone = ExclusiveZone.Yield,
-        )
+        val BOTTOM_LEFT = setOf(Edge.Bottom, Edge.Left)
     }
 }

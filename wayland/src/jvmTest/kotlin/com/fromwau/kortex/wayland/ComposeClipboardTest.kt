@@ -18,7 +18,6 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.compose.KortexPlatform
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
@@ -207,7 +206,7 @@ class ComposeClipboardTest {
                 @Suppress("DEPRECATION")
                 val deprecatedManager = LocalClipboardManager.current
                 manager.set(deprecatedManager)
-                typed.set(LocalKortexHost.current.clipboard)
+                typed.set(LocalKortexClipboard.current)
                 Box(Modifier.fillMaxSize())
             },
         ) { _ ->
@@ -221,21 +220,19 @@ class ComposeClipboardTest {
     }
 
     @Test
-    fun `content reads and writes the shell's clipboard through its host, failures included`() {
+    fun `content reads and writes the shell's clipboard through LocalKortexClipboard, failures included`() {
         val clipboard = FakeTextClipboard(read = { Ok(OTHER_CLIENTS) }, set = { Err(ClipboardError.NoInputSerial) })
         val results = CopyOnWriteArrayList<Result<Any, ClipboardError>>()
         withSpeckShell(
             content = {
-                val host = LocalKortexHost.current
-                LaunchedEffect(host) {
-                    results += host.clipboard.readText()
-                    results += host.clipboard.setText(COPIED)
-                    results += host.clipboard.clear()
+                val typed = LocalKortexClipboard.current
+                LaunchedEffect(typed) {
+                    results += typed.readText()
+                    results += typed.setText(COPIED)
+                    results += typed.clear()
                 }
             },
-            create = { display, spec ->
-                KortexShell.create(display, listOf(spec), KortexPlatform.None, {}) { clipboard }
-            },
+            contentClipboard = { clipboard },
         ) { shell ->
             assertTrue(shell.pumpOrFail(PUMP_MILLIS) { results.size == CALLS }, "content's calls never returned")
         }
@@ -247,19 +244,17 @@ class ComposeClipboardTest {
     }
 
     @Test
-    fun `content inside a Popup reaches the shell's clipboard through its host`() {
+    fun `content inside a Popup reaches the shell's clipboard through LocalKortexClipboard`() {
         val clipboard = FakeTextClipboard(read = { Ok(OTHER_CLIENTS) })
         val typed = AtomicReference<KortexClipboard?>()
         withSpeckShell(
             content = {
                 Popup {
-                    typed.set(LocalKortexHost.current.clipboard)
+                    typed.set(LocalKortexClipboard.current)
                     Box(Modifier.size(1.dp))
                 }
             },
-            create = { display, spec ->
-                KortexShell.create(display, listOf(spec), KortexPlatform.None, {}) { clipboard }
-            },
+            contentClipboard = { clipboard },
         ) { shell ->
             assertTrue(shell.pumpOrFail(PUMP_MILLIS) { typed.get() != null }, "the Popup's content never composed")
             val popupClipboard = assertNotNull(typed.get(), "the Popup's content was handed no typed clipboard")
@@ -276,7 +271,7 @@ class ComposeClipboardTest {
     @Test
     fun `content's clipboard fails every call at once after its shell has closed`() {
         val typed = AtomicReference<KortexClipboard?>()
-        withSpeckShell(content = { typed.set(LocalKortexHost.current.clipboard) }) { }
+        withSpeckShell(content = { typed.set(LocalKortexClipboard.current) }) { }
         val clipboard = assertNotNull(typed.get(), "content was handed no typed clipboard")
         listOf<suspend () -> Any>(
             { clipboard.setText(COPIED) },
@@ -310,19 +305,27 @@ class ComposeClipboardTest {
         return true
     }
 
-    /** Runs [block] against the shell [create] makes with [content] on a speck: by default, as a host makes one. */
+    /**
+     * Runs [block] against a shell showing one speck of [content], once it is placed: by default, with the shell's
+     * own clipboard, or [contentClipboard]'s stand-in for it.
+     */
     private fun withSpeckShell(
-        content: @Composable () -> Unit,
-        create: (WaylandDisplay, SurfaceSpec) -> Result<KortexShell, KortexError> = { display, spec ->
-            KortexShell.create(display, spec)
-        },
+        content: @Composable TestSurface<Nothing>.() -> Unit,
+        contentClipboard: (WaylandClipboard) -> TextClipboard = { it },
         block: (KortexShell) -> Unit,
     ) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland ->
-            val spec = SurfaceSpec(SPECK_CONFIG, OutputTarget.CompositorChoice, content)
-            val shell = create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
-            shell.useOrFail(block)
+            val application: @Composable KortexApplicationScope.() -> Unit = {
+                Show(TestSurface(SPECK_NAMESPACE, content = content))
+            }
+            val shell = KortexShell
+                .createApplication(wayland, contentClipboard = contentClipboard, content = application)
+                .getOrElse { error -> fail("shell creation failed: $error") }
+            shell.useOrFail {
+                awaitPlaced(it)
+                block(it)
+            }
         }
     }
 
@@ -355,15 +358,6 @@ class ComposeClipboardTest {
         const val CALL_BOUND_MILLIS = 2000L
         const val POLL_MILLIS = 10L
         const val NANOS_PER_MILLI = 1_000_000L
-
-        // A speck in a corner that takes neither the keyboard nor any screen space from the desktop.
-        val SPECK_CONFIG = SurfaceConfig(
-            namespace = "kortex-compose-clipboard",
-            layer = Layer.Overlay,
-            anchor = setOf(Edge.Bottom, Edge.Right),
-            width = 8.dp,
-            height = 8.dp,
-            exclusiveZone = ExclusiveZone.Yield,
-        )
+        const val SPECK_NAMESPACE = "kortex-compose-clipboard"
     }
 }

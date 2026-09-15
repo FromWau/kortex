@@ -1,21 +1,24 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
-import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
  * Pins that [SurfaceConfig.panel], [SurfaceConfig.dock], [SurfaceConfig.desktopBackground],
  * [SurfaceConfig.lockScreen], [SurfaceConfig.osd], [SurfaceConfig.appMenu] and
  * [SurfaceConfig.contextMenu] assemble the layer, anchor and exclusive zone each promises, and that
- * reaches the compositor rather than being dropped or replaced by a default on the way through.
+ * reaches the compositor rather than being dropped or replaced by a default on the way through. The
+ * preset classes that take the keyboard, [Dock], [AppMenu] and [LockScreen], are shown here through [Show].
+ *
+ * Needs the desktop to itself: the dock, app menu and lock screen take the user's keyboard focus as they map.
  */
 class SurfacePresetTest {
     @Test
@@ -26,7 +29,7 @@ class SurfacePresetTest {
             val output = bindFirstOutput(wayland)
             // The usable area, not the raw output: another surface (a real desktop's own bar) may
             // already reserve space this panel has to land clear of.
-            val before = monitor(output.geometry.name)
+            val before = Hyprctl.monitor(output.geometry.name)
             val config = SurfaceConfig.panel(edge = Edge.Top, thickness = PANEL_THICKNESS.dp)
                 .copy(namespace = PANEL_NAMESPACE)
 
@@ -63,7 +66,7 @@ class SurfacePresetTest {
             val output = bindFirstOutput(wayland)
             // The usable area, not the raw output: another surface (a real desktop's own bar) may
             // already reserve space this dock has to land clear of.
-            val before = monitor(output.geometry.name)
+            val before = Hyprctl.monitor(output.geometry.name)
             val config = SurfaceConfig.dock(edge = Edge.Left, thickness = DOCK_THICKNESS.dp)
                 .copy(namespace = DOCK_NAMESPACE)
             assertEquals(KeyboardInteractivity.OnDemand, config.keyboard, "dock did not ask for keyboard on demand")
@@ -168,7 +171,7 @@ class SurfacePresetTest {
             val output = bindFirstOutput(wayland)
             // The usable area, not the raw output: yielding centres an unanchored surface in what is
             // left after another surface's own exclusive zone, not the output's true centre.
-            val before = monitor(output.geometry.name)
+            val before = Hyprctl.monitor(output.geometry.name)
             val config = SurfaceConfig.osd(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = OSD_NAMESPACE)
 
             val osd = KortexSurface.create(wayland, config, output = output.proxy)
@@ -194,7 +197,7 @@ class SurfacePresetTest {
 
         display.use { wayland ->
             val output = bindFirstOutput(wayland)
-            val before = monitor(output.geometry.name)
+            val before = Hyprctl.monitor(output.geometry.name)
             val config = SurfaceConfig.appMenu(APP_MENU_WIDTH.dp, APP_MENU_HEIGHT.dp)
                 .copy(namespace = APP_MENU_NAMESPACE)
             assertEquals(
@@ -221,7 +224,7 @@ class SurfacePresetTest {
 
         display.use { wayland ->
             val output = bindFirstOutput(wayland)
-            val before = monitor(output.geometry.name)
+            val before = Hyprctl.monitor(output.geometry.name)
             // A reservation of this test's own, so the assertion below does not rest on whatever the
             // surrounding desktop happens to reserve.
             val panelConfig = SurfaceConfig.panel(edge = Edge.Left, thickness = MENU_PANEL_THICKNESS.dp)
@@ -266,29 +269,108 @@ class SurfacePresetTest {
         }
     }
 
-    private fun assertCentredInUsableArea(before: Monitor, width: Int, height: Int, geometry: LayerGeometry) {
-        val expectedX = before.usableX + (before.usableWidth - width) / 2
-        val expectedY = before.usableY + (before.usableHeight - height) / 2
-        assertTrue(
-            abs(geometry.x - expectedX) <= 1,
-            "expected x within a pixel of $expectedX, got ${geometry.x}",
-        )
-        assertTrue(
-            abs(geometry.y - expectedY) <= 1,
-            "expected y within a pixel of $expectedY, got ${geometry.y}",
-        )
+    @Test
+    fun `a Dock shown in an application spans its edge and reserves exactly its own thickness`() {
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            Show(
+                object : Dock<Nothing>(
+                    monitor = monitors.first(),
+                    edge = Edge.Left,
+                    thickness = DOCK_CLASS_THICKNESS.dp,
+                    namespace = DOCK_CLASS_NAMESPACE,
+                ) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            // The usable area, not the raw monitor: a desktop's own bar may already reserve space.
+            val before = Hyprctl.monitor(shell.monitors.value.first().name)
+            awaitPlaced(shell)
+
+            val geometry = assertNotNull(
+                Screen.awaitGeometry(DOCK_CLASS_NAMESPACE),
+                "hyprctl never listed $DOCK_CLASS_NAMESPACE",
+            )
+            assertEquals(before.usableX, geometry.x, "the dock did not sit clear of what already reserves space")
+            assertEquals(before.usableY, geometry.y, "the dock did not sit clear of what already reserves space")
+            assertEquals(DOCK_CLASS_THICKNESS, geometry.logicalWidth, "the dock's extent is not its own thickness")
+            assertEquals(before.usableHeight, geometry.logicalHeight, "the dock did not span the edge it anchors")
+            assertReservesMore(shell, before, Edge.Left, DOCK_CLASS_THICKNESS)
+        }
     }
 
-    private fun monitor(name: String): Monitor =
-        assertNotNull(Hyprctl.monitors().firstOrNull { it.name == name }, "hyprctl lost monitor $name")
+    @Test
+    fun `an AppMenu shown in an application is its own size, centred in the usable area`() {
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            Show(
+                object : AppMenu<Nothing>(
+                    monitor = monitors.first(),
+                    width = APP_MENU_CLASS_WIDTH.dp,
+                    height = APP_MENU_CLASS_HEIGHT.dp,
+                    namespace = APP_MENU_CLASS_NAMESPACE,
+                ) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            // The usable area, not the raw monitor: yielding centres an unanchored surface in what others leave free.
+            val before = Hyprctl.monitor(shell.monitors.value.first().name)
+            awaitPlaced(shell)
+
+            val geometry = assertNotNull(
+                Screen.awaitGeometry(APP_MENU_CLASS_NAMESPACE),
+                "hyprctl never listed $APP_MENU_CLASS_NAMESPACE",
+            )
+            assertEquals(Layer.Overlay, geometry.layer, "the app menu did not land above every other layer")
+            assertEquals(APP_MENU_CLASS_WIDTH, geometry.logicalWidth, "the app menu is not its own width")
+            assertEquals(APP_MENU_CLASS_HEIGHT, geometry.logicalHeight, "the app menu is not its own height")
+            assertCentredInUsableArea(before, APP_MENU_CLASS_WIDTH, APP_MENU_CLASS_HEIGHT, geometry)
+        }
+    }
+
+    @Test
+    fun `a LockScreen shown in an application covers its whole monitor above everything else`() {
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            Show(
+                object : LockScreen<Nothing>(monitor = monitors.first(), namespace = LOCK_CLASS_NAMESPACE) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            val monitor = Hyprctl.monitor(shell.monitors.value.first().name)
+            awaitPlaced(shell)
+
+            val geometry = assertNotNull(
+                Screen.awaitGeometry(LOCK_CLASS_NAMESPACE),
+                "hyprctl never listed $LOCK_CLASS_NAMESPACE",
+            )
+            assertEquals(Layer.Overlay, geometry.layer, "the lock screen did not land above everything else")
+            assertEquals(monitor.x, geometry.x, "the lock screen did not cover its monitor")
+            assertEquals(monitor.y, geometry.y, "the lock screen did not cover its monitor")
+            assertEquals(monitor.logicalWidth, geometry.logicalWidth, "the lock screen did not cover its monitor")
+            assertEquals(monitor.logicalHeight, geometry.logicalHeight, "the lock screen did not cover its monitor")
+        }
+    }
 
     /** Polls [monitorName]'s reservation until [predicate] holds, since a reservation lands a frame late. */
-    private fun awaitReserved(monitorName: String, predicate: (Monitor) -> Boolean): Monitor {
+    private fun awaitReserved(monitorName: String, predicate: (HyprMonitor) -> Boolean): HyprMonitor {
         val deadline = System.nanoTime() + SETTLE_TIMEOUT_MILLIS * NANOS_PER_MILLI
-        var reported = monitor(monitorName)
+        var reported = Hyprctl.monitor(monitorName)
         while (!predicate(reported) && System.nanoTime() < deadline) {
             Thread.sleep(POLL_INTERVAL_MILLIS)
-            reported = monitor(monitorName)
+            reported = Hyprctl.monitor(monitorName)
         }
         return reported
     }
@@ -302,6 +384,9 @@ class SurfacePresetTest {
         const val APP_MENU_NAMESPACE = "kortex-preset-app-menu"
         const val MENU_NAMESPACE = "kortex-preset-context-menu"
         const val MENU_PANEL_NAMESPACE = "kortex-preset-context-menu-panel"
+        const val DOCK_CLASS_NAMESPACE = "kortex-preset-class-dock"
+        const val APP_MENU_CLASS_NAMESPACE = "kortex-preset-class-app-menu"
+        const val LOCK_CLASS_NAMESPACE = "kortex-preset-class-lock"
 
         // Distinct from each other and from the sizes other tests use, so a preset reaching the wrong
         // field shows up as a wrong number rather than an accidental match.
@@ -314,6 +399,9 @@ class SurfacePresetTest {
         const val MENU_WIDTH = 181
         const val MENU_HEIGHT = 127
         const val MENU_PANEL_THICKNESS = 53
+        const val DOCK_CLASS_THICKNESS = 83
+        const val APP_MENU_CLASS_WIDTH = 293
+        const val APP_MENU_CLASS_HEIGHT = 157
 
         // Far enough from every edge that the menu keeps its top-left corner at the point and no axis flips.
         const val MENU_X = 613

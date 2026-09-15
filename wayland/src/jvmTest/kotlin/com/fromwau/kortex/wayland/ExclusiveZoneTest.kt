@@ -7,8 +7,6 @@ import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -24,7 +22,7 @@ class ExclusiveZoneTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val panel = LayerSurface.create(
+            val panel = LayerShellSurface.create(
                 wayland,
                 namespace = PANEL_NAMESPACE,
                 height = PANEL_HEIGHT,
@@ -34,10 +32,10 @@ class ExclusiveZoneTest {
             ).getOrElse { error -> fail("panel creation failed: $error") }
 
             panel.use {
-                assertTrue(panel.waitForConfigure(), "panel never configured")
+                panel.waitForConfigure().getOrElse { error -> fail("panel never configured: $error") }
                 wayland.roundtrip()
 
-                val background = LayerSurface.create(
+                val background = LayerShellSurface.create(
                     wayland,
                     namespace = BACKGROUND_NAMESPACE,
                     height = 0,
@@ -49,7 +47,7 @@ class ExclusiveZoneTest {
                 ).getOrElse { error -> fail("background creation failed: $error") }
 
                 background.use {
-                    assertTrue(background.waitForConfigure(), "background never configured")
+                    background.waitForConfigure().getOrElse { error -> fail("background never configured: $error") }
                     wayland.roundtrip()
 
                     val geometry = assertNotNull(
@@ -83,7 +81,7 @@ class ExclusiveZoneTest {
             // Bottom+Right, not the more obvious Top+Right: a real top bar on this desktop reserves its
             // own exclusive zone, which would push a Top-anchored surface down regardless of anything
             // this test does (see LayerGeometryTest).
-            val corner = LayerSurface.create(
+            val corner = LayerShellSurface.create(
                 wayland,
                 namespace = CORNER_NAMESPACE,
                 height = CORNER_HEIGHT,
@@ -95,14 +93,7 @@ class ExclusiveZoneTest {
             ).getOrElse { error -> fail("corner surface creation failed: $error") }
 
             corner.use {
-                val configured = corner.waitForConfigure()
-                // A rejected edge kills the connection, so the surface just never configures. Reading the
-                // error first turns that opaque timeout into the violation that caused it.
-                assertNull(
-                    display.protocolError(),
-                    "an exclusiveEdge the surface is actually anchored to must not raise invalid_exclusive_edge",
-                )
-                assertTrue(configured, "corner surface never configured")
+                corner.waitForConfigure().getOrElse { error -> fail("corner surface never configured: $error") }
                 wayland.roundtrip()
 
                 val cornerGeometry = assertNotNull(
@@ -122,7 +113,7 @@ class ExclusiveZoneTest {
                 // A second, unrelated surface that yields (move me out of the way of whoever reserves
                 // space) is the probe: it only shrinks if the corner's reservation actually took, which
                 // set_exclusive_zone alone cannot do for a corner anchor.
-                val probe = LayerSurface.create(
+                val probe = LayerShellSurface.create(
                     wayland,
                     namespace = PROBE_NAMESPACE,
                     height = 0,
@@ -133,7 +124,7 @@ class ExclusiveZoneTest {
                 ).getOrElse { error -> fail("probe surface creation failed: $error") }
 
                 probe.use {
-                    assertTrue(probe.waitForConfigure(), "probe surface never configured")
+                    probe.waitForConfigure().getOrElse { error -> fail("probe surface never configured: $error") }
                     wayland.roundtrip()
 
                     val probeGeometry = assertNotNull(
@@ -154,7 +145,7 @@ class ExclusiveZoneTest {
 
         display.use { wayland ->
             for (amount in ROUNDING_TO_NOTHING) {
-                val result = LayerSurface.create(
+                val result = LayerShellSurface.create(
                     wayland,
                     namespace = ROUNDED_NAMESPACE,
                     height = CORNER_HEIGHT,
@@ -168,13 +159,15 @@ class ExclusiveZoneTest {
             }
 
             // A pixel is the smallest reservation that means what it says, so it must still be accepted.
-            val smallest = LayerSurface.create(
+            val smallest = LayerShellSurface.create(
                 wayland,
                 namespace = ROUNDED_NAMESPACE,
                 height = CORNER_HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(1.dp),
             ).getOrElse { error -> fail("a one-pixel reservation must be accepted: $error") }
-            smallest.use { assertTrue(smallest.waitForConfigure(), "the compositor never configured it") }
+            smallest.use {
+                smallest.waitForConfigure().getOrElse { error -> fail("the compositor never configured it: $error") }
+            }
         }
     }
 
@@ -184,7 +177,7 @@ class ExclusiveZoneTest {
 
         display.use { wayland ->
             val anchor = setOf(Edge.Bottom, Edge.Right)
-            val result = LayerSurface.create(
+            val result = LayerShellSurface.create(
                 wayland,
                 namespace = REJECTED_NAMESPACE,
                 height = CORNER_HEIGHT,
@@ -201,11 +194,14 @@ class ExclusiveZoneTest {
 
             // The rejection must happen before any request reaches the compositor, leaving the
             // connection itself unharmed; prove it by using it normally right after.
-            val sanity = LayerSurface.create(
+            val sanity = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = CORNER_HEIGHT,
                 exclusiveZone = ExclusiveZone.Yield,
             ).getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
-            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
         }
     }
 

@@ -1,12 +1,10 @@
 package com.fromwau.kortex.wayland
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.fromwau.kortex.compose.LocalKortexSurface
+import androidx.compose.runtime.withFrameNanos
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -15,17 +13,13 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 
-/** A real [KortexShell.runEventLoop], run through [LoopThread]: it sleeps with nothing to do, and wakes for content. */
+/** A real [KortexShell.runEventLoop] on a thread of its own: it sleeps with nothing to do, and wakes for content. */
 class EventLoopWakeTest {
     @Test
-    fun `an idle shell's loop stays asleep`() {
-        val closeRequested = mutableStateOf(false)
-        val speck = SurfaceSpec(speckConfig(IDLE_NAMESPACE), OutputTarget.CompositorChoice) {
-            CloseWhen(closeRequested)
-            Box(Modifier.fillMaxSize())
-        }
+    fun `an idle application's loop stays asleep`() {
+        val content: @Composable KortexApplicationScope.() -> Unit = { Show(TestSurface<Nothing>(IDLE_NAMESPACE)) }
 
-        LoopThread.run(speck, end = { closeRequested.value = true }) { display, _ ->
+        LoopThread.runApplicationOnDisplay(content) { display, _, _ ->
             assertTrue(
                 LoopThread.awaitNamespace(IDLE_NAMESPACE, present = true),
                 "hyprctl layers never reported $IDLE_NAMESPACE",
@@ -43,25 +37,23 @@ class EventLoopWakeTest {
     }
 
     @Test
-    fun `a surface content opens is placed while the loop sleeps`() {
-        val closeRequested = mutableStateOf(false)
-        val opened = SurfaceSpec(speckConfig(OPENED_NAMESPACE), OutputTarget.CompositorChoice) {
-            CloseWhen(closeRequested)
-            Box(Modifier.fillMaxSize())
-        }
-        val opener = SurfaceSpec(speckConfig(OPENER_NAMESPACE), OutputTarget.CompositorChoice) {
-            val host = LocalKortexHost.current
-            // Once the loop has gone quiet, so nothing but open() itself can wake it.
-            LaunchedEffect(Unit) {
-                delay(QUIET_MILLIS)
-                host.open(opened)
-            }
-            CloseWhen(closeRequested)
-            Box(Modifier.fillMaxSize())
+    fun `a surface content shows later is placed while the loop sleeps`() {
+        val showOpened = mutableStateOf(false)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(OPENER_NAMESPACE) {
+                    // Once the loop has gone quiet, so nothing but the new Show itself can wake it.
+                    LaunchedEffect(Unit) {
+                        delay(QUIET_MILLIS)
+                        showOpened.value = true
+                    }
+                },
+            )
+            if (showOpened.value) Show(TestSurface<Nothing>(OPENED_NAMESPACE, anchor = BOTTOM_LEFT))
         }
 
         val printed = capturingStdout {
-            LoopThread.run(opener, end = { closeRequested.value = true }) { _, _ ->
+            LoopThread.runApplicationOnDisplay(content) { _, _, _ ->
                 assertTrue(
                     LoopThread.awaitNamespace(OPENER_NAMESPACE, present = true),
                     "hyprctl layers never reported $OPENER_NAMESPACE",
@@ -72,7 +64,7 @@ class EventLoopWakeTest {
                         present = true,
                         timeoutMillis = QUIET_MILLIS + LoopThread.APPEAR_MILLIS,
                     ),
-                    "hyprctl layers never reported $OPENED_NAMESPACE after content opened it",
+                    "hyprctl layers never reported $OPENED_NAMESPACE after content showed it",
                 )
             }
         }
@@ -80,59 +72,47 @@ class EventLoopWakeTest {
         // The opened surface is created mid-run, so its snapshot pump and the opener's must share the loop's thread.
         assertFalse(
             printed.contains(SNAPSHOT_PUMP_WARNING),
-            "GlobalSnapshotManager warned about concurrent registrations once content opened a surface",
+            "GlobalSnapshotManager warned about concurrent registrations once content showed a surface",
         )
     }
 
     @Test
-    fun `content closing its own last surface ends the loop`() {
-        val speck = SurfaceSpec(speckConfig(CLOSING_NAMESPACE), OutputTarget.CompositorChoice) {
-            val surface = LocalKortexSurface.current
-            // Once the loop has gone quiet, so nothing but close() itself can wake it.
-            LaunchedEffect(Unit) {
-                delay(QUIET_MILLIS)
-                surface.close()
-            }
-            Box(Modifier.fillMaxSize())
-        }
-
-        LoopThread.run(speck, end = {}) { _, loop ->
-            assertTrue(
-                LoopThread.awaitNamespace(CLOSING_NAMESPACE, present = true),
-                "hyprctl layers never reported $CLOSING_NAMESPACE",
-            )
-            loop.join(QUIET_MILLIS + LoopThread.JOIN_MILLIS)
-            assertFalse(loop.isAlive, "the loop kept sleeping after content closed its only surface")
-            assertTrue(
-                LoopThread.awaitNamespace(CLOSING_NAMESPACE, present = false),
-                "hyprctl layers still reports $CLOSING_NAMESPACE after the loop returned",
-            )
-        }
-    }
-
-    @Test
     fun `an effect that keeps yielding still lets the loop wait between yields`() {
-        val closeRequested = mutableStateOf(false)
         val yieldRequested = mutableStateOf(false)
+        val composed = AtomicBoolean(false)
         val loopDisplay = AtomicReference<WaylandDisplay>()
         val waitsWhileYielding = AtomicReference<Long?>(null)
-        val speck = SurfaceSpec(speckConfig(YIELDING_NAMESPACE), OutputTarget.CompositorChoice) {
-            val requested = yieldRequested.value
-            LaunchedEffect(requested) {
-                if (!requested) return@LaunchedEffect
-                val display = loopDisplay.get()
-                val before = display.waits
-                repeat(YIELDS) { yield() }
-                waitsWhileYielding.set(display.waits - before)
-            }
-            CloseWhen(closeRequested)
-            Box(Modifier.fillMaxSize())
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Show(
+                TestSurface<Nothing>(YIELDING_NAMESPACE) {
+                    // Twice: hyprctl lists this namespace once the compositor maps it, which can race this
+                    // surface's own first composition; a first frame can still land inside
+                    // KortexSurface.setContent's own synchronous flush, a second cannot.
+                    LaunchedEffect(Unit) {
+                        withFrameNanos {}
+                        withFrameNanos {}
+                        composed.set(true)
+                    }
+                    val requested = yieldRequested.value
+                    LaunchedEffect(requested) {
+                        if (!requested) return@LaunchedEffect
+                        val display = loopDisplay.get()
+                        val before = display.waits
+                        repeat(YIELDS) { yield() }
+                        waitsWhileYielding.set(display.waits - before)
+                    }
+                },
+            )
         }
 
-        LoopThread.run(speck, end = { closeRequested.value = true }) { display, _ ->
+        LoopThread.runApplicationOnDisplay(content) { display, _, _ ->
             assertTrue(
                 LoopThread.awaitNamespace(YIELDING_NAMESPACE, present = true),
                 "hyprctl layers never reported $YIELDING_NAMESPACE",
+            )
+            assertTrue(
+                LoopThread.waitUntil { composed.get() },
+                "$YIELDING_NAMESPACE's content never drew its first frame",
             )
             loopDisplay.set(display)
             yieldRequested.value = true
@@ -144,23 +124,11 @@ class EventLoopWakeTest {
         }
     }
 
-    /** A speck in the output's bottom-right corner, where the pointer is least likely to wake the loop itself. */
-    private fun speckConfig(namespace: String): SurfaceConfig = SurfaceConfig(
-        namespace = namespace,
-        layer = Layer.Overlay,
-        anchor = setOf(Edge.Bottom, Edge.Right),
-        width = SPECK_SIZE.dp,
-        height = SPECK_SIZE.dp,
-        exclusiveZone = ExclusiveZone.Yield,
-    )
-
     private companion object {
         const val IDLE_NAMESPACE = "kortex-wake-idle"
         const val OPENER_NAMESPACE = "kortex-wake-opener"
         const val OPENED_NAMESPACE = "kortex-wake-opened"
-        const val CLOSING_NAMESPACE = "kortex-wake-closing"
         const val YIELDING_NAMESPACE = "kortex-wake-yielding"
-        const val SPECK_SIZE = 8
 
         // Long enough for a fresh surface's own configure, first frames and buffer releases to come and go.
         const val QUIET_MILLIS = 1500L
@@ -169,5 +137,7 @@ class EventLoopWakeTest {
         // A 16ms tick wakes about 60 times in the window; an idle loop wakes only for a stray event of the desktop's.
         const val IDLE_WAIT_LIMIT = 5L
         const val YIELDS = 100
+
+        val BOTTOM_LEFT = setOf(Edge.Bottom, Edge.Left)
     }
 }

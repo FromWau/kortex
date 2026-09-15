@@ -9,14 +9,14 @@ import kotlin.test.fail
 
 /**
  * A real click, from a virtual pointer through the compositor, reaches a click handler that throws: the
- * run ends as a crash and the JVM it happens in lives. [CrashedPointerProbe] runs in a child JVM, the way
+ * crash is reported, and the JVM it happens in lives. [CrashedPointerProbe] runs in a child JVM, the way
  * [ContentFailureTest] runs [CrashedSurfaceProbe], since a throw escaping a real `wl_pointer` callback
  * would otherwise end the JVM running the tests. [VirtualPointerClickTest] covers the same click path
  * into content that does not throw.
  */
 class VirtualPointerCrashTest {
     @Test
-    fun `a click delivered through the compositor to a throwing handler ends the run as a crash`() {
+    fun `a click delivered through the compositor to a throwing handler reports the crash, and the process survives`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
@@ -55,22 +55,21 @@ class VirtualPointerCrashTest {
             }
             val raw = probe.output.joinToString("\n")
 
-            val protocolError = it.protocolError()
-            if (protocolError != null) {
-                fail("wayland protocol error while driving the virtual pointer: $protocolError")
+            it.requireAlive().getOrElse { error ->
+                fail("wayland protocol error while driving the virtual pointer: $error")
             }
             assertEquals(0, probe.exitCode, "the probe did not exit cleanly; output:\n$raw")
             val crashLine = "$PROBE_MARKER crashed=$POINTER_PROBE_NAMESPACE failure=PointerInput " +
                 "cause=$POINTER_PROBE_FAILURE"
             assertTrue(
                 crashLine in probe.output,
-                "the click did not end the run in the click handler's crash; output:\n$raw",
+                "the click handler's crash was not reported; output:\n$raw",
             )
             val hookLine = "$PROBE_MARKER hook crashed=$POINTER_PROBE_NAMESPACE cause=$POINTER_PROBE_FAILURE"
             assertEquals(
                 1,
                 probe.output.count { it == hookLine },
-                "the click handler's crash must reach onCrashSurface exactly once; output:\n$raw",
+                "the click handler's crash must reach onClose exactly once; output:\n$raw",
             )
         }
     }

@@ -36,6 +36,7 @@ import com.fromwau.kortex.compose.KortexTextInput
 import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.Surface
 import java.lang.foreign.MemorySegment
+import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
@@ -48,8 +49,9 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Types into a real composition using the compositor's own keymap, so the keycode is translated the
- * way it would be for a user with this layout rather than through a table invented for the test.
+ * Types into a real composition through a real keymap, the compositor's own or one `xkbcli` compiles, so the
+ * keycode is translated the way it would be for a user with that layout rather than through a table invented
+ * for the test.
  */
 class KeyboardDeliveryTest {
     @Test
@@ -113,6 +115,47 @@ class KeyboardDeliveryTest {
 
             assertTrue(awaitUntil { clipboard.setTexts.isNotEmpty() }, "Ctrl+C never reached the provided clipboard")
             assertEquals(listOf("hi"), clipboard.setTexts.toList(), "Ctrl+C copied something other than the selection")
+        }
+    }
+
+    @Test
+    fun `under a Cyrillic layout letters type Cyrillic, and Ctrl+A selects them so the next letter replaces them`() {
+        val typed = AtomicReference("")
+        withKeyboard(content = { focus -> RecordingTextField(focus, typed) }) { typist ->
+            typist.switchKeymap(Xkbcli.compileKeymap(US_RU), lockedGroup = RU)
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            assertEquals(RU_H_I, typed.get(), "H and I under ru did not type their Cyrillic letters")
+
+            typist.holding(CTRL_MASK) { typist.tap(KEY_A) }
+            typist.tap(KEY_X)
+
+            assertEquals(RU_X, typed.get(), "Ctrl+A under ru did not select the text typed before it")
+        }
+    }
+
+    @Test
+    fun `under a Cyrillic layout Ctrl+C copies a text field's selection into the provided clipboard`() {
+        val clipboard = FakeTextClipboard()
+        val typed = AtomicReference("")
+        withKeyboard(
+            content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } },
+        ) { typist ->
+            typist.switchKeymap(Xkbcli.compileKeymap(US_RU), lockedGroup = RU)
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+            typist.holding(CTRL_MASK) { typist.tap(KEY_A) }
+            typist.holding(CTRL_MASK) { typist.tap(KEY_C) }
+
+            assertTrue(
+                awaitUntil { clipboard.setTexts.isNotEmpty() },
+                "Ctrl+C under ru never reached the provided clipboard",
+            )
+            assertEquals(
+                listOf(RU_H_I),
+                clipboard.setTexts.toList(),
+                "Ctrl+C under ru copied something other than the selection",
+            )
         }
     }
 
@@ -348,6 +391,9 @@ class KeyboardDeliveryTest {
     ) {
         private var serial = 0
 
+        // The layout every modifier change keeps locked, as wl_keyboard.modifiers' group carries it.
+        private var group = 0
+
         val failure: ContentFailure? get() = scene.failure
 
         fun tap(code: Int) {
@@ -359,9 +405,31 @@ class KeyboardDeliveryTest {
 
         /** Holds [modifiers] as a compositor reports them: as modifier state, not as keys. */
         fun holding(modifiers: Int, block: () -> Unit) {
-            keyboard.onModifiers(NULL, NULL, ++serial, modifiers, 0, 0, 0)
+            keyboard.onModifiers(NULL, NULL, ++serial, modifiers, 0, 0, group)
             block()
-            keyboard.onModifiers(NULL, NULL, ++serial, 0, 0, 0, 0)
+            keyboard.onModifiers(NULL, NULL, ++serial, 0, 0, 0, group)
+        }
+
+        /**
+         * Hands the keyboard [keymap] on a memfd, as a compositor sends one, and keeps its layout [lockedGroup]
+         * locked through every key and modifier after it.
+         */
+        fun switchKeymap(keymap: String, lockedGroup: Int) {
+            val bytes = keymap.encodeToByteArray()
+            // A compositor's size counts the NUL xkb reads the text up to, which a fresh memfd already holds.
+            val size = bytes.size + 1
+            val fd = LibC.memfdCreate("kortex-test-keymap").getOrElse { error -> fail("memfd_create failed: $error") }
+            LibC.ftruncate(fd, size.toLong()).getOrElse { error -> fail("sizing the keymap memfd failed: $error") }
+            val mapping = LibC
+                .mmapShared(fd, size.toLong())
+                .getOrElse { error -> fail("mapping the keymap memfd failed: $error") }
+            MemorySegment.copy(bytes, 0, mapping, JAVA_BYTE, 0, bytes.size)
+            LibC.munmap(mapping, size.toLong())
+            // onKeymap closes the fd, as it closes the compositor's.
+            keyboard.onKeymap(NULL, NULL, XKB_V1_FORMAT, fd, size)
+            assertTrue(keyboard.hasKeymap, "the keyboard could not compile the keymap it was handed")
+            group = lockedGroup
+            keyboard.onModifiers(NULL, NULL, ++serial, 0, 0, 0, group)
         }
     }
 
@@ -377,6 +445,17 @@ class KeyboardDeliveryTest {
         const val PRESSED = 1
         const val RELEASED = 0
         const val KEY_FAILURE = "a key handler threw"
+
+        // wl_keyboard.keymap_format.xkb_v1
+        const val XKB_V1_FORMAT = 1
+
+        // ru is the second of US_RU's layouts, so wl_keyboard.modifiers locks it as group 1.
+        const val US_RU = "us,ru"
+        const val RU = 1
+
+        // What the keys US calls H and I, then X, type under ru.
+        const val RU_H_I = "рш"
+        const val RU_X = "ч"
 
         // Shift's and Control's bits in wl_keyboard.modifiers, the ones KeyboardInput reads.
         const val SHIFT_MASK = 1 shl 0

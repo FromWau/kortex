@@ -9,6 +9,13 @@ import java.lang.foreign.SymbolLookup
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 
+/** A keymap [Xkb.stateFromKeymap] compiled, with the keyboard state on it; only [Xkb] can read inside it. */
+internal sealed interface XkbState
+
+private class CompiledState(val pointer: MemorySegment, val keyNamesFrom: List<Int>) : XkbState
+
+private val XkbState.compiled: CompiledState get() = when (this) { is CompiledState -> this }
+
 /** libxkbcommon: turns a keycode into Compose's key for it and the character it types under the active layout. */
 internal object Xkb {
     private val linker = Linker.nativeLinker()
@@ -44,63 +51,91 @@ internal object Xkb {
     private val keymapUnref = downcall("xkb_keymap_unref", FunctionDescriptor.ofVoid(ADDRESS))
     private val keymapKeyRepeats =
         downcall("xkb_keymap_key_repeats", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
+    private val keymapNumLayouts = downcall("xkb_keymap_num_layouts", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+    private val keymapNumLayoutsForKey =
+        downcall("xkb_keymap_num_layouts_for_key", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
+    private val keymapMinKeycode = downcall("xkb_keymap_min_keycode", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+    private val keymapMaxKeycode = downcall("xkb_keymap_max_keycode", FunctionDescriptor.of(JAVA_INT, ADDRESS))
 
     private val context: MemorySegment by lazy { contextNew.invoke(0) as MemorySegment }
 
     /** Compiles a keymap the compositor sent as text, returning a state to query. */
-    fun stateFromKeymap(keymapText: MemorySegment): MemorySegment? {
+    fun stateFromKeymap(keymapText: MemorySegment): XkbState? {
         val keymap = keymapNewFromString.invoke(
             context, keymapText, KEYMAP_FORMAT_TEXT_V1, NO_FLAGS,
         ) as MemorySegment
         if (keymap.equals(MemorySegment.NULL)) return null
         val state = stateNew.invoke(keymap) as MemorySegment
+        val compiled = if (state.equals(MemorySegment.NULL)) null else CompiledState(state, keyNamesFrom(keymap))
         // xkb_state_new takes its own reference on the keymap, so this one is the caller's to drop.
         keymapUnref.invoke(keymap)
-        return if (state.equals(MemorySegment.NULL)) null else state
+        return compiled
     }
 
-    /** Drops the reference `xkb_state_new` took on the keymap, freeing it too; NULL is a no-op. */
-    fun releaseState(state: MemorySegment) {
-        stateUnref.invoke(state)
+    /** Drops the reference `xkb_state_new` took on the keymap, freeing it too. */
+    fun releaseState(state: XkbState) {
+        stateUnref.invoke(state.compiled.pointer)
     }
 
     /**
-     * Compose's key for [waylandKey]: the keysym it has with no modifiers in the active layout, as AWT names
-     * a key rather than the character it types, so Shift+1 is [Key.One]. [Key.Unknown] where Compose has no
-     * name for that keysym.
+     * Compose's key for [waylandKey]: the keysym it has with no modifiers, as AWT names a key rather than the
+     * character it types, so Shift+1 is [Key.One]. That keysym is the active layout's, unless the active layout
+     * has no Latin letters: then it is the keymap's first Latin layout's, where the key has one there, so Ctrl+C
+     * under a Cyrillic layout is [Key.C]. [Key.Unknown] where Compose has no name for that keysym.
      */
-    fun key(state: MemorySegment, waylandKey: Int): Key {
+    fun key(state: XkbState, waylandKey: Int): Key {
+        val compiled = state.compiled
         val keycode = waylandKey + EVDEV_OFFSET
-        val layout = keyGetLayout.invoke(state, keycode) as Int
+        val layout = keyGetLayout.invoke(compiled.pointer, keycode) as Int
         if (layout == LAYOUT_INVALID) return Key.Unknown
         // Borrowed, not owned: xkb_state_get_keymap takes no reference and the state outlives the call.
-        val keymap = stateGetKeymap.invoke(state) as MemorySegment
+        val keymap = stateGetKeymap.invoke(compiled.pointer) as MemorySegment
+        val keysym = baseKeysymOrNull(keymap, keycode, compiled.keyNamesFrom[layout])
+            ?: baseKeysymOrNull(keymap, keycode, layout)
+            ?: return Key.Unknown
+        return composeKey(keysym)
+    }
+
+    /** The character this key produces right now, or 0 for keys that produce none. */
+    fun codePoint(state: XkbState, waylandKey: Int): Int =
+        keyGetUtf32.invoke(state.compiled.pointer, waylandKey + EVDEV_OFFSET) as Int
+
+    /** Whether the layout marks this key as one that repeats while held; modifiers and locks do not. */
+    fun keyRepeats(state: XkbState, waylandKey: Int): Boolean {
+        // Borrowed, not owned: xkb_state_get_keymap takes no reference and the state outlives the call.
+        val keymap = stateGetKeymap.invoke(state.compiled.pointer) as MemorySegment
+        return keymapKeyRepeats.invoke(keymap, waylandKey + EVDEV_OFFSET) as Int != 0
+    }
+
+    fun updateMask(state: XkbState, depressed: Int, latched: Int, locked: Int, group: Int) {
+        stateUpdateMask.invoke(state.compiled.pointer, depressed, latched, locked, 0, 0, group)
+    }
+
+    /** Indexed by layout: the layout [key] names that layout's keys from. */
+    private fun keyNamesFrom(keymap: MemorySegment): List<Int> {
+        val keycodes = (keymapMinKeycode.invoke(keymap) as Int)..(keymapMaxKeycode.invoke(keymap) as Int)
+        val layouts = 0 until (keymapNumLayouts.invoke(keymap) as Int)
+        val latinLayouts = layouts.filter { layout ->
+            keycodes.any { keycode -> baseKeysymOrNull(keymap, keycode, layout) in XK_SMALL_A..XK_SMALL_Z }
+        }
+        val firstLatin = latinLayouts.firstOrNull() ?: return layouts.toList()
+        return layouts.map { layout -> if (layout in latinLayouts) layout else firstLatin }
+    }
+
+    /** The one keysym [keycode] has at [layout]'s base level; null unless it has [layout] and exactly one there. */
+    private fun baseKeysymOrNull(keymap: MemorySegment, keycode: Int, layout: Int): Int? {
+        // xkb would bring a layout the key lacks back into range, onto a layout the key was not asked about.
+        if (layout >= keymapNumLayoutsForKey.invoke(keymap, keycode) as Int) return null
         return Arena.ofConfined().use { call ->
             val symsOut = call.allocate(ADDRESS)
             val count = keymapKeyGetSymsByLevel.invoke(keymap, keycode, layout, BASE_LEVEL, symsOut) as Int
             // As xkb_state_key_get_one_sym has it: a key that produces several keysyms has no one name.
-            if (count != 1) return@use Key.Unknown
-            val keysym = symsOut
+            if (count != 1) return@use null
+            symsOut
                 .get(ADDRESS, 0)
                 .reinterpret(JAVA_INT.byteSize())
                 .get(JAVA_INT, 0)
-            composeKey(keysym)
         }
-    }
-
-    /** The character this key produces right now, or 0 for keys that produce none. */
-    fun codePoint(state: MemorySegment, waylandKey: Int): Int =
-        keyGetUtf32.invoke(state, waylandKey + EVDEV_OFFSET) as Int
-
-    /** Whether the layout marks this key as one that repeats while held; modifiers and locks do not. */
-    fun keyRepeats(state: MemorySegment, waylandKey: Int): Boolean {
-        // Borrowed, not owned: xkb_state_get_keymap takes no reference and the state outlives the call.
-        val keymap = stateGetKeymap.invoke(state) as MemorySegment
-        return keymapKeyRepeats.invoke(keymap, waylandKey + EVDEV_OFFSET) as Int != 0
-    }
-
-    fun updateMask(state: MemorySegment, depressed: Int, latched: Int, locked: Int, group: Int) {
-        stateUpdateMask.invoke(state, depressed, latched, locked, 0, 0, group)
     }
 
     // Keypad navigation keysyms stay unnamed: at the base level they are what a keypad digit is, NumLock

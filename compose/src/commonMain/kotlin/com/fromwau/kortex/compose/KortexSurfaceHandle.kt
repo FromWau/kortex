@@ -7,17 +7,20 @@ import androidx.compose.ui.unit.IntSize
 /**
  * The surface a composition is drawn onto, and the one thing it can do about its own lifetime.
  *
- * [size] is the surface's logical (surface-local) size — the space a configure reports, not the
- * buffer/physical pixels, which are larger than this by the output scale on a HiDPI output.
+ * [size] is the surface's logical (surface-local) size, not its size in physical pixels, which is larger by the
+ * monitor's scale on a HiDPI monitor.
  */
 public interface KortexSurfaceHandle {
-    /** Reading it during composition recomposes the reader on the next configure that changes it. */
+    /** Reading it during composition recomposes the reader when it changes. */
     public val size: IntSize
 
     /** Dismisses the surface. Safe to call more than once, and after it has already gone away. */
     public fun close()
 }
 
-/** Provided by the host around the content it draws; absent means content is running outside one. */
+/**
+ * The surface content is drawn on, provided around each surface's content. Reading it anywhere else throws
+ * `IllegalStateException`.
+ */
 public val LocalKortexSurface: ProvidableCompositionLocal<KortexSurfaceHandle> =
-    staticCompositionLocalOf { error("LocalKortexSurface is not provided outside a host's content") }
+    staticCompositionLocalOf { error("LocalKortexSurface is provided only inside a surface's content") }

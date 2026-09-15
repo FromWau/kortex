@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
+import java.lang.foreign.ValueLayout.JAVA_INT
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -38,14 +39,15 @@ class FirstPixelsTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use {
             val shm = Shm.bind(display).getOrElse { error -> fail("shm bind failed: $error") }
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 display, namespace = NAMESPACE, height = BAR_HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
             )
                 .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl did not report $NAMESPACE")
 
                 body { argb ->
@@ -68,6 +70,12 @@ class FirstPixelsTest {
     private val Int.green get() = (this shr 8) and 0xFF
     private val Int.blue get() = this and 0xFF
     private fun hex(argb: Int) = "%08X".format(argb)
+
+    private fun ShmBuffer.fill(argb: Int) {
+        for (index in 0 until pixels.byteSize() / Int.SIZE_BYTES) {
+            pixels.setAtIndex(JAVA_INT, index, argb)
+        }
+    }
 
     private companion object {
         const val NAMESPACE = "kortex"

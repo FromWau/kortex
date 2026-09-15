@@ -7,7 +7,6 @@ import com.fromwau.kern.result.getOrElse
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -28,7 +27,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = NAMESPACE,
                 height = HEIGHT,
@@ -43,7 +42,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 wayland.roundtrip()
 
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers does not report $NAMESPACE")
@@ -70,7 +70,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = DEFAULT_NAMESPACE,
                 height = DEFAULT_HEIGHT,
@@ -79,7 +79,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 wayland.roundtrip()
 
                 val geometry = assertNotNull(
@@ -101,7 +102,7 @@ class LayerGeometryTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val result = LayerSurface.create(
+            val result = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, anchor = setOf(Edge.Top),
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
@@ -114,12 +115,15 @@ class LayerGeometryTest {
 
             // The rejection must happen before any request reaches the compositor, leaving the
             // connection itself unharmed; prove it by using it normally right after.
-            val sanity = LayerSurface.create(
+            val sanity = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
-            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
         }
     }
 
@@ -130,7 +134,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             // Anchored Left and Right, so the horizontal axis is spannable and only height can be rejected.
             val horizontal = setOf(Edge.Left, Edge.Right)
-            val result = LayerSurface.create(
+            val result = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = 0, anchor = horizontal,
                 exclusiveZone = ExclusiveZone.Yield,
             )
@@ -141,12 +145,43 @@ class LayerGeometryTest {
                 is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Vertical, horizontal), result.error)
             }
 
-            val sanity = LayerSurface.create(
+            val sanity = LayerShellSurface.create(
                 wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
                 exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
             )
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
-            sanity.use { assertTrue(sanity.waitForConfigure(), "connection did not survive the rejection") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
+        }
+    }
+
+    @Test
+    fun `a width below 0 is rejected before any request is sent`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            // Anchored to Top alone: should the width go out, Hyprland answers its commit by ending the connection.
+            val result = LayerShellSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, width = NEGATIVE_WIDTH,
+                anchor = setOf(Edge.Top), exclusiveZone = ExclusiveZone.Yield,
+            )
+
+            when (result) {
+                is Ok -> fail("a surface with a width below 0 must be rejected: ${result.value}")
+                is Err -> assertEquals(KortexError.NegativeSize(Axis.Horizontal, NEGATIVE_WIDTH), result.error)
+            }
+
+            val sanity = LayerShellSurface.create(
+                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
+                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
+            )
+                .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
+            sanity.use {
+                sanity.waitForConfigure()
+                    .getOrElse { error -> fail("connection did not survive the rejection: $error") }
+            }
         }
     }
 
@@ -156,7 +191,7 @@ class LayerGeometryTest {
 
         display.use { wayland ->
             // Both axes explicit, so create() itself has nothing to object to and only setSize can.
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = RESIZED_NAMESPACE,
                 height = HEIGHT,
@@ -166,7 +201,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
 
                 when (val result = bar.setSize(SPAN_ANCHORED_AXIS, HEIGHT)) {
                     is Ok -> fail("a 0 width on a surface anchored to Top alone must be rejected")
@@ -178,7 +214,37 @@ class LayerGeometryTest {
                 // harmless; had set_size gone out, this is where invalid_size would come back.
                 bar.commit()
                 wayland.roundtrip()
-                assertNull(wayland.protocolError(), "the rejected set_size still reached the compositor")
+                assertEquals(Ok(Unit), wayland.requireAlive(), "the rejected set_size still reached the compositor")
+            }
+        }
+    }
+
+    @Test
+    fun `setSize to a height below 0 is rejected before any request is sent`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            val bar = LayerShellSurface.create(
+                wayland,
+                namespace = RESIZED_NAMESPACE,
+                height = HEIGHT,
+                width = WIDTH,
+                anchor = setOf(Edge.Top),
+                exclusiveZone = ExclusiveZone.Yield,
+            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+
+            bar.use {
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
+
+                when (val result = bar.setSize(WIDTH, NEGATIVE_HEIGHT)) {
+                    is Ok -> fail("a height below 0 must be rejected")
+                    is Err -> assertEquals(KortexError.NegativeSize(Axis.Vertical, NEGATIVE_HEIGHT), result.error)
+                }
+
+                bar.commit()
+                wayland.roundtrip()
+                assertEquals(Ok(Unit), wayland.requireAlive(), "the rejected set_size still reached the compositor")
             }
         }
     }
@@ -190,7 +256,7 @@ class LayerGeometryTest {
         display.use { wayland ->
             val monitor = bindFirstOutput(wayland)
 
-            val bar = LayerSurface.create(
+            val bar = LayerShellSurface.create(
                 wayland,
                 namespace = SPANNING_NAMESPACE,
                 height = 0,
@@ -201,7 +267,8 @@ class LayerGeometryTest {
             ).getOrElse { error -> fail("a fully anchored surface must be allowed to omit both axes: $error") }
 
             bar.use {
-                assertTrue(bar.waitForConfigure(), "compositor never configured the layer surface")
+                bar.waitForConfigure()
+                    .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
                 wayland.roundtrip()
 
                 val geometry = assertNotNull(
@@ -239,5 +306,7 @@ class LayerGeometryTest {
 
         const val DEFAULT_HEIGHT = 32
         const val SPAN_ANCHORED_AXIS = 0
+        const val NEGATIVE_WIDTH = -WIDTH
+        const val NEGATIVE_HEIGHT = -HEIGHT
     }
 }

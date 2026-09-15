@@ -34,10 +34,10 @@ import org.jetbrains.skia.Surface
  * Frames are paced off `wl_surface.frame` and drawn only when the composition asks for one, so an idle
  * surface costs nothing.
  */
-public class KortexSurface private constructor(
+internal class KortexSurface private constructor(
     private val namespace: String,
     private val display: WaylandDisplay,
-    private val layer: LayerSurface,
+    private val layer: LayerShellSurface,
     private val shm: Shm,
     private var bufferScale: Int,
     private var frames: List<Frame>,
@@ -74,8 +74,7 @@ public class KortexSurface private constructor(
         override val size: IntSize get() = sizeState.value
 
         override fun close() {
-            // markClosed() itself needs no thread confinement, but the hop keeps this on setCursor's
-            // pattern and stays correct if closing ever grows a real libwayland call.
+            // No shown surface's content reaches this: ShownContent provides its LayerSurface as LocalKortexSurface.
             post { layer.markClosed() }
         }
     }
@@ -89,11 +88,14 @@ public class KortexSurface private constructor(
     // A second close() would re-marshal every request below on proxies the first call already freed.
     private var disposed = false
 
-    /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
-    public val bufferSize: IntSize
+    /** The logical (surface-local) size the compositor last configured, the one content reads as its handle's size. */
+    internal val logicalSize: IntSize get() = sizeState.value
+
+    /** The buffer (physical-pixel) size of the current frames; exposed so a test can assert a scale reached them. */
+    val bufferSize: IntSize
         get() = IntSize(frames.first().buffer.width, frames.first().buffer.height)
 
-    /** How many times the compositor has handed a buffer back. */
+    /** How many times the compositor has handed a buffer back; exposed so a test can assert buffers come back. */
     internal val releases: Int get() = frames.sumOf { it.buffer.releases }
 
     /** How many frames [renderNow] has actually drawn and committed; exposed so a test can assert idle. */
@@ -107,11 +109,11 @@ public class KortexSurface private constructor(
     /** The composition's current density; exposed so a test can assert a rescale updated it too. */
     internal val density: Density get() = scene.density
 
-    /** True once the compositor has closed this surface, or its content has; either way it must be torn down. */
+    /**
+     * True once the compositor has closed this surface, or a test has in its place through [simulateCompositorClose];
+     * either way it must be torn down.
+     */
     internal val closed: Boolean get() = layer.closed
-
-    /** Which side closed this surface, once [closed] is true; null beforehand. */
-    internal val closeReason: CloseReason? get() = layer.closeReason
 
     /** What this surface's content threw, once it has; the scene then runs none of it. */
     internal val crash: KortexError.SurfaceCrashed?
@@ -122,30 +124,38 @@ public class KortexSurface private constructor(
 
     /** A test cannot make the compositor close this surface: that needs removing whatever output it chose. */
     internal fun simulateCompositorClose() {
-        layer.simulateCompositorClose()
+        layer.markClosed()
     }
 
     /** Composes [content] and draws its first frame, failing as [KortexError.SurfaceCrashed] if content throws. */
-    public fun setContent(content: @Composable () -> Unit): EmptyResult<KortexError> {
+    fun setContent(content: @Composable () -> Unit): EmptyResult<KortexError> {
         scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
             .onSuccess { renderNow(frameTimeNanos = 0L) }
         return crash?.let { Err(it) } ?: Ok(Unit)
     }
 
     /**
-     * Requests a new size from the compositor; must be called on the loop thread, like every request here.
+     * Requests a new size from the compositor, on the loop thread like every request here; exposed so a test can
+     * make the compositor configure the surface again.
      *
-     * @return what [LayerSurface.setSize] rejected, leaving the surface at the size it already had.
+     * @return what [LayerShellSurface.setSize] rejected, leaving the surface at the size it already had.
      */
-    public fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
+    fun requestSize(
+        width: Dp,
+        height: Dp,
+    ): EmptyResult<KortexError> =
         layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
     /**
-     * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
+     * Pumps the connection until [predicate] holds or [timeoutMillis] elapses; exposed so a test can drive a bare
+     * surface, where a shell drives its surfaces through [serviceTick].
      *
      * @return whether [predicate] held, or why the surface failed first.
      */
-    internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Result<Boolean, KortexError> {
+    internal fun pump(
+        timeoutMillis: Long,
+        predicate: () -> Boolean = { false },
+    ): Result<Boolean, KortexError> {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
             loop.runPass()
@@ -162,7 +172,7 @@ public class KortexSurface private constructor(
         return crash?.let { Err(it) } ?: Ok(predicate())
     }
 
-    internal fun drainQueue() {
+    private fun drainQueue() {
         generateSequence(queue::poll).forEach { it() }
     }
 
@@ -313,8 +323,8 @@ public class KortexSurface private constructor(
         }
     }
 
-    public companion object {
-        internal fun create(
+    companion object {
+        fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
             platform: KortexPlatform = KortexPlatform.None,
@@ -356,7 +366,7 @@ public class KortexSurface private constructor(
             try {
                 val shm = Shm.bind(display).getOrElse { return Err(it) }
                 unwind += shm::close
-                val layer = LayerSurface.create(
+                val layer = LayerShellSurface.create(
                     display,
                     namespace = config.namespace,
                     height = config.height.toLogicalPx(),
@@ -370,10 +380,7 @@ public class KortexSurface private constructor(
                     exclusiveEdge = config.exclusiveEdge,
                 ).getOrElse { return Err(it) }
                 unwind += layer::close
-                if (!layer.waitForConfigure()) {
-                    // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-                    return Err(display.protocolError() ?: KortexError.SurfaceNotConfigured)
-                }
+                layer.waitForConfigure().getOrElse { return Err(it) }
                 // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
                 val bufferScale = layer.preferredBufferScale
                 // Pending state only; it is committed together with the first attach() below.
@@ -413,8 +420,7 @@ public class KortexSurface private constructor(
                 // Tested before the surface exists so this exit unwinds too; Seat.bind has already round-tripped.
                 if (!seat.hasPointer) {
                     // A dead connection surfaces first as a seat with no devices; prefer the real cause.
-                    val missingPointer = KortexError.MissingSeatDevice(SeatDevice.Pointer)
-                    return Err(display.protocolError() ?: missingPointer)
+                    return display.requireAlive().flatMap { Err(KortexError.MissingSeatDevice(SeatDevice.Pointer)) }
                 }
                 surface = KortexSurface(
                     config.namespace, display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface),

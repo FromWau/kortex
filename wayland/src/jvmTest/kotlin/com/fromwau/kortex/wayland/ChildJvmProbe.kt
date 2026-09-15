@@ -11,19 +11,26 @@ internal data class ProbeResult(val exitCode: Int, val output: List<String>)
  * Runs [mainClass] in a child JVM, on this JVM's own test classpath with native access enabled, so a throw
  * escaping a libwayland callback ends that JVM instead of the one running the tests.
  *
+ * @param environment variables the probe runs with, on top of this JVM's own.
  * @param whileRunning run once the process has started, before waiting for it to exit; a test that must
  *   act on the probe while it is still alive, e.g. clicking a surface it placed, does so here.
  */
-internal fun runProbe(mainClass: String, whileRunning: () -> Unit = {}): ProbeResult {
+internal fun runProbe(
+    mainClass: String,
+    environment: Map<String, String> = emptyMap(),
+    whileRunning: () -> Unit = {},
+): ProbeResult {
     val javaExecutable = ProcessHandle
         .current()
         .info()
         .command()
         .orElseThrow { IllegalStateException("could not resolve the running JVM's own java executable") }
-    val process = ProcessBuilder(
+    val builder = ProcessBuilder(
         javaExecutable, "--enable-native-access=ALL-UNNAMED", "-cp", System.getProperty("java.class.path"),
         mainClass,
-    ).redirectErrorStream(true).start()
+    ).redirectErrorStream(true)
+    builder.environment().putAll(environment)
+    val process = builder.start()
     val output = Collections.synchronizedList(mutableListOf<String>())
     val reader = Thread { process.inputStream.bufferedReader().forEachLine { output += it } }
     reader.start()

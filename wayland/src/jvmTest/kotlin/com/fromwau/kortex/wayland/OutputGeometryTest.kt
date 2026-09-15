@@ -1,10 +1,13 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshots.Snapshot
-import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.ceil
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -57,7 +60,12 @@ class OutputGeometryTest {
                 assertEquals(expected.y, geometry.y, "${geometry.name}: y position mismatch")
                 assertEquals(expected.width, geometry.width, "${geometry.name}: mode width mismatch")
                 assertEquals(expected.height, geometry.height, "${geometry.name}: mode height mismatch")
-                assertEquals(expected.transform, geometry.transform, "${geometry.name}: transform mismatch")
+                // hyprctl reports a transform by the number wl_output.transform gives it.
+                assertEquals(
+                    expected.transform,
+                    TRANSFORM_WIRE_VALUES[geometry.transform],
+                    "${geometry.name}: transform mismatch, kortex published ${geometry.transform}",
+                )
                 // wl_output.scale is an integer and Hyprland ceil-rounds a fractional monitor scale.
                 assertEquals(ceil(expected.scale).toInt(), geometry.scale, "${geometry.name}: scale mismatch")
             }
@@ -65,29 +73,32 @@ class OutputGeometryTest {
     }
 
     @Test
-    fun `a surface's published geometry is reachable through the shell that owns it`() {
+    fun `a surface's monitor geometry is reachable through the surface's own monitor, not just rememberMonitors()`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val shown = AtomicReference<TestSurface<Nothing>>()
 
         display.use { wayland ->
-            val shell = KortexShell.create(wayland, SurfaceSpec(CONFIG) { })
-                .getOrElse { error -> fail("shell creation failed: $error") }
+            val content: @Composable KortexApplicationScope.() -> Unit = {
+                val monitors by rememberMonitors()
+                monitors.firstOrNull()?.let { monitor ->
+                    val surface = TestSurface<Nothing>(NAMESPACE, monitor = monitor)
+                    SideEffect { shown.set(surface) }
+                    Show(surface)
+                }
+            }
+            val shell = KortexShell.createApplicationOrFail(wayland, content)
 
             shell.useOrFail {
-                val active = shell.activeSurfaces
-                assertTrue(active.isNotEmpty(), "shell has no surfaces to read geometry through")
-
-                active.forEach { entry ->
-                    val published = assertNotNull(
-                        entry.geometry,
-                        "a live surface's output geometry never reached the shell",
-                    )
-                    val expected = assertNotNull(
-                        Hyprctl.monitors().firstOrNull { it.name == published.name },
-                        "hyprctl monitors -j reported nothing named ${published.name}",
-                    )
-                    assertEquals(expected.width, published.width, "${published.name}: mode width mismatch")
-                    assertEquals(expected.height, published.height, "${published.name}: mode height mismatch")
-                }
+                awaitPlaced(shell)
+                val surface = assertNotNull(shown.get(), "content never built a surface to read geometry through")
+                val monitor = assertNotNull(surface.monitor, "the shown surface was not put on a monitor")
+                val published = monitor.geometry
+                val expected = assertNotNull(
+                    Hyprctl.monitors().firstOrNull { it.name == published.name },
+                    "hyprctl monitors -j reported nothing named ${published.name}",
+                )
+                assertEquals(expected.width, published.width, "${published.name}: mode width mismatch")
+                assertEquals(expected.height, published.height, "${published.name}: mode height mismatch")
             }
         }
     }
@@ -102,7 +113,16 @@ class OutputGeometryTest {
         val strings = Arena.ofAuto()
 
         listener.onGeometry(
-            NONE, NONE, X, Y, 0, 0, 0, strings.allocateFrom("make"), strings.allocateFrom("model"), TRANSFORM,
+            NONE,
+            NONE,
+            X,
+            Y,
+            0,
+            0,
+            0,
+            strings.allocateFrom("make"),
+            strings.allocateFrom("model"),
+            TRANSFORM_WIRE_VALUES.getValue(TRANSFORM),
         )
         listener.onMode(NONE, NONE, flags = NOT_CURRENT, width = 640, height = 480, refresh = 0)
         listener.onMode(NONE, NONE, flags = CURRENT, width = 1920, height = 1080, refresh = 60_000)
@@ -126,10 +146,22 @@ class OutputGeometryTest {
         assertEquals(1080, geometry.height, "took a mode other than the one flagged current")
     }
 
+    @Test
+    fun `each of wl_output's eight transforms publishes as its own OutputTransform, and any other as Unrecognized`() {
+        val expected = TRANSFORM_WIRE_VALUES.entries.associate { (transform, wireValue) -> wireValue to transform } +
+            (UNLISTED_TRANSFORM_WIRE_VALUE to OutputTransform.Unrecognized(UNLISTED_TRANSFORM_WIRE_VALUE))
+
+        assertEquals(
+            expected,
+            expected.keys.associateWith(::publishedTransform),
+            "a wl_output.transform number did not publish as its own OutputTransform",
+        )
+    }
+
     /**
      * A re-sent scale or mode replaces the published geometry whole, at any time, so content reading it
-     * through [KortexHost] has to recompose; that needs both the read and the write to reach the
-     * snapshot system rather than a plain field.
+     * through a surface's own [Monitor.geometry] has to recompose; that needs both the read and the write
+     * to reach the snapshot system rather than a plain field.
      */
     @Test
     fun `reading and republishing geometry reaches the snapshot system`() {
@@ -154,6 +186,18 @@ class OutputGeometryTest {
         )
     }
 
+    /** The transform a listener publishes once a `geometry` carrying [wireValue], then `done`, have arrived. */
+    private fun publishedTransform(wireValue: Int): OutputTransform? {
+        val listener = OutputListener()
+        try {
+            listener.onGeometry(NONE, NONE, X, Y, 0, 0, 0, NONE, NONE, wireValue)
+            listener.onDone(NONE, NONE)
+            return listener.geometry?.transform
+        } finally {
+            listener.close()
+        }
+    }
+
     private companion object {
         const val WL_OUTPUT = "wl_output"
         const val CURRENT = 0x1
@@ -162,15 +206,10 @@ class OutputGeometryTest {
         const val Y = 13
         const val SCALE = 2
         const val RESCALED = 3
-        const val TRANSFORM = 3
+        val TRANSFORM = OutputTransform.Rotated270
         const val NAME = "SYNTH-1"
         const val DESCRIPTION = "Synthetic output for the current-mode-flag test"
-        const val SHELL_NAMESPACE = "kortex-geometry-test"
-        const val SURFACE_HEIGHT = 32
+        const val NAMESPACE = "kortex-geometry-test"
         val NONE: MemorySegment = MemorySegment.NULL
-
-        val CONFIG = SurfaceConfig
-            .panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp)
-            .copy(namespace = SHELL_NAMESPACE)
     }
 }

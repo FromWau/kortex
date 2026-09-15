@@ -2,8 +2,10 @@ package com.fromwau.kortex.wayland
 
 import java.io.File
 import javax.imageio.ImageIO
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * Moves the pointer to logical ([x], [y]) on [monitor], the space [Screen.geometry] reports in.
@@ -12,7 +14,7 @@ import kotlin.test.assertNotNull
  * compositor's origin. Driving the client afterwards is the caller's, since what has to be pumped to
  * see the motion differs per test.
  */
-internal fun VirtualPointer.moveTo(monitor: Monitor, x: Int, y: Int) {
+internal fun VirtualPointer.moveTo(monitor: HyprMonitor, x: Int, y: Int) {
     motionAbsolute(x, y, monitor.logicalWidth, monitor.logicalHeight)
     frame()
 }
@@ -21,7 +23,7 @@ internal fun VirtualPointer.moveTo(monitor: Monitor, x: Int, y: Int) {
  * Clicks the left button at logical ([x], [y]) on [monitor]. The move and both buttons reach the compositor
  * together, so no other pointer device's motion can come between them and carry the click off its target.
  */
-internal fun VirtualPointer.clickAt(monitor: Monitor, x: Int, y: Int) {
+internal fun VirtualPointer.clickAt(monitor: HyprMonitor, x: Int, y: Int) {
     moveTo(monitor, x, y)
     button(BTN_LEFT, pressed = true)
     frame()
@@ -50,6 +52,37 @@ internal data class LayerGeometry(
     val grimArea: String get() = "$x,$y ${logicalWidth}x$logicalHeight"
 
     override fun toString(): String = grimArea
+}
+
+/**
+ * Fails unless [geometry], [width] by [height], is centred in [before]'s usable area within a pixel of rounding, as a
+ * surface anchored to nothing that yields is placed.
+ */
+internal fun assertCentredInUsableArea(
+    before: HyprMonitor,
+    width: Int,
+    height: Int,
+    geometry: LayerGeometry,
+) {
+    val expectedX = before.usableX + (before.usableWidth - width) / 2
+    val expectedY = before.usableY + (before.usableHeight - height) / 2
+    assertTrue(abs(geometry.x - expectedX) <= 1, "expected x within a pixel of $expectedX, got ${geometry.x}")
+    assertTrue(abs(geometry.y - expectedY) <= 1, "expected y within a pixel of $expectedY, got ${geometry.y}")
+}
+
+/**
+ * Pumps [shell] until [before]'s monitor reserves [amount] more against [edge] than it did, since a reservation lands a
+ * frame late, and fails unless it then reserves exactly that.
+ */
+internal fun assertReservesMore(
+    shell: KortexShell,
+    before: HyprMonitor,
+    edge: Edge,
+    amount: Int,
+) {
+    fun added() = Hyprctl.monitor(before.name).reservedAgainst(edge) - before.reservedAgainst(edge)
+    shell.pumpOrFail(Screen.SETTLE_TIMEOUT_MILLIS) { added() == amount }
+    assertEquals(amount, added(), "the surface did not reserve exactly $amount against $edge")
 }
 
 /** Reads back what a layer surface actually put on screen. */

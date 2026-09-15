@@ -4,7 +4,7 @@ import androidx.compose.ui.unit.Dp
 import com.fromwau.kern.result.IError
 import com.fromwau.kortex.compose.ContentFailure
 
-/** A `wl_seat` capability [KortexSurface] may need but the compositor did not announce. */
+/** A `wl_seat` capability a surface may need but the compositor did not announce. */
 public enum class SeatDevice { Pointer, Keyboard }
 
 /** Which step of allocating a shared-memory buffer failed. */
@@ -37,6 +37,9 @@ public sealed interface KortexError : IError {
     /** [axis] was left 0 ("you choose") while [anchor] does not pin both of its edges; the protocol forbids it. */
     public data class UnspannableAxis(public val axis: Axis, public val anchor: Set<Edge>) : KortexError
 
+    /** [axis] was given a size that rounds below 0, to [size] logical pixels. */
+    public data class NegativeSize(public val axis: Axis, public val size: Int) : KortexError
+
     /** [anchor] does not pin [edge], and reserving space against an unanchored edge is a protocol error. */
     public data class InvalidExclusiveEdge(public val edge: Edge, public val anchor: Set<Edge>) : KortexError
 
@@ -51,4 +54,11 @@ public sealed interface KortexError : IError {
 
     /** Content on the surface named [namespace] threw and runs no more; [failure] says what it was doing. */
     public data class SurfaceCrashed(public val namespace: String, public val failure: ContentFailure) : KortexError
+
+    /**
+     * Your application's own code threw: the content of `kortexApplication`, UI placed directly in it rather than in a
+     * surface, or an `onClose` you passed. [cause] is what it threw. The application ends with this error, and no
+     * other `onClose` is called.
+     */
+    public data class ApplicationCrashed(public val cause: Throwable) : KortexError
 }

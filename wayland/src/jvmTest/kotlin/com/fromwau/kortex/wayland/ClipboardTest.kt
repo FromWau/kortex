@@ -319,8 +319,7 @@ class ClipboardTest {
     @Test
     fun `a compositor that offers no clipboard still gets a shell`() {
         withoutDataDeviceManager { display ->
-            val shell = KortexShell.create(display).getOrElse { error -> fail("shell creation failed: $error") }
-            shell.useOrFail { }
+            KortexShell.createApplicationOrFail(display) { }.useOrFail { }
         }
     }
 

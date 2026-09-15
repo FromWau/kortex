@@ -207,13 +207,13 @@ internal data class Errno(val number: Int) : IError
  * The compositor may still be reading a committed buffer, and says so through [busy]. Drawing into a
  * busy buffer tears the frame being scanned out rather than reporting an error.
  */
-public class ShmBuffer internal constructor(
+internal class ShmBuffer(
     internal val buffer: MemorySegment,
     /** The mapped pixels, ARGB8888, [stride] bytes per row. */
-    public val pixels: MemorySegment,
-    public val width: Int,
-    public val height: Int,
-    public val stride: Int,
+    val pixels: MemorySegment,
+    val width: Int,
+    val height: Int,
+    val stride: Int,
     private val fd: Int,
     private val size: Long,
 ) : AutoCloseable {
@@ -227,7 +227,7 @@ public class ShmBuffer internal constructor(
         private set
 
     /** True while the compositor still owns the last committed contents. */
-    public val busy: Boolean get() = held
+    val busy: Boolean get() = held
 
     internal fun markAttached() {
         held = true
@@ -236,13 +236,6 @@ public class ShmBuffer internal constructor(
     internal fun released() {
         held = false
         releases++
-    }
-
-    /** Fills every pixel with one ARGB value. */
-    public fun fill(argb: Int) {
-        for (index in 0 until (size / Int.SIZE_BYTES)) {
-            pixels.setAtIndex(JAVA_INT, index, argb)
-        }
     }
 
     /** Installs the `wl_buffer.release` listener, whose stub lives exactly as long as this buffer. */
@@ -272,11 +265,11 @@ public class ShmBuffer internal constructor(
 }
 
 /** The compositor's shared-memory buffer factory. */
-public class Shm internal constructor(private val shm: MemorySegment) : AutoCloseable {
+internal class Shm(private val shm: MemorySegment) : AutoCloseable {
 
     private var closed = false
 
-    public fun createBuffer(width: Int, height: Int): Result<ShmBuffer, KortexError> {
+    fun createBuffer(width: Int, height: Int): Result<ShmBuffer, KortexError> {
         check(!closed) { "createBuffer on a Shm whose wl_shm is already given back" }
         val stride = width * BYTES_PER_PIXEL
         val size = stride.toLong() * height
@@ -315,8 +308,8 @@ public class Shm internal constructor(private val shm: MemorySegment) : AutoClos
         releaseShm(shm)
     }
 
-    public companion object {
-        public fun bind(display: WaylandDisplay): Result<Shm, KortexError> =
+    companion object {
+        fun bind(display: WaylandDisplay): Result<Shm, KortexError> =
             display.require("wl_shm", LibWayland.shmInterface, WlVersion.SHM).map { Shm(it) }
 
         private const val WL_SHM_CREATE_POOL = 0

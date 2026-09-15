@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Recomposer
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import java.io.File
 import java.nio.file.Files
@@ -11,7 +12,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -44,7 +44,7 @@ class SurfaceCreateFailureTest {
                 "a failed create left its scene's recomposer running",
             )
             assertFalse(NAMESPACE in Hyprctl.namespaces(), "a failed create left its layer surface on the compositor")
-            assertNull(wayland.protocolError(), "giving back a failed create's pieces cost the connection")
+            assertEquals(Ok(Unit), wayland.requireAlive(), "giving back a failed create's pieces cost the connection")
 
             wayland.addGlobal(seat)
             val surface = KortexSurface.create(wayland, CONFIG)
@@ -58,7 +58,10 @@ class SurfaceCreateFailureTest {
             )
             surface.close()
             wayland.roundtrip()
-            assertNull(wayland.protocolError(), "the create that followed the failed one cost the connection")
+            assertEquals(
+                Ok(Unit), wayland.requireAlive(),
+                "the create that followed the failed one cost the connection",
+            )
         }
     }
 

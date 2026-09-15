@@ -2,7 +2,9 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -17,32 +19,40 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * A read of `LocalKortexHost.current.output` or `LocalKortexSurface.current.size` at first composition also
+ * A read of a surface's own `monitor.geometry` or `LocalKortexSurface.current.size` at first composition also
  * passes with a plain field behind the value. These drive each value's writer after content has already
  * composed once, and prove the same reader recomposes with the change.
  */
 class RecompositionTest {
     @Test
-    fun `content reading LocalKortexHost output recomposes when the output republishes geometry`() {
+    fun `content reading its surface's monitor geometry recomposes when the output republishes it`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        val composed = CopyOnWriteArrayList<OutputGeometry?>()
+        val composed = CopyOnWriteArrayList<OutputGeometry>()
 
         display.use { wayland ->
-            val spec = SurfaceSpec(CONFIG, OutputTarget.EveryOutput) {
-                val geometry = LocalKortexHost.current.output
-                SideEffect { composed += geometry }
-                Box(Modifier.fillMaxSize())
+            val content: @Composable KortexApplicationScope.() -> Unit = {
+                val monitors by rememberMonitors()
+                monitors.firstOrNull()?.let { monitor ->
+                    Show(
+                        TestSurface<Nothing>(NAMESPACE, monitor = monitor) {
+                            val geometry = monitor.geometry
+                            SideEffect { composed += geometry }
+                            Box(Modifier.fillMaxSize())
+                        },
+                    )
+                }
             }
-            val shell = KortexShell.create(wayland, spec).getOrElse { error -> fail("shell creation failed: $error") }
+            val shell = KortexShell.createApplicationOrFail(wayland, content)
 
             shell.useOrFail {
-                val sawRealGeometry = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { composed.any { it != null } }
+                val sawRealGeometry = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { composed.isNotEmpty() }
                 assertTrue(sawRealGeometry, "content never composed with the output's real geometry")
 
-                val output = shell.activeSurfaces.first().output
-                val listener = assertNotNull(
-                    output, "the shell's surface has no output to fabricate an event group for",
-                ).listener
+                val monitor = assertNotNull(
+                    shell.monitors.value.firstOrNull(),
+                    "the application listed no monitor to fabricate an event group for",
+                )
+                val listener = monitor.output.listener
 
                 // Stands in for a compositor re-send, straight into the listener: nothing here reaches the
                 // wire, so no real wl_output is added, removed or changed.
@@ -56,7 +66,7 @@ class RecompositionTest {
                 listener.onDescription(NONE, NONE, strings.allocateFrom(DESCRIPTION))
                 listener.onDone(NONE, NONE)
 
-                val recomposed = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { composed.any { it?.name == NAME } }
+                val recomposed = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { composed.any { it.name == NAME } }
                 assertTrue(recomposed, "content never recomposed after the output republished its geometry")
             }
         }
@@ -92,7 +102,7 @@ class RecompositionTest {
     }
 
     private companion object {
-        const val SHELL_NAMESPACE = "kortex-recompose-output-test"
+        const val NAMESPACE = "kortex-recompose-output-test"
         const val SURFACE_NAMESPACE = "kortex-recompose-size-test"
         const val SURFACE_HEIGHT = 32
         const val RESIZED_HEIGHT = 64
@@ -110,9 +120,8 @@ class RecompositionTest {
         const val DESCRIPTION = "Synthetic output for the recomposition test"
         val NONE: MemorySegment = MemorySegment.NULL
 
-        val CONFIG = SurfaceConfig
+        val SURFACE_CONFIG = SurfaceConfig
             .panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp)
-            .copy(namespace = SHELL_NAMESPACE)
-        val SURFACE_CONFIG = CONFIG.copy(namespace = SURFACE_NAMESPACE)
+            .copy(namespace = SURFACE_NAMESPACE)
     }
 }

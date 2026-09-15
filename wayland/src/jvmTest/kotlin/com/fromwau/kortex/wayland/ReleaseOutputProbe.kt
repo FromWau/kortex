@@ -28,7 +28,7 @@ public fun main(args: Array<String>) {
         ?: error("probe: expected one argument, one of ${ProbeMode.entries}, got ${args.toList()}")
 
     val display = WaylandDisplay.connect().getOrElse { error("probe: no compositor answered: $it") }
-    val shell = KortexShell.create(display).getOrElse { error("probe: shell create failed: $it") }
+    val shell = KortexShell.createApplication(display) { }.getOrElse { error("probe: shell create failed: $it") }
     System.err.println(PROBE_MARKER_BOUND)
 
     when (mode) {

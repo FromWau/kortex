@@ -10,13 +10,13 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -135,7 +135,7 @@ class OutputRescaleTest {
                         // here an enter, the same hazard the first move above avoids.
                         moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
 
-                        assertNull(wayland.protocolError(), "the connection reported a protocol error")
+                        assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
                         assertTrue(delivered, "no pointer motion over the bar reached the composition")
                     }
 

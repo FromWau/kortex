@@ -5,6 +5,7 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
@@ -84,12 +85,12 @@ internal object LayerShellProtocol {
 }
 
 /**
- * A `zwlr_layer_shell_v1` surface: a panel the compositor places and other windows tile around.
+ * A `zwlr_layer_shell_v1` surface: the protocol side of every [LayerSurface].
  *
  * The compositor answers the first commit with `configure`, and a buffer must not be attached before
- * that serial is acknowledged — doing so is a protocol error and a disconnect.
+ * that serial is acknowledged: doing so is a protocol error and a disconnect.
  */
-public class LayerSurface internal constructor(
+internal class LayerShellSurface(
     private val display: WaylandDisplay,
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
@@ -102,14 +103,13 @@ public class LayerSurface internal constructor(
     private val arena: Arena,
 ) : AutoCloseable {
 
-    // Paired with the public closed, which is the compositor's word rather than this teardown latch.
+    // Paired with closed, which says the surface must be torn down rather than that it has been.
     private var disposed = false
 
-    /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns true. */
-    public val logicalWidth: Int get() = state.width
-    public val logicalHeight: Int get() = state.height
-    public val closed: Boolean get() = state.closeReason != null
-    internal val closeReason: CloseReason? get() = state.closeReason
+    /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns `Ok`. */
+    val logicalWidth: Int get() = state.width
+    val logicalHeight: Int get() = state.height
+    val closed: Boolean get() = state.closed
 
     /**
      * The buffer scale the compositor wants for this surface, from `wl_surface.preferred_buffer_scale`.
@@ -117,34 +117,36 @@ public class LayerSurface internal constructor(
      * It reflects the output this surface is actually on, so two surfaces on a mixed-DPI setup report
      * different scales. Reads 1 until the compositor says otherwise, as the protocol prescribes.
      */
-    public val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
+    val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
 
-    /** Blocks until the compositor has configured this surface, acknowledging the serial it sent. */
-    public fun waitForConfigure(): Boolean {
+    /**
+     * Blocks until the compositor has configured this surface, acknowledging the serial it sent.
+     *
+     * @return `Ok` once configured; else the connection's error when it died before a configure came, else
+     *   [KortexError.SurfaceNotConfigured].
+     */
+    fun waitForConfigure(): EmptyResult<KortexError> {
         display.roundtrip()
         var spins = 0
-        while (!state.configured && state.closeReason == null && spins < MAX_SPINS) {
+        while (!state.configured && !state.closed && spins < MAX_SPINS) {
             display.dispatch()
             spins++
         }
-        return state.configured
+        if (state.configured) return Ok(Unit)
+        // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
+        return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
     }
 
     /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */
     internal fun consumeResize(): Boolean = state.consumeResize()
 
-    /** Sets the same reason a real `closed` event would, so a self-close reaps through that one path. */
+    /** Sets the flag a real `closed` event sets, as though the compositor had closed the surface. */
     internal fun markClosed() {
-        state.closeReason = CloseReason.Content
-    }
-
-    // A test seam: in production only the compositor's own closed event sets this reason.
-    internal fun simulateCompositorClose() {
-        state.closeReason = CloseReason.Compositor
+        state.closed = true
     }
 
     /** Attaches [buffer] and marks the whole surface damaged. Must follow an acknowledged configure. */
-    public fun attach(buffer: ShmBuffer) {
+    fun attach(buffer: ShmBuffer) {
         LibWayland.marshal(
             surface, WL_SURFACE_ATTACH,
             args = listOf(WlArg.Ptr(buffer.buffer), WlArg.Num(0), WlArg.Num(0)),
@@ -156,7 +158,7 @@ public class LayerSurface internal constructor(
     }
 
     /** Double-buffered like every pending surface state: takes effect only at the next [commit]. */
-    public fun setBufferScale(scale: Int) {
+    fun setBufferScale(scale: Int) {
         LibWayland.marshal(surface, WL_SURFACE_SET_BUFFER_SCALE, args = listOf(WlArg.Num(scale)))
     }
 
@@ -164,11 +166,11 @@ public class LayerSurface internal constructor(
      * Requests a new size in logical (surface-local) pixels; pending until [commit], which the
      * compositor answers with a fresh configure.
      *
-     * @return [KortexError.UnspannableAxis] under the same rule [create] applies, since the anchor this
-     *   surface was created with is fixed for its lifetime.
+     * @return [KortexError.NegativeSize] or [KortexError.UnspannableAxis] under the same rules [create] applies,
+     *   since the anchor this surface was created with is fixed for its lifetime.
      */
-    public fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
-        unspannableAxis(width, height, anchor)?.let { return Err(it) }
+    fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
+        requirePlaceableSize(width, height, anchor).getOrElse { return Err(it) }
         LibWayland.marshal(
             layerSurface, LayerShellProtocol.SET_SIZE,
             args = listOf(WlArg.Num(width), WlArg.Num(height)),
@@ -176,7 +178,7 @@ public class LayerSurface internal constructor(
         return Ok(Unit)
     }
 
-    public fun commit() {
+    fun commit() {
         LibWayland.marshal(surface, WL_SURFACE_COMMIT)
         display.flush()
     }
@@ -197,7 +199,7 @@ public class LayerSurface internal constructor(
         display.flush()
     }
 
-    public companion object {
+    companion object {
         /**
          * Creates a layer surface and drives it to its first configure.
          *
@@ -206,18 +208,17 @@ public class LayerSurface internal constructor(
          * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
          *   to pin both [Edge.Left] and [Edge.Right].
          * @param exclusiveZone how much screen space this surface reserves, measured inward from the
-         *   anchored edge; a top or bottom bar reserves its [height], a side dock its [width], which is
-         *   why it has no default.
+         *   anchored edge; a top or bottom bar reserves its [height], a side dock its [width].
          * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
          * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
          *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
          *   Sent only when non-null.
-         * @return [KortexError.UnspannableAxis] when an axis is left 0 without both of its edges anchored
-         *   — a request the compositor answers by dropping the connection —
-         *   [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge], or
+         * @return [KortexError.NegativeSize] when [width] or [height] is below 0; [KortexError.UnspannableAxis] when an
+         *   axis is left 0 without both of its edges anchored, a request the compositor answers by dropping the
+         *   connection; [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge]; or
          *   [KortexError.InvalidExclusiveZone] when an [ExclusiveZone.Reserve] reserves nothing.
          */
-        public fun create(
+        fun create(
             display: WaylandDisplay,
             namespace: String,
             height: Int,
@@ -229,8 +230,8 @@ public class LayerSurface internal constructor(
             keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
             output: MemorySegment = MemorySegment.NULL,
             exclusiveEdge: Edge? = null,
-        ): Result<LayerSurface, KortexError> {
-            unspannableAxis(width, height, anchor)?.let { return Err(it) }
+        ): Result<LayerShellSurface, KortexError> {
+            requirePlaceableSize(width, height, anchor).getOrElse { return Err(it) }
             if (exclusiveEdge != null && exclusiveEdge !in anchor) {
                 return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
             }
@@ -253,7 +254,7 @@ public class LayerSurface internal constructor(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
                 LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),
             )
-            // Closed by the LayerSurface this all ends up in, which is the one owner of both proxies.
+            // Closed by the LayerShellSurface this all ends up in, which is the one owner of both proxies.
             val arena = Arena.ofShared()
             // Before get_layer_surface below: the compositor answers that with preferred_buffer_scale.
             val surfaceListener = WlSurfaceListener()
@@ -311,7 +312,7 @@ public class LayerSurface internal constructor(
                 args = listOf(WlArg.Num(keyboard.wireValue)),
             )
 
-            val result = LayerSurface(
+            val result = LayerShellSurface(
                 display, surface, layerSurface, anchor, state, surfaceListener, compositor, shell, arena,
             )
             result.commit()
@@ -319,23 +320,27 @@ public class LayerSurface internal constructor(
         }
 
         /**
-         * Which axis, if either, was left for the compositor to size without both of its edges anchored.
-         *
-         * Omitting a dimension asks the compositor to pick it, which the protocol allows only when both
-         * of that axis's edges are anchored; anything else it answers by dropping the connection.
+         * Checks that a surface anchored to [anchor] can ask for [width] by [height]. Neither may be below 0, which
+         * `set_size`'s unsigned arguments would read as a size above four billion. An axis left 0 for the compositor
+         * to size needs both of its edges anchored: the protocol allows omitting a dimension only then, and answers
+         * anything else by dropping the connection.
          */
-        private fun unspannableAxis(
+        private fun requirePlaceableSize(
             width: Int,
             height: Int,
             anchor: Set<Edge>,
-        ): KortexError.UnspannableAxis? = when {
+        ): EmptyResult<KortexError> = when {
+            width < 0 -> Err(KortexError.NegativeSize(Axis.Horizontal, width))
+
+            height < 0 -> Err(KortexError.NegativeSize(Axis.Vertical, height))
+
             width == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Horizontal.edges) ->
-                KortexError.UnspannableAxis(Axis.Horizontal, anchor)
+                Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
 
             height == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Vertical.edges) ->
-                KortexError.UnspannableAxis(Axis.Vertical, anchor)
+                Err(KortexError.UnspannableAxis(Axis.Vertical, anchor))
 
-            else -> null
+            else -> Ok(Unit)
         }
 
         private const val WL_COMPOSITOR_CREATE_SURFACE = 0
@@ -353,14 +358,11 @@ public class LayerSurface internal constructor(
     }
 }
 
-/** Why a layer surface stopped being usable: the compositor took it away, or its own content did. */
-internal enum class CloseReason { Compositor, Content }
-
 internal class ConfigureState(private val layerSurface: MemorySegment) {
     @Volatile var width: Int = 0
     @Volatile var height: Int = 0
     @Volatile var configured: Boolean = false
-    @Volatile var closeReason: CloseReason? = null
+    @Volatile var closed: Boolean = false
     @Volatile private var resized: Boolean = false
 
     fun onConfigure(data: MemorySegment, proxy: MemorySegment, serial: Int, width: Int, height: Int) {
@@ -374,7 +376,7 @@ internal class ConfigureState(private val layerSurface: MemorySegment) {
     }
 
     fun onClosed(data: MemorySegment, proxy: MemorySegment) {
-        closeReason = CloseReason.Compositor
+        closed = true
     }
 
     fun consumeResize(): Boolean {
