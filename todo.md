@@ -255,17 +255,17 @@ value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG
 - [x] `ContextMenu(monitor, at, size)`, over `SurfaceConfig.contextMenu(at, menuSize, outputSize)`: places a menu so
       its top-left corner sits at `at`, flipping to whichever corner keeps it inside its monitor, independently per
       axis. `outputSize` is the monitor's logical size, its geometry's width and height over its scale, read as the
-      instance is built, so a host passes none. The geometry's transform is not applied: `wl_output.mode` is in the
-      output's hardware orientation, so on a monitor turned a quarter the flip measures against the unturned width
-      and height. The flip is a pure function of its three inputs, so it needs no compositor to test. A menu wider
+      instance is built, so a host passes none. A monitor turned a quarter (`wl_output.transform` 90, 270, flipped_90
+      or flipped_270) has the two swapped, since `wl_output.mode` is the output's unturned size. The flip is a pure
+      function of its three inputs, so it needs no compositor to test. A menu wider
       or taller than its monitor still flips on that axis: the anchored corner sits at `at` and the excess runs off
       the opposite edge, so the answer stays one consistent corner rather than a special case. It carries
       `ExclusiveZone.Overlap`, which is what makes `at` and `outputSize` the monitor's coordinates: a yielding menu
       is anchored and margined inside whatever the surfaces that reserve space leave over, so a bar's zone displaces
       it by that bar's thickness. A corner anchor is two perpendicular edges, so `Overlap` has edges to extend to
       and the explicit size survives: the restriction that forces `osd` onto `Yield` does not reach here.
-      (`MenuAnchorTest` for the flip and the logical size, `PresetClassTest` for the coordinate space and the flip
-      on the live monitor, `SurfacePresetTest`)
+      (`MenuAnchorTest` for the flip, the logical size and a turned monitor, `PresetClassTest` for the coordinate
+      space and the flip on the live monitor, `SurfacePresetTest`)
 - [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
       anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
       `ext-session-lock-v1`. (`PresetClassTest`, `SurfacePresetTest`)

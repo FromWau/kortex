@@ -219,7 +219,7 @@ public abstract class AppMenu<E : IError>(
  * down and to the right of [at], unless it would then run past the monitor's right or bottom edge: it opens to the
  * left of [at] instead, or upwards from it, each direction decided on its own. It takes no keyboard focus.
  *
- * It measures its monitor unrotated, so on a monitor turned a quarter it can open past the monitor's edges.
+ * On a rotated monitor, the right and bottom edges are those of the monitor as it is turned.
  *
  * ```kotlin
  * class Menu(monitor: Monitor, at: IntOffset, onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit) :
@@ -255,5 +255,12 @@ public abstract class ContextMenu<E : IError>(
     onClose = onClose,
 )
 
-// Leaves the transform out: a monitor turned a quarter keeps its mode's unturned width and height.
-private val OutputGeometry.logicalSize: IntSize get() = IntSize(width / scale, height / scale)
+// A mode is the output's unturned size, so a quarter turn swaps its width and height on screen.
+private val OutputGeometry.logicalSize: IntSize
+    get() = when (transform) {
+        in QUARTER_TURNS -> IntSize(height / scale, width / scale)
+        else -> IntSize(width / scale, height / scale)
+    }
+
+// wl_output.transform's 90, 270, flipped_90 and flipped_270.
+private val QUARTER_TURNS = setOf(1, 3, 5, 7)

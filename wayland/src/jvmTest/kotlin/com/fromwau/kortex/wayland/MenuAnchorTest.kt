@@ -11,7 +11,7 @@ import kotlin.test.assertEquals
  * Pins [SurfaceConfig.contextMenu]'s flip: which [MenuAnchor] corner it picks for a point near each
  * edge and each corner of the output, and the boundary right at a menu's own width or height, where a
  * one-pixel difference must change the answer. Also pins that [ContextMenu] flips against its monitor's
- * logical size, its mode's size over its scale.
+ * logical size: its mode's size over its scale, with width and height swapped on a monitor turned a quarter.
  *
  * A pure function of its three inputs, so every case here is exact math against [OUTPUT] and
  * [MENU_SIZE], with no compositor involved.
@@ -118,6 +118,39 @@ class MenuAnchorTest {
         }
     }
 
+    @Test
+    fun `a ContextMenu on a monitor turned a quarter flips against the turned width and height`() {
+        val turned = IntSize(OUTPUT.height, OUTPUT.width)
+        val at = IntOffset(turned.width - CLEAR_MARGIN, turned.height - CLEAR_MARGIN)
+
+        assertEquals(
+            QUARTER_TURNS.associateWith { FLIPPED_BOTH_AXES },
+            QUARTER_TURNS.associateWith { transform -> placementOnMonitorTurnedBy(transform, at) },
+            "a menu near the bottom-right corner of a monitor turned a quarter did not flip against it as turned",
+        )
+    }
+
+    @Test
+    fun `a ContextMenu on a monitor not turned a quarter flips against its mode's width and height`() {
+        val at = IntOffset(OUTPUT.width - CLEAR_MARGIN, OUTPUT.height - CLEAR_MARGIN)
+
+        assertEquals(
+            OTHER_TRANSFORMS.associateWith { FLIPPED_BOTH_AXES },
+            OTHER_TRANSFORMS.associateWith { transform -> placementOnMonitorTurnedBy(transform, at) },
+            "a menu near the bottom-right corner of a monitor not turned a quarter did not flip against its mode",
+        )
+    }
+
+    /** The anchor and margins of a [MENU_SIZE] ContextMenu at [at], on a monitor whose mode is [OUTPUT], turned. */
+    private fun placementOnMonitorTurnedBy(transform: Int, at: IntOffset): Pair<Set<Edge>, Margins> =
+        withUnboundMonitors(MONITOR_NAME, mode = OUTPUT, transform = transform) { (monitor) ->
+            val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, size = MENU_SIZE) {
+                @Composable
+                override fun invoke() = Unit
+            }
+            menu.anchor to menu.margins
+        }
+
     private companion object {
         val OUTPUT = IntSize(1920, 1080)
         val MENU_SIZE = IntSize(200, 100)
@@ -130,5 +163,13 @@ class MenuAnchorTest {
         // A monitor whose mode is OUTPUT at this scale, so OUTPUT is its logical size.
         const val SCALE = 2
         const val MONITOR_NAME = "MENU-1"
+
+        // wl_output.transform's 90, 270, flipped_90 and flipped_270, then the other four.
+        val QUARTER_TURNS = listOf(1, 3, 5, 7)
+        val OTHER_TRANSFORMS = listOf(0, 2, 4, 6)
+
+        // A menu CLEAR_MARGIN in from the bottom-right corner of the size it is measured against.
+        val FLIPPED_BOTH_AXES =
+            setOf(Edge.Bottom, Edge.Right) to Margins(bottom = CLEAR_MARGIN.dp, right = CLEAR_MARGIN.dp)
     }
 }
