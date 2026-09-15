@@ -169,9 +169,9 @@ public abstract class LockScreen<E : IError>(
  * `close(error)`, or `Nothing` for none.
  *
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
- * @param width its width. It must round to at least one logical pixel, or it is not placed and `onClose` receives
- *   `Err(SurfaceError.Failed(...))`.
- * @param height its height, which must round to at least one logical pixel as [width] must.
+ * @param width its width, which must round to at least one logical pixel. One that rounds to 0 leaves it unplaced,
+ *   and `onClose` receives `Err(SurfaceError.Failed(...))`; one that rounds below 0 is not checked.
+ * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
  */
@@ -196,9 +196,9 @@ public abstract class Osd<E : IError>(
  * `close(error)`, or `Nothing` for none.
  *
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
- * @param width its width. It must round to at least one logical pixel, or it is not placed and `onClose` receives
- *   `Err(SurfaceError.Failed(...))`.
- * @param height its height, which must round to at least one logical pixel as [width] must.
+ * @param width its width, which must round to at least one logical pixel. One that rounds to 0 leaves it unplaced,
+ *   and `onClose` receives `Err(SurfaceError.Failed(...))`; one that rounds below 0 is not checked.
+ * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
  */
