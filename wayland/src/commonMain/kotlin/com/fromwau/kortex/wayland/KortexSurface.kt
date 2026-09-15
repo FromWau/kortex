@@ -91,11 +91,11 @@ internal class KortexSurface private constructor(
     /** The logical (surface-local) size the compositor last configured, the one content reads as its handle's size. */
     internal val logicalSize: IntSize get() = sizeState.value
 
-    /** The buffer (physical-pixel) size of the current frames, i.e. the scene and shm buffer size. */
+    /** The buffer (physical-pixel) size of the current frames; exposed so a test can assert a scale reached them. */
     val bufferSize: IntSize
         get() = IntSize(frames.first().buffer.width, frames.first().buffer.height)
 
-    /** How many times the compositor has handed a buffer back. */
+    /** How many times the compositor has handed a buffer back; exposed so a test can assert buffers come back. */
     internal val releases: Int get() = frames.sumOf { it.buffer.releases }
 
     /** How many frames [renderNow] has actually drawn and committed; exposed so a test can assert idle. */
@@ -135,19 +135,27 @@ internal class KortexSurface private constructor(
     }
 
     /**
-     * Requests a new size from the compositor; must be called on the loop thread, like every request here.
+     * Requests a new size from the compositor, on the loop thread like every request here; exposed so a test can
+     * make the compositor configure the surface again.
      *
      * @return what [LayerShellSurface.setSize] rejected, leaving the surface at the size it already had.
      */
-    fun requestSize(width: Dp, height: Dp): EmptyResult<KortexError> =
+    fun requestSize(
+        width: Dp,
+        height: Dp,
+    ): EmptyResult<KortexError> =
         layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
 
     /**
-     * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
+     * Pumps the connection until [predicate] holds or [timeoutMillis] elapses; exposed so a test can drive a bare
+     * surface, where a shell drives its surfaces through [serviceTick].
      *
      * @return whether [predicate] held, or why the surface failed first.
      */
-    internal fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Result<Boolean, KortexError> {
+    internal fun pump(
+        timeoutMillis: Long,
+        predicate: () -> Boolean = { false },
+    ): Result<Boolean, KortexError> {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
             loop.runPass()
