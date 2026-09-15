@@ -4,9 +4,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.CopyOnWriteArrayList
@@ -18,6 +20,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 /** The monitors an application lists, and surfaces put on one of them. */
 class MonitorTest {
@@ -206,6 +209,48 @@ class MonitorTest {
                 )
                 assertTrue(shell.shownSurfaces.isEmpty(), "a surface on a monitor that has gone was placed")
                 assertNull(Screen.geometry(NAMESPACE), "hyprctl lists a surface on a monitor that has gone")
+            }
+        }
+    }
+
+    @Test
+    fun `a monitor the registry removes leaves the list, and a surface on it ends reporting Ok`() {
+        val listed = AtomicReference<List<Monitor>>(emptyList())
+        val reports = CopyOnWriteArrayList<EmptyResult<SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            // Kept once taken, so the Show stays in composition after its monitor has left the list.
+            val first = remember { monitors.first() }
+            SideEffect { listed.set(monitors) }
+            Show(TestSurface<Nothing>(NAMESPACE, monitor = first, onClose = { reports += it }))
+        }
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            KortexShell.createApplicationOrFail(display, content).useOrFail { shell ->
+                awaitPlaced(shell)
+                val monitor = shell.monitors.value.first()
+                val global = display.globals.first { it.name == monitor.output.name }
+
+                // What the registry reports as a monitor is unplugged; the compositor's own outputs stay as they are.
+                assertNotNull(display.onGlobalRemoved, "the shell listens for no removed global").invoke(global)
+
+                assertTrue(
+                    shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                    "a surface on a monitor that went away reported nothing",
+                )
+                shell.pumpOrFail(SETTLE_MILLIS)
+                assertEquals(
+                    listOf(Ok(Unit)),
+                    reports.toList(),
+                    "a surface on a monitor that went away did not report Ok once",
+                )
+                assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived its monitor")
+                assertTrue(listed.get().isEmpty(), "a monitor that went away stayed listed: ${listed.get()}")
+                assertTrue(
+                    shell.pumpOrFail(PUMP_MILLIS) { Screen.geometry(NAMESPACE) == null },
+                    "hyprctl still lists a surface whose monitor went away",
+                )
             }
         }
     }

@@ -337,7 +337,12 @@ public class KortexShell private constructor(
 
     private fun removeOutput(name: Int) {
         val output = outputs.remove(name) ?: return
+        listMonitors()
         surfaces.filter { it.output === output }.forEach(::removeSurface)
+        // A monitor's surfaces end with it, whether or not the compositor closes them, and before its output goes.
+        placed
+            .filter { it.placedWith?.monitor?.output === output }
+            .forEach { shown -> end(shown, shown.ownEnding ?: Ok(Unit)) }
         output.destroy()
     }
 
