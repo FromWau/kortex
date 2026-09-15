@@ -1028,12 +1028,6 @@ class ShowTest {
         }
     }
 
-    /** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
-    private fun crashIn(report: EmptyResult<SurfaceError<*>>, message: String): KortexError.SurfaceCrashed {
-        val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")
-        return assertIs<KortexError.SurfaceCrashed>(failed.error, "$message: $report")
-    }
-
     @Composable
     private fun ThrowingEffect() {
         LaunchedEffect(Unit) {

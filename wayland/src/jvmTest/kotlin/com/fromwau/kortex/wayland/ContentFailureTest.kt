@@ -10,7 +10,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
-import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.CopyOnWriteArrayList
@@ -124,12 +123,6 @@ class ContentFailureTest {
             "$PROBE_MARKER hook crashed=$PROBE_NAMESPACE cause=$PROBE_FAILURE" in probe.output,
             "the later frame's crash never reached onClose; output:\n$raw",
         )
-    }
-
-    /** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
-    private fun crashIn(report: EmptyResult<SurfaceError<*>>, message: String): KortexError.SurfaceCrashed {
-        val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")
-        return assertIs<KortexError.SurfaceCrashed>(failed.error, "$message: $report")
     }
 
     private companion object {

@@ -1,7 +1,10 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
+import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -55,6 +58,15 @@ internal fun awaitPlaced(
         shell.pumpOrFail(PLACED_WITHIN_MILLIS) { shell.shownSurfaces.size == count },
         "the application never had $count surfaces on screen",
     )
+}
+
+/** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
+internal fun crashIn(
+    report: EmptyResult<SurfaceError<*>>,
+    message: String,
+): KortexError.SurfaceCrashed {
+    val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")
+    return assertIs<KortexError.SurfaceCrashed>(failed.error, "$message: $report")
 }
 
 private const val PLACED_WITHIN_MILLIS = 4_000L
