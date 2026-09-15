@@ -59,11 +59,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: seven entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
-starts in a scene with a text field; under Keyboard and clipboard, the letter a Ctrl+letter types with no Latin
-layout configured, the clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that leaves
-`KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG and
-JPEG, and drag and drop.
+Next: nine entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+starts in a scene with a text field, and a failure after a surface has reported, which reaches no one; under
+Surface presets, a fractionally scaled monitor, which measures short; under Keyboard and clipboard, the letter a
+Ctrl+letter types with no Latin layout configured, the clipboard that content inside a `Popup` or `Dialog`
+reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb
+rejects, images on the clipboard as PNG and JPEG, and drag and drop.
 
 ## Foundations
 
@@ -202,6 +203,13 @@ JPEG, and drag and drop.
       each on Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event
       queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
       `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
+- [ ] **A failure after a surface has reported reaches no one.** A crash in a closed scene's leftover work,
+      such as a `delay` in a `NonCancellable` `finally`, is recorded by the scene but only wakes the loop
+      (`KortexShell.kt:323`, `:367-373`): the surface has reported by then, and nothing reads its crash
+      again. When the connection has died, an `ApplicationCrashed` from an `onClose` called as the
+      application closes is dropped for the connection's error (`KortexApplication.kt:63-64`). Open:
+      whether a surface's report waits for its closed scene's leftover work, within a bound, or `onClose`'s
+      KDoc says such failures go unreported; decided with spec B, which reworks teardown.
 
 ## Surface presets
 
@@ -259,6 +267,12 @@ JPEG, and drag and drop.
       `SurfaceConfig` behind it gives its four fields that decide the shape, `anchor`, `width`, `height` and
       `exclusiveZone`, no default, because each is only sensible in the light of the others, so each preset states
       a whole shape. (`ShowTest`, `SurfaceConfigTest`)
+- [ ] **A fractionally scaled monitor measures short.** `OutputGeometry`'s width and height over its
+      `scale` are the monitor's logical size only at a whole-number scale. `wl_output.scale` is an
+      integer, and Hyprland rounds a fractional scale up, so at 1.5 the monitor measures a quarter short.
+      `ContextMenu` measures its monitor that way (`Presets.kt:264-268`), so it can flip early and open
+      away from its point; its KDoc says so. Open: a true logical size, which needs a protocol kortex does
+      not bind yet, such as `zxdg_output_v1`'s `logical_size`.
 
 ## Raising a surface while the host runs
 
