@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 
-/** A real [KortexShell.runEventLoop], run on a thread of its own: it sleeps with nothing to do, and wakes for content. */
+/** A real [KortexShell.runEventLoop] on a thread of its own: it sleeps with nothing to do, and wakes for content. */
 class EventLoopWakeTest {
     @Test
     fun `an idle application's loop stays asleep`() {

@@ -49,7 +49,13 @@ class CompositorChoiceTest {
             Show(
                 TestSurface<Nothing>(PANEL_NAMESPACE) {
                     if (showChild.value) {
-                        Show(TestSurface<Nothing>(OPENED_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { childReports += it }))
+                        Show(
+                            TestSurface<Nothing>(
+                                OPENED_NAMESPACE,
+                                anchor = BOTTOM_LEFT,
+                                onClose = { childReports += it },
+                            ),
+                        )
                     }
                 },
             )

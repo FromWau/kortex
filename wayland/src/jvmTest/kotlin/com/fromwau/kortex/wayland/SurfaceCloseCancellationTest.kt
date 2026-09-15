@@ -160,7 +160,8 @@ class SurfaceCloseCancellationTest {
                 // The wl_surface is destroyed only after the close has run the Compose work it waits for.
                 assertTrue(
                     LoopThread.awaitNamespace(QUIET_NAMESPACE, present = false),
-                    "hyprctl layers still reports $QUIET_NAMESPACE after its content closed it beside a yielding sibling",
+                    "hyprctl layers still reports $QUIET_NAMESPACE after its content closed it beside a " +
+                        "yielding sibling",
                 )
                 val stepsOnceClosed = spin.steps.get()
                 assertTrue(
