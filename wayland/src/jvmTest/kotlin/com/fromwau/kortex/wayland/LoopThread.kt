@@ -182,14 +182,23 @@ internal fun CloseWhen(requested: MutableState<Boolean>) {
 internal const val SNAPSHOT_PUMP_WARNING = "GlobalSnapshotManager: concurrent registrations"
 
 /** Runs [block] with `System.out` captured, and returns what was printed there meanwhile. */
-internal fun capturingStdout(block: () -> Unit): String {
+internal fun capturingStdout(block: () -> Unit): String = capturing({ System.out }, System::setOut, block)
+
+/** Runs [block] with `System.err` captured, and returns what was printed there meanwhile. */
+internal fun capturingStderr(block: () -> Unit): String = capturing({ System.err }, System::setErr, block)
+
+private inline fun capturing(
+    current: () -> PrintStream,
+    replace: (PrintStream) -> Unit,
+    block: () -> Unit,
+): String {
     val captured = ByteArrayOutputStream()
-    val realOut = System.out
-    System.setOut(PrintStream(captured))
+    val real = current()
+    replace(PrintStream(captured))
     try {
         block()
     } finally {
-        System.setOut(realOut)
+        replace(real)
     }
     return captured.toString()
 }

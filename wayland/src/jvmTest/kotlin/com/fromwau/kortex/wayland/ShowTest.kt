@@ -566,19 +566,26 @@ class ShowTest {
             if (boom.value) error(APPLICATION_FAILURE)
         }
 
-        onCrashingApplication(content) { shell ->
-            awaitPlaced(shell)
+        // Compose prints the failure of the composition it ran as well, which is kept off the test's own output.
+        val printed = capturingStderr {
+            onCrashingApplication(content) { shell ->
+                awaitPlaced(shell)
 
-            boom.value = true
+                boom.value = true
 
-            val crash = assertIs<KortexError.ApplicationCrashed>(
-                shell.pump(PUMP_MILLIS).errorOrNull(),
-                "content that threw did not end the run as ApplicationCrashed",
-            )
-            assertEquals(APPLICATION_FAILURE, crash.cause.message, "the crash did not carry what the content threw")
-            crash
+                val crash = assertIs<KortexError.ApplicationCrashed>(
+                    shell.pump(PUMP_MILLIS).errorOrNull(),
+                    "content that threw did not end the run as ApplicationCrashed",
+                )
+                assertEquals(APPLICATION_FAILURE, crash.cause.message, "the crash did not carry what the content threw")
+                crash
+            }
         }
         assertTrue(reports.isEmpty(), "an onClose was called after the application crashed: $reports")
+        assertTrue(
+            APPLICATION_FAILURE in printed,
+            "what Compose printed did not name the content's failure: ${printed.take(PRINTED_EXCERPT)}",
+        )
     }
 
     @Test
@@ -619,19 +626,25 @@ class ShowTest {
             if (addUi.value) Box(Modifier.fillMaxSize())
         }
 
-        onCrashingApplication(content) { shell ->
-            awaitPlaced(shell)
+        val printed = capturingStderr {
+            onCrashingApplication(content) { shell ->
+                awaitPlaced(shell)
 
-            addUi.value = true
+                addUi.value = true
 
-            val crash = assertIs<KortexError.ApplicationCrashed>(
-                shell.pump(PUMP_MILLIS).errorOrNull(),
-                "UI placed in the application's content did not end the run as ApplicationCrashed",
-            )
-            assertIs<IllegalStateException>(crash.cause, "the crash did not carry the rejected UI's failure")
-            crash
+                val crash = assertIs<KortexError.ApplicationCrashed>(
+                    shell.pump(PUMP_MILLIS).errorOrNull(),
+                    "UI placed in the application's content did not end the run as ApplicationCrashed",
+                )
+                assertEquals(UI_OUTSIDE_A_SURFACE, crash.cause.message, "the crash was not kortex's rejection of UI")
+                crash
+            }
         }
         assertTrue(reports.isEmpty(), "an onClose was called after the application crashed: $reports")
+        assertTrue(
+            UI_OUTSIDE_A_SURFACE in printed,
+            "what Compose printed did not name kortex's rejection of UI: ${printed.take(PRINTED_EXCERPT)}",
+        )
     }
 
     @Test
@@ -639,13 +652,20 @@ class ShowTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val error = KortexShell
-                .createApplication(display) { Box(Modifier.fillMaxSize()) }
-                .onSuccess { it.close() }
-                .errorOrNull()
+            var error: KortexError? = null
+            val printed = capturingStderr {
+                error = KortexShell
+                    .createApplication(display) { Box(Modifier.fillMaxSize()) }
+                    .onSuccess { it.close() }
+                    .errorOrNull()
+            }
 
             val crash = assertIs<KortexError.ApplicationCrashed>(error, "an application whose content is UI started")
-            assertIs<IllegalStateException>(crash.cause, "the crash did not carry the rejected UI's failure")
+            assertEquals(UI_OUTSIDE_A_SURFACE, crash.cause.message, "the crash was not kortex's rejection of UI")
+            assertTrue(
+                UI_OUTSIDE_A_SURFACE in printed,
+                "what Compose printed did not name kortex's rejection of UI: ${printed.take(PRINTED_EXCERPT)}",
+            )
         }
     }
 
@@ -801,6 +821,7 @@ class ShowTest {
         const val ON_CLOSE_FAILURE = "an onClose threw"
         const val EFFECT_DELAY_MILLIS = 50L
         const val IDLE_MILLIS = 500L
+        const val PRINTED_EXCERPT = 300
 
         // Clear of the default speck's corner, so a second surface is told apart on screen too.
         val BOTTOM_LEFT = setOf(Edge.Bottom, Edge.Left)

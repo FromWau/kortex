@@ -165,6 +165,9 @@ private class ApplicationApplier : Applier<Any> {
 
     override fun onEndChanges() = Unit
 
-    private fun rejectUi(): Nothing =
-        error("UI content belongs in a LayerSurface's invoke(), not directly in kortexApplication's content")
+    private fun rejectUi(): Nothing = error(UI_OUTSIDE_A_SURFACE)
 }
+
+/** What UI placed directly in the application's content fails with; not private because a test checks for it. */
+internal const val UI_OUTSIDE_A_SURFACE =
+    "UI content belongs in a LayerSurface's invoke(), not directly in kortexApplication's content"
