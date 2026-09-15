@@ -59,14 +59,14 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field, and a failure after a surface has reported, which reaches no one; under
 Surface presets, a fractionally scaled monitor, which measures short; under Keyboard and clipboard, the character
 a Ctrl+key types when no layout has an ASCII one on that key, the clipboard that content inside a `Popup` or
 `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap
 xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop; under Housekeeping, the protocol errors
-libwayland prints to stderr, the Compose error `KortexSceneTest` prints, and a closed surface's `wl_pointer`,
-which no test sees outlive it.
+libwayland prints to stderr, the Compose error `KortexSceneTest` prints, the Compose warning `KeyRepeatTest`
+prints, and a closed surface's `wl_pointer`, which no test sees outlive it.
 
 ## Foundations
 
@@ -653,6 +653,14 @@ the bar would begin if nothing else reserved that edge.
       Open: a desktop-free test that keeps its `wl_seat` bound while it releases a pointer taken from it and
       then clicks, where a pointer whose stubs go before its proxy would take the test worker down; or accept
       it as covered by the order in `release()`.
+- [ ] **`KeyRepeatTest` prints Compose's warning about snapshot registrations on two threads.** Its `a shell's
+      loop deadline is the earliest key repeat due on any of its surfaces` prints `GlobalSnapshotManager:
+      concurrent registrations on multiple threads might lead to races` twice, run alone or with the rest of the
+      class. Its `withShellKeyboards` keeps a `KortexScene` on an executor thread, only so each keyboard has a
+      scene to deliver to, beside a shell whose registrations run on the test thread, and Compose 1.12 prints
+      the warning whenever its registrations have run on more than one thread (`warnIfMultipleThreads` in
+      `GlobalSnapshotManager.skiko.kt`). The shell itself keeps every registration on its loop thread. Open: give
+      that scene an immediate dispatcher, which Compose does not register at all, or the shell's own loop.
 
 ## Deliberately not doing
 
