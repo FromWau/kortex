@@ -141,7 +141,10 @@ class MenuAnchorTest {
         )
     }
 
-    /** The anchor and margins of a [MENU_SIZE] ContextMenu at [at], on a monitor whose mode is [OUTPUT], turned. */
+    /**
+     * The anchor and margins of a [MENU_SIZE] ContextMenu at [at], on a monitor whose mode is [OUTPUT], turned by
+     * [transform].
+     */
     private fun placementOnMonitorTurnedBy(
         transform: OutputTransform,
         at: IntOffset,
