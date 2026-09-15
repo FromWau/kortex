@@ -111,8 +111,8 @@ public fun Show(surface: LayerSurface<*>) {
  * ```
  *
  * A monitor is listed once the compositor has described it. It leaves the list when it is unplugged, and every
- * surface on it ends then, as [LayerSurface.onClose] describes. Call it in [kortexApplication]'s content or in a
- * surface's content.
+ * surface you put on it ends then, as [LayerSurface.onClose] describes. Call it in [kortexApplication]'s content or
+ * in a surface's content.
  *
  * @throws IllegalStateException when called anywhere else.
  */
