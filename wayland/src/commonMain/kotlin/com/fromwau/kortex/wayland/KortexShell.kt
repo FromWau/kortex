@@ -187,11 +187,15 @@ internal class KortexShell private constructor(
     internal fun nextDeadlineNanos(): Long? = shownSurfaces.mapNotNull { it.nextDeadlineNanos }.minOrNull()
 
     /**
-     * Pumps the connection until [predicate] holds or [timeoutMillis] elapses.
+     * Pumps the connection until [predicate] holds or [timeoutMillis] elapses; exposed so a test can drive the shell,
+     * where an application runs [runEventLoop].
      *
      * @return whether [predicate] held, or the error that ended the run first, as [runEventLoop] would return it.
      */
-    fun pump(timeoutMillis: Long, predicate: () -> Boolean = { false }): Result<Boolean, KortexError> {
+    fun pump(
+        timeoutMillis: Long,
+        predicate: () -> Boolean = { false },
+    ): Result<Boolean, KortexError> {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
             applyPendingChanges().getOrElse { return Err(it) }
@@ -204,6 +208,8 @@ internal class KortexShell private constructor(
         serviceSurfaces().getOrElse { return Err(it) }
         return Ok(predicate())
     }
+
+    private fun runResult(): EmptyResult<KortexError> = applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
 
     private fun applyPendingChanges(): EmptyResult<KortexError> {
         applicationCrash.get()?.let { return Err(it) }
@@ -219,7 +225,7 @@ internal class KortexShell private constructor(
         }
         reconcileShows()
         // Reconciling calls each onClose, and one that threw there ends the run here.
-        return applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
+        return runResult()
     }
 
     private fun serviceSurfaces(): EmptyResult<KortexError> {
@@ -233,7 +239,7 @@ internal class KortexShell private constructor(
                 shown.requestEnd(shown.newest.value, Err(SurfaceError.Failed(reason)))
             }
         }
-        return applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
+        return runResult()
     }
 
     private fun addOutput(global: WaylandGlobal) {
@@ -397,11 +403,7 @@ internal class KortexShell private constructor(
         shown.reported = true
         // Once the application's own code has thrown, none of it runs again.
         if (applicationCrash.get() != null) return
-        try {
-            shown.newest.value.report(ending)
-        } catch (cause: Throwable) {
-            applicationFailed(cause)
-        }
+        runHostCode(::applicationFailed) { shown.newest.value.report(ending) }
     }
 
     private fun applicationFailed(cause: Throwable) {
@@ -436,7 +438,7 @@ internal class KortexShell private constructor(
         loopQueue.drain()
         // After the drain, which can still run a request content made of the clipboard.
         clipboard.close()
-        return applicationCrash.get()?.let { Err(it) } ?: Ok(Unit)
+        return runResult()
     }
 
     companion object {

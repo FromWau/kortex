@@ -153,28 +153,32 @@ internal class ApplicationComposition(
     private val composition = Composition(ApplicationApplier(), recomposer.compositionContext)
 
     fun setContent(content: @Composable () -> Unit) {
-        runHostCode { composition.setContent(content) }
+        runHostCode(onFailure) { composition.setContent(content) }
     }
 
     /** Recomposes, if the content has asked to since the last frame. */
     fun frame() {
         if (!frameRequested) return
         frameRequested = false
-        runHostCode { recomposer.performFrame(System.nanoTime()) }
+        runHostCode(onFailure) { recomposer.performFrame(System.nanoTime()) }
     }
 
     fun close() {
         // Content whose changes failed to apply leaves a composition whose disposal can throw as well.
-        runHostCode { composition.dispose() }
+        runHostCode(onFailure) { composition.dispose() }
         recomposer.close()
     }
+}
 
-    private inline fun runHostCode(call: () -> Unit) {
-        try {
-            call()
-        } catch (cause: Throwable) {
-            onFailure(cause)
-        }
+/** Runs the host's own code, handing whatever it throws to [onFailure] instead of letting it reach kortex's loop. */
+internal inline fun runHostCode(
+    onFailure: (Throwable) -> Unit,
+    call: () -> Unit,
+) {
+    try {
+        call()
+    } catch (cause: Throwable) {
+        onFailure(cause)
     }
 }
 
