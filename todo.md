@@ -457,9 +457,12 @@ the bar would begin if nothing else reserved that edge.
 - [ ] **A keymap xkb rejects reads as no keymap.** `Xkb.stateFromKeymap` answers it with null, so
       `KeyboardInput` cannot tell a keymap that has not arrived yet from one xkb rejected, and drops every key
       either way. A rejected re-send also discards the last good keymap (`KeyboardInput.kt:62-63`). The keymap
-      comes from outside kortex, so its rejection is an expected failure. Open: `stateFromKeymap` returning a
-      typed `Result`, with `xkb_state_new` returning NULL failing fast through `check`, and what kortex does
-      then: keep the last good keymap, drop keys, or tell the host through a `KortexError`.
+      comes from outside kortex, so its rejection is an expected failure. A keymap that cannot be mapped fares
+      worse: `LibC.mmapPrivateRead` (`Shm.kt:96`) fails through `check`, and `onKeymap` calls it
+      (`KeyboardInput.kt:60`) inside a libwayland callback that catches nothing, which ends the JVM. Open:
+      `stateFromKeymap` and the mapping returning a typed `Result`, with `xkb_state_new` returning NULL failing
+      fast through `check`, and what kortex does then: keep the last good keymap, drop keys, or tell the host
+      through a `KortexError`.
 - [ ] **Content inside a `Popup` or `Dialog` copies and pastes through AWT's clipboard.** Each runs in a
       scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
       inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
