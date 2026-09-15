@@ -11,8 +11,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 
 /**
- * Pins that each preset class takes its settings from the [SurfaceConfig] preset of its kind, and that the presets
- * which take no keyboard focus, shown through [Show], land where hyprctl says that preset places a surface.
+ * Pins that each preset class takes its settings from the [SurfaceConfig] preset of its kind, and that those which take
+ * no keyboard focus, shown through [Show], land where that preset places a surface, as hyprctl reports it.
  *
  * [Dock], [AppMenu] and [LockScreen] take the keyboard as they map, so where they land is [SurfacePresetTest]'s, which
  * needs the desktop to itself; their settings are checked here, where nothing is shown.
@@ -28,7 +28,7 @@ class PresetClassTest {
                 },
             )
         }
-        // Every monitor's, since the compositor chooses the bar's; the usable area, as a desktop's own bar may reserve.
+        // Every monitor's usable area: the compositor picks the bar's monitor, and a desktop bar may reserve space.
         val before = Hyprctl.monitors().associateBy { it.name }
 
         onApplication(content) { shell ->
@@ -439,7 +439,7 @@ class PresetClassTest {
         val MENU_SIZE = IntSize(173, 131)
         val MARGINS = Margins(top = 3.dp, right = 5.dp, bottom = 7.dp, left = 11.dp)
 
-        // Clear of every edge of any mode the monitor takes, so the menu keeps its top-left corner at the point.
+        // Far enough from every edge that the menu keeps its top-left corner at the point and no axis flips.
         const val MENU_X = 601
         const val MENU_Y = 397
 

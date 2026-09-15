@@ -81,7 +81,6 @@ internal object Hyprctl {
 
     fun monitorNames(): Set<String> = monitors().mapTo(mutableSetOf(), HyprMonitor::name)
 
-    /** The connected monitor named [name]. */
     fun monitor(name: String): HyprMonitor =
         checkNotNull(monitors().firstOrNull { it.name == name }) { "hyprctl lost monitor $name" }
 

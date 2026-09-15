@@ -219,6 +219,8 @@ public abstract class AppMenu<E : IError>(
  * down and to the right of [at], unless it would then run past the monitor's right or bottom edge: it opens to the
  * left of [at] instead, or upwards from it, each direction decided on its own. It takes no keyboard focus.
  *
+ * It measures its monitor unrotated, so on a monitor turned a quarter it can open past the monitor's edges.
+ *
  * ```kotlin
  * class Menu(monitor: Monitor, at: IntOffset, onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit) :
  *     ContextMenu<Nothing>(monitor = monitor, at = at, size = IntSize(160, 120), onClose = onClose) {
@@ -253,5 +255,5 @@ public abstract class ContextMenu<E : IError>(
     onClose = onClose,
 )
 
-// The monitor's mode in the logical pixels a surface is placed in, which is what contextMenu flips against.
+// Leaves the transform out: a monitor turned a quarter keeps its mode's unturned width and height.
 private val OutputGeometry.logicalSize: IntSize get() = IntSize(width / scale, height / scale)
