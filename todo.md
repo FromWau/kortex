@@ -249,15 +249,14 @@ rejects, images on the clipboard as PNG and JPEG, and drag and drop.
       instance is built, so a host passes none. A monitor whose `OutputTransform` is a quarter turn, `Rotated90`,
       `Rotated270`, `Flipped90` or `Flipped270`, has the two swapped, since `wl_output.mode` is the output's unturned
       size; an `Unrecognized` transform counts as unturned. The flip is a pure function of its three inputs, so it
-      needs no compositor to test. A menu wider
-      or taller than its monitor still flips on that axis: the anchored corner sits at `at` and the excess runs off
-      the opposite edge, so the answer stays one consistent corner rather than a special case. It carries
-      `ExclusiveZone.Overlap`, which is what makes `at` and `outputSize` the monitor's coordinates: a yielding menu
-      is anchored and margined inside whatever the surfaces that reserve space leave over, so a bar's zone displaces
-      it by that bar's thickness. A corner anchor is two perpendicular edges, so `Overlap` has edges to extend to
-      and the explicit size survives: the restriction that forces `osd` onto `Yield` does not reach here.
-      (`MenuAnchorTest` for the flip, the logical size and a turned monitor, `PresetClassTest` for the coordinate
-      space and the flip on the live monitor, `SurfacePresetTest`)
+      needs no compositor to test. A menu wider or taller than its monitor still flips on that axis: the anchored
+      corner sits at `at` and the excess runs off the opposite edge, so the answer stays one consistent corner rather
+      than a special case. It carries `ExclusiveZone.Overlap`, which is what makes `at` and `outputSize` the monitor's
+      coordinates: a yielding menu is anchored and margined inside whatever the surfaces that reserve space leave over,
+      so a bar's zone displaces it by that bar's thickness. A corner anchor is two perpendicular edges, so `Overlap`
+      has edges to extend to and the explicit size survives: the restriction that forces `osd` onto `Yield` does not
+      reach here. (`MenuAnchorTest` for the flip, the logical size and a turned monitor, `PresetClassTest` for the
+      coordinate space and the flip on the live monitor, `SurfacePresetTest`)
 - [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
       anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
       `ext-session-lock-v1`. (`PresetClassTest`, `SurfacePresetTest`)
@@ -517,7 +516,7 @@ the bar would begin if nothing else reserved that edge.
       on the loop thread that renders it, and every other path that work takes reaches the same thread
       through the loop's queue. A pump first runs on the thread that creates its surface or composition, so
       this holds when `KortexShell.createApplication` and `runEventLoop` share a thread, as in `kortexApplication`.
-      The tests assert it prints nothing while a panel and an OSD run their effects on that thread, under
+      The tests assert it prints nothing while two surfaces run their effects on that thread, under
       `pump` and under a real loop, and while content shows a surface mid-run. (`EffectsOnLoopThreadTest`,
       `EventLoopWakeTest`)
 - [x] **A surface's close runs only its own scene's queued work.** Each `KortexSurface` puts a
