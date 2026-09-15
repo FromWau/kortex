@@ -238,13 +238,6 @@ internal class ShmBuffer(
         releases++
     }
 
-    /** Fills every pixel with one ARGB value. */
-    fun fill(argb: Int) {
-        for (index in 0 until (size / Int.SIZE_BYTES)) {
-            pixels.setAtIndex(JAVA_INT, index, argb)
-        }
-    }
-
     /** Installs the `wl_buffer.release` listener, whose stub lives exactly as long as this buffer. */
     internal fun installRelease() {
         val listener = arena.allocate(ADDRESS.byteSize())
