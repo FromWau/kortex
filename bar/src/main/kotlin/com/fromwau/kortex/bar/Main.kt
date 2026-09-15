@@ -58,16 +58,24 @@ fun main() {
                 null -> Show(
                     DemoBar(
                         screen = monitor,
+                        crashLog = crashLog,
                         onClose = { result ->
-                            result.onError { failure ->
-                                failure.crash?.let { crash -> logCrash(crashLog, crash) }
-                                ended = failure
-                            }
+                            logIfCrashed(crashLog, result)
+                            result.onError { failure -> ended = failure }
                         },
                     ),
                 )
 
-                else -> Show(CrashPopup(monitor, stopped, onClose = { ended = null }))
+                else -> Show(
+                    CrashPopup(
+                        monitor = monitor,
+                        stopped = stopped,
+                        onClose = { result ->
+                            logIfCrashed(crashLog, result)
+                            ended = null
+                        },
+                    ),
+                )
             }
         }
     }.onError { error ->
@@ -79,6 +87,11 @@ fun main() {
 private val SurfaceError<Nothing>.crash: KortexError.SurfaceCrashed?
     get() = (this as? SurfaceError.Failed)?.error as? KortexError.SurfaceCrashed
 
+/** Appends the crash a surface ended with to the crash log at [path], if it ended with one. */
+private fun logIfCrashed(path: Path, result: EmptyResult<SurfaceError<Nothing>>) {
+    result.onError { failure -> failure.crash?.let { crash -> logCrash(path, crash) } }
+}
+
 private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
     appendCrash(path, crash).onError { writeFailure ->
         System.err.println("kortex: surface crashed: $crash")
@@ -87,9 +100,13 @@ private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
     }
 }
 
-/** The bar on [screen]: a click counter, a text field, and a context menu for a right click on its background. */
+/**
+ * The bar on [screen]: a click counter, a text field, and a context menu for a right click on its background, whose
+ * crash goes to [crashLog].
+ */
 private class DemoBar(
     private val screen: Monitor,
+    private val crashLog: Path,
     onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit,
 ) : Bar<Nothing>(
     monitor = screen,
@@ -159,7 +176,16 @@ private class DemoBar(
         }
 
         menuAt?.let { at ->
-            Show(BarMenu(screen, at, onClose = { menuAt = null }))
+            Show(
+                BarMenu(
+                    monitor = screen,
+                    at = at,
+                    onClose = { result ->
+                        logIfCrashed(crashLog, result)
+                        menuAt = null
+                    },
+                ),
+            )
         }
     }
 }

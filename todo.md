@@ -349,9 +349,10 @@ the bar would begin if nothing else reserved that edge.
       `ContentFailure.PointerInput`, reaching its own `onClose` once, while the probe's own process exits
       cleanly. Its content closes its own surface if no click ever lands, so a missed click fails the test
       on the probe's own output instead of a kill. (`VirtualPointerCrashTest`)
-- [x] **The bar demo logs its crashes.** A bar's `onClose` in `Main.kt` appends each crash it is handed, a
-      `SurfaceError.Failed` carrying `KortexError.SurfaceCrashed`, as the crash's ISO-8601 instant, namespace
-      and failure kind (`Composition`, `KeyInput` or `PointerInput`), then the cause's full stack trace, to
+- [x] **The bar demo logs its crashes.** Each surface's `onClose` in `Main.kt`, the bar's, its context menu's
+      and its crash popup's, appends each crash it is handed, a `SurfaceError.Failed` carrying
+      `KortexError.SurfaceCrashed`, as the crash's ISO-8601 instant, namespace and failure kind
+      (`Composition`, `KeyInput` or `PointerInput`), then the cause's full stack trace, to
       `$XDG_STATE_HOME/kortex-bar/crash.log`, or `$HOME/.local/state/kortex-bar/crash.log` when
       `XDG_STATE_HOME` is unset, empty or relative, per the XDG Base Directory spec; missing parent
       directories are created as needed. `CrashLog.kt`'s `crashLogPath` is a pure function of the
