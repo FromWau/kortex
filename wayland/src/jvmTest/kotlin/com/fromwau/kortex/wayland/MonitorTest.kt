@@ -9,8 +9,6 @@ import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
-import java.lang.foreign.Arena
-import java.lang.foreign.MemorySegment
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
@@ -255,27 +253,6 @@ class MonitorTest {
         }
     }
 
-    /**
-     * Runs [block] with a monitor for each of [names] whose output no shell has bound, as a monitor that has gone is to
-     * its shell. Nothing about them reaches a compositor.
-     */
-    private fun withUnboundMonitors(
-        vararg names: String,
-        block: (List<Monitor>) -> Unit,
-    ) {
-        val listeners = names.map { OutputListener() }
-        try {
-            val monitors = listeners.mapIndexed { index, listener ->
-                Arena.ofConfined().use { strings -> listener.onName(NONE, NONE, strings.allocateFrom(names[index])) }
-                listener.onDone(NONE, NONE)
-                Monitor(ShellOutput(index, NONE, listener))
-            }
-            block(monitors)
-        } finally {
-            listeners.forEach(OutputListener::close)
-        }
-    }
-
     /** Where a test's surface asks to go. */
     private enum class Placement {
         CompositorChoice,
@@ -287,7 +264,6 @@ class MonitorTest {
         const val NAMESPACE = "kortex-monitor"
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 300L
-        val NONE: MemorySegment = MemorySegment.NULL
         val WIRE_LOGGING = mapOf("WAYLAND_DEBUG" to "client")
 
         // How libwayland logs a request: an object argument as interface#id, and a null one as nil.
