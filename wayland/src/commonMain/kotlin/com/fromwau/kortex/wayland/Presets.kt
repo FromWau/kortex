@@ -215,7 +215,7 @@ public abstract class AppMenu<E : IError>(
 )
 
 /**
- * A menu of the `size` you give it, opened at [at] on its monitor, on the topmost layer above every window. It opens
+ * A menu of size [menuSize], opened at [at] on its monitor, on the topmost layer above every window. It opens
  * down and to the right of [at], unless it would then run past the monitor's right or bottom edge: it opens to the
  * left of [at] instead, or upwards from it, each direction decided on its own. It takes no keyboard focus.
  *
@@ -223,7 +223,7 @@ public abstract class AppMenu<E : IError>(
  *
  * ```kotlin
  * class Menu(monitor: Monitor, at: IntOffset, onClose: (EmptyResult<SurfaceError<Nothing>>) -> Unit) :
- *     ContextMenu<Nothing>(monitor = monitor, at = at, size = IntSize(160, 120), onClose = onClose) {
+ *     ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = IntSize(160, 120), onClose = onClose) {
  *     @Composable
  *     override fun invoke() {
  *         Text("Close", Modifier.clickable { close() })
@@ -237,20 +237,20 @@ public abstract class AppMenu<E : IError>(
  * @param monitor the monitor the menu opens on, one [rememberMonitors] lists.
  * @param at where the menu opens, in logical pixels from [monitor]'s top-left corner, however much of the monitor
  *   other surfaces reserve.
- * @param size the menu's size in logical pixels.
+ * @param menuSize the menu's size in logical pixels.
  * @param namespace what the compositor calls the menu, e.g. in `hyprctl layers`, exactly as written.
  * @param onClose called once when the menu ends, as [LayerSurface.onClose] describes.
  */
 public abstract class ContextMenu<E : IError>(
     monitor: Monitor,
     at: IntOffset,
-    size: IntSize,
+    menuSize: IntSize,
     namespace: String = "kortex",
     onClose: (EmptyResult<SurfaceError<E>>) -> Unit = {},
 ) : LayerSurface<E>(
     monitor = monitor,
     config = SurfaceConfig
-        .contextMenu(at = at, menuSize = size, outputSize = monitor.geometry.logicalSize)
+        .contextMenu(at = at, menuSize = menuSize, outputSize = monitor.geometry.logicalSize)
         .copy(namespace = namespace),
     onClose = onClose,
 )

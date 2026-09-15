@@ -233,7 +233,7 @@ JPEG, and drag and drop.
       anchor and place itself with margins, which also lets it `Overlap`. (`PresetClassTest`, `SurfacePresetTest`)
 - [x] `AppMenu(width, height)`, over `SurfaceConfig.appMenu`: an osd that also takes keyboard focus on demand, for
       a floating panel whose content dismisses it with `close()`. (`PresetClassTest`, `SurfacePresetTest`)
-- [x] `ContextMenu(monitor, at, size)`, over `SurfaceConfig.contextMenu(at, menuSize, outputSize)`: places a menu so
+- [x] `ContextMenu(monitor, at, menuSize)`, over `SurfaceConfig.contextMenu(at, menuSize, outputSize)`: places a menu so
       its top-left corner sits at `at`, flipping to whichever corner keeps it inside its monitor, independently per
       axis. `outputSize` is the monitor's logical size, its geometry's width and height over its scale, read as the
       instance is built, so a host passes none. A monitor turned a quarter (`wl_output.transform` 90, 270, flipped_90

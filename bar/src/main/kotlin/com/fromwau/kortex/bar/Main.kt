@@ -172,7 +172,7 @@ private class BarMenu(
 ) : ContextMenu<Nothing>(
     monitor = monitor,
     at = at,
-    size = IntSize(MENU_WIDTH, MENU_HEIGHT),
+    menuSize = IntSize(MENU_WIDTH, MENU_HEIGHT),
     namespace = "kortex-menu",
     onClose = onClose,
 ) {

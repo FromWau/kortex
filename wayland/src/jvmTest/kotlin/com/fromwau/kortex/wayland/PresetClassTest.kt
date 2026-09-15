@@ -252,7 +252,7 @@ class PresetClassTest {
                 object : ContextMenu<Nothing>(
                     monitor = monitor,
                     at = IntOffset(MENU_X, MENU_Y),
-                    size = MENU_SIZE,
+                    menuSize = MENU_SIZE,
                     namespace = MENU_NAMESPACE,
                 ) {
                     @Composable
@@ -285,7 +285,7 @@ class PresetClassTest {
                 object : ContextMenu<Nothing>(
                     monitor = monitors.first { it.name == screen.name },
                     at = at,
-                    size = MENU_SIZE,
+                    menuSize = MENU_SIZE,
                     namespace = MENU_NAMESPACE,
                 ) {
                     @Composable
@@ -318,7 +318,7 @@ class PresetClassTest {
             val menu = object : ContextMenu<Nothing>(
                 monitor = monitor,
                 at = at,
-                size = MENU_SIZE,
+                menuSize = MENU_SIZE,
                 namespace = MENU_NAMESPACE,
             ) {
                 @Composable

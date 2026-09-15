@@ -100,7 +100,7 @@ class MenuAnchorTest {
         val mode = IntSize(OUTPUT.width * SCALE, OUTPUT.height * SCALE)
         withUnboundMonitors(MONITOR_NAME, mode = mode, scale = SCALE) { (monitor) ->
             val at = IntOffset(OUTPUT.width - CLEAR_MARGIN, OUTPUT.height - CLEAR_MARGIN)
-            val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, size = MENU_SIZE) {
+            val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {
                 @Composable
                 override fun invoke() = Unit
             }
@@ -144,7 +144,7 @@ class MenuAnchorTest {
     /** The anchor and margins of a [MENU_SIZE] ContextMenu at [at], on a monitor whose mode is [OUTPUT], turned. */
     private fun placementOnMonitorTurnedBy(transform: Int, at: IntOffset): Pair<Set<Edge>, Margins> =
         withUnboundMonitors(MONITOR_NAME, mode = OUTPUT, transform = transform) { (monitor) ->
-            val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, size = MENU_SIZE) {
+            val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {
                 @Composable
                 override fun invoke() = Unit
             }
