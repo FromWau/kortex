@@ -72,10 +72,11 @@ internal class ShownSurface(
 
     /**
      * How its surface ended by itself, once it has: the first ending an instance of the class it shows asked for,
-     * else its content's crash, else a close by the compositor or through the surface's own handle.
+     * else its content's crash, else a close by the compositor or through the surface's own handle. Loop thread only;
+     * reading it forgets an ending asked for by a class the Show no longer shows.
      */
     val ownEnding: EmptyResult<SurfaceError<IError>>?
-        get() = requested.get()?.takeIf { it.fromShownClass() }?.ending ?: surface?.let { placed ->
+        get() = standingRequest(ask = null)?.ending ?: surface?.let { placed ->
             placed.crash?.let { Err(SurfaceError.Failed(it)) } ?: Ok(Unit).takeIf { placed.closed }
         }
 
@@ -86,13 +87,14 @@ internal class ShownSurface(
      */
     fun requestEnd(from: LayerSurface<*>, ending: EmptyResult<SurfaceError<IError>>) {
         val ask = EndRequest(from::class, ending)
-        val standing = requested.updateAndGet { current ->
-            current?.takeIf { it.fromShownClass() } ?: ask.takeIf { it.fromShownClass() }
-        }
-        if (standing === ask) wake()
+        if (standingRequest(ask) === ask) wake()
     }
 
-    private fun EndRequest.fromShownClass(): Boolean = kind == newest.value::class
+    // Drops, not just skips, a request from a class the Show no longer shows: it must not count if that class returns.
+    private fun standingRequest(ask: EndRequest?): EndRequest? = requested.updateAndGet { current ->
+        val shownClass = newest.value::class
+        listOfNotNull(current, ask).firstOrNull { it.kind == shownClass }
+    }
 
     private class EndRequest(val kind: KClass<*>, val ending: EmptyResult<SurfaceError<IError>>)
 }

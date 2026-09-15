@@ -10,6 +10,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -184,6 +185,58 @@ class ShowTest {
                 "close(error) on the new class did not reach its own onClose once",
             )
             assertTrue(dismissals.isEmpty(), "the replaced class's onClose was called: $dismissals")
+        }
+    }
+
+    @Test
+    fun `a close() that lands as its Show is handed another class does not end the Show when that class returns`() {
+        val showRefusing = mutableStateOf(false)
+        val dismissals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Dismissal>>>()
+        val refusals = CopyOnWriteArrayList<EmptyResult<SurfaceError<Refusal>>>()
+        val firstDismissing = AtomicReference<DismissingSurface?>(null)
+        val closedAsItLeft = AtomicBoolean(false)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val surface = when {
+                showRefusing.value -> {
+                    // After the pass's reconcile, before Show is handed this class: the ask sees its own class shown.
+                    if (closedAsItLeft.compareAndSet(false, true)) {
+                        Snapshot.withoutReadObservation { firstDismissing.get()?.close() }
+                    }
+                    RefusingSurface { refusals += it }
+                }
+
+                else -> DismissingSurface { dismissals += it }
+            }
+            SideEffect { if (surface is DismissingSurface) firstDismissing.compareAndSet(null, surface) }
+            Show(surface)
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val first = shell.shownSurfaces.single()
+
+            showRefusing.value = true
+
+            val replaced = shell.pumpOrFail(PUMP_MILLIS) {
+                shell.shownSurfaces.singleOrNull()?.let { it !== first } == true
+            }
+            assertTrue(replaced, "an instance of another class did not replace the surface")
+            assertTrue(closedAsItLeft.get(), "the first instance's close() never ran")
+            val refusing = shell.shownSurfaces.single()
+
+            showRefusing.value = false
+
+            shell.pumpOrFail(PUMP_MILLIS) {
+                dismissals.isNotEmpty() || shell.shownSurfaces.singleOrNull()?.let { it !== refusing } == true
+            }
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertTrue(
+                dismissals.isEmpty(),
+                "a close() made as the Show left its first class ended it once that class returned: $dismissals",
+            )
+            assertTrue(refusals.isEmpty(), "the other class's onClose was called: $refusals")
+            val last = assertNotNull(shell.shownSurfaces.singleOrNull(), "the Show placed nothing for its first class")
+            assertTrue(last !== refusing && last !== first, "the Show's first class, handed back, got no new surface")
         }
     }
 
