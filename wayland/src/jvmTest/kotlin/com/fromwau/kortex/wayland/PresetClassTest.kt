@@ -2,6 +2,8 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -153,10 +155,10 @@ class PresetClassTest {
                 "hyprctl never listed $BACKGROUND_NAMESPACE",
             )
             assertEquals(Layer.Background, geometry.layer, "the background did not land on Layer.Background")
-            assertEquals(monitor.x, geometry.x, "the background did not cover its whole monitor")
-            assertEquals(monitor.y, geometry.y, "the background did not cover its whole monitor")
-            assertEquals(monitor.logicalWidth, geometry.logicalWidth, "the background did not cover its whole monitor")
-            assertEquals(monitor.logicalHeight, geometry.logicalHeight, "the background did not cover its whole monitor")
+            assertEquals(monitor.x, geometry.x, "the background did not cover its monitor")
+            assertEquals(monitor.y, geometry.y, "the background did not cover its monitor")
+            assertEquals(monitor.logicalWidth, geometry.logicalWidth, "the background did not cover its monitor")
+            assertEquals(monitor.logicalHeight, geometry.logicalHeight, "the background did not cover its monitor")
         }
     }
 
@@ -229,6 +231,109 @@ class PresetClassTest {
         }
     }
 
+    @Test
+    fun `a ContextMenu sits at the point it was given on its monitor, across a panel's reserved space`() {
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            val monitor = monitors.first()
+            // A reservation of the test's own, so the point is shown to be the monitor's, not the usable area's.
+            Show(
+                object : Panel<Nothing>(
+                    monitor = monitor,
+                    edge = Edge.Left,
+                    thickness = MENU_PANEL_THICKNESS.dp,
+                    namespace = MENU_PANEL_NAMESPACE,
+                ) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+            Show(
+                object : ContextMenu<Nothing>(
+                    monitor = monitor,
+                    at = IntOffset(MENU_X, MENU_Y),
+                    size = MENU_SIZE,
+                    namespace = MENU_NAMESPACE,
+                ) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            val before = Hyprctl.monitor(shell.monitors.value.first().name)
+            awaitPlaced(shell, count = 2)
+            assertReservesMore(shell, before, Edge.Left, MENU_PANEL_THICKNESS)
+
+            val geometry = assertNotNull(Screen.awaitGeometry(MENU_NAMESPACE), "hyprctl never listed $MENU_NAMESPACE")
+            assertEquals(Layer.Overlay, geometry.layer, "the menu did not land above every other layer")
+            assertEquals(before.x + MENU_X, geometry.x, "the menu is not at the x it was given, on its monitor")
+            assertEquals(before.y + MENU_Y, geometry.y, "the menu is not at the y it was given, on its monitor")
+            assertEquals(MENU_SIZE.width, geometry.logicalWidth, "the menu is not its own width")
+            assertEquals(MENU_SIZE.height, geometry.logicalHeight, "the menu is not its own height")
+        }
+    }
+
+    @Test
+    fun `a ContextMenu near its monitor's bottom-right corner opens up and to the left of its point`() {
+        val screen = Hyprctl.monitors().first()
+        val at = IntOffset(screen.logicalWidth - FLIP_INSET, screen.logicalHeight - FLIP_INSET)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val monitors by rememberMonitors()
+            Show(
+                object : ContextMenu<Nothing>(
+                    monitor = monitors.first { it.name == screen.name },
+                    at = at,
+                    size = MENU_SIZE,
+                    namespace = MENU_NAMESPACE,
+                ) {
+                    @Composable
+                    override fun invoke() = Unit
+                },
+            )
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+
+            val geometry = assertNotNull(Screen.awaitGeometry(MENU_NAMESPACE), "hyprctl never listed $MENU_NAMESPACE")
+            assertEquals(
+                screen.x + at.x - MENU_SIZE.width,
+                geometry.x,
+                "the menu did not open to the left of its point, near its monitor's right edge",
+            )
+            assertEquals(
+                screen.y + at.y - MENU_SIZE.height,
+                geometry.y,
+                "the menu did not open upwards from its point, near its monitor's bottom edge",
+            )
+        }
+    }
+
+    @Test
+    fun `a ContextMenu's settings are a SurfaceConfig contextMenu's, with every value it was given`() {
+        withUnboundMonitors(MONITOR_NAME, mode = MONITOR_MODE) { (monitor) ->
+            val at = IntOffset(MENU_X, MENU_Y)
+            val menu = object : ContextMenu<Nothing>(
+                monitor = monitor,
+                at = at,
+                size = MENU_SIZE,
+                namespace = MENU_NAMESPACE,
+            ) {
+                @Composable
+                override fun invoke() = Unit
+            }
+
+            assertSame(monitor, menu.monitor, "the menu was not put on the monitor it was given")
+            assertEquals(
+                SurfaceConfig.contextMenu(at, MENU_SIZE, MONITOR_MODE).copy(namespace = MENU_NAMESPACE),
+                menu.settings.config,
+                "the menu's settings are not a contextMenu's with the values it was given",
+            )
+        }
+    }
+
     /**
      * Pumps [shell] until [before]'s monitor reserves [amount] more against [edge] than it did, since a reservation
      * lands a frame late, and fails if it never reserves exactly that.
@@ -244,8 +349,13 @@ class PresetClassTest {
         const val PANEL_NAMESPACE = "kortex-preset-class-panel"
         const val BACKGROUND_NAMESPACE = "kortex-preset-class-background"
         const val OSD_NAMESPACE = "kortex-preset-class-osd"
+        const val MENU_NAMESPACE = "kortex-preset-class-context-menu"
+        const val MENU_PANEL_NAMESPACE = "kortex-preset-class-context-menu-panel"
         const val MONITOR_NAME = "PRESET-1"
         const val PUMP_MILLIS = 4_000L
+
+        // An unbound monitor's mode at scale 1, so its logical size too.
+        val MONITOR_MODE = IntSize(1920, 1080)
 
         // What Bar promises when left at its defaults.
         const val DEFAULT_BAR_THICKNESS = 32
@@ -257,6 +367,15 @@ class PresetClassTest {
         const val LENGTH = 307
         const val OSD_WIDTH = 239
         const val OSD_HEIGHT = 43
+        const val MENU_PANEL_THICKNESS = 37
+        val MENU_SIZE = IntSize(173, 131)
         val MARGINS = Margins(top = 3.dp, right = 5.dp, bottom = 7.dp, left = 11.dp)
+
+        // Clear of every edge of any mode the monitor takes, so the menu keeps its top-left corner at the point.
+        const val MENU_X = 601
+        const val MENU_Y = 397
+
+        // Close enough to the monitor's right and bottom edges that MENU_SIZE overflows both.
+        const val FLIP_INSET = 19
     }
 }
