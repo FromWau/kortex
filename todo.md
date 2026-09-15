@@ -62,8 +62,8 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
 Next: ten entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field, and a failure after a surface has reported, which reaches no one; under
 Surface presets, a fractionally scaled monitor, which measures short, and a size below 0, which reaches the
-compositor unchecked; under Keyboard and clipboard, the letter a Ctrl+letter types with no Latin layout
-configured, the clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that leaves
+compositor unchecked; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an ASCII
+one on that key, the clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that leaves
 `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG and
 JPEG, and drag and drop.
 
@@ -153,8 +153,8 @@ JPEG, and drag and drop.
 - [x] **A surface's `monitor.geometry` recomposes a reader.** Content reads its own surface's
       `monitor.geometry` during composition and records every value it composes with. Its first, real
       composition already sees the output's real geometry, since the application round-trips before
-      placing. The test then drives it past that with a fabricated event group, called directly on the
-      live surface's own `OutputListener` from the test thread: `onGeometry`, `onMode` flagged current,
+      placing. The test then drives it past that with a fabricated event group, called directly on that
+      monitor's `OutputListener`, the shell's, from the test thread: `onGeometry`, `onMode` flagged current,
       `onScale`, `onName`, `onDescription`, then `onDone`. That stands in for what a real re-send would
       dispatch on the loop thread. Content recomposes with the fabricated geometry, which needs no real
       output added, removed or changed, so it runs untagged in the default build. (`RecompositionTest`)
@@ -192,11 +192,12 @@ JPEG, and drag and drop.
       ends then, reporting `Ok(Unit)` whether or not the compositor closes it. A surface's content reaches its
       instance as `LocalKortexSurface.current`, the typed clipboard as `LocalKortexClipboard.current` and the
       shell, so a `Show` there places a surface of its own; a surface that ends, removed or crashed, takes the
-      surfaces its content showed with it, each reporting `Ok(Unit)`. Four paths are covered by reading rather
+      surfaces its content showed with it, each reporting `Ok(Unit)`. Three paths are covered by reading rather
       than by a test: a connection that dies under the run, which ends it with the connection's error; a shown
-      surface whose tick fails, which ends as `Failed`; that startup check's call, whose check itself is tested;
-      and a monitor plugged in while the application runs, which is listed after the round trip that follows its
-      bind. (`ShowTest`, `MonitorTest`)
+      surface whose tick fails, which ends as `Failed`; and that startup check's call, whose check itself is
+      tested. A monitor plugged in while the application runs, listed after the round trip that follows its
+      bind, is tested only by `@Hotplug` tests, which run once `-Pkortex.hotplugTests=true` opts them in.
+      (`ShowTest`, `MonitorTest`, and `KortexShellTest` and `MultiSurfaceTest` for a monitor plugged in)
 - [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
       `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
       clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
@@ -205,10 +206,11 @@ JPEG, and drag and drop.
       queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
       `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
 - [ ] **A failure after a surface has reported reaches no one.** A crash in a closed scene's leftover work,
-      such as a `delay` in a `NonCancellable` `finally`, is recorded by the scene but only wakes the loop
-      (`KortexShell.kt:338`, `:385-391`): the surface has reported by then, and nothing reads its crash
-      again. When the connection has died, an `ApplicationCrashed` from an `onClose` called as the
-      application closes is dropped for the connection's error (`KortexApplication.kt:64-65`). Open:
+      such as a `delay` in a `NonCancellable` `finally`, is recorded by the scene but only wakes the loop,
+      through the `onCrash` that `KortexShell.place` passes: the surface has reported by then, and its `Show`
+      no longer holds it, so nothing reads its crash again. When the connection has died, an
+      `ApplicationCrashed` from an `onClose` called as the application closes is dropped for the connection's
+      error, by `kortexApplication`'s `run.flatMap { closed }`. Open:
       whether a surface's report waits for its closed scene's leftover work, within a bound, or `onClose`'s
       KDoc says such failures go unreported; decided with spec B, which reworks teardown.
 
@@ -270,9 +272,9 @@ JPEG, and drag and drop.
 - [ ] **A fractionally scaled monitor measures short.** `OutputGeometry`'s width and height over its
       `scale` are the monitor's logical size only at a whole-number scale. `wl_output.scale` is an
       integer, and Hyprland rounds a fractional scale up, so at 1.5 the monitor measures a quarter short.
-      `ContextMenu` measures its monitor that way (`Presets.kt:275-279`), so it can flip early and open
-      away from its point; its KDoc says so. Open: a true logical size, which needs a protocol kortex does
-      not bind yet, such as `zxdg_output_v1`'s `logical_size`.
+      `ContextMenu` measures its monitor that way (`OutputGeometry.logicalSize`, private to `Presets.kt`), so
+      it can flip early and open away from its point; its KDoc says so. Open: a true logical size, which needs
+      a protocol kortex does not bind yet, such as `zxdg_output_v1`'s `logical_size`.
 - [ ] **A size that rounds below 0 reaches the compositor unchecked.** `Dp.toLogicalPx` rounds without
       clamping, and `requireSpannableAxes` (`LayerShell.kt`) rejects only a 0 on an axis the surface cannot
       span, so a negative `width` or `height`, a preset's negative `length` or a `ContextMenu`'s negative
@@ -405,8 +407,8 @@ the bar would begin if nothing else reserved that edge.
       F-keys index into a table the way `DIGIT_KEYS` and `LETTER_KEYS` do; the keypad's own navigation
       keysyms stay unnamed, since at the base level they are what a keypad digit is.
       (`KeyboardDeliveryTest`)
-- [x] **Shortcuts that ignore the layout.** While the active layout has no Latin letters, as a Cyrillic, Greek
-      or Arabic one does, `Xkb.key` names a key after its base keysym in the keymap's first Latin layout, so
+- [x] **Shortcuts under a layout with no Latin letters.** While the active layout is one such as Cyrillic,
+      Greek or Arabic, `Xkb.key` names a key after its base keysym in the keymap's first Latin layout, so
       Ctrl+C under a Cyrillic layout is `Key.C` and a text field's own Ctrl+A and Ctrl+C work. Punctuation
       follows too: under `ru` the slash key types a period and is `Key.Slash`. A layout has Latin letters when
       some key's one base-level keysym is `a` to `z`. `Xkb.stateFromKeymap` works out once per keymap which
@@ -416,10 +418,14 @@ the bar would begin if nothing else reserved that edge.
       own keys: German `ü` stays `Key.Unknown` rather than borrowing US `[`, and AZERTY's `Key.A` is the key
       QWERTY calls Q. With no Latin layout configured, nothing changes. (`LatinFallbackTest`,
       `KeyboardDeliveryTest`)
-- [ ] **With no Latin layout configured, a Ctrl+letter a text field does not consume types its letter.** Under
-      `ru` alone, Ctrl+Q reports `й` (U+0439), and `KeyboardInput.deliverKey` commits any printable character of
-      a key the composition did not consume (`KeyboardInput.kt:137`). Under `us,ru`, xkb's Control
-      transformation finds `us`'s `q` and reports 0x11, which is dropped. No test covers it yet. Open: committing
+- [ ] **A Ctrl+key types its character into a text field when no configured layout has an ASCII one on that
+      key.** With Ctrl held, libxkbcommon 1.13.2 turns a key's character into a control code only when some
+      configured layout has an ASCII character on that key, and then from that one: under `us,ru` with `ru`
+      active, Ctrl+Q reports 0x11, and under `us,de` with `de` active, Ctrl+ü reports 0x1B, Ctrl+[, both below
+      space and dropped (`KeyboardInput.kt:119`). Otherwise it reports the character itself: under `ru` alone,
+      Ctrl+Q reports `й` (U+0439), and under `de` alone, Ctrl+ü reports `ü` (U+00FC). `KeyboardInput.deliverKey`
+      commits either, as it commits any printable character of a key the composition did not consume
+      (`KeyboardInput.kt:137`). Measured against libxkbcommon directly; no test covers it yet. Open: committing
       nothing while Ctrl is held, say, checked against AltGr under the xkb options in use.
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
       clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
