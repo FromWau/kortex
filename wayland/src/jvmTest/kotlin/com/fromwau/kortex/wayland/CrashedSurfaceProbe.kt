@@ -9,8 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.errorOrNull
+import com.fromwau.kern.result.onError
 import kotlinx.coroutines.delay
 
 // Read by ContentFailureTest, which runs this in a child JVM: should a throw ever escape a libwayland
@@ -19,20 +18,27 @@ internal const val PROBE_MARKER = "KORTEX-PROBE"
 internal const val PROBE_NAMESPACE = "kortex-crash-probe"
 internal const val PROBE_FAILURE = "content threw while drawing a later frame"
 
-/** Runs one surface whose content draws a frame and throws while drawing the next, and reports how the run ended. */
+/** Shows one surface whose content draws a frame and throws while drawing the next, and reports how it ended. */
 object CrashedSurfaceProbe {
     @JvmStatic
     fun main(args: Array<String>) {
-        val result = runSurfaces(
-            SurfaceSpec(PROBE_CONFIG, OutputTarget.CompositorChoice) { ThrowOnLaterFrame() },
-            onCrashSurface = { crash ->
-                System.err.println("$PROBE_MARKER hook crashed=${crash.namespace} cause=${crash.failure.cause.message}")
-            },
-        )
-        val crash = result.errorOrNull() as? KortexError.SurfaceCrashed
-        val kind = crash?.failure?.let { it::class.simpleName }
-        val cause = crash?.failure?.cause?.message
-        System.err.println("$PROBE_MARKER crashed=${crash?.namespace} failure=$kind cause=$cause")
+        kortexApplication {
+            Show(
+                TestSurface<Nothing>(PROBE_NAMESPACE, onClose = { ending ->
+                    ending.onError { error ->
+                        val crash = (error as SurfaceError.Failed).error as KortexError.SurfaceCrashed
+                        System.err.println(
+                            "$PROBE_MARKER hook crashed=${crash.namespace} cause=${crash.failure.cause.message}",
+                        )
+                        System.err.println(
+                            "$PROBE_MARKER crashed=${crash.namespace} failure=${crash.failure::class.simpleName} " +
+                                "cause=${crash.failure.cause.message}",
+                        )
+                    }
+                    exitApplication()
+                }) { ThrowOnLaterFrame() },
+            )
+        }
     }
 }
 
@@ -51,12 +57,3 @@ private fun ThrowOnLaterFrame() {
 }
 
 private const val BREAK_AFTER_MILLIS = 200L
-
-// A speck in the corner, where the pointer is least likely to be.
-private val PROBE_CONFIG = SurfaceConfig(
-    layer = Layer.Overlay,
-    anchor = setOf(Edge.Bottom, Edge.Right),
-    width = 8.dp,
-    height = 8.dp,
-    exclusiveZone = ExclusiveZone.Yield,
-).copy(namespace = PROBE_NAMESPACE)
