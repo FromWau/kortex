@@ -8,15 +8,15 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * A real click, from a virtual pointer through the compositor, reaches a click handler that throws: it
- * ends only its own surface, and the JVM it happens in lives. [CrashedPointerProbe] runs in a child JVM,
- * the way [ContentFailureTest] runs [CrashedSurfaceProbe], since a throw escaping a real `wl_pointer`
- * callback would otherwise end the JVM running the tests. [VirtualPointerClickTest] covers the same
- * click path into content that does not throw.
+ * A real click, from a virtual pointer through the compositor, reaches a click handler that throws: the
+ * crash is reported, and the JVM it happens in lives. [CrashedPointerProbe] runs in a child JVM, the way
+ * [ContentFailureTest] runs [CrashedSurfaceProbe], since a throw escaping a real `wl_pointer` callback
+ * would otherwise end the JVM running the tests. [VirtualPointerClickTest] covers the same click path
+ * into content that does not throw.
  */
 class VirtualPointerCrashTest {
     @Test
-    fun `a click delivered through the compositor to a throwing handler ends only its own surface`() {
+    fun `a click delivered through the compositor to a throwing handler reports the crash, and the process survives`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
@@ -64,7 +64,7 @@ class VirtualPointerCrashTest {
                 "cause=$POINTER_PROBE_FAILURE"
             assertTrue(
                 crashLine in probe.output,
-                "the click did not end the surface in the click handler's crash; output:\n$raw",
+                "the click handler's crash was not reported; output:\n$raw",
             )
             val hookLine = "$PROBE_MARKER hook crashed=$POINTER_PROBE_NAMESPACE cause=$POINTER_PROBE_FAILURE"
             assertEquals(
