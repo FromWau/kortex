@@ -67,6 +67,22 @@ class LiveSettingsTest {
     }
 
     @Test
+    fun `a change reaches a surface whose content asks for no frame of its own`() {
+        val margins = mutableStateOf(Margins.None)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface<Nothing>(NAMESPACE, margins = margins.value)
+        }
+
+        onSurface(content) { shell, placed ->
+            margins.value = Margins(bottom = MARGIN_BOTTOM.dp, right = MARGIN_RIGHT.dp)
+
+            val moved = awaitGeometry(shell) { it.y == placed.y - MARGIN_BOTTOM }
+            assertEquals(placed.address, moved.address, "the change made a new layer surface")
+            assertEquals(placed.x - MARGIN_RIGHT, moved.x, "the change waited for a frame that never came")
+        }
+    }
+
+    @Test
     fun `a changed anchor moves the surface to the other edge`() {
         val anchor = mutableStateOf(setOf(Edge.Bottom, Edge.Right))
         val placements = AtomicInteger()
