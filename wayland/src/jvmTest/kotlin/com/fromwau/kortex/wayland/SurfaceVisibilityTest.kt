@@ -246,6 +246,32 @@ class SurfaceVisibilityTest {
     }
 
     @Test
+    fun `a surface created off screen reserves nothing from its first commit on`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val config = SurfaceConfig.panel(edge = Edge.Bottom, thickness = THICKNESS.dp).copy(namespace = NAMESPACE)
+        val before = Hyprctl.monitors().associateBy(HyprMonitor::name)
+
+        display.use {
+            val surface = KortexSurface
+                .create(display, config, visible = false)
+                .getOrElse { error -> fail("the surface was not created: $error") }
+
+            surface.use {
+                // A reservation lands a frame after the commit that asks for it, so give one the frames to land in.
+                surface.pumpOrFail(SETTLE_MILLIS)
+
+                val placed = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl never reported $NAMESPACE")
+                val monitor = assertNotNull(before[placed.monitor], "hyprctl did not report ${placed.monitor} before")
+                assertEquals(
+                    monitor.reservedAgainst(Edge.Bottom),
+                    Hyprctl.monitor(monitor.name).reservedAgainst(Edge.Bottom),
+                    "a surface created off screen reserved space against the edge it is anchored to",
+                )
+            }
+        }
+    }
+
+    @Test
     fun `a config that cannot be placed ends a surface that is off screen, as it would one on screen`() {
         val visible = mutableStateOf(true)
         val anchor = mutableStateOf(BOTTOM_BAR)
