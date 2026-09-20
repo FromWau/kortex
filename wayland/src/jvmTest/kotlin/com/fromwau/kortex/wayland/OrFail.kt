@@ -65,14 +65,14 @@ internal fun settingsAskedBy(content: @Composable KortexApplicationScope.() -> U
     return assertNotNull(asked, "the content asked for no surface")
 }
 
-/** Pumps [shell] until [count] of its surfaces are on screen; the test fails if they never are. */
+/** Pumps [shell] until [shell] has placed [count] surfaces, on screen or off; the test fails if it never does. */
 internal fun awaitPlaced(
     shell: KortexShell,
     count: Int = 1,
 ) {
     assertTrue(
         shell.pumpOrFail(PLACED_WITHIN_MILLIS) { shell.shownSurfaces.size == count },
-        "the application never had $count surfaces on screen",
+        "the application never placed $count surfaces",
     )
 }
 

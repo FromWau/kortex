@@ -84,7 +84,7 @@ internal class KortexShell private constructor(
     // Filled by each surface call's effects, which run inside a composition's apply, and acted on in the next pass.
     private val changedSlots = ConcurrentLinkedQueue<SurfaceSlot>()
 
-    /** Every surface a call holds on screen, in the order they were placed; a test reads them. */
+    /** Every surface a call holds, on screen or off, in the order they were placed; a test reads them. */
     internal val shownSurfaces: List<KortexSurface> get() = placed.mapNotNull { it.surface }
 
     /** What each slot queued since the last pass asks for, before that pass places anything; a test reads them. */
@@ -315,6 +315,7 @@ internal class KortexShell private constructor(
             .create(
                 display,
                 settings.config,
+                visible = settings.visible,
                 platform = platform,
                 output = output?.proxy ?: MemorySegment.NULL,
                 loopQueue = loopQueue,
@@ -326,10 +327,8 @@ internal class KortexShell private constructor(
             .flatMap { surface ->
                 // Before the content composes, so its first composition already reads the surface's size.
                 slot.surface = surface
-                // Before the first frame, so a call that asks for a hidden surface never puts one on screen.
-                val started = if (settings.visible) Ok(Unit) else surface.hide()
-                started
-                    .flatMap { surface.setContent { ShownContent(slot) } }
+                surface
+                    .setContent { ShownContent(slot) }
                     .onError {
                         slot.surface = null
                         surface.close()

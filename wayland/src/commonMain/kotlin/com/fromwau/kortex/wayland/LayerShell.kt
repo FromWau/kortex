@@ -305,18 +305,23 @@ internal class LayerShellSurface(
 
     companion object {
         /**
-         * Creates a layer surface of [config] on [output], and drives it to its first configure.
+         * Creates a layer surface of [config] on [output], and drives it to its first configure. A surface made
+         * with [visible] false reserves nothing until [resend] sends the zone [config] asks for.
          *
          * @return what [requirePlaceable] rejects [config] for, with nothing sent and no surface made.
          */
         fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
+            visible: Boolean = true,
             output: MemorySegment = MemorySegment.NULL,
         ): Result<LayerShellSurface, KortexError> {
             requirePlaceable(config).getOrElse { return Err(it) }
             val namespace = config.namespace
             val anchor = config.anchor
+            // Hyprland arranges an unmapped surface like any other, so a zone sent here would move the windows
+            // around a surface that is never drawn.
+            val zone = if (visible) config.exclusiveZone else ExclusiveZone.Yield
 
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
@@ -368,7 +373,7 @@ internal class LayerShellSurface(
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
-                args = listOf(WlArg.Num(config.exclusiveZone.toWireValue())),
+                args = listOf(WlArg.Num(zone.toWireValue())),
             )
             config.exclusiveEdge?.let { edge ->
                 LibWayland.marshal(

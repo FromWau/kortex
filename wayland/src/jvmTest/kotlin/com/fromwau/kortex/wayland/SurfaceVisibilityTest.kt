@@ -12,6 +12,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.getOrElse
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
@@ -19,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlinx.coroutines.delay
 
 /**
@@ -239,6 +245,51 @@ class SurfaceVisibilityTest {
         }
     }
 
+    @Test
+    fun `a config that cannot be placed ends a surface that is off screen, as it would one on screen`() {
+        val visible = mutableStateOf(true)
+        val anchor = mutableStateOf(BOTTOM_BAR)
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val unspannable = setOf(Edge.Bottom, Edge.Left)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface<Nothing>(
+                NAMESPACE,
+                anchor = anchor.value,
+                width = SPAN_ANCHORED_AXIS.dp,
+                visible = visible.value,
+                onClose = { reports += it },
+            )
+        }
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            KortexShell.createApplicationOrFail(display, content).useOrFail { shell ->
+                awaitPlaced(shell)
+
+                visible.value = false
+
+                awaitOffScreen(shell)
+
+                anchor.value = unspannable
+
+                assertTrue(
+                    shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                    "the config an off-screen surface cannot be placed with reported nothing",
+                )
+                assertEquals(
+                    listOf(Err(SurfaceError.Failed(KortexError.UnspannableAxis(Axis.Horizontal, unspannable)))),
+                    reports.toList(),
+                    "a config that leaves an axis unspannable did not end the off-screen surface with that reason",
+                )
+                assertEquals(
+                    Ok(Unit),
+                    display.requireAlive(),
+                    "the rejected config reached the compositor, which answered it by dropping the connection",
+                )
+            }
+        }
+    }
+
     /** A bottom panel whose content reports itself to [watch] from an effect that outlives going off screen. */
     @Composable
     private fun WatchedPanel(
@@ -314,6 +365,7 @@ class SurfaceVisibilityTest {
         const val THICKNESS = 18
         const val THICKER = 30
         const val RESERVES_NOTHING = 0
+        const val SPAN_ANCHORED_AXIS = 0
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 500L
 
@@ -322,5 +374,8 @@ class SurfaceVisibilityTest {
 
         const val TICK_MILLIS = 50L
         const val TICKS = 3
+
+        // Clear of the desktop's own bar at the top, which already reserves space there.
+        val BOTTOM_BAR = setOf(Edge.Bottom, Edge.Left, Edge.Right)
     }
 }

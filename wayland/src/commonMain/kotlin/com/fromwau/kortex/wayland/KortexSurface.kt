@@ -109,6 +109,7 @@ internal class KortexSurface private constructor(
      * Whether the surface is unmapped: it draws nothing, takes no input and reserves nothing until [show] maps it
      * again, while its composition keeps running.
      */
+    @Volatile
     internal var hidden: Boolean = false
         private set
 
@@ -136,7 +137,10 @@ internal class KortexSurface private constructor(
         layer.markClosed()
     }
 
-    /** Composes [content] and draws its first frame, failing as [KortexError.SurfaceCrashed] if content throws. */
+    /**
+     * Composes [content] and, unless the surface is off screen, draws its first frame, failing as
+     * [KortexError.SurfaceCrashed] if content throws.
+     */
     fun setContent(content: @Composable () -> Unit): EmptyResult<KortexError> {
         scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
             .onSuccess { renderNow(frameTimeNanos = 0L) }
@@ -161,6 +165,7 @@ internal class KortexSurface private constructor(
      * @return what [LayerShellSurface.apply] rejected, leaving the surface with the settings it already had.
      */
     fun applyConfig(new: SurfaceConfig): EmptyResult<KortexError> {
+        check(!hidden) { "a surface off screen sends nothing; show() is what sends the config it comes back with" }
         layer.apply(new).getOrElse { return Err(it) }
         followKeyboard(new)
         return Ok(Unit)
@@ -272,7 +277,12 @@ internal class KortexSurface private constructor(
         return resizeTo(layer.logicalWidth, layer.logicalHeight)
     }
 
-    /** Draws at the size the compositor last configured, taking the frames to that size first if they are not. */
+    /**
+     * Draws at the size the compositor last configured, taking the frames to that size first if they are not.
+     *
+     * Nothing else will: the configure that answers a [LayerShellSurface.remap] arrives while the surface counts as
+     * unconfigured, which is exactly what [LayerShellSurface.consumeResize] does not report.
+     */
     private fun drawAtConfiguredSize(): EmptyResult<KortexError> {
         if (configuredSizeChanged) return resizeTo(layer.logicalWidth, layer.logicalHeight)
         renderNow(frameTimeNanos = 0L)
@@ -408,6 +418,9 @@ internal class KortexSurface private constructor(
         fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
+            // False makes the surface off screen from its first commit on, rather than briefly reserving [config]'s
+            // exclusive zone; [show] is what puts it on screen.
+            visible: Boolean = true,
             platform: KortexPlatform = KortexPlatform.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
@@ -447,7 +460,7 @@ internal class KortexSurface private constructor(
             try {
                 val shm = Shm.bind(display).getOrElse { return Err(it) }
                 unwind += shm::close
-                val layer = LayerShellSurface.create(display, config, output).getOrElse { return Err(it) }
+                val layer = LayerShellSurface.create(display, config, visible, output).getOrElse { return Err(it) }
                 unwind += layer::close
                 layer.waitForConfigure().getOrElse { return Err(it) }
                 // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
@@ -496,6 +509,7 @@ internal class KortexSurface private constructor(
                     loop, surfaceWork, cursorTheme, cursorSurface, seat,
                     takeKeyboard = { seat.attachKeyboard(scene, { open.get() }, onInputSerial, onKeyboardFocus) },
                 )
+                surface.hidden = !visible
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true
                 surface.pointerInput =
