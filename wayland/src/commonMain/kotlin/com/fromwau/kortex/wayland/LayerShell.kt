@@ -176,8 +176,7 @@ internal class LayerShellSurface(
     /**
      * Requests a new size in logical (surface-local) pixels, which the compositor answers with a fresh configure.
      *
-     * @return what [requirePlaceable] rejects the new size against this surface's other settings for, leaving it
-     *   at the size it already has.
+     * @return what [requirePlaceable] rejects the new size for, leaving the surface at the size it already has.
      */
     fun setSize(width: Int, height: Int): EmptyResult<KortexError> =
         apply(config.copy(width = width.dp, height = height.dp))

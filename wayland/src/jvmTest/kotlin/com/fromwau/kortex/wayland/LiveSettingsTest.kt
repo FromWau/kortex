@@ -210,7 +210,10 @@ class LiveSettingsTest {
 
                 anchor.value = unspannable
 
-                assertTrue(shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() }, "the rejected change reported nothing")
+                assertTrue(
+                    shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                    "the rejected change reported nothing",
+                )
                 assertEquals(
                     listOf(Err(SurfaceError.Failed(KortexError.UnspannableAxis(Axis.Horizontal, unspannable)))),
                     reports.toList(),

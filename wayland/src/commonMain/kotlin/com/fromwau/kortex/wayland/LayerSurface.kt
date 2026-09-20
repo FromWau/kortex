@@ -76,11 +76,10 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  *   surface whose content showed it, or ended by `exitApplication()`. It receives [SurfaceError.Closed] when
  *   `close(error)` is called, and [SurfaceError.Failed] when the surface could not be placed or changed to the
  *   settings asked for, failed to follow a new size or scale from the compositor, its content threw, or the
- *   connection to the compositor failed. For a failed
- *   connection, [SurfaceError.Failed] carries the same error [kortexApplication] returns. Content that throws before
- *   the surface has gone, its cleanup as it goes included, makes it [SurfaceError.Failed] whatever else ended it. If
- *   `onClose` itself throws, the application ends with [KortexError.ApplicationCrashed], and no other `onClose` is
- *   called.
+ *   connection to the compositor failed. For a failed connection, [SurfaceError.Failed] carries the same error
+ *   [kortexApplication] returns. Content that throws before the surface has gone, its cleanup as it goes included,
+ *   makes it [SurfaceError.Failed] whatever else ended it. If `onClose` itself throws, the application ends with
+ *   [KortexError.ApplicationCrashed], and no other `onClose` is called.
  * @param content what is drawn on the surface. It reaches the surface itself as `this`, the clipboard as
  *   [LocalKortexClipboard], and the same surface through `LocalKortexSurface.current` in a composable further down.
  * @throws IllegalStateException when called outside [kortexApplication].
