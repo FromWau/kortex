@@ -105,6 +105,13 @@ internal class KortexSurface private constructor(
     internal var renders: Int = 0
         private set
 
+    /**
+     * Whether the surface is unmapped: it draws nothing, takes no input and reserves nothing until [show] maps it
+     * again, while its composition keeps running.
+     */
+    internal var hidden: Boolean = false
+        private set
+
     /** The buffer scale currently committed; exposed so a test can assert a rescale took effect. */
     internal val currentBufferScale: Int get() = bufferScale
 
@@ -167,6 +174,33 @@ internal class KortexSurface private constructor(
     }
 
     /**
+     * Takes the surface off screen and hands back the space it reserved, leaving its composition running with its
+     * content's state, and [logicalSize], as they are.
+     */
+    fun hide(): EmptyResult<KortexError> {
+        hidden = true
+        // A compositor draws no unmapped surface, so a frame it owes is one it will never send.
+        clock.cancel()
+        layer.unmap()
+        return Ok(Unit)
+    }
+
+    /**
+     * Puts the surface back on screen with [config], every request of which is sent again, and draws the frame
+     * that gives the compositor a buffer to map it from.
+     *
+     * @return what [LayerShellSurface.resend] rejected [config] for, or why the compositor never configured the
+     *   surface again, leaving it off screen either way.
+     */
+    fun show(config: SurfaceConfig): EmptyResult<KortexError> {
+        layer.resend(config).getOrElse { return Err(it) }
+        layer.remap()
+        layer.waitForConfigure().getOrElse { return Err(it) }
+        hidden = false
+        return drawAtConfiguredSize()
+    }
+
+    /**
      * Pumps the connection until [predicate] holds or [timeoutMillis] elapses; exposed so a test can drive a bare
      * surface, where a shell drives its surfaces through [serviceTick].
      *
@@ -220,13 +254,22 @@ internal class KortexSurface private constructor(
     /** Acts on a later configure, coalesced to whatever size is current by the time this runs. */
     private fun maybeResize(): EmptyResult<KortexError> {
         if (!layer.consumeResize()) return Ok(Unit)
-        val newWidth = layer.logicalWidth
-        val newHeight = layer.logicalHeight
-        // Zero means "you choose", per the layer-shell protocol; it is never a real dimension.
-        if (newWidth == 0 || newHeight == 0) return Ok(Unit)
-        if (newWidth == logicalWidth && newHeight == logicalHeight) return Ok(Unit)
-        return resizeTo(newWidth, newHeight)
+        if (!configuredSizeChanged) return Ok(Unit)
+        return resizeTo(layer.logicalWidth, layer.logicalHeight)
     }
+
+    /** Draws at the size the compositor last configured, taking the frames to that size first if they are not. */
+    private fun drawAtConfiguredSize(): EmptyResult<KortexError> {
+        if (configuredSizeChanged) return resizeTo(layer.logicalWidth, layer.logicalHeight)
+        renderNow(frameTimeNanos = 0L)
+        return Ok(Unit)
+    }
+
+    // A configure of zero means "you choose", per the layer-shell protocol; it is never a real dimension.
+    private val configuredSizeChanged: Boolean
+        get() = layer.logicalWidth != 0 &&
+            layer.logicalHeight != 0 &&
+            (layer.logicalWidth != logicalWidth || layer.logicalHeight != logicalHeight)
 
     /** Acts on a later `wl_surface.preferred_buffer_scale`, coalesced to the scale current when this runs. */
     private fun maybeRescale(): EmptyResult<KortexError> {
@@ -279,6 +322,8 @@ internal class KortexSurface private constructor(
     }
 
     private fun renderNow(frameTimeNanos: Long) {
+        // An off-screen surface maps again at its next buffer, so nothing is drawn or committed until it shows.
+        if (hidden) return
         val frame = frames.firstOrNull { !it.buffer.busy }
         if (frame == null) {
             // Every buffer is still owned by the compositor. Ask for another frame rather than draw
@@ -299,6 +344,8 @@ internal class KortexSurface private constructor(
     private fun onInvalidate() {
         // Posted, never run here: Compose also invalidates from inside renderNow, ahead of that frame's own commit.
         post {
+            // The frame an off-screen surface asks for is one the compositor never sends; showing it draws instead.
+            if (hidden) return@post
             // Answer an invalidation by asking for a frame, never by rendering immediately: the
             // compositor decides when a frame happens.
             clock.request(::renderNow)

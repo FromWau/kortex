@@ -8,6 +8,7 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.onSuccess
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
@@ -186,54 +187,99 @@ internal class LayerShellSurface(
      *
      * @return what [requirePlaceable] rejects [new] for, with nothing sent and the surface left as it was.
      */
-    fun apply(new: SurfaceConfig): EmptyResult<KortexError> {
+    fun apply(new: SurfaceConfig): EmptyResult<KortexError> = send(new, known = config).onSuccess { commit() }
+
+    /**
+     * Sends all of [new], for a surface that is to be mapped again: the protocol puts an unmapped surface back in
+     * its just-created state. Pending state only, which [remap] commits.
+     *
+     * @return what [requirePlaceable] rejects [new] for, with nothing sent.
+     */
+    fun resend(new: SurfaceConfig): EmptyResult<KortexError> = send(new, known = null)
+
+    /** Marshals what [new] changes from [known], or all of [new] when the compositor holds none of it. */
+    private fun send(
+        new: SurfaceConfig,
+        known: SurfaceConfig?,
+    ): EmptyResult<KortexError> {
         check(new.namespace == config.namespace) { "get_layer_surface fixes the namespace for the surface's life" }
         requirePlaceable(new).getOrElse { return Err(it) }
-        val old = config
+        fun changed(setting: SurfaceConfig.() -> Any?): Boolean = known == null || new.setting() != known.setting()
         // First: Hyprland validates an exclusive edge against the anchor pending when that request arrives.
-        if (new.anchor != old.anchor) {
+        if (changed { anchor }) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_ANCHOR,
                 args = listOf(WlArg.Num(new.anchor.toBits())),
             )
         }
-        if (new.exclusiveEdge != old.exclusiveEdge) {
+        if (changed { exclusiveEdge }) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE,
                 // 0 is the wire's no edge, which is what a null asks for.
                 args = listOf(WlArg.Num(new.exclusiveEdge?.bit ?: NO_EXCLUSIVE_EDGE)),
             )
         }
-        if (new.width != old.width || new.height != old.height) {
+        if (changed { width } || changed { height }) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_SIZE,
                 args = listOf(WlArg.Num(new.width.toLogicalPx()), WlArg.Num(new.height.toLogicalPx())),
             )
         }
-        if (new.margins != old.margins) {
+        if (changed { margins }) {
             LibWayland.marshal(layerSurface, LayerShellProtocol.SET_MARGIN, args = new.margins.toWireArgs())
         }
-        if (new.exclusiveZone != old.exclusiveZone) {
+        if (changed { exclusiveZone }) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
                 args = listOf(WlArg.Num(new.exclusiveZone.toWireValue())),
             )
         }
-        if (new.layer != old.layer) {
+        if (changed { layer }) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_LAYER,
                 args = listOf(WlArg.Num(new.layer.wireValue)),
             )
         }
-        if (new.keyboard != old.keyboard) {
+        if (changed { keyboard }) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_KEYBOARD_INTERACTIVITY,
                 args = listOf(WlArg.Num(new.keyboard.wireValue)),
             )
         }
         config = new
-        commit()
         return Ok(Unit)
+    }
+
+    /**
+     * Unmaps the surface and hands back the space its exclusive zone reserves, in one commit.
+     *
+     * The config this surface holds is left alone: Hyprland keeps an unmapped surface's state, and [resend] sends
+     * all of it again when the surface is mapped back.
+     */
+    fun unmap() {
+        LibWayland.marshal(
+            layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
+            args = listOf(WlArg.Num(ExclusiveZone.Yield.toWireValue())),
+        )
+        attachNothing()
+        commit()
+    }
+
+    /**
+     * Commits the surface with no buffer, which is how an unmapped one asks to be mapped again, and forgets the
+     * configure it acknowledged last so [waitForConfigure] waits for the one this commit brings.
+     */
+    fun remap() {
+        state.configured = false
+        commit()
+    }
+
+    /** Attaches no buffer at all, which unmaps the surface at the next [commit]. */
+    private fun attachNothing() {
+        LibWayland.marshal(
+            surface, WL_SURFACE_ATTACH,
+            args = listOf(WlArg.Ptr(MemorySegment.NULL), WlArg.Num(0), WlArg.Num(0)),
+        )
     }
 
     fun commit() {

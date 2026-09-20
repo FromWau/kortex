@@ -270,10 +270,25 @@ internal class KortexShell private constructor(
         if (surface == null || placedWith == null || settings.rebuildsOver(placedWith)) {
             return replace(slot, settings)
         }
-        surface
-            .applyConfig(settings.config)
+        sendChange(surface, placedWith, settings)
             .onSuccess { slot.placedWith = settings }
             .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
+    }
+
+    /**
+     * Sends [settings] to a live [surface]: the changed settings first, so one this pass also puts back on screen is
+     * already the shape and place its call asks for as it appears.
+     */
+    private fun sendChange(
+        surface: KortexSurface,
+        placedWith: SurfaceSettings,
+        settings: SurfaceSettings,
+    ): EmptyResult<KortexError> {
+        if (settings.config != placedWith.config) {
+            surface.applyConfig(settings.config).getOrElse { return Err(it) }
+        }
+        if (settings.visible == placedWith.visible) return Ok(Unit)
+        return if (settings.visible) surface.show(settings.config) else surface.hide()
     }
 
     // The call is still in composition, so nothing has ended for its host, unless its content failed as it went.
@@ -308,8 +323,10 @@ internal class KortexShell private constructor(
             .flatMap { surface ->
                 // Before the content composes, so its first composition already reads the surface's size.
                 slot.surface = surface
-                surface
-                    .setContent { ShownContent(slot) }
+                // Before the first frame, so a call that asks for a hidden surface never puts one on screen.
+                val started = if (settings.visible) Ok(Unit) else surface.hide()
+                started
+                    .flatMap { surface.setContent { ShownContent(slot) } }
                     .onError {
                         slot.surface = null
                         surface.close()
