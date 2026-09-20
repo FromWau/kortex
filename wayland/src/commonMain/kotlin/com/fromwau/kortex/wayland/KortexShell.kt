@@ -276,19 +276,22 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Sends [settings] to a live [surface], the changed settings before the visibility, so a surface this pass also
-     * puts back on screen appears in the shape and place its call asks for.
+     * Sends [settings] to a live [surface]. One on screen takes its changed settings before it is taken off, so it
+     * is the shape and place its call asks for while it is seen. One off screen sends nothing at all: showing it is
+     * what sends the settings it comes back with, and one that stays off screen only has them checked.
      */
     private fun sendChange(
         surface: KortexSurface,
         placedWith: SurfaceSettings,
         settings: SurfaceSettings,
     ): EmptyResult<KortexError> {
+        if (!placedWith.visible) {
+            return if (settings.visible) surface.show(settings.config) else surface.requirePlaceable(settings.config)
+        }
         if (settings.config != placedWith.config) {
             surface.applyConfig(settings.config).getOrElse { return Err(it) }
         }
-        if (settings.visible == placedWith.visible) return Ok(Unit)
-        return if (settings.visible) surface.show(settings.config) else surface.hide()
+        return if (settings.visible) Ok(Unit) else surface.hide()
     }
 
     // The call is still in composition, so nothing has ended for its host, unless its content failed as it went.

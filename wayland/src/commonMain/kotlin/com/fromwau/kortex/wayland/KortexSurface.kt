@@ -162,16 +162,17 @@ internal class KortexSurface private constructor(
      */
     fun applyConfig(new: SurfaceConfig): EmptyResult<KortexError> {
         layer.apply(new).getOrElse { return Err(it) }
-        when {
-            new.keyboard == KeyboardInteractivity.None -> {
-                keyboardInput?.release()
-                keyboardInput = null
-            }
-            // The compositor gives an interactive surface focus, which reaches nothing until a keyboard is bound.
-            keyboardInput == null -> keyboardInput = takeKeyboard()
-        }
+        followKeyboard(new)
         return Ok(Unit)
     }
+
+    /**
+     * Checks [new] against the placement rules without sending any of it, for a surface that is off screen and
+     * stays there; [show] is what sends the config it comes back with.
+     *
+     * @return what [LayerShellSurface.requirePlaceable] rejects [new] for.
+     */
+    fun requirePlaceable(new: SurfaceConfig): EmptyResult<KortexError> = LayerShellSurface.requirePlaceable(new)
 
     /**
      * Takes the surface off screen and hands back the space it reserved. Its composition keeps running and keeps
@@ -197,7 +198,20 @@ internal class KortexSurface private constructor(
         layer.remap()
         layer.waitForConfigure().getOrElse { return Err(it) }
         hidden = false
+        // The interactivity [config] asks for reached the compositor only now, and with it whatever focus it grants.
+        followKeyboard(config)
         return drawAtConfiguredSize()
+    }
+
+    private fun followKeyboard(config: SurfaceConfig) {
+        when {
+            config.keyboard == KeyboardInteractivity.None -> {
+                keyboardInput?.release()
+                keyboardInput = null
+            }
+            // The compositor gives an interactive surface focus, which reaches nothing until a keyboard is bound.
+            keyboardInput == null -> keyboardInput = takeKeyboard()
+        }
     }
 
     /**

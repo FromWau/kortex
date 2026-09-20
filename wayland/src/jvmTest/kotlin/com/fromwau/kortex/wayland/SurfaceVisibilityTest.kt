@@ -209,6 +209,36 @@ class SurfaceVisibilityTest {
         }
     }
 
+    @Test
+    fun `a panel that grows thicker while off screen reserves nothing until it comes back`() {
+        val visible = mutableStateOf(true)
+        val thickness = mutableStateOf(THICKNESS)
+        val watch = Watch()
+        val before = Hyprctl.monitors().associateBy(HyprMonitor::name)
+
+        onPanel(visible, thickness = thickness, watch = watch) { shell, _ ->
+            val placed = panelGeometry()
+            val monitor = assertNotNull(before[placed.monitor], "hyprctl did not report ${placed.monitor} before")
+            assertReservesMore(shell, monitor, Edge.Bottom, THICKNESS)
+
+            visible.value = false
+
+            awaitOffScreen(shell)
+            assertReservesMore(shell, monitor, Edge.Bottom, RESERVES_NOTHING)
+
+            thickness.value = THICKER
+
+            // Long enough for a zone this pass sent to reach the compositor and show up in what it reserves.
+            shell.pumpOrFail(SETTLE_MILLIS)
+            assertReservesMore(shell, monitor, Edge.Bottom, RESERVES_NOTHING)
+
+            visible.value = true
+
+            awaitOnScreen(shell)
+            assertReservesMore(shell, monitor, Edge.Bottom, THICKER)
+        }
+    }
+
     /** A bottom panel whose content reports itself to [watch] from an effect that outlives going off screen. */
     @Composable
     private fun WatchedPanel(
