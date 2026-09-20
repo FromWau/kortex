@@ -200,7 +200,7 @@ internal class LayerShellSurface(
         if (new.exclusiveEdge != old.exclusiveEdge) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE,
-                // 0 is no edge, which is what the surface started with and what a null asks for again.
+                // 0 is the wire's no edge, which is what a null asks for.
                 args = listOf(WlArg.Num(new.exclusiveEdge?.bit ?: NO_EXCLUSIVE_EDGE)),
             )
         }

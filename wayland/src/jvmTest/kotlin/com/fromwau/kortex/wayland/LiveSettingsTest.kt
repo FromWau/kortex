@@ -174,8 +174,7 @@ class LiveSettingsTest {
             val monitor = assertNotNull(before[placed.monitor], "hyprctl did not report ${placed.monitor} before")
             assertReservesMore(shell, monitor, Edge.Right, ZONE)
 
-            // The edge it moves to is pinned only by the anchor it moves to, so the compositor rejects the pair
-            // outright unless the anchor reaches it first.
+            // The edge it moves to is pinned only by the anchor it moves to, so the anchor must reach Hyprland first.
             corner.value = RESERVING_LEFT
 
             assertReservesMore(shell, monitor, Edge.Left, ZONE)
@@ -264,7 +263,7 @@ class LiveSettingsTest {
         assertEquals(1, placements.get(), "the content composed again, so what it held behind remember did not survive")
     }
 
-    /** A corner anchor and which of the two edges it pins the exclusive zone is measured from. */
+    /** A corner anchor, and which of the two edges it pins the exclusive zone is measured from. */
     private data class Corner(
         val anchor: Set<Edge>,
         val exclusiveEdge: Edge?,
