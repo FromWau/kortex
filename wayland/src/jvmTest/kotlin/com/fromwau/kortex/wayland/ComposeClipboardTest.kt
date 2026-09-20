@@ -310,14 +310,14 @@ class ComposeClipboardTest {
      * own clipboard, or [contentClipboard]'s stand-in for it.
      */
     private fun withSpeckShell(
-        content: @Composable TestSurface<Nothing>.() -> Unit,
+        content: @Composable SurfaceScope<Nothing>.() -> Unit,
         contentClipboard: (WaylandClipboard) -> TextClipboard = { it },
         block: (KortexShell) -> Unit,
     ) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland ->
             val application: @Composable KortexApplicationScope.() -> Unit = {
-                Show(TestSurface(SPECK_NAMESPACE, content = content))
+                TestSurface(SPECK_NAMESPACE, content = content)
             }
             val shell = KortexShell
                 .createApplication(wayland, contentClipboard = contentClipboard, content = application)

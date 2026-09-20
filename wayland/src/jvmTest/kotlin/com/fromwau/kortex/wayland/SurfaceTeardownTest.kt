@@ -120,42 +120,32 @@ class SurfaceTeardownTest {
         val monitors by rememberMonitors()
         for (monitor in monitors) {
             key(monitor) {
-                Show(
-                    object : Panel<Nothing>(
-                        monitor = monitor,
-                        edge = Edge.Top,
-                        thickness = PANEL_HEIGHT.dp,
-                        namespace = "$PANEL_NAMESPACE-${monitor.name}",
-                    ) {
-                        @Composable
-                        override fun invoke() {
-                            Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() })
-                        }
-                    },
-                )
+                Panel<Nothing>(
+                    monitor = monitor,
+                    edge = Edge.Top,
+                    thickness = PANEL_HEIGHT.dp,
+                    namespace = "$PANEL_NAMESPACE-${monitor.name}",
+                ) {
+                    Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() })
+                }
             }
         }
-        Show(
-            object : AppMenu<Nothing>(width = MENU_SIZE.dp, height = MENU_SIZE.dp, namespace = MENU_NAMESPACE) {
-                @Composable
-                override fun invoke() {
-                    val requested = closeRequested.value
-                    LaunchedEffect(requested) { if (requested) close() }
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                awaitPointerEventScope {
-                                    while (true) {
-                                        val event = awaitPointerEvent()
-                                        if (event.type == PointerEventType.Enter) hovers.incrementAndGet()
-                                    }
-                                }
-                            },
-                    )
-                }
-            },
-        )
+        AppMenu<Nothing>(width = MENU_SIZE.dp, height = MENU_SIZE.dp, namespace = MENU_NAMESPACE) {
+            val requested = closeRequested.value
+            LaunchedEffect(requested) { if (requested) close() }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.type == PointerEventType.Enter) hovers.incrementAndGet()
+                            }
+                        }
+                    },
+            )
+        }
     }
 
     /** Pumps [shell] until the panel reaches `hyprctl layers`, and returns the namespace it was filed under. */

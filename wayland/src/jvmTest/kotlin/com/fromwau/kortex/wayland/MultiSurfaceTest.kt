@@ -149,31 +149,21 @@ class MultiSurfaceTest {
         val monitors by rememberMonitors()
         for (monitor in monitors) {
             key(monitor) {
-                Show(
-                    object : Panel<Nothing>(
-                        monitor = monitor,
-                        edge = Edge.Top,
-                        thickness = PANEL_HEIGHT.dp,
-                        namespace = "$PANEL_NAMESPACE-${monitor.name}",
-                    ) {
-                        @Composable
-                        override fun invoke() {
-                            Box(Modifier.fillMaxSize().background(PANEL_COLOUR))
-                        }
-                    },
-                )
+                Panel<Nothing>(
+                    monitor = monitor,
+                    edge = Edge.Top,
+                    thickness = PANEL_HEIGHT.dp,
+                    namespace = "$PANEL_NAMESPACE-${monitor.name}",
+                ) {
+                    Box(Modifier.fillMaxSize().background(PANEL_COLOUR))
+                }
             }
         }
-        Show(
-            object : Osd<Nothing>(width = OSD_WIDTH.dp, height = OSD_HEIGHT.dp, namespace = OSD_NAMESPACE) {
-                @Composable
-                override fun invoke() {
-                    val requested = osdClosed.value
-                    LaunchedEffect(requested) { if (requested) close() }
-                    Box(Modifier.fillMaxSize().background(OSD_COLOUR))
-                }
-            },
-        )
+        Osd<Nothing>(width = OSD_WIDTH.dp, height = OSD_HEIGHT.dp, namespace = OSD_NAMESPACE) {
+            val requested = osdClosed.value
+            LaunchedEffect(requested) { if (requested) close() }
+            Box(Modifier.fillMaxSize().background(OSD_COLOUR))
+        }
     }
 
     /** Pumps [shell] until a panel reaches `hyprctl layers`, and returns the namespace it was filed under. */

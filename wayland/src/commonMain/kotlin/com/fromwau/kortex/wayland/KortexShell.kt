@@ -3,9 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
@@ -20,7 +18,6 @@ import com.fromwau.kortex.compose.LocalKortexSurface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.reflect.KClass
 
 /** A bound `wl_output`: the registry name it was announced under, its proxy, and what it publishes. */
 internal class ShellOutput(
@@ -38,90 +35,9 @@ internal class ShellOutput(
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
 
-/** What [ShownSurface.ownEnding] finds: whether its surface has ended by itself, and if so, how. */
-internal sealed interface OwnEnding {
-    data object NotEnded : OwnEnding
-
-    data class Ended(val ending: Result<SurfaceEnd, SurfaceError<IError>>) : OwnEnding
-}
-
-/**
- * What the shell holds for one [Show]: the newest instance it was handed, what it asks for, its surface, and the
- * ending one of its instances asked for.
- *
- * @param parent the Show whose surface's content this Show is in; null for one in the application's own content.
- */
-internal class ShownSurface(
-    val newest: State<LayerSurface<*>>,
-    private val wake: () -> Unit,
-    private val parent: ShownSurface?,
-) {
-    // The parent's surface as this Show entered its content: a replace or an ending takes this Show out with it.
-    private val parentSurface: KortexSurface? = parent?.surface
-
-    /** Whether the surface whose content this Show is in has gone. */
-    val parentGone: Boolean get() = parent != null && parent.surface !== parentSurface
-
-    // The settings its Show asks for while in composition, and null once it has left. Loop thread only.
-    var wanted: SurfaceSettings? = null
-
-    // Null until placed, and again once it has ended. Snapshot state, written on the loop thread outside composition,
-    // so content that reads size recomposes as the surface is placed or goes, as it does on a configure.
-    var surface: KortexSurface? by mutableStateOf(null)
-
-    // What surface was placed with, which a change of settings replaces it over. Loop thread only.
-    var placedWith: SurfaceSettings? = null
-
-    // Set as its onClose is called: whatever the shell sees of this Show afterwards reports nothing. Loop thread only.
-    var reported = false
-
-    private val requested = AtomicReference<EndRequest?>(null)
-
-    /**
-     * Whether its surface has ended by itself, and how: the first ending an instance of the class it shows asked for,
-     * else its content's crash, else the compositor's close, or a test's [KortexSurface.simulateCompositorClose]. Loop
-     * thread only; calling it forgets an ending asked for by a class the Show no longer shows.
-     */
-    fun ownEnding(): OwnEnding {
-        val standing = standingRequest(ask = null)
-        val placed = surface
-        val crash = placed?.crash
-        return when {
-            standing != null -> OwnEnding.Ended(standing.ending)
-            crash != null -> OwnEnding.Ended(Err(SurfaceError.Failed(crash)))
-            placed?.closed == true -> OwnEnding.Ended(Ok(SurfaceEnd.ClosedByCompositor))
-            else -> OwnEnding.NotEnded
-        }
-    }
-
-    /**
-     * Asks for [ending] on behalf of [from], from any thread; the shell acts on it in its next pass. The first ask
-     * from an instance of the class the Show shows decides. One from a class it no longer shows concerns a surface
-     * already replaced, and does nothing.
-     */
-    fun requestEnd(
-        from: LayerSurface<*>,
-        ending: Result<SurfaceEnd, SurfaceError<IError>>,
-    ) {
-        val ask = EndRequest(from::class, ending)
-        if (standingRequest(ask) === ask) wake()
-    }
-
-    // Drops, not just skips, a request from a class the Show no longer shows: it must not count if that class returns.
-    private fun standingRequest(ask: EndRequest?): EndRequest? = requested.updateAndGet { current ->
-        val shownClass = newest.value::class
-        listOfNotNull(current, ask).firstOrNull { it.kind == shownClass }
-    }
-
-    private class EndRequest(
-        val kind: KClass<*>,
-        val ending: Result<SurfaceEnd, SurfaceError<IError>>,
-    )
-}
-
 /**
  * The engine behind [kortexApplication]: one connection's outputs, clipboard and loop, the application composition,
- * and a surface for each [Show] in it.
+ * and a surface for each surface call in it.
  */
 internal class KortexShell private constructor(
     private val display: WaylandDisplay,
@@ -150,7 +66,7 @@ internal class KortexShell private constructor(
     // The first throw of the application's own code, which ends the run; no onClose is called after it.
     private val applicationCrash = AtomicReference<KortexError.ApplicationCrashed?>(null)
 
-    // Once the connection dies, every Show leaves because of it, and reports its error. Loop thread only.
+    // Once the connection dies, every call leaves because of it, and reports its error. Loop thread only.
     private var endingOnLeave: Result<SurfaceEnd, SurfaceError<IError>> = Ok(SurfaceEnd.LeftComposition)
 
     private val application = ApplicationComposition(loopQueue, display::wake, ::applicationFailed)
@@ -162,14 +78,17 @@ internal class KortexShell private constructor(
         }
     }
 
-    // Each Show whose surface is on screen, in the order placed: one in a surface's content after that surface's own.
-    private val placed = mutableListOf<ShownSurface>()
+    // Each slot whose surface is on screen, in the order placed: one in a surface's content after that surface's own.
+    private val placed = mutableListOf<SurfaceSlot>()
 
-    // Filled by Show's effects, which run inside a composition's apply, and acted on in the next pass.
-    private val changedShows = ConcurrentLinkedQueue<ShownSurface>()
+    // Filled by each surface call's effects, which run inside a composition's apply, and acted on in the next pass.
+    private val changedSlots = ConcurrentLinkedQueue<SurfaceSlot>()
 
-    /** Every surface a [Show] holds on screen, in the order they were placed; a test reads them. */
+    /** Every surface a call holds on screen, in the order they were placed; a test reads them. */
     internal val shownSurfaces: List<KortexSurface> get() = placed.mapNotNull { it.surface }
+
+    /** What each slot queued since the last pass asks for, before that pass places anything; a test reads them. */
+    internal val queuedSettings: List<SurfaceSettings> get() = changedSlots.mapNotNull { it.wanted }
 
     /** What [rememberMonitors] hands content: each bound output that has described itself, in the order bound. */
     internal val monitors: State<List<Monitor>> get() = listedMonitors
@@ -242,7 +161,7 @@ internal class KortexShell private constructor(
             pendingRemoves.clear()
             removes.forEach(::removeOutput)
         }
-        reconcileShows()
+        reconcileSlots()
         // Reconciling calls each onClose, and one that threw there ends the run here.
         return runResult()
     }
@@ -253,10 +172,8 @@ internal class KortexShell private constructor(
         // After the pass, which runs the snapshot pump that asks the application for a frame.
         application.frame()
         // A shown surface that fails its tick ends by itself, as Failed; the run goes on.
-        placed.forEach { shown ->
-            shown.surface?.serviceTick()?.onError { reason ->
-                shown.requestEnd(shown.newest.value, Err(SurfaceError.Failed(reason)))
-            }
+        placed.forEach { slot ->
+            slot.surface?.serviceTick()?.onError { reason -> slot.requestEnd(Err(SurfaceError.Failed(reason))) }
         }
         return runResult()
     }
@@ -288,10 +205,10 @@ internal class KortexShell private constructor(
         // A monitor's surfaces end with it, whether or not the compositor closes them, and before its output goes.
         placed
             .filter { it.placedWith?.monitor?.output === output }
-            .forEach { shown ->
-                when (val own = shown.ownEnding()) {
-                    is OwnEnding.Ended -> end(shown, own.ending)
-                    OwnEnding.NotEnded -> end(shown, Ok(SurfaceEnd.MonitorUnplugged))
+            .forEach { slot ->
+                when (val own = slot.ownEnding()) {
+                    is OwnEnding.Ended -> end(slot, own.ending)
+                    OwnEnding.NotEnded -> end(slot, Ok(SurfaceEnd.MonitorUnplugged))
                 }
             }
         output.destroy()
@@ -302,60 +219,60 @@ internal class KortexShell private constructor(
         display.wake()
     }
 
-    /** [shown]'s `Show` entered composition, or its settings changed: its surface is placed in the next pass. */
-    internal fun queuePlace(
-        shown: ShownSurface,
+    /** [slot]'s call entered composition, or its settings changed: its surface is placed in the next pass. */
+    internal fun queueUpdate(
+        slot: SurfaceSlot,
         settings: SurfaceSettings,
     ) {
-        shown.wanted = settings
-        changedShows += shown
+        slot.wanted = settings
+        changedSlots += slot
         display.wake()
     }
 
-    /** [shown]'s `Show` left composition, or is about to be handed new settings. */
-    internal fun queueRemove(shown: ShownSurface) {
-        shown.wanted = null
-        changedShows += shown
+    /** [slot]'s call left composition. */
+    internal fun queueRemove(slot: SurfaceSlot) {
+        slot.wanted = null
+        changedSlots += slot
         display.wake()
     }
 
-    private fun reconcileShows() {
-        // Every placed Show, for an ending of its own, and every Show that changed.
-        (placed.toList() + generateSequence(changedShows::poll)).forEach(::reconcile)
+    private fun reconcileSlots() {
+        // Every placed slot, for an ending of its own, and every slot that changed.
+        (placed.toList() + generateSequence(changedSlots::poll)).forEach(::reconcile)
     }
 
-    private fun reconcile(shown: ShownSurface) {
-        if (shown.reported) return
+    private fun reconcile(slot: SurfaceSlot) {
+        if (slot.reported) return
         // Once the application's own code has thrown, surfaces only go: nothing more is placed.
-        if (applicationCrash.get() != null) return end(shown, endingOnLeave)
-        val ownEnding = shown.ownEnding()
-        // Not left to the Show's own dispose, which Compose skips once an earlier cleanup in that content throws.
-        val wanted = shown.wanted.takeUnless { shown.parentGone }
+        if (applicationCrash.get() != null) return end(slot, endingOnLeave)
+        val ownEnding = slot.ownEnding()
+        // Not left to the call's own dispose, which Compose skips once an earlier cleanup in that content throws.
+        val wanted = slot.wanted.takeUnless { slot.parentGone }
         when {
-            // First: a surface that ended by itself before its Show left reports how it ended.
-            ownEnding is OwnEnding.Ended -> end(shown, ownEnding.ending)
-            wanted == null -> end(shown, endingOnLeave)
-            shown.surface == null -> place(shown, wanted)
-            shown.placedWith != wanted -> replace(shown, wanted)
+            // First: a surface that ended by itself before its call left reports how it ended.
+            ownEnding is OwnEnding.Ended -> end(slot, ownEnding.ending)
+            wanted == null -> end(slot, endingOnLeave)
+            slot.surface == null -> place(slot, wanted)
+            slot.placedWith != wanted -> replace(slot, wanted)
         }
     }
 
-    // The Show is still in composition, so nothing has ended for its host, unless its content failed as it went.
+    // The call is still in composition, so nothing has ended for its host, unless its content failed as it went.
     private fun replace(
-        shown: ShownSurface,
+        slot: SurfaceSlot,
         settings: SurfaceSettings,
     ) {
-        val crash = takeDown(shown) ?: return place(shown, settings)
-        report(shown, Err(SurfaceError.Failed(crash)))
+        val crash = takeDown(slot) ?: return place(slot, settings)
+        report(slot, Err(SurfaceError.Failed(crash)))
     }
 
     private fun place(
-        shown: ShownSurface,
+        slot: SurfaceSlot,
         settings: SurfaceSettings,
     ) {
         val output = settings.monitor?.let { monitor ->
             // An unplugged monitor's proxy is already destroyed: the surface ends, as one on it does when it goes.
-            monitor.output.takeIf { outputs[it.name] === it } ?: return report(shown, Ok(SurfaceEnd.MonitorUnplugged))
+            monitor.output.takeIf { outputs[it.name] === it } ?: return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
         }
         KortexSurface
             .create(
@@ -371,63 +288,62 @@ internal class KortexShell private constructor(
             )
             .flatMap { surface ->
                 // Before the content composes, so its first composition already reads the surface's size.
-                shown.surface = surface
+                slot.surface = surface
                 surface
-                    .setContent { ShownContent(shown) }
+                    .setContent { ShownContent(slot) }
                     .onError {
-                        shown.surface = null
+                        slot.surface = null
                         surface.close()
                     }
             }
             .onSuccess {
-                shown.placedWith = settings
-                placed += shown
+                slot.placedWith = settings
+                placed += slot
             }
-            .onError { reason -> report(shown, Err(SurfaceError.Failed(reason))) }
+            .onError { reason -> report(slot, Err(SurfaceError.Failed(reason))) }
     }
 
-    /** What a shown surface's scene composes: its newest instance's content, and around it what content reaches. */
+    /** What a shown surface's scene composes: its call's newest content, and around it what content reaches. */
     @Composable
-    private fun ShownContent(shown: ShownSurface) {
-        val instance = shown.newest.value
+    private fun ShownContent(slot: SurfaceSlot) {
         CompositionLocalProvider(
             LocalKortexShell provides this,
-            LocalShownSurface provides shown,
-            LocalKortexSurface provides instance,
+            LocalSurfaceSlot provides slot,
+            LocalKortexSurface provides slot.scope,
             LocalKortexClipboard provides hostClipboard,
         ) {
-            ProvideClipboard(contentClipboard) { instance.invoke() }
+            ProvideClipboard(contentClipboard) { slot.content.value(slot.scope) }
         }
     }
 
     private fun end(
-        shown: ShownSurface,
+        slot: SurfaceSlot,
         ending: Result<SurfaceEnd, SurfaceError<IError>>,
     ) {
         // Content failing, its cleanup as the surface goes included, ends it as a crash whatever else ended it.
-        val crash = takeDown(shown)
-        report(shown, crash?.let { Err(SurfaceError.Failed(it)) } ?: ending)
+        val crash = takeDown(slot)
+        report(slot, crash?.let { Err(SurfaceError.Failed(it)) } ?: ending)
     }
 
     /**
-     * Closes [shown]'s surface, if any, and returns its content's crash, including one its cleanup threw while closing.
+     * Closes [slot]'s surface, if any, and returns its content's crash, including one its cleanup threw while closing.
      */
-    private fun takeDown(shown: ShownSurface): KortexError.SurfaceCrashed? {
-        val surface = shown.surface ?: return null
-        placed.remove(shown)
-        shown.surface = null
+    private fun takeDown(slot: SurfaceSlot): KortexError.SurfaceCrashed? {
+        val surface = slot.surface ?: return null
+        placed.remove(slot)
+        slot.surface = null
         surface.close()
         return surface.crash
     }
 
     private fun report(
-        shown: ShownSurface,
+        slot: SurfaceSlot,
         ending: Result<SurfaceEnd, SurfaceError<IError>>,
     ) {
-        shown.reported = true
+        slot.reported = true
         // Once the application's own code has thrown, none of it runs again.
         if (applicationCrash.get() != null) return
-        runHostCode(::applicationFailed) { shown.newest.value.report(ending) }
+        runHostCode(::applicationFailed) { slot.report(ending) }
     }
 
     private fun applicationFailed(cause: Throwable) {
@@ -442,8 +358,8 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Takes every [Show] out of composition, each reporting how its surface ended, then closes every output, runs
-     * what is left on the queue and gives the clipboard back, whatever content throws meanwhile.
+     * Takes every surface call out of composition, each reporting how its surface ended, then closes every output,
+     * runs what is left on the queue and gives the clipboard back, whatever content throws meanwhile.
      *
      * @return [KortexError.ApplicationCrashed] once the application's own code has thrown, an `onClose` called here
      *   included.
@@ -451,10 +367,10 @@ internal class KortexShell private constructor(
     fun close(): EmptyResult<KortexError> {
         display.onGlobalAdded = null
         display.onGlobalRemoved = null
-        // Every Show leaves composition here, and reconciling reports how each of their surfaces ended.
+        // Every surface call leaves composition here, and reconciling reports how each of their surfaces ended.
         application.close()
-        reconcileShows()
-        // A disposal that threw can leave Shows in place; that throw ended the application, so they go unreported.
+        reconcileSlots()
+        // A disposal that threw can leave slots in place; that throw ended the application, so they go unreported.
         placed.toList().forEach(::takeDown)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()

@@ -7,10 +7,11 @@ import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Result
 
 /**
- * A [LayerSurface] whose content is a lambda, so a test writes a surface inline. Left at its defaults it is a speck
- * in the bottom-right corner, where the pointer is least likely to be, that takes no keyboard focus.
+ * A [LayerSurface] with a test's defaults: left at them it is a speck in the bottom-right corner, where the pointer
+ * is least likely to be, that takes no keyboard focus.
  */
-internal class TestSurface<E : IError>(
+@Composable
+internal fun <E : IError> TestSurface(
     namespace: String,
     monitor: Monitor? = null,
     layer: Layer = Layer.Overlay,
@@ -22,26 +23,22 @@ internal class TestSurface<E : IError>(
     exclusiveEdge: Edge? = null,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-    private val content: @Composable TestSurface<E>.() -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    namespace = namespace,
-    layer = layer,
-    anchor = anchor,
-    width = width,
-    height = height,
-    margins = margins,
-    exclusiveZone = exclusiveZone,
-    exclusiveEdge = exclusiveEdge,
-    keyboard = keyboard,
-    onClose = onClose,
+    content: @Composable SurfaceScope<E>.() -> Unit = {},
 ) {
-    @Composable
-    override fun invoke() {
-        content()
-    }
-
-    private companion object {
-        const val SPECK = 8
-    }
+    LayerSurface(
+        monitor = monitor,
+        namespace = namespace,
+        layer = layer,
+        anchor = anchor,
+        width = width,
+        height = height,
+        margins = margins,
+        exclusiveZone = exclusiveZone,
+        exclusiveEdge = exclusiveEdge,
+        keyboard = keyboard,
+        onClose = onClose,
+        content = content,
+    )
 }
+
+private const val SPECK = 8

@@ -40,7 +40,6 @@ import com.fromwau.kortex.wayland.KeyboardInteractivity
 import com.fromwau.kortex.wayland.KortexError
 import com.fromwau.kortex.wayland.Monitor
 import com.fromwau.kortex.wayland.Osd
-import com.fromwau.kortex.wayland.Show
 import com.fromwau.kortex.wayland.SurfaceEnd
 import com.fromwau.kortex.wayland.SurfaceError
 import com.fromwau.kortex.wayland.kortexApplication
@@ -56,26 +55,22 @@ fun main() {
         for (monitor in monitors) key(monitor) {
             var ended by remember { mutableStateOf<SurfaceError<Nothing>?>(null) }
             when (val stopped = ended) {
-                null -> Show(
-                    DemoBar(
-                        screen = monitor,
-                        crashLog = crashLog,
-                        onClose = { result ->
-                            logIfCrashed(crashLog, result)
-                            result.onError { failure -> ended = failure }
-                        },
-                    ),
+                null -> DemoBar(
+                    screen = monitor,
+                    crashLog = crashLog,
+                    onClose = { result ->
+                        logIfCrashed(crashLog, result)
+                        result.onError { failure -> ended = failure }
+                    },
                 )
 
-                else -> Show(
-                    CrashPopup(
-                        monitor = monitor,
-                        stopped = stopped,
-                        onClose = { result ->
-                            logIfCrashed(crashLog, result)
-                            ended = null
-                        },
-                    ),
+                else -> CrashPopup(
+                    monitor = monitor,
+                    stopped = stopped,
+                    onClose = { result ->
+                        logIfCrashed(crashLog, result)
+                        ended = null
+                    },
                 )
             }
         }
@@ -108,22 +103,23 @@ private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
  * The bar on [screen]: a click counter, a text field, and a context menu for a right click on its background, whose
  * crash goes to [crashLog].
  */
-private class DemoBar(
-    private val screen: Monitor,
-    private val crashLog: Path,
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun DemoBar(
+    screen: Monitor,
+    crashLog: Path,
     onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
-) : Bar<Nothing>(
-    monitor = screen,
-    thickness = 56.dp,
-    // Static keyboard interactivity: a layer surface that changes it at runtime never gets the keyboard back to the
-    // focused window (hyprwm/Hyprland#8293).
-    keyboard = KeyboardInteractivity.OnDemand,
-    namespace = "kortex-${screen.name}",
-    onClose = onClose,
 ) {
-    @OptIn(ExperimentalComposeUiApi::class)
-    @Composable
-    override fun invoke() {
+    Bar<Nothing>(
+        monitor = screen,
+        thickness = 56.dp,
+        // Static keyboard interactivity: a layer surface that changes it at runtime never gets the keyboard back to
+        // the focused window (hyprwm/Hyprland#8293).
+        keyboard = KeyboardInteractivity.OnDemand,
+        namespace = "kortex-${screen.name}",
+        onClose = onClose,
+    ) {
+        val bar = this
         var clicks by remember { mutableStateOf(0) }
         var text by remember { mutableStateOf("") }
         var menuAt by remember { mutableStateOf<IntOffset?>(null) }
@@ -149,7 +145,7 @@ private class DemoBar(
                                     val x = (event.changes.first().position.x / density).roundToInt()
                                     // Bar-local is monitor-local only while nothing else reserves the Top
                                     // edge; a second bar above this one displaces the menu by its height.
-                                    menuAt = IntOffset(x, this@DemoBar.size.height)
+                                    menuAt = IntOffset(x, bar.size.height)
                                 }
                             }
                         },
@@ -180,34 +176,32 @@ private class DemoBar(
         }
 
         menuAt?.let { at ->
-            Show(
-                BarMenu(
-                    monitor = screen,
-                    at = at,
-                    onClose = { result ->
-                        logIfCrashed(crashLog, result)
-                        menuAt = null
-                    },
-                ),
+            BarMenu(
+                monitor = screen,
+                at = at,
+                onClose = { result ->
+                    logIfCrashed(crashLog, result)
+                    menuAt = null
+                },
             )
         }
     }
 }
 
 /** The bar's context menu, opened at [at] on [monitor]; picking an item closes it. */
-private class BarMenu(
+@Composable
+private fun BarMenu(
     monitor: Monitor,
     at: IntOffset,
     onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
-) : ContextMenu<Nothing>(
-    monitor = monitor,
-    at = at,
-    menuSize = IntSize(width = 160, height = 120),
-    namespace = "kortex-menu",
-    onClose = onClose,
 ) {
-    @Composable
-    override fun invoke() {
+    ContextMenu<Nothing>(
+        monitor = monitor,
+        at = at,
+        menuSize = IntSize(width = 160, height = 120),
+        namespace = "kortex-menu",
+        onClose = onClose,
+    ) {
         MaterialTheme(colorScheme = darkColorScheme()) {
             Column(
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
@@ -229,19 +223,19 @@ private class BarMenu(
 }
 
 /** Stands in for a bar that stopped, saying why, until a click dismisses it. */
-private class CrashPopup(
+@Composable
+private fun CrashPopup(
     monitor: Monitor,
-    private val stopped: SurfaceError<Nothing>,
+    stopped: SurfaceError<Nothing>,
     onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
-) : Osd<Nothing>(
-    monitor = monitor,
-    width = 480.dp,
-    height = 120.dp,
-    namespace = "kortex-stopped",
-    onClose = onClose,
 ) {
-    @Composable
-    override fun invoke() {
+    Osd<Nothing>(
+        monitor = monitor,
+        width = 480.dp,
+        height = 120.dp,
+        namespace = "kortex-stopped",
+        onClose = onClose,
+    ) {
         MaterialTheme(colorScheme = darkColorScheme()) {
             Column(
                 modifier = Modifier

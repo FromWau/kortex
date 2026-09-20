@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -12,15 +13,17 @@ import com.fromwau.kern.result.Result
  * of it. Left at its defaults, it runs along the top edge, 32 dp thick, and takes no keyboard focus.
  *
  * ```kotlin
- * class Clock(monitor: Monitor) : Bar<Nothing>(monitor = monitor, namespace = "clock-${monitor.name}") {
- *     @Composable
- *     override fun invoke() {
- *         Text("12:00")
+ * kortexApplication {
+ *     val monitors by rememberMonitors()
+ *     for (monitor in monitors) key(monitor) {
+ *         Bar<Nothing>(monitor = monitor, namespace = "clock-${monitor.name}") {
+ *             Text("12:00")
+ *         }
  *     }
  * }
  * ```
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with a bar's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the bar on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -32,9 +35,11 @@ import com.fromwau.kern.result.Result
  * @param margins insets from the edges the bar is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param keyboard whether the bar can take keyboard focus, as a text field in it needs.
  * @param namespace what the compositor calls the bar, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when the bar ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when the bar ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on the bar, with the bar itself as `this`.
  */
-public abstract class Bar<E : IError>(
+@Composable
+public fun <E : IError> Bar(
     monitor: Monitor? = null,
     edge: Edge = Edge.Top,
     thickness: Dp = 32.dp,
@@ -43,19 +48,23 @@ public abstract class Bar<E : IError>(
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig
-        .panel(edge, thickness, length)
-        .copy(namespace = namespace, margins = margins, keyboard = keyboard),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig
+            .panel(edge, thickness, length)
+            .copy(namespace = namespace, margins = margins, keyboard = keyboard),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 /**
  * A surface along one edge of its monitor, spanning that edge and reserving its own thickness there, so windows tile
  * clear of it. It takes no keyboard focus; a [Dock] is placed the same way and can take it.
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with a panel's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the panel on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -66,9 +75,11 @@ public abstract class Bar<E : IError>(
  *   is not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param margins insets from the edges the panel is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the panel, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when the panel ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when the panel ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on the panel, with the panel itself as `this`.
  */
-public abstract class Panel<E : IError>(
+@Composable
+public fun <E : IError> Panel(
     monitor: Monitor? = null,
     edge: Edge,
     thickness: Dp,
@@ -76,19 +87,23 @@ public abstract class Panel<E : IError>(
     margins: Margins = Margins.None,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig
-        .panel(edge, thickness, length)
-        .copy(namespace = namespace, margins = margins),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig
+            .panel(edge, thickness, length)
+            .copy(namespace = namespace, margins = margins),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 /**
  * Placed as a [Panel] is, along one edge of its monitor, spanning that edge and reserving its own thickness there, and
  * able to take keyboard focus, as a text field in it needs.
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with a dock's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the dock on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -99,9 +114,11 @@ public abstract class Panel<E : IError>(
  *   not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param margins insets from the edges the dock is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the dock, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when the dock ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when the dock ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on the dock, with the dock itself as `this`.
  */
-public abstract class Dock<E : IError>(
+@Composable
+public fun <E : IError> Dock(
     monitor: Monitor? = null,
     edge: Edge,
     thickness: Dp,
@@ -109,34 +126,44 @@ public abstract class Dock<E : IError>(
     margins: Margins = Margins.None,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig
-        .dock(edge, thickness, length)
-        .copy(namespace = namespace, margins = margins),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig
+            .dock(edge, thickness, length)
+            .copy(namespace = namespace, margins = margins),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 /**
  * Fills its whole monitor on the lowest layer, beneath every window: a wallpaper, say. It reserves nothing, takes no
  * keyboard focus, and covers the space other surfaces reserve rather than moving out of their way.
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with a background's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to fill, one [rememberMonitors] lists; null lets the compositor choose.
  * @param namespace what the compositor calls the background, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when the background ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when the background ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on the background, with the background itself as `this`.
  */
-public abstract class DesktopBackground<E : IError>(
+@Composable
+public fun <E : IError> DesktopBackground(
     monitor: Monitor? = null,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig.desktopBackground().copy(namespace = namespace),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig.desktopBackground().copy(namespace = namespace),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 /**
  * Fills its whole monitor on the topmost layer, above every window, and takes the keyboard for as long as it is shown.
@@ -146,29 +173,35 @@ public abstract class DesktopBackground<E : IError>(
  * stops another surface from drawing over or beside it, or the compositor from switching away from it. Mistaking it
  * for a session lock is a security problem, not a layout one.
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with a lock screen's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to cover, one [rememberMonitors] lists; null lets the compositor choose.
  * @param namespace what the compositor calls the lock screen, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when the lock screen ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when the lock screen ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on the lock screen, with the lock screen itself as `this`.
  */
-public abstract class LockScreen<E : IError>(
+@Composable
+public fun <E : IError> LockScreen(
     monitor: Monitor? = null,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig.lockScreen().copy(namespace = namespace),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig.lockScreen().copy(namespace = namespace),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 /**
  * A floating surface of exactly [width] by [height] on the topmost layer, above every window: a volume indicator, say.
  * It is centred in the space other surfaces leave free on its monitor, so a bar's reserved space shifts it off the
  * monitor's true centre. It takes no keyboard focus; an [AppMenu] is placed the same way and can take it.
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with an osd's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -176,26 +209,32 @@ public abstract class LockScreen<E : IError>(
  *   unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when it ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on it, with the surface itself as `this`.
  */
-public abstract class Osd<E : IError>(
+@Composable
+public fun <E : IError> Osd(
     monitor: Monitor? = null,
     width: Dp,
     height: Dp,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig.osd(width, height).copy(namespace = namespace),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig.osd(width, height).copy(namespace = namespace),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 /**
  * Placed as an [Osd] is, a floating surface of exactly [width] by [height] centred in the space other surfaces leave
  * free on its monitor, and able to take keyboard focus: a launcher you type into, say, which its content dismisses
  * with `close()`.
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with an app menu's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -203,19 +242,25 @@ public abstract class Osd<E : IError>(
  *   unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when it ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when it ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on it, with the surface itself as `this`.
  */
-public abstract class AppMenu<E : IError>(
+@Composable
+public fun <E : IError> AppMenu(
     monitor: Monitor? = null,
     width: Dp,
     height: Dp,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig.appMenu(width, height).copy(namespace = namespace),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig.appMenu(width, height).copy(namespace = namespace),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 /**
  * A menu of size [menuSize], opened at [at] on its monitor, on the topmost layer above every window. It opens
@@ -230,27 +275,20 @@ public abstract class AppMenu<E : IError>(
  * can run past the monitor's edge. One that opens down and to the right still opens at [at].
  *
  * ```kotlin
- * class Menu(
- *     monitor: Monitor,
- *     at: IntOffset,
- *     onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
- * ) : ContextMenu<Nothing>(
+ * ContextMenu<Nothing>(
  *     monitor = monitor,
  *     at = at,
  *     menuSize = IntSize(160, 120),
- *     onClose = onClose,
+ *     onClose = { menuAt = null },
  * ) {
- *     @Composable
- *     override fun invoke() {
- *         Text(
- *             text = "Close",
- *             modifier = Modifier.clickable { close() },
- *         )
- *     }
+ *     Text(
+ *         text = "Close",
+ *         modifier = Modifier.clickable { close() },
+ *     )
  * }
  * ```
  *
- * Extend it as you would [LayerSurface] and show it with [Show].
+ * It is a [LayerSurface] with a menu's placement fixed; everything else about it is that call's.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor the menu opens on, one [rememberMonitors] lists.
@@ -259,21 +297,27 @@ public abstract class AppMenu<E : IError>(
  * @param menuSize the menu's size in logical pixels, each at least 1. A width or height of 0 or below leaves the
  *   menu unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param namespace what the compositor calls the menu, e.g. in `hyprctl layers`, exactly as written.
- * @param onClose called once when the menu ends, as [LayerSurface.onClose] describes.
+ * @param onClose called once when the menu ends, as [LayerSurface]'s `onClose` describes.
+ * @param content what is drawn on the menu, with the menu itself as `this`.
  */
-public abstract class ContextMenu<E : IError>(
+@Composable
+public fun <E : IError> ContextMenu(
     monitor: Monitor,
     at: IntOffset,
     menuSize: IntSize,
     namespace: String = "kortex",
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-) : LayerSurface<E>(
-    monitor = monitor,
-    config = SurfaceConfig
-        .contextMenu(at = at, menuSize = menuSize, outputSize = monitor.geometry.logicalSize)
-        .copy(namespace = namespace),
-    onClose = onClose,
-)
+    content: @Composable SurfaceScope<E>.() -> Unit,
+) {
+    LayerSurface(
+        monitor = monitor,
+        config = SurfaceConfig
+            .contextMenu(at = at, menuSize = menuSize, outputSize = monitor.geometry.logicalSize)
+            .copy(namespace = namespace),
+        onClose = onClose,
+        content = content,
+    )
+}
 
 // A mode is the output's unturned size, so a quarter turn swaps its width and height on screen.
 private val OutputGeometry.logicalSize: IntSize

@@ -89,31 +89,21 @@ class NamedOutputTest {
         val monitors by rememberMonitors()
         for (monitor in monitors) {
             key(monitor) {
-                Show(
-                    object : Panel<Nothing>(
-                        monitor = monitor,
-                        edge = Edge.Top,
-                        thickness = PANEL_HEIGHT.dp,
-                        namespace = "$PANEL_NAMESPACE-${monitor.name}",
-                    ) {
-                        @Composable
-                        override fun invoke() = Unit
-                    },
-                )
+                Panel<Nothing>(
+                    monitor = monitor,
+                    edge = Edge.Top,
+                    thickness = PANEL_HEIGHT.dp,
+                    namespace = "$PANEL_NAMESPACE-${monitor.name}",
+                ) {}
             }
         }
         monitors.firstOrNull { it.name == outputName }?.let { monitor ->
-            Show(
-                object : Osd<Nothing>(
-                    monitor = monitor,
-                    width = OSD_SIZE.dp,
-                    height = OSD_SIZE.dp,
-                    namespace = NAMED_NAMESPACE,
-                ) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
+            Osd<Nothing>(
+                monitor = monitor,
+                width = OSD_SIZE.dp,
+                height = OSD_SIZE.dp,
+                namespace = NAMED_NAMESPACE,
+            ) {}
         }
     }
 

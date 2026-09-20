@@ -1,6 +1,5 @@
 package com.fromwau.kortex.wayland
 
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -13,8 +12,8 @@ import kotlin.test.assertEquals
  * one-pixel difference must change the answer. Also pins that [ContextMenu] flips against its monitor's
  * logical size: its mode's size over its scale, with width and height swapped on a monitor turned a quarter.
  *
- * A pure function of its three inputs, so every case here is exact math against [OUTPUT] and
- * [MENU_SIZE], with no compositor involved.
+ * A pure function of its three inputs, so every case here is exact math against [OUTPUT] and [MENU_SIZE]. The
+ * [ContextMenu] cases read what one asks for, which places nothing on the compositor.
  */
 class MenuAnchorTest {
     @Test
@@ -100,19 +99,18 @@ class MenuAnchorTest {
         val mode = IntSize(OUTPUT.width * SCALE, OUTPUT.height * SCALE)
         withUnboundMonitors(MONITOR_NAME, mode = mode, scale = SCALE) { (monitor) ->
             val at = IntOffset(OUTPUT.width - CLEAR_MARGIN, OUTPUT.height - CLEAR_MARGIN)
-            val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {
-                @Composable
-                override fun invoke() = Unit
-            }
+            val config = settingsAskedBy {
+                ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {}
+            }.config
 
             assertEquals(
                 setOf(Edge.Bottom, Edge.Right),
-                menu.anchor,
+                config.anchor,
                 "a point this near the monitor's logical bottom-right corner did not flip both axes",
             )
             assertEquals(
                 Margins(bottom = (OUTPUT.height - at.y).dp, right = (OUTPUT.width - at.x).dp),
-                menu.margins,
+                config.margins,
                 "the menu's margins were not measured from the monitor's logical edges",
             )
         }
@@ -150,11 +148,10 @@ class MenuAnchorTest {
         at: IntOffset,
     ): Pair<Set<Edge>, Margins> =
         withUnboundMonitors(MONITOR_NAME, mode = OUTPUT, transform = transform) { (monitor) ->
-            val menu = object : ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {
-                @Composable
-                override fun invoke() = Unit
-            }
-            menu.anchor to menu.margins
+            val config = settingsAskedBy {
+                ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {}
+            }.config
+            config.anchor to config.margins
         }
 
     private companion object {

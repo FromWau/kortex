@@ -33,13 +33,11 @@ class RecompositionTest {
             val content: @Composable KortexApplicationScope.() -> Unit = {
                 val monitors by rememberMonitors()
                 monitors.firstOrNull()?.let { monitor ->
-                    Show(
-                        TestSurface<Nothing>(NAMESPACE, monitor = monitor) {
-                            val geometry = monitor.geometry
-                            SideEffect { composed += geometry }
-                            Box(Modifier.fillMaxSize())
-                        },
-                    )
+                    TestSurface<Nothing>(NAMESPACE, monitor = monitor) {
+                        val geometry = monitor.geometry
+                        SideEffect { composed += geometry }
+                        Box(Modifier.fillMaxSize())
+                    }
                 }
             }
             val shell = KortexShell.createApplicationOrFail(wayland, content)

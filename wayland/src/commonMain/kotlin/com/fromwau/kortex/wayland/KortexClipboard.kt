@@ -66,7 +66,7 @@ public sealed interface KortexClipboard {
 }
 
 /**
- * The desktop's clipboard, in the content of every surface [Show] puts on screen. Reading it anywhere else, the
+ * The desktop's clipboard, in the content of every surface on screen. Reading it anywhere else, the
  * application's own content included, throws [IllegalStateException].
  */
 public val LocalKortexClipboard: ProvidableCompositionLocal<KortexClipboard> =

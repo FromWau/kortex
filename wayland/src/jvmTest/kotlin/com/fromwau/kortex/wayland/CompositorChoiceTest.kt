@@ -19,7 +19,7 @@ class CompositorChoiceTest {
     fun `the compositor closing a shown surface reports ClosedByCompositor, and it is not placed again`() {
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            Show(TestSurface<Nothing>(OSD_NAMESPACE, onClose = { reports += it }))
+            TestSurface<Nothing>(OSD_NAMESPACE, onClose = { reports += it })
         }
 
         onApplication(content) { shell ->
@@ -50,19 +50,15 @@ class CompositorChoiceTest {
         val showChild = mutableStateOf(false)
         val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            Show(
-                TestSurface<Nothing>(PANEL_NAMESPACE) {
-                    if (showChild.value) {
-                        Show(
-                            TestSurface<Nothing>(
-                                OPENED_NAMESPACE,
-                                anchor = BOTTOM_LEFT,
-                                onClose = { childReports += it },
-                            ),
-                        )
-                    }
-                },
-            )
+            TestSurface<Nothing>(PANEL_NAMESPACE) {
+                if (showChild.value) {
+                    TestSurface<Nothing>(
+                        OPENED_NAMESPACE,
+                        anchor = BOTTOM_LEFT,
+                        onClose = { childReports += it },
+                    )
+                }
+            }
         }
 
         onApplication(content) { shell ->

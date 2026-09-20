@@ -214,8 +214,8 @@ class KeyRepeatTest {
             val seat = Seat.bind(display).getOrElse { error -> fail("seat bind failed: $error") }
             try {
                 val content: @Composable KortexApplicationScope.() -> Unit = {
-                    Show(TestSurface<Nothing>(FIRST_NAMESPACE))
-                    Show(TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT))
+                    TestSurface<Nothing>(FIRST_NAMESPACE)
+                    TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT)
                 }
                 val shell = KortexShell.createApplicationOrFail(display, content)
                 shell.useOrFail {

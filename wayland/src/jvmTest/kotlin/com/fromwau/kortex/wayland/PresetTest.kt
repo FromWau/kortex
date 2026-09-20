@@ -11,25 +11,25 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 
 /**
- * Pins that each preset class takes its settings from the [SurfaceConfig] preset of its kind, and that those which take
- * no keyboard focus, shown through [Show], land where that preset places a surface, as hyprctl reports it.
+ * Pins that each preset asks for the [SurfaceConfig] preset of its kind, and that those which take no keyboard focus
+ * land where that preset places a surface, as hyprctl reports it.
  *
- * [Dock], [AppMenu] and [LockScreen] take the keyboard as they map, so where they land is [SurfacePresetTest]'s, which
- * needs the desktop to itself; their settings are checked here, where nothing is shown.
+ * [Dock], [AppMenu] and [LockScreen] take the keyboard as they map, so where they land is [SurfacePresetTest]'s,
+ * which needs the desktop to itself; what they ask for is checked here, where nothing is placed.
  */
-class PresetClassTest {
+class PresetTest {
     @Test
     fun `a Bar left at its defaults takes no keyboard focus, spans the top edge, 32 dp thick, and reserves 32 dp`() {
-        val bar = object : Bar<Nothing>(namespace = BAR_NAMESPACE) {
-            @Composable
-            override fun invoke() = Unit
-        }
         // Before anything is shown: Hyprland hands a surface that takes the keyboard the user's focus as it maps.
-        assertEquals(KeyboardInteractivity.None, bar.keyboard, "a Bar left at its defaults takes the keyboard")
+        assertEquals(
+            KeyboardInteractivity.None,
+            settingsAskedBy { Bar<Nothing>(namespace = BAR_NAMESPACE) {} }.config.keyboard,
+            "a Bar left at its defaults takes the keyboard",
+        )
         // Every monitor's usable area: the compositor picks the bar's monitor, and a desktop bar may reserve space.
         val before = Hyprctl.monitors().associateBy { it.name }
 
-        onApplication({ Show(bar) }) { shell ->
+        onApplication({ Bar<Nothing>(namespace = BAR_NAMESPACE) {} }) { shell ->
             awaitPlaced(shell)
 
             val geometry = assertNotNull(Screen.awaitGeometry(BAR_NAMESPACE), "hyprctl never listed $BAR_NAMESPACE")
@@ -47,17 +47,12 @@ class PresetClassTest {
     fun `a Panel spans its edge and reserves exactly its own thickness`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            Show(
-                object : Panel<Nothing>(
-                    monitor = monitors.first(),
-                    edge = Edge.Bottom,
-                    thickness = PANEL_THICKNESS.dp,
-                    namespace = PANEL_NAMESPACE,
-                ) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
+            Panel<Nothing>(
+                monitor = monitors.first(),
+                edge = Edge.Bottom,
+                thickness = PANEL_THICKNESS.dp,
+                namespace = PANEL_NAMESPACE,
+            ) {}
         }
 
         onApplication(content) { shell ->
@@ -80,54 +75,52 @@ class PresetClassTest {
     }
 
     @Test
-    fun `a Bar's settings are a SurfaceConfig panel's, with every value it was given`() {
+    fun `a Bar asks for a SurfaceConfig panel's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
-            val bar = object : Bar<Nothing>(
-                monitor = monitor,
-                edge = Edge.Left,
-                thickness = THICKNESS.dp,
-                length = LENGTH.dp,
-                margins = MARGINS,
-                keyboard = KeyboardInteractivity.OnDemand,
-                namespace = BAR_NAMESPACE,
-            ) {
-                @Composable
-                override fun invoke() = Unit
+            val settings = settingsAskedBy {
+                Bar<Nothing>(
+                    monitor = monitor,
+                    edge = Edge.Left,
+                    thickness = THICKNESS.dp,
+                    length = LENGTH.dp,
+                    margins = MARGINS,
+                    keyboard = KeyboardInteractivity.OnDemand,
+                    namespace = BAR_NAMESPACE,
+                ) {}
             }
 
-            assertSame(monitor, bar.monitor, "the bar was not put on the monitor it was given")
+            assertSame(monitor, settings.monitor, "the bar was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig
                     .panel(Edge.Left, THICKNESS.dp, LENGTH.dp)
                     .copy(namespace = BAR_NAMESPACE, margins = MARGINS, keyboard = KeyboardInteractivity.OnDemand),
-                bar.settings.config,
-                "the bar's settings are not a panel's with the values it was given",
+                settings.config,
+                "the bar did not ask for a panel's settings with the values it was given",
             )
         }
     }
 
     @Test
-    fun `a Panel's settings are a SurfaceConfig panel's, with every value it was given`() {
+    fun `a Panel asks for a SurfaceConfig panel's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
-            val panel = object : Panel<Nothing>(
-                monitor = monitor,
-                edge = Edge.Right,
-                thickness = THICKNESS.dp,
-                length = LENGTH.dp,
-                margins = MARGINS,
-                namespace = PANEL_NAMESPACE,
-            ) {
-                @Composable
-                override fun invoke() = Unit
+            val settings = settingsAskedBy {
+                Panel<Nothing>(
+                    monitor = monitor,
+                    edge = Edge.Right,
+                    thickness = THICKNESS.dp,
+                    length = LENGTH.dp,
+                    margins = MARGINS,
+                    namespace = PANEL_NAMESPACE,
+                ) {}
             }
 
-            assertSame(monitor, panel.monitor, "the panel was not put on the monitor it was given")
+            assertSame(monitor, settings.monitor, "the panel was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig
                     .panel(Edge.Right, THICKNESS.dp, LENGTH.dp)
                     .copy(namespace = PANEL_NAMESPACE, margins = MARGINS),
-                panel.settings.config,
-                "the panel's settings are not a panel's with the values it was given",
+                settings.config,
+                "the panel did not ask for a panel's settings with the values it was given",
             )
         }
     }
@@ -136,12 +129,7 @@ class PresetClassTest {
     fun `a DesktopBackground covers its whole monitor on the background layer`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            Show(
-                object : DesktopBackground<Nothing>(monitor = monitors.first(), namespace = BACKGROUND_NAMESPACE) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
+            DesktopBackground<Nothing>(monitor = monitors.first(), namespace = BACKGROUND_NAMESPACE) {}
         }
 
         onApplication(content) { shell ->
@@ -164,17 +152,12 @@ class PresetClassTest {
     fun `an Osd is exactly its own size, centred in the usable area above every other layer`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            Show(
-                object : Osd<Nothing>(
-                    monitor = monitors.first(),
-                    width = OSD_WIDTH.dp,
-                    height = OSD_HEIGHT.dp,
-                    namespace = OSD_NAMESPACE,
-                ) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
+            Osd<Nothing>(
+                monitor = monitors.first(),
+                width = OSD_WIDTH.dp,
+                height = OSD_HEIGHT.dp,
+                namespace = OSD_NAMESPACE,
+            ) {}
         }
 
         onApplication(content) { shell ->
@@ -191,40 +174,38 @@ class PresetClassTest {
     }
 
     @Test
-    fun `a DesktopBackground's settings are a SurfaceConfig desktopBackground's, with every value it was given`() {
+    fun `a DesktopBackground asks for a SurfaceConfig desktopBackground's settings, with the values it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
-            val background = object : DesktopBackground<Nothing>(monitor = monitor, namespace = BACKGROUND_NAMESPACE) {
-                @Composable
-                override fun invoke() = Unit
+            val settings = settingsAskedBy {
+                DesktopBackground<Nothing>(monitor = monitor, namespace = BACKGROUND_NAMESPACE) {}
             }
 
-            assertSame(monitor, background.monitor, "the background was not put on the monitor it was given")
+            assertSame(monitor, settings.monitor, "the background was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig.desktopBackground().copy(namespace = BACKGROUND_NAMESPACE),
-                background.settings.config,
-                "the background's settings are not a desktopBackground's with the values it was given",
+                settings.config,
+                "the background did not ask for a desktopBackground's settings with the values it was given",
             )
         }
     }
 
     @Test
-    fun `an Osd's settings are a SurfaceConfig osd's, with every value it was given`() {
+    fun `an Osd asks for a SurfaceConfig osd's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
-            val osd = object : Osd<Nothing>(
-                monitor = monitor,
-                width = OSD_WIDTH.dp,
-                height = OSD_HEIGHT.dp,
-                namespace = OSD_NAMESPACE,
-            ) {
-                @Composable
-                override fun invoke() = Unit
+            val settings = settingsAskedBy {
+                Osd<Nothing>(
+                    monitor = monitor,
+                    width = OSD_WIDTH.dp,
+                    height = OSD_HEIGHT.dp,
+                    namespace = OSD_NAMESPACE,
+                ) {}
             }
 
-            assertSame(monitor, osd.monitor, "the osd was not put on the monitor it was given")
+            assertSame(monitor, settings.monitor, "the osd was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig.osd(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = OSD_NAMESPACE),
-                osd.settings.config,
-                "the osd's settings are not an osd's with the values it was given",
+                settings.config,
+                "the osd did not ask for an osd's settings with the values it was given",
             )
         }
     }
@@ -235,28 +216,18 @@ class PresetClassTest {
             val monitors by rememberMonitors()
             val monitor = monitors.first()
             // A reservation of the test's own, so the point is shown to be the monitor's, not the usable area's.
-            Show(
-                object : Panel<Nothing>(
-                    monitor = monitor,
-                    edge = Edge.Left,
-                    thickness = MENU_PANEL_THICKNESS.dp,
-                    namespace = MENU_PANEL_NAMESPACE,
-                ) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
-            Show(
-                object : ContextMenu<Nothing>(
-                    monitor = monitor,
-                    at = IntOffset(MENU_X, MENU_Y),
-                    menuSize = MENU_SIZE,
-                    namespace = MENU_NAMESPACE,
-                ) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
+            Panel<Nothing>(
+                monitor = monitor,
+                edge = Edge.Left,
+                thickness = MENU_PANEL_THICKNESS.dp,
+                namespace = MENU_PANEL_NAMESPACE,
+            ) {}
+            ContextMenu<Nothing>(
+                monitor = monitor,
+                at = IntOffset(MENU_X, MENU_Y),
+                menuSize = MENU_SIZE,
+                namespace = MENU_NAMESPACE,
+            ) {}
         }
 
         onApplication(content) { shell ->
@@ -279,17 +250,12 @@ class PresetClassTest {
         val at = IntOffset(screen.logicalWidth - FLIP_INSET, screen.logicalHeight - FLIP_INSET)
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            Show(
-                object : ContextMenu<Nothing>(
-                    monitor = monitors.first { it.name == screen.name },
-                    at = at,
-                    menuSize = MENU_SIZE,
-                    namespace = MENU_NAMESPACE,
-                ) {
-                    @Composable
-                    override fun invoke() = Unit
-                },
-            )
+            ContextMenu<Nothing>(
+                monitor = monitors.first { it.name == screen.name },
+                at = at,
+                menuSize = MENU_SIZE,
+                namespace = MENU_NAMESPACE,
+            ) {}
         }
 
         onApplication(content) { shell ->
@@ -310,114 +276,109 @@ class PresetClassTest {
     }
 
     @Test
-    fun `a ContextMenu's settings are a SurfaceConfig contextMenu's, with every value it was given`() {
+    fun `a ContextMenu asks for a SurfaceConfig contextMenu's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME, mode = MONITOR_MODE) { (monitor) ->
             val at = IntOffset(MENU_X, MENU_Y)
-            val menu = object : ContextMenu<Nothing>(
-                monitor = monitor,
-                at = at,
-                menuSize = MENU_SIZE,
-                namespace = MENU_NAMESPACE,
-            ) {
-                @Composable
-                override fun invoke() = Unit
+            val settings = settingsAskedBy {
+                ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE, namespace = MENU_NAMESPACE) {}
             }
 
-            assertSame(monitor, menu.monitor, "the menu was not put on the monitor it was given")
+            assertSame(monitor, settings.monitor, "the menu was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig.contextMenu(at, MENU_SIZE, MONITOR_MODE).copy(namespace = MENU_NAMESPACE),
-                menu.settings.config,
-                "the menu's settings are not a contextMenu's with the values it was given",
+                settings.config,
+                "the menu did not ask for a contextMenu's settings with the values it was given",
             )
         }
     }
 
     @Test
-    fun `a Dock's settings are a SurfaceConfig dock's, with every value it was given`() {
+    fun `a Dock asks for a SurfaceConfig dock's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
-            val dock = object : Dock<Nothing>(
-                monitor = monitor,
-                edge = Edge.Bottom,
-                thickness = THICKNESS.dp,
-                length = LENGTH.dp,
-                margins = MARGINS,
-                namespace = DOCK_NAMESPACE,
-            ) {
-                @Composable
-                override fun invoke() = Unit
-            }
-
-            assertEquals(KeyboardInteractivity.OnDemand, dock.keyboard, "the dock does not take the keyboard on demand")
-            assertSame(monitor, dock.monitor, "the dock was not put on the monitor it was given")
-            assertEquals(
-                SurfaceConfig
-                    .dock(Edge.Bottom, THICKNESS.dp, LENGTH.dp)
-                    .copy(namespace = DOCK_NAMESPACE, margins = MARGINS),
-                dock.settings.config,
-                "the dock's settings are not a dock's with the values it was given",
-            )
-        }
-    }
-
-    @Test
-    fun `an AppMenu's settings are a SurfaceConfig appMenu's, with every value it was given`() {
-        withUnboundMonitors(MONITOR_NAME) { (monitor) ->
-            val appMenu = object : AppMenu<Nothing>(
-                monitor = monitor,
-                width = OSD_WIDTH.dp,
-                height = OSD_HEIGHT.dp,
-                namespace = APP_MENU_NAMESPACE,
-            ) {
-                @Composable
-                override fun invoke() = Unit
+            val settings = settingsAskedBy {
+                Dock<Nothing>(
+                    monitor = monitor,
+                    edge = Edge.Bottom,
+                    thickness = THICKNESS.dp,
+                    length = LENGTH.dp,
+                    margins = MARGINS,
+                    namespace = DOCK_NAMESPACE,
+                ) {}
             }
 
             assertEquals(
                 KeyboardInteractivity.OnDemand,
-                appMenu.keyboard,
-                "the app menu does not take the keyboard on demand",
+                settings.config.keyboard,
+                "the dock does not take the keyboard on demand",
             )
-            assertSame(monitor, appMenu.monitor, "the app menu was not put on the monitor it was given")
+            assertSame(monitor, settings.monitor, "the dock was not put on the monitor it was given")
             assertEquals(
-                SurfaceConfig.appMenu(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = APP_MENU_NAMESPACE),
-                appMenu.settings.config,
-                "the app menu's settings are not an appMenu's with the values it was given",
+                SurfaceConfig
+                    .dock(Edge.Bottom, THICKNESS.dp, LENGTH.dp)
+                    .copy(namespace = DOCK_NAMESPACE, margins = MARGINS),
+                settings.config,
+                "the dock did not ask for a dock's settings with the values it was given",
             )
         }
     }
 
     @Test
-    fun `a LockScreen's settings are a SurfaceConfig lockScreen's, with every value it was given`() {
+    fun `an AppMenu asks for a SurfaceConfig appMenu's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
-            val lock = object : LockScreen<Nothing>(monitor = monitor, namespace = LOCK_NAMESPACE) {
-                @Composable
-                override fun invoke() = Unit
+            val settings = settingsAskedBy {
+                AppMenu<Nothing>(
+                    monitor = monitor,
+                    width = OSD_WIDTH.dp,
+                    height = OSD_HEIGHT.dp,
+                    namespace = APP_MENU_NAMESPACE,
+                ) {}
+            }
+
+            assertEquals(
+                KeyboardInteractivity.OnDemand,
+                settings.config.keyboard,
+                "the app menu does not take the keyboard on demand",
+            )
+            assertSame(monitor, settings.monitor, "the app menu was not put on the monitor it was given")
+            assertEquals(
+                SurfaceConfig.appMenu(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = APP_MENU_NAMESPACE),
+                settings.config,
+                "the app menu did not ask for an appMenu's settings with the values it was given",
+            )
+        }
+    }
+
+    @Test
+    fun `a LockScreen asks for a SurfaceConfig lockScreen's settings, with every value it was given`() {
+        withUnboundMonitors(MONITOR_NAME) { (monitor) ->
+            val settings = settingsAskedBy {
+                LockScreen<Nothing>(monitor = monitor, namespace = LOCK_NAMESPACE) {}
             }
 
             assertEquals(
                 KeyboardInteractivity.Exclusive,
-                lock.keyboard,
+                settings.config.keyboard,
                 "the lock screen does not take the keyboard exclusively",
             )
-            assertSame(monitor, lock.monitor, "the lock screen was not put on the monitor it was given")
+            assertSame(monitor, settings.monitor, "the lock screen was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig.lockScreen().copy(namespace = LOCK_NAMESPACE),
-                lock.settings.config,
-                "the lock screen's settings are not a lockScreen's with the values it was given",
+                settings.config,
+                "the lock screen did not ask for a lockScreen's settings with the values it was given",
             )
         }
     }
 
     private companion object {
-        const val BAR_NAMESPACE = "kortex-preset-class-bar"
-        const val PANEL_NAMESPACE = "kortex-preset-class-panel"
-        const val BACKGROUND_NAMESPACE = "kortex-preset-class-background"
-        const val OSD_NAMESPACE = "kortex-preset-class-osd"
-        const val MENU_NAMESPACE = "kortex-preset-class-context-menu"
-        const val MENU_PANEL_NAMESPACE = "kortex-preset-class-context-menu-panel"
-        const val DOCK_NAMESPACE = "kortex-preset-class-dock"
-        const val APP_MENU_NAMESPACE = "kortex-preset-class-app-menu"
-        const val LOCK_NAMESPACE = "kortex-preset-class-lock"
+        const val BAR_NAMESPACE = "kortex-preset-shown-bar"
+        const val PANEL_NAMESPACE = "kortex-preset-shown-panel"
+        const val BACKGROUND_NAMESPACE = "kortex-preset-shown-background"
+        const val OSD_NAMESPACE = "kortex-preset-shown-osd"
+        const val MENU_NAMESPACE = "kortex-preset-shown-context-menu"
+        const val MENU_PANEL_NAMESPACE = "kortex-preset-shown-context-menu-panel"
+        const val DOCK_NAMESPACE = "kortex-preset-asked-dock"
+        const val APP_MENU_NAMESPACE = "kortex-preset-asked-app-menu"
+        const val LOCK_NAMESPACE = "kortex-preset-asked-lock"
         const val MONITOR_NAME = "PRESET-1"
 
         // An unbound monitor's mode at scale 1, so its logical size too.

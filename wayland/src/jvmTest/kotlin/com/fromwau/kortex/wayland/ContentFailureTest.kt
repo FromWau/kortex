@@ -26,11 +26,9 @@ class ContentFailureTest {
     fun `content that throws on its first frame reports the crash, and the run goes on`() {
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            Show(
-                TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
-                    Canvas(Modifier.fillMaxSize()) { error(DRAW_FAILURE) }
-                },
-            )
+            TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+                Canvas(Modifier.fillMaxSize()) { error(DRAW_FAILURE) }
+            }
         }
 
         onApplication(content) { shell ->
@@ -51,16 +49,14 @@ class ContentFailureTest {
     fun `content that closes itself and whose cleanup then throws reports the crash, not Ok`() {
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            Show(
-                TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
-                    val surface = LocalKortexSurface.current
-                    DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
-                    LaunchedEffect(Unit) {
-                        delay(CLOSE_AFTER_MILLIS)
-                        surface.close()
-                    }
-                },
-            )
+            TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+                val surface = LocalKortexSurface.current
+                DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
+                LaunchedEffect(Unit) {
+                    delay(CLOSE_AFTER_MILLIS)
+                    surface.close()
+                }
+            }
         }
 
         onApplication(content) { shell ->
@@ -82,12 +78,10 @@ class ContentFailureTest {
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            Show(
-                TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it }) {
-                    val placement = remember { placements.incrementAndGet() }
-                    Canvas(Modifier.fillMaxSize()) { if (placement > 1) error(DRAW_FAILURE) }
-                },
-            )
+            TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it }) {
+                val placement = remember { placements.incrementAndGet() }
+                Canvas(Modifier.fillMaxSize()) { if (placement > 1) error(DRAW_FAILURE) }
+            }
         }
 
         onApplication(content) { shell ->

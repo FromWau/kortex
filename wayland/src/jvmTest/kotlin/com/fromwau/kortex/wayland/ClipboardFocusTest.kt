@@ -307,13 +307,13 @@ class ClipboardFocusTest {
         }
 
     private fun withFocusedShell(
-        content: @Composable TestSurface<Nothing>.() -> Unit = { Box(Modifier.fillMaxSize()) },
+        content: @Composable SurfaceScope<Nothing>.() -> Unit = { Box(Modifier.fillMaxSize()) },
         block: (KortexShell, WaylandDisplay) -> Unit,
     ) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland ->
             val application: @Composable KortexApplicationScope.() -> Unit = {
-                Show(TestSurface(NAMESPACE, keyboard = KeyboardInteractivity.Exclusive, content = content))
+                TestSurface(NAMESPACE, keyboard = KeyboardInteractivity.Exclusive, content = content)
             }
             val shell = KortexShell.createApplicationOrFail(wayland, application)
             shell.useOrFail {

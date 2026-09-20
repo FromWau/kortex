@@ -47,12 +47,10 @@ class MonitorTest {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
             SideEffect { inApplication.set(monitors) }
-            Show(
-                TestSurface<Nothing>(NAMESPACE) {
-                    val seen by rememberMonitors()
-                    SideEffect { inContent.set(seen) }
-                },
-            )
+            TestSurface<Nothing>(NAMESPACE) {
+                val seen by rememberMonitors()
+                SideEffect { inContent.set(seen) }
+            }
         }
 
         onApplication(content) { shell ->
@@ -73,7 +71,7 @@ class MonitorTest {
     fun `a surface shown on a monitor lands on it, under its namespace as written`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            monitors.firstOrNull()?.let { Show(TestSurface<Nothing>(NAMESPACE, monitor = it)) }
+            monitors.firstOrNull()?.let { TestSurface<Nothing>(NAMESPACE, monitor = it) }
         }
 
         onApplication(content) { shell ->
@@ -121,15 +119,15 @@ class MonitorTest {
     @Test
     fun `settings that differ only by monitor are different, and equal monitors make equal settings`() {
         withUnboundMonitors("LEFT-1", "RIGHT-1") { (left, right) ->
-            val onLeft = TestSurface<Nothing>(NAMESPACE, monitor = left).settings
+            val onLeft = settingsAskedBy { TestSurface<Nothing>(NAMESPACE, monitor = left) }
             assertNotEquals(
                 onLeft,
-                TestSurface<Nothing>(NAMESPACE, monitor = right).settings,
+                settingsAskedBy { TestSurface<Nothing>(NAMESPACE, monitor = right) },
                 "surfaces on two monitors had equal settings",
             )
             assertNotEquals(
                 onLeft,
-                TestSurface<Nothing>(NAMESPACE).settings,
+                settingsAskedBy { TestSurface<Nothing>(NAMESPACE) },
                 "a surface on a monitor had the settings of one the compositor places",
             )
 
@@ -138,14 +136,14 @@ class MonitorTest {
             assertEquals(left.hashCode(), leftAgain.hashCode(), "two Monitors of one output hashed apart")
             assertEquals(
                 onLeft,
-                TestSurface<Nothing>(NAMESPACE, monitor = leftAgain).settings,
+                settingsAskedBy { TestSurface<Nothing>(NAMESPACE, monitor = leftAgain) },
                 "surfaces on equal monitors had different settings",
             )
         }
     }
 
     @Test
-    fun `a Show replaces its surface when only the monitor changes, and keeps it for an equal monitor`() {
+    fun `a call replaces its surface when only the monitor changes, and keeps it for an equal monitor`() {
         val placement = mutableStateOf(Placement.CompositorChoice)
         val composed = AtomicReference<Placement?>(null)
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
@@ -159,7 +157,7 @@ class MonitorTest {
                 Placement.EqualToListed -> Monitor(listed.output)
             }
             SideEffect { composed.set(current) }
-            Show(TestSurface<Nothing>(NAMESPACE, monitor = monitor, onClose = { reports += it }))
+            TestSurface<Nothing>(NAMESPACE, monitor = monitor, onClose = { reports += it })
         }
 
         onApplication(content) { shell ->
@@ -191,7 +189,7 @@ class MonitorTest {
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         withUnboundMonitors("GONE-1") { (gone) ->
             val content: @Composable KortexApplicationScope.() -> Unit = {
-                Show(TestSurface<Nothing>(NAMESPACE, monitor = gone, onClose = { reports += it }))
+                TestSurface<Nothing>(NAMESPACE, monitor = gone, onClose = { reports += it })
             }
 
             onApplication(content) { shell ->
@@ -217,10 +215,10 @@ class MonitorTest {
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            // Kept once taken, so the Show stays in composition after its monitor has left the list.
+            // Kept once taken, so the call stays in composition after its monitor has left the list.
             val first = remember { monitors.first() }
             SideEffect { listed.set(monitors) }
-            Show(TestSurface<Nothing>(NAMESPACE, monitor = first, onClose = { reports += it }))
+            TestSurface<Nothing>(NAMESPACE, monitor = first, onClose = { reports += it })
         }
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 

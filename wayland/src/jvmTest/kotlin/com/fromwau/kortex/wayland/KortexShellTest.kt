@@ -32,19 +32,14 @@ class KortexShellTest {
                 val monitors by rememberMonitors()
                 for (monitor in monitors) {
                     key(monitor) {
-                        Show(
-                            object : Panel<Nothing>(
-                                monitor = monitor,
-                                edge = Edge.Top,
-                                thickness = SURFACE_HEIGHT.dp,
-                                namespace = "$NAMESPACE-${monitor.name}",
-                            ) {
-                                @Composable
-                                override fun invoke() {
-                                    Box(Modifier.fillMaxSize().background(Color(GREY, GREY, GREY)))
-                                }
-                            },
-                        )
+                        Panel<Nothing>(
+                            monitor = monitor,
+                            edge = Edge.Top,
+                            thickness = SURFACE_HEIGHT.dp,
+                            namespace = "$NAMESPACE-${monitor.name}",
+                        ) {
+                            Box(Modifier.fillMaxSize().background(Color(GREY, GREY, GREY)))
+                        }
                     }
                 }
             }

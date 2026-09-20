@@ -74,7 +74,7 @@ internal class KortexSurface private constructor(
         override val size: IntSize get() = sizeState.value
 
         override fun close() {
-            // No shown surface's content reaches this: ShownContent provides its LayerSurface as LocalKortexSurface.
+            // No shown surface's content reaches this: ShownContent provides its slot's scope as LocalKortexSurface.
             post { layer.markClosed() }
         }
     }

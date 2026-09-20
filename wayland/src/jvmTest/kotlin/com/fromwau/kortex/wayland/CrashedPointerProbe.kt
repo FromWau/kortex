@@ -26,28 +26,26 @@ object CrashedPointerProbe {
     @JvmStatic
     fun main(args: Array<String>) {
         kortexApplication {
-            Show(
-                TestSurface<Nothing>(
-                    POINTER_PROBE_NAMESPACE,
-                    layer = Layer.Overlay,
-                    anchor = setOf(Edge.Top, Edge.Left),
-                    width = 32.dp,
-                    height = 32.dp,
-                    onClose = { ending ->
-                        ending.onError { error ->
-                            val crash = (error as SurfaceError.Failed).error as KortexError.SurfaceCrashed
-                            System.err.println(
-                                "$PROBE_MARKER hook crashed=${crash.namespace} cause=${crash.failure.cause.message}",
-                            )
-                            System.err.println(
-                                "$PROBE_MARKER crashed=${crash.namespace} failure=${crash.failure::class.simpleName} " +
-                                    "cause=${crash.failure.cause.message}",
-                            )
-                        }
-                        exitApplication()
-                    },
-                ) { ThrowOnClick() },
-            )
+            TestSurface<Nothing>(
+                POINTER_PROBE_NAMESPACE,
+                layer = Layer.Overlay,
+                anchor = setOf(Edge.Top, Edge.Left),
+                width = 32.dp,
+                height = 32.dp,
+                onClose = { ending ->
+                    ending.onError { error ->
+                        val crash = (error as SurfaceError.Failed).error as KortexError.SurfaceCrashed
+                        System.err.println(
+                            "$PROBE_MARKER hook crashed=${crash.namespace} cause=${crash.failure.cause.message}",
+                        )
+                        System.err.println(
+                            "$PROBE_MARKER crashed=${crash.namespace} failure=${crash.failure::class.simpleName} " +
+                                "cause=${crash.failure.cause.message}",
+                        )
+                    }
+                    exitApplication()
+                },
+            ) { ThrowOnClick() }
         }
     }
 }

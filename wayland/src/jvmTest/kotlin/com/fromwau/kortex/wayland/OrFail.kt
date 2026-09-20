@@ -4,7 +4,9 @@ import androidx.compose.runtime.Composable
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
+import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -49,7 +51,21 @@ internal fun onApplication(
     display.use { KortexShell.createApplicationOrFail(display, content).useOrFail(block) }
 }
 
-/** Pumps [shell] until [count] of its Shows' surfaces are on screen; the test fails if they never are. */
+/**
+ * The settings the one surface [content] composes asks for, read before any pass could place it: nothing of the
+ * surface reaches the compositor, so this is safe even for a surface that would take the keyboard as it maps.
+ */
+internal fun settingsAskedBy(content: @Composable KortexApplicationScope.() -> Unit): SurfaceSettings {
+    var asked: SurfaceSettings? = null
+    onApplication(content) { shell ->
+        val queued = shell.queuedSettings
+        assertEquals(1, queued.size, "the content asked for ${queued.size} surfaces, not one")
+        asked = queued.first()
+    }
+    return assertNotNull(asked, "the content asked for no surface")
+}
+
+/** Pumps [shell] until [count] of its surfaces are on screen; the test fails if they never are. */
 internal fun awaitPlaced(
     shell: KortexShell,
     count: Int = 1,
