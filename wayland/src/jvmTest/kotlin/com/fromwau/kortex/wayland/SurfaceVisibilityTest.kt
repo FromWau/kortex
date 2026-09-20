@@ -43,12 +43,12 @@ class SurfaceVisibilityTest {
 
             visible.value = false
 
-            awaitOffScreen(shell, surface)
+            awaitOffScreen(shell)
             assertReservesMore(shell, monitor, Edge.Bottom, RESERVES_NOTHING)
 
             visible.value = true
 
-            awaitOnScreen(shell, surface)
+            awaitOnScreen(shell)
             assertReservesMore(shell, monitor, Edge.Bottom, THICKNESS)
         }
     }
@@ -62,7 +62,7 @@ class SurfaceVisibilityTest {
         onPanel(visible, colour, watch) { shell, surface ->
             visible.value = false
 
-            awaitOffScreen(shell, surface)
+            awaitOffScreen(shell)
             shell.pumpOrFail(SETTLE_MILLIS)
             val offScreen = surface.renders
 
@@ -96,7 +96,7 @@ class SurfaceVisibilityTest {
         onPanel(visible, watch = watch) { shell, surface ->
             visible.value = false
 
-            awaitOffScreen(shell, surface)
+            awaitOffScreen(shell)
             val ticks = watch.ticks.get()
 
             assertTrue(
@@ -106,7 +106,7 @@ class SurfaceVisibilityTest {
 
             visible.value = true
 
-            awaitOnScreen(shell, surface)
+            awaitOnScreen(shell)
             assertEquals(1, watch.compositions.get(), "the content was composed again from scratch")
             assertEquals(1, watch.held.get(), "the content lost what it held behind remember")
         }
@@ -124,7 +124,7 @@ class SurfaceVisibilityTest {
 
             visible.value = false
 
-            awaitOffScreen(shell, surface)
+            awaitOffScreen(shell)
             val ticks = watch.ticks.get()
 
             assertTrue(
@@ -146,11 +146,11 @@ class SurfaceVisibilityTest {
 
             visible.value = false
 
-            awaitOffScreen(shell, surface)
+            awaitOffScreen(shell)
 
             visible.value = true
 
-            awaitOnScreen(shell, surface)
+            awaitOnScreen(shell)
             assertSame(surface, shell.shownSurfaces.single(), "the panel was made again instead of put back")
             assertEquals(placed.address, panelGeometry().address, "the round trip made a new layer surface")
             assertEquals(1, watch.compositions.get(), "the content was composed again from scratch")
@@ -172,7 +172,7 @@ class SurfaceVisibilityTest {
 
             visible.value = true
 
-            awaitOnScreen(shell, surface)
+            awaitOnScreen(shell)
             assertReservesMore(shell, monitor, Edge.Bottom, THICKNESS)
             assertTrue(surface.renders > 0, "the panel drew nothing once it was put on screen")
         }
@@ -222,18 +222,20 @@ class SurfaceVisibilityTest {
     private fun panelGeometry(): LayerGeometry =
         assertNotNull(Screen.awaitGeometry(NAMESPACE), "hyprctl never reported $NAMESPACE")
 
-    private fun awaitOffScreen(
-        shell: KortexShell,
-        surface: KortexSurface,
-    ) {
-        assertTrue(shell.pumpOrFail(PUMP_MILLIS) { surface.hidden }, "the panel was never taken off screen")
+    // Both wait on whatever surface the shell holds now, not on the one the test was handed, so a change that made
+    // a surface of its own is caught by the assertion that looks for it rather than by a wait that times out.
+    private fun awaitOffScreen(shell: KortexShell) {
+        assertTrue(
+            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == true },
+            "the panel was never taken off screen",
+        )
     }
 
-    private fun awaitOnScreen(
-        shell: KortexShell,
-        surface: KortexSurface,
-    ) {
-        assertTrue(shell.pumpOrFail(PUMP_MILLIS) { !surface.hidden }, "the panel was never put back on screen")
+    private fun awaitOnScreen(shell: KortexShell) {
+        assertTrue(
+            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == false },
+            "the panel was never put back on screen",
+        )
     }
 
     /** What the panel's content publishes: how often it was composed, what it holds, that it runs, and its size. */
