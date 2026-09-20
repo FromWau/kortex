@@ -276,8 +276,8 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Sends [settings] to a live [surface]: the changed settings first, so one this pass also puts back on screen is
-     * already the shape and place its call asks for as it appears.
+     * Sends [settings] to a live [surface], the changed settings before the visibility, so a surface this pass also
+     * puts back on screen appears in the shape and place its call asks for.
      */
     private fun sendChange(
         surface: KortexSurface,

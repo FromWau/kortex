@@ -174,8 +174,8 @@ internal class KortexSurface private constructor(
     }
 
     /**
-     * Takes the surface off screen and hands back the space it reserved, leaving its composition running with its
-     * content's state, and [logicalSize], as they are.
+     * Takes the surface off screen and hands back the space it reserved. Its composition keeps running and keeps
+     * its state, and [logicalSize] keeps the value it had.
      */
     fun hide(): EmptyResult<KortexError> {
         hidden = true

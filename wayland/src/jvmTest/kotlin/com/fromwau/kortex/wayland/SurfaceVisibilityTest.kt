@@ -36,7 +36,7 @@ class SurfaceVisibilityTest {
         val watch = Watch()
         val before = Hyprctl.monitors().associateBy(HyprMonitor::name)
 
-        onPanel(visible, watch = watch) { shell, surface ->
+        onPanel(visible, watch = watch) { shell, _ ->
             val placed = panelGeometry()
             val monitor = assertNotNull(before[placed.monitor], "hyprctl did not report ${placed.monitor} before")
             assertReservesMore(shell, monitor, Edge.Bottom, THICKNESS)
@@ -59,7 +59,7 @@ class SurfaceVisibilityTest {
         val colour = mutableStateOf(Color.Red)
         val watch = Watch()
 
-        onPanel(visible, colour, watch) { shell, surface ->
+        onPanel(visible, colour, watch = watch) { shell, surface ->
             visible.value = false
 
             awaitOffScreen(shell)
@@ -93,7 +93,7 @@ class SurfaceVisibilityTest {
         val visible = mutableStateOf(true)
         val watch = Watch()
 
-        onPanel(visible, watch = watch) { shell, surface ->
+        onPanel(visible, watch = watch) { shell, _ ->
             visible.value = false
 
             awaitOffScreen(shell)
@@ -178,16 +178,48 @@ class SurfaceVisibilityTest {
         }
     }
 
+    @Test
+    fun `a panel put back on screen at another thickness draws at the size that came back with it`() {
+        val visible = mutableStateOf(true)
+        val thickness = mutableStateOf(THICKNESS)
+        val watch = Watch()
+
+        onPanel(visible, thickness = thickness, watch = watch) { shell, surface ->
+            visible.value = false
+
+            awaitOffScreen(shell)
+
+            // Both in one recomposition, so the configure that carries the new size is the one putting it back.
+            thickness.value = THICKER
+            visible.value = true
+
+            awaitOnScreen(shell)
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { Screen.geometry(NAMESPACE)?.logicalHeight == THICKER },
+                "the compositor never placed the panel at the thickness it came back with",
+            )
+            val shown = panelGeometry()
+            val scale = surface.currentBufferScale
+            assertEquals(
+                IntSize(shown.logicalWidth * scale, shown.logicalHeight * scale),
+                surface.bufferSize,
+                "the panel came back drawing at the size it had before",
+            )
+            assertEquals(THICKER, surface.logicalSize.height, "content reads the size the panel had before")
+        }
+    }
+
     /** A bottom panel whose content reports itself to [watch] from an effect that outlives going off screen. */
     @Composable
     private fun WatchedPanel(
         visible: Boolean,
+        thickness: Int,
         colour: Color,
         watch: Watch,
     ) {
         Panel<Nothing>(
             edge = Edge.Bottom,
-            thickness = THICKNESS.dp,
+            thickness = thickness.dp,
             namespace = NAMESPACE,
             visible = visible,
         ) {
@@ -205,14 +237,15 @@ class SurfaceVisibilityTest {
         }
     }
 
-    /** Runs one bottom panel driven by [visible] and [colour], and hands [body] the shell and the panel's surface. */
+    /** Runs one bottom panel the states drive, and hands [body] the shell and the surface the panel was placed as. */
     private fun onPanel(
         visible: MutableState<Boolean>,
         colour: MutableState<Color> = mutableStateOf(Color.Red),
+        thickness: MutableState<Int> = mutableStateOf(THICKNESS),
         watch: Watch,
         body: (KortexShell, KortexSurface) -> Unit,
     ) {
-        onApplication({ WatchedPanel(visible.value, colour.value, watch) }) { shell ->
+        onApplication({ WatchedPanel(visible.value, thickness.value, colour.value, watch) }) { shell ->
             awaitPlaced(shell)
             body(shell, shell.shownSurfaces.single())
         }
@@ -249,6 +282,7 @@ class SurfaceVisibilityTest {
     private companion object {
         const val NAMESPACE = "kortex-visibility"
         const val THICKNESS = 18
+        const val THICKER = 30
         const val RESERVES_NOTHING = 0
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 500L
