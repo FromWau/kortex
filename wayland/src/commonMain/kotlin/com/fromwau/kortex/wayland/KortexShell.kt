@@ -78,7 +78,7 @@ internal class KortexShell private constructor(
         }
     }
 
-    // Each slot whose surface is on screen, in the order placed: one in a surface's content after that surface's own.
+    // Each slot whose surface is placed, on screen or off, in order: one in a surface's content after its own.
     private val placed = mutableListOf<SurfaceSlot>()
 
     // Filled by each surface call's effects, which run inside a composition's apply, and acted on in the next pass.
