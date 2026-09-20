@@ -88,7 +88,7 @@ internal class KortexShell private constructor(
     internal val shownSurfaces: List<KortexSurface> get() = placed.mapNotNull { it.surface }
 
     /** What each slot queued since the last pass asks for, before that pass places anything; a test reads them. */
-    internal val queuedSettings: List<SurfaceSettings> get() = changedSlots.mapNotNull { it.wanted }
+    internal val queuedSettings: List<SurfaceSettings> get() = changedSlots.distinct().mapNotNull { it.wanted }
 
     /** What [rememberMonitors] hands content: each bound output that has described itself, in the order bound. */
     internal val monitors: State<List<Monitor>> get() = listedMonitors

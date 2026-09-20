@@ -106,7 +106,11 @@ class SurfaceTest {
                 shell.pumpOrFail(PUMP_MILLIS) { SECOND_LABEL in drawn },
                 "the surface never drew the newest content",
             )
-            assertSame(surface, shell.shownSurfaces.single(), "changed arguments replaced the surface")
+            assertSame(
+                surface,
+                shell.shownSurfaces.singleOrNull(),
+                "changed arguments did not leave exactly the surface the call started with",
+            )
 
             showing.value = false
 

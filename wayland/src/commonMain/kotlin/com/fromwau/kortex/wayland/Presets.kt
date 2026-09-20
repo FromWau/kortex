@@ -23,7 +23,7 @@ import com.fromwau.kern.result.Result
  * }
  * ```
  *
- * It is a [LayerSurface] with a bar's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with a bar's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the bar on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -64,7 +64,7 @@ public fun <E : IError> Bar(
  * A surface along one edge of its monitor, spanning that edge and reserving its own thickness there, so windows tile
  * clear of it. It takes no keyboard focus; a [Dock] is placed the same way and can take it.
  *
- * It is a [LayerSurface] with a panel's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with a panel's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the panel on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -103,7 +103,7 @@ public fun <E : IError> Panel(
  * Placed as a [Panel] is, along one edge of its monitor, spanning that edge and reserving its own thickness there, and
  * able to take keyboard focus, as a text field in it needs.
  *
- * It is a [LayerSurface] with a dock's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with a dock's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put the dock on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -142,7 +142,7 @@ public fun <E : IError> Dock(
  * Fills its whole monitor on the lowest layer, beneath every window: a wallpaper, say. It reserves nothing, takes no
  * keyboard focus, and covers the space other surfaces reserve rather than moving out of their way.
  *
- * It is a [LayerSurface] with a background's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with a background's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to fill, one [rememberMonitors] lists; null lets the compositor choose.
@@ -173,7 +173,7 @@ public fun <E : IError> DesktopBackground(
  * stops another surface from drawing over or beside it, or the compositor from switching away from it. Mistaking it
  * for a session lock is a security problem, not a layout one.
  *
- * It is a [LayerSurface] with a lock screen's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with a lock screen's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to cover, one [rememberMonitors] lists; null lets the compositor choose.
@@ -201,7 +201,7 @@ public fun <E : IError> LockScreen(
  * It is centred in the space other surfaces leave free on its monitor, so a bar's reserved space shifts it off the
  * monitor's true centre. It takes no keyboard focus; an [AppMenu] is placed the same way and can take it.
  *
- * It is a [LayerSurface] with an osd's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with an osd's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -234,7 +234,7 @@ public fun <E : IError> Osd(
  * free on its monitor, and able to take keyboard focus: a launcher you type into, say, which its content dismisses
  * with `close()`.
  *
- * It is a [LayerSurface] with an app menu's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with an app menu's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to put it on, one [rememberMonitors] lists; null lets the compositor choose.
@@ -288,7 +288,7 @@ public fun <E : IError> AppMenu(
  * }
  * ```
  *
- * It is a [LayerSurface] with a menu's placement fixed; everything else about it is that call's.
+ * It is a [LayerSurface] with a menu's placement fixed; every other setting is this call's own.
  *
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor the menu opens on, one [rememberMonitors] lists.
