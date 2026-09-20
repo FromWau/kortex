@@ -137,16 +137,17 @@ class LiveSettingsTest {
     }
 
     @Test
-    fun `a changed exclusiveEdge moves a corner-anchored surface's reservation, and null stops it`() {
-        val edge = mutableStateOf<Edge?>(Edge.Right)
+    fun `a corner-anchored surface's reservation follows its anchor and exclusiveEdge, and null stops it`() {
+        val corner = mutableStateOf(RESERVING_RIGHT)
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             TestSurface<Nothing>(
                 NAMESPACE,
+                anchor = corner.value.anchor,
                 width = WIDER.dp,
                 height = TALLER.dp,
                 exclusiveZone = ExclusiveZone.Reserve(ZONE.dp),
-                exclusiveEdge = edge.value,
+                exclusiveEdge = corner.value.exclusiveEdge,
             ) {
                 remember { placements.incrementAndGet() }
             }
@@ -157,15 +158,17 @@ class LiveSettingsTest {
             val monitor = assertNotNull(before[placed.monitor], "hyprctl did not report ${placed.monitor} before")
             assertReservesMore(shell, monitor, Edge.Right, ZONE)
 
-            edge.value = Edge.Bottom
+            // The edge it moves to is pinned only by the anchor it moves to, so the compositor rejects the pair
+            // outright unless the anchor reaches it first.
+            corner.value = RESERVING_LEFT
 
-            assertReservesMore(shell, monitor, Edge.Bottom, ZONE)
+            assertReservesMore(shell, monitor, Edge.Left, ZONE)
             assertReservesMore(shell, monitor, Edge.Right, RESERVES_NOTHING)
             assertChangedInPlace(placed, awaitGeometry(shell), placements)
 
-            edge.value = null
+            corner.value = RESERVING_LEFT.copy(exclusiveEdge = null)
 
-            assertReservesMore(shell, monitor, Edge.Bottom, RESERVES_NOTHING)
+            assertReservesMore(shell, monitor, Edge.Left, RESERVES_NOTHING)
             assertChangedInPlace(placed, awaitGeometry(shell), placements)
         }
     }
@@ -242,7 +245,16 @@ class LiveSettingsTest {
         assertEquals(1, placements.get(), "the content composed again, so what it held behind remember did not survive")
     }
 
+    /** A corner anchor and which of the two edges it pins the exclusive zone is measured from. */
+    private data class Corner(
+        val anchor: Set<Edge>,
+        val exclusiveEdge: Edge?,
+    )
+
     private companion object {
+        val RESERVING_RIGHT = Corner(setOf(Edge.Bottom, Edge.Right), Edge.Right)
+        val RESERVING_LEFT = Corner(setOf(Edge.Bottom, Edge.Left), Edge.Left)
+
         const val NAMESPACE = "kortex-live-settings"
         const val PUMP_MILLIS = 4_000L
         const val SPECK = 8
