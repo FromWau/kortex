@@ -253,8 +253,27 @@ internal class KortexShell private constructor(
             ownEnding is OwnEnding.Ended -> end(slot, ownEnding.ending)
             wanted == null -> end(slot, endingOnLeave)
             slot.surface == null -> place(slot, wanted)
-            slot.placedWith != wanted -> replace(slot, wanted)
+            slot.placedWith != wanted -> change(slot, wanted)
         }
+    }
+
+    /**
+     * Changes a surface its call still holds: what the live surface can take is sent to it, and a changed monitor or
+     * namespace places a new one. Settings it cannot take end it, as a first placement that fails does.
+     */
+    private fun change(
+        slot: SurfaceSlot,
+        settings: SurfaceSettings,
+    ) {
+        val surface = slot.surface
+        val placedWith = slot.placedWith
+        if (surface == null || placedWith == null || settings.rebuildsOver(placedWith)) {
+            return replace(slot, settings)
+        }
+        surface
+            .applyConfig(settings.config)
+            .onSuccess { slot.placedWith = settings }
+            .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
     }
 
     // The call is still in composition, so nothing has ended for its host, unless its content failed as it went.

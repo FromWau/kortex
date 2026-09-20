@@ -106,9 +106,13 @@ class SurfaceLifetimeTest {
                 .getOrElse { error -> fail("cursor surface creation failed: $error") }
             val layer = LayerShellSurface.create(
                 wayland,
-                namespace = LAYER_NAMESPACE,
-                height = LAYER_HEIGHT,
-                exclusiveZone = ExclusiveZone.Yield,
+                SurfaceConfig(
+                    namespace = LAYER_NAMESPACE,
+                    anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
+                    width = SPAN_ANCHORED_AXIS.dp,
+                    height = LAYER_HEIGHT.dp,
+                    exclusiveZone = ExclusiveZone.Yield,
+                ),
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
             cursorSurface.close()
@@ -134,6 +138,7 @@ class SurfaceLifetimeTest {
     private companion object {
         const val LAYER_NAMESPACE = "kortex-lifetime-layer"
         const val LAYER_HEIGHT = 24
+        const val SPAN_ANCHORED_AXIS = 0
         const val PANEL_NAMESPACE = "kortex-lifetime-panel"
         const val MENU_NAMESPACE = "kortex-lifetime-menu"
 

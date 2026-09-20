@@ -45,6 +45,8 @@ private const val BOTTOM = 3
 @Serializable
 internal data class LayerEntry(
     val namespace: String,
+    /** What the compositor calls this layer surface, which is another one as soon as it is made again. */
+    val address: String,
     val x: Int,
     val y: Int,
     val w: Int,

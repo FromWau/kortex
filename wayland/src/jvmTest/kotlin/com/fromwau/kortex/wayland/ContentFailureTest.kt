@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -74,11 +74,11 @@ class ContentFailureTest {
 
     @Test
     fun `a replacement's content that throws on its first frame reports the crash, and nothing takes its place`() {
-        val height = mutableIntStateOf(SHORT)
+        val namespace = mutableStateOf(NAMESPACE)
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it }) {
+            TestSurface<Nothing>(namespace.value, onClose = { reports += it }) {
                 val placement = remember { placements.incrementAndGet() }
                 Canvas(Modifier.fillMaxSize()) { if (placement > 1) error(DRAW_FAILURE) }
             }
@@ -87,7 +87,7 @@ class ContentFailureTest {
         onApplication(content) { shell ->
             awaitPlaced(shell)
 
-            height.intValue = TALL
+            namespace.value = REPLACEMENT_NAMESPACE
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
@@ -126,8 +126,7 @@ class ContentFailureTest {
         const val SETTLE_MILLIS = 300L
         const val CLOSE_AFTER_MILLIS = 50L
         const val PUMP_MILLIS = 2_000L
-        const val SHORT = 8
-        const val TALL = 16
+        const val REPLACEMENT_NAMESPACE = "kortex-crash-replacement"
         const val PROBE_MAIN_CLASS = "com.fromwau.kortex.wayland.CrashedSurfaceProbe"
     }
 }

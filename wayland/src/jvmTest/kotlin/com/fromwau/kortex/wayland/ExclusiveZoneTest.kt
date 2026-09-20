@@ -24,10 +24,13 @@ class ExclusiveZoneTest {
 
             val panel = LayerShellSurface.create(
                 wayland,
-                namespace = PANEL_NAMESPACE,
-                height = PANEL_HEIGHT,
-                anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-                exclusiveZone = ExclusiveZone.Reserve(PANEL_HEIGHT.dp),
+                SurfaceConfig(
+                    namespace = PANEL_NAMESPACE,
+                    anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
+                    width = SPAN_ANCHORED_AXIS.dp,
+                    height = PANEL_HEIGHT.dp,
+                    exclusiveZone = ExclusiveZone.Reserve(PANEL_HEIGHT.dp),
+                ),
                 output = monitor.proxy,
             ).getOrElse { error -> fail("panel creation failed: $error") }
 
@@ -37,12 +40,14 @@ class ExclusiveZoneTest {
 
                 val background = LayerShellSurface.create(
                     wayland,
-                    namespace = BACKGROUND_NAMESPACE,
-                    height = 0,
-                    width = 0,
-                    layer = Layer.Background,
-                    anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-                    exclusiveZone = ExclusiveZone.Overlap,
+                    SurfaceConfig(
+                        namespace = BACKGROUND_NAMESPACE,
+                        layer = Layer.Background,
+                        anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+                        width = SPAN_ANCHORED_AXIS.dp,
+                        height = SPAN_ANCHORED_AXIS.dp,
+                        exclusiveZone = ExclusiveZone.Overlap,
+                    ),
                     output = monitor.proxy,
                 ).getOrElse { error -> fail("background creation failed: $error") }
 
@@ -83,12 +88,14 @@ class ExclusiveZoneTest {
             // this test does (see LayerGeometryTest).
             val corner = LayerShellSurface.create(
                 wayland,
-                namespace = CORNER_NAMESPACE,
-                height = CORNER_HEIGHT,
-                width = CORNER_WIDTH,
-                anchor = setOf(Edge.Bottom, Edge.Right),
-                exclusiveZone = ExclusiveZone.Reserve(CORNER_ZONE.dp),
-                exclusiveEdge = Edge.Right,
+                SurfaceConfig(
+                    namespace = CORNER_NAMESPACE,
+                    anchor = setOf(Edge.Bottom, Edge.Right),
+                    width = CORNER_WIDTH.dp,
+                    height = CORNER_HEIGHT.dp,
+                    exclusiveZone = ExclusiveZone.Reserve(CORNER_ZONE.dp),
+                    exclusiveEdge = Edge.Right,
+                ),
                 output = monitor.proxy,
             ).getOrElse { error -> fail("corner surface creation failed: $error") }
 
@@ -115,11 +122,13 @@ class ExclusiveZoneTest {
                 // set_exclusive_zone alone cannot do for a corner anchor.
                 val probe = LayerShellSurface.create(
                     wayland,
-                    namespace = PROBE_NAMESPACE,
-                    height = 0,
-                    width = 0,
-                    anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-                    exclusiveZone = ExclusiveZone.Yield,
+                    SurfaceConfig(
+                        namespace = PROBE_NAMESPACE,
+                        anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+                        width = SPAN_ANCHORED_AXIS.dp,
+                        height = SPAN_ANCHORED_AXIS.dp,
+                        exclusiveZone = ExclusiveZone.Yield,
+                    ),
                     output = monitor.proxy,
                 ).getOrElse { error -> fail("probe surface creation failed: $error") }
 
@@ -145,12 +154,8 @@ class ExclusiveZoneTest {
 
         display.use { wayland ->
             for (amount in ROUNDING_TO_NOTHING) {
-                val result = LayerShellSurface.create(
-                    wayland,
-                    namespace = ROUNDED_NAMESPACE,
-                    height = CORNER_HEIGHT,
-                    exclusiveZone = ExclusiveZone.Reserve(amount),
-                )
+                val result =
+                    LayerShellSurface.create(wayland, topBar(ROUNDED_NAMESPACE, ExclusiveZone.Reserve(amount)))
 
                 when (result) {
                     is Ok -> fail("Reserve($amount) reserves nothing and must be rejected: ${result.value}")
@@ -159,12 +164,9 @@ class ExclusiveZoneTest {
             }
 
             // A pixel is the smallest reservation that means what it says, so it must still be accepted.
-            val smallest = LayerShellSurface.create(
-                wayland,
-                namespace = ROUNDED_NAMESPACE,
-                height = CORNER_HEIGHT,
-                exclusiveZone = ExclusiveZone.Reserve(1.dp),
-            ).getOrElse { error -> fail("a one-pixel reservation must be accepted: $error") }
+            val smallest = LayerShellSurface
+                .create(wayland, topBar(ROUNDED_NAMESPACE, ExclusiveZone.Reserve(1.dp)))
+                .getOrElse { error -> fail("a one-pixel reservation must be accepted: $error") }
             smallest.use {
                 smallest.waitForConfigure().getOrElse { error -> fail("the compositor never configured it: $error") }
             }
@@ -179,12 +181,14 @@ class ExclusiveZoneTest {
             val anchor = setOf(Edge.Bottom, Edge.Right)
             val result = LayerShellSurface.create(
                 wayland,
-                namespace = REJECTED_NAMESPACE,
-                height = CORNER_HEIGHT,
-                width = CORNER_WIDTH,
-                anchor = anchor,
-                exclusiveZone = ExclusiveZone.Reserve(CORNER_ZONE.dp),
-                exclusiveEdge = Edge.Top,
+                SurfaceConfig(
+                    namespace = REJECTED_NAMESPACE,
+                    anchor = anchor,
+                    width = CORNER_WIDTH.dp,
+                    height = CORNER_HEIGHT.dp,
+                    exclusiveZone = ExclusiveZone.Reserve(CORNER_ZONE.dp),
+                    exclusiveEdge = Edge.Top,
+                ),
             )
 
             when (result) {
@@ -194,10 +198,9 @@ class ExclusiveZoneTest {
 
             // The rejection must happen before any request reaches the compositor, leaving the
             // connection itself unharmed; prove it by using it normally right after.
-            val sanity = LayerShellSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = CORNER_HEIGHT,
-                exclusiveZone = ExclusiveZone.Yield,
-            ).getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
+            val sanity = LayerShellSurface
+                .create(wayland, topBar(REJECTED_NAMESPACE, ExclusiveZone.Yield))
+                .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use {
                 sanity.waitForConfigure()
                     .getOrElse { error -> fail("connection did not survive the rejection: $error") }
@@ -205,7 +208,18 @@ class ExclusiveZoneTest {
         }
     }
 
+    /** A bar across the top of the output, the shape whose zone alone is under test. */
+    private fun topBar(namespace: String, exclusiveZone: ExclusiveZone) = SurfaceConfig(
+        namespace = namespace,
+        anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
+        width = SPAN_ANCHORED_AXIS.dp,
+        height = CORNER_HEIGHT.dp,
+        exclusiveZone = exclusiveZone,
+    )
+
     private companion object {
+        const val SPAN_ANCHORED_AXIS = 0
+
         const val PANEL_NAMESPACE = "kortex-exclusive-zone-panel"
         const val BACKGROUND_NAMESPACE = "kortex-exclusive-zone-background"
         const val CORNER_NAMESPACE = "kortex-exclusive-zone-corner"

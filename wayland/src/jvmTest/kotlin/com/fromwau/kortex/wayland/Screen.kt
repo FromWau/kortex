@@ -43,6 +43,8 @@ private const val BTN_LEFT = 0x110
 internal data class LayerGeometry(
     val monitor: String,
     val layer: Layer,
+    /** What the compositor calls this layer surface, which is another one as soon as it is made again. */
+    val address: String,
     val x: Int,
     val y: Int,
     val logicalWidth: Int,
@@ -95,6 +97,7 @@ internal object Screen {
                 return LayerGeometry(
                     monitor = monitor,
                     layer = layerAt(level),
+                    address = entry.address,
                     x = entry.x,
                     y = entry.y,
                     logicalWidth = entry.w,

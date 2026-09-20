@@ -112,9 +112,7 @@ public sealed interface ExclusiveZone {
  *   [Edge.Bottom].
  * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows
  *   into; what is sensible depends on [anchor].
- * @property keyboard whether the surface can take keyboard focus. Set once and never changed: Hyprland
- *   does not return the keyboard to the focused window when a layer surface drops its interactivity
- *   (hyprwm/Hyprland#8293).
+ * @property keyboard whether the surface can take keyboard focus.
  * @property exclusiveEdge which anchored edge [exclusiveZone] is measured from; only needed when
  *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
  */

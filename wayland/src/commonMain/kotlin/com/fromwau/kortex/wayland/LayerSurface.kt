@@ -40,10 +40,11 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * }
  * ```
  *
- * The surface appears shortly after the call enters composition, and goes when the call leaves it. While the
- * settings passed stay equal, the surface keeps running and draws the newest [content]; a changed setting puts a new
- * surface in its place, drawn from scratch, and nothing is reported. State [content] keeps behind `remember` lives as
- * long as the surface it is drawn on.
+ * The surface appears shortly after the call enters composition, and goes when the call leaves it. It keeps running
+ * and draws the newest [content] throughout, and a changed setting changes the surface on screen shortly after,
+ * reporting nothing: [layer], [anchor], [width], [height], [margins], [exclusiveZone], [exclusiveEdge] and [keyboard]
+ * reach it in one step, while a changed [monitor] or [namespace] puts a new surface in its place, drawn from scratch.
+ * State [content] keeps behind `remember` lives as long as the surface it is drawn on.
  *
  * Once the surface has ended by itself, in any of the ways [onClose] lists, the call shows nothing until you take it
  * out of composition and put it back. Taking it out reports nothing more.
@@ -73,8 +74,9 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  *   [SurfaceEnd.ClosedByCompositor] when the compositor closes it, [SurfaceEnd.MonitorUnplugged] when its [monitor]
  *   is unplugged, and [SurfaceEnd.LeftComposition] when the call leaves composition: taken out, gone with the
  *   surface whose content showed it, or ended by `exitApplication()`. It receives [SurfaceError.Closed] when
- *   `close(error)` is called, and [SurfaceError.Failed] when the surface could not be placed, failed to follow a new
- *   size or scale from the compositor, its content threw, or the connection to the compositor failed. For a failed
+ *   `close(error)` is called, and [SurfaceError.Failed] when the surface could not be placed or changed to the
+ *   settings asked for, failed to follow a new size or scale from the compositor, its content threw, or the
+ *   connection to the compositor failed. For a failed
  *   connection, [SurfaceError.Failed] carries the same error [kortexApplication] returns. Content that throws before
  *   the surface has gone, its cleanup as it goes included, makes it [SurfaceError.Failed] whatever else ended it. If
  *   `onClose` itself throws, the application ends with [KortexError.ApplicationCrashed], and no other `onClose` is
@@ -162,11 +164,18 @@ internal fun <E : IError> LayerSurface(
     DisposableEffect(Unit) { onDispose { shell.queueRemove(slot) } }
 }
 
-/** What a surface call asks for: a surface placed with other settings is taken down and placed anew. */
+/** What a surface call asks for: a surface placed with other settings is changed to these. */
 internal data class SurfaceSettings(
     val monitor: Monitor?,
     val config: SurfaceConfig,
-)
+) {
+    /**
+     * Whether a surface placed with [placed] has to be made again to reach these settings, rather than changed:
+     * `get_layer_surface` fixes the monitor and the namespace for the life of a layer surface.
+     */
+    fun rebuildsOver(placed: SurfaceSettings): Boolean =
+        monitor != placed.monitor || config.namespace != placed.config.namespace
+}
 
 /** How a surface ended cleanly: what its `onClose` receives inside `Ok`. */
 public sealed interface SurfaceEnd {

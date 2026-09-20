@@ -39,10 +39,17 @@ class FirstPixelsTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use {
             val shm = Shm.bind(display).getOrElse { error -> fail("shm bind failed: $error") }
-            val bar = LayerShellSurface.create(
-                display, namespace = NAMESPACE, height = BAR_HEIGHT,
-                exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
-            )
+            val bar = LayerShellSurface
+                .create(
+                    display,
+                    SurfaceConfig(
+                        namespace = NAMESPACE,
+                        anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
+                        width = SPAN_ANCHORED_AXIS.dp,
+                        height = BAR_HEIGHT.dp,
+                        exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
+                    ),
+                )
                 .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
@@ -80,6 +87,7 @@ class FirstPixelsTest {
     private companion object {
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
+        const val SPAN_ANCHORED_AXIS = 0
         const val MID_GREY = 0xFF808080.toInt()
         const val RED = 0xFFFF0000.toInt()
         const val BLUE = 0xFF0000FF.toInt()

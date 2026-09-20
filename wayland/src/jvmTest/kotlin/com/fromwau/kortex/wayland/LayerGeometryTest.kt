@@ -29,14 +29,16 @@ class LayerGeometryTest {
 
             val bar = LayerShellSurface.create(
                 wayland,
-                namespace = NAMESPACE,
-                height = HEIGHT,
-                width = WIDTH,
-                anchor = setOf(Edge.Bottom, Edge.Right),
-                exclusiveZone = ExclusiveZone.Yield,
-                margins = Margins(
-                    top = IGNORED_MARGIN.dp, right = MARGIN_RIGHT.dp,
-                    bottom = MARGIN_BOTTOM.dp, left = IGNORED_MARGIN.dp,
+                SurfaceConfig(
+                    namespace = NAMESPACE,
+                    anchor = setOf(Edge.Bottom, Edge.Right),
+                    width = WIDTH.dp,
+                    height = HEIGHT.dp,
+                    margins = Margins(
+                        top = IGNORED_MARGIN.dp, right = MARGIN_RIGHT.dp,
+                        bottom = MARGIN_BOTTOM.dp, left = IGNORED_MARGIN.dp,
+                    ),
+                    exclusiveZone = ExclusiveZone.Yield,
                 ),
                 output = monitor.proxy,
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
@@ -72,9 +74,7 @@ class LayerGeometryTest {
 
             val bar = LayerShellSurface.create(
                 wayland,
-                namespace = DEFAULT_NAMESPACE,
-                height = DEFAULT_HEIGHT,
-                exclusiveZone = ExclusiveZone.Reserve(DEFAULT_HEIGHT.dp),
+                topBar(DEFAULT_NAMESPACE, DEFAULT_HEIGHT, ExclusiveZone.Reserve(DEFAULT_HEIGHT.dp)),
                 output = monitor.proxy,
             ).getOrElse { error -> fail("layer surface creation failed: $error") }
 
@@ -103,8 +103,14 @@ class LayerGeometryTest {
 
         display.use { wayland ->
             val result = LayerShellSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, anchor = setOf(Edge.Top),
-                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
+                wayland,
+                SurfaceConfig(
+                    namespace = REJECTED_NAMESPACE,
+                    anchor = setOf(Edge.Top),
+                    width = SPAN_ANCHORED_AXIS.dp,
+                    height = HEIGHT.dp,
+                    exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
+                ),
             )
 
             when (result) {
@@ -115,10 +121,8 @@ class LayerGeometryTest {
 
             // The rejection must happen before any request reaches the compositor, leaving the
             // connection itself unharmed; prove it by using it normally right after.
-            val sanity = LayerShellSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
-                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
-            )
+            val sanity = LayerShellSurface
+                .create(wayland, topBar(REJECTED_NAMESPACE, HEIGHT, ExclusiveZone.Reserve(HEIGHT.dp)))
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use {
                 sanity.waitForConfigure()
@@ -135,8 +139,14 @@ class LayerGeometryTest {
             // Anchored Left and Right, so the horizontal axis is spannable and only height can be rejected.
             val horizontal = setOf(Edge.Left, Edge.Right)
             val result = LayerShellSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = 0, anchor = horizontal,
-                exclusiveZone = ExclusiveZone.Yield,
+                wayland,
+                SurfaceConfig(
+                    namespace = REJECTED_NAMESPACE,
+                    anchor = horizontal,
+                    width = SPAN_ANCHORED_AXIS.dp,
+                    height = SPAN_ANCHORED_AXIS.dp,
+                    exclusiveZone = ExclusiveZone.Yield,
+                ),
             )
 
             when (result) {
@@ -145,10 +155,8 @@ class LayerGeometryTest {
                 is Err -> assertEquals(KortexError.UnspannableAxis(Axis.Vertical, horizontal), result.error)
             }
 
-            val sanity = LayerShellSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
-                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
-            )
+            val sanity = LayerShellSurface
+                .create(wayland, topBar(REJECTED_NAMESPACE, HEIGHT, ExclusiveZone.Reserve(HEIGHT.dp)))
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use {
                 sanity.waitForConfigure()
@@ -164,8 +172,14 @@ class LayerGeometryTest {
         display.use { wayland ->
             // Anchored to Top alone: should the width go out, Hyprland answers its commit by ending the connection.
             val result = LayerShellSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT, width = NEGATIVE_WIDTH,
-                anchor = setOf(Edge.Top), exclusiveZone = ExclusiveZone.Yield,
+                wayland,
+                SurfaceConfig(
+                    namespace = REJECTED_NAMESPACE,
+                    anchor = setOf(Edge.Top),
+                    width = NEGATIVE_WIDTH.dp,
+                    height = HEIGHT.dp,
+                    exclusiveZone = ExclusiveZone.Yield,
+                ),
             )
 
             when (result) {
@@ -173,10 +187,8 @@ class LayerGeometryTest {
                 is Err -> assertEquals(KortexError.NegativeSize(Axis.Horizontal, NEGATIVE_WIDTH), result.error)
             }
 
-            val sanity = LayerShellSurface.create(
-                wayland, namespace = REJECTED_NAMESPACE, height = HEIGHT,
-                exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
-            )
+            val sanity = LayerShellSurface
+                .create(wayland, topBar(REJECTED_NAMESPACE, HEIGHT, ExclusiveZone.Reserve(HEIGHT.dp)))
                 .getOrElse { error -> fail("the connection was left unusable after the rejection: $error") }
             sanity.use {
                 sanity.waitForConfigure()
@@ -190,15 +202,9 @@ class LayerGeometryTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            // Both axes explicit, so create() itself has nothing to object to and only setSize can.
-            val bar = LayerShellSurface.create(
-                wayland,
-                namespace = RESIZED_NAMESPACE,
-                height = HEIGHT,
-                width = WIDTH,
-                anchor = setOf(Edge.Top),
-                exclusiveZone = ExclusiveZone.Yield,
-            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+            val bar = LayerShellSurface
+                .create(wayland, pinnedToTop(RESIZED_NAMESPACE))
+                .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
                 bar.waitForConfigure()
@@ -224,14 +230,9 @@ class LayerGeometryTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val bar = LayerShellSurface.create(
-                wayland,
-                namespace = RESIZED_NAMESPACE,
-                height = HEIGHT,
-                width = WIDTH,
-                anchor = setOf(Edge.Top),
-                exclusiveZone = ExclusiveZone.Yield,
-            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+            val bar = LayerShellSurface
+                .create(wayland, pinnedToTop(RESIZED_NAMESPACE))
+                .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
                 bar.waitForConfigure()
@@ -258,11 +259,13 @@ class LayerGeometryTest {
 
             val bar = LayerShellSurface.create(
                 wayland,
-                namespace = SPANNING_NAMESPACE,
-                height = 0,
-                width = 0,
-                anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-                exclusiveZone = ExclusiveZone.Yield,
+                SurfaceConfig(
+                    namespace = SPANNING_NAMESPACE,
+                    anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
+                    width = SPAN_ANCHORED_AXIS.dp,
+                    height = SPAN_ANCHORED_AXIS.dp,
+                    exclusiveZone = ExclusiveZone.Yield,
+                ),
                 output = monitor.proxy,
             ).getOrElse { error -> fail("a fully anchored surface must be allowed to omit both axes: $error") }
 
@@ -287,6 +290,24 @@ class LayerGeometryTest {
             }
         }
     }
+
+    /** A bar across the top of the output, spanning its width. */
+    private fun topBar(namespace: String, height: Int, exclusiveZone: ExclusiveZone) = SurfaceConfig(
+        namespace = namespace,
+        anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
+        width = SPAN_ANCHORED_AXIS.dp,
+        height = height.dp,
+        exclusiveZone = exclusiveZone,
+    )
+
+    /** Both axes explicit and only Top anchored, so nothing but a later size can be rejected. */
+    private fun pinnedToTop(namespace: String) = SurfaceConfig(
+        namespace = namespace,
+        anchor = setOf(Edge.Top),
+        width = WIDTH.dp,
+        height = HEIGHT.dp,
+        exclusiveZone = ExclusiveZone.Yield,
+    )
 
     private companion object {
         const val NAMESPACE = "kortex-layer-geometry"

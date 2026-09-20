@@ -1,6 +1,7 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -24,6 +25,14 @@ internal fun ExclusiveZone.toWireValue(): Int = when (this) {
     ExclusiveZone.Yield -> 0
     ExclusiveZone.Overlap -> -1
 }
+
+/** `set_margin` takes its four insets in CSS's order, which is neither `set_anchor`'s nor `hyprctl`'s. */
+internal fun Margins.toWireArgs(): List<WlArg> = listOf(
+    WlArg.Num(top.toLogicalPx()),
+    WlArg.Num(right.toLogicalPx()),
+    WlArg.Num(bottom.toLogicalPx()),
+    WlArg.Num(left.toLogicalPx()),
+)
 
 /** The `zwlr_layer_shell_v1` tables, from `wayland-scanner private-code wlr-layer-shell-unstable-v1.xml`. */
 internal object LayerShellProtocol {
@@ -81,6 +90,7 @@ internal object LayerShellProtocol {
     const val SET_KEYBOARD_INTERACTIVITY = 4
     const val ACK_CONFIGURE = 6
     const val LAYER_SURFACE_DESTROY = 7
+    const val SET_LAYER = 8
     const val SET_EXCLUSIVE_EDGE = 9
 }
 
@@ -94,7 +104,8 @@ internal class LayerShellSurface(
     private val display: WaylandDisplay,
     internal val surface: MemorySegment,
     private val layerSurface: MemorySegment,
-    private val anchor: Set<Edge>,
+    // What the compositor has been told, which apply() sends the difference from.
+    private var config: SurfaceConfig,
     private val state: ConfigureState,
     private val surfaceListener: WlSurfaceListener,
     private val compositor: MemorySegment,
@@ -163,18 +174,66 @@ internal class LayerShellSurface(
     }
 
     /**
-     * Requests a new size in logical (surface-local) pixels; pending until [commit], which the
-     * compositor answers with a fresh configure.
+     * Requests a new size in logical (surface-local) pixels, which the compositor answers with a fresh configure.
      *
-     * @return [KortexError.NegativeSize] or [KortexError.UnspannableAxis] under the same rules [create] applies,
-     *   since the anchor this surface was created with is fixed for its lifetime.
+     * @return what [requirePlaceable] rejects the new size against this surface's other settings for, leaving it
+     *   at the size it already has.
      */
-    fun setSize(width: Int, height: Int): EmptyResult<KortexError> {
-        requirePlaceableSize(width, height, anchor).getOrElse { return Err(it) }
-        LibWayland.marshal(
-            layerSurface, LayerShellProtocol.SET_SIZE,
-            args = listOf(WlArg.Num(width), WlArg.Num(height)),
-        )
+    fun setSize(width: Int, height: Int): EmptyResult<KortexError> =
+        apply(config.copy(width = width.dp, height = height.dp))
+
+    /**
+     * Sends only what [new] changes from the config this surface holds, then commits once.
+     *
+     * @return what [requirePlaceable] rejects [new] for, with nothing sent and the surface left as it was.
+     */
+    fun apply(new: SurfaceConfig): EmptyResult<KortexError> {
+        check(new.namespace == config.namespace) { "get_layer_surface fixes the namespace for the surface's life" }
+        requirePlaceable(new).getOrElse { return Err(it) }
+        val old = config
+        // First: Hyprland validates an exclusive edge against the anchor pending when that request arrives.
+        if (new.anchor != old.anchor) {
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_ANCHOR,
+                args = listOf(WlArg.Num(new.anchor.toBits())),
+            )
+        }
+        if (new.exclusiveEdge != old.exclusiveEdge) {
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE,
+                // 0 is no edge, which is what the surface started with and what a null asks for again.
+                args = listOf(WlArg.Num(new.exclusiveEdge?.bit ?: NO_EXCLUSIVE_EDGE)),
+            )
+        }
+        if (new.width != old.width || new.height != old.height) {
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_SIZE,
+                args = listOf(WlArg.Num(new.width.toLogicalPx()), WlArg.Num(new.height.toLogicalPx())),
+            )
+        }
+        if (new.margins != old.margins) {
+            LibWayland.marshal(layerSurface, LayerShellProtocol.SET_MARGIN, args = new.margins.toWireArgs())
+        }
+        if (new.exclusiveZone != old.exclusiveZone) {
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
+                args = listOf(WlArg.Num(new.exclusiveZone.toWireValue())),
+            )
+        }
+        if (new.layer != old.layer) {
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_LAYER,
+                args = listOf(WlArg.Num(new.layer.wireValue)),
+            )
+        }
+        if (new.keyboard != old.keyboard) {
+            LibWayland.marshal(
+                layerSurface, LayerShellProtocol.SET_KEYBOARD_INTERACTIVITY,
+                args = listOf(WlArg.Num(new.keyboard.wireValue)),
+            )
+        }
+        config = new
+        commit()
         return Ok(Unit)
     }
 
@@ -201,45 +260,18 @@ internal class LayerShellSurface(
 
     companion object {
         /**
-         * Creates a layer surface and drives it to its first configure.
+         * Creates a layer surface of [config] on [output], and drives it to its first configure.
          *
-         * @param height logical (surface-local) pixels; 0 means "you choose" and requires [anchor] to
-         *   pin both [Edge.Top] and [Edge.Bottom].
-         * @param width logical (surface-local) pixels, like [height]; 0 (the default) requires [anchor]
-         *   to pin both [Edge.Left] and [Edge.Right].
-         * @param exclusiveZone how much screen space this surface reserves, measured inward from the
-         *   anchored edge; a top or bottom bar reserves its [height], a side dock its [width].
-         * @param margins measured from the anchor point; an edge [anchor] does not pin ignores its margin.
-         * @param exclusiveEdge the anchored edge [exclusiveZone] reserves space against; only needed when
-         *   [anchor] pins a corner, since the protocol cannot deduce one edge from two perpendicular ones.
-         *   Sent only when non-null.
-         * @return [KortexError.NegativeSize] when [width] or [height] is below 0; [KortexError.UnspannableAxis] when an
-         *   axis is left 0 without both of its edges anchored, a request the compositor answers by dropping the
-         *   connection; [KortexError.InvalidExclusiveEdge] when [anchor] does not pin [exclusiveEdge]; or
-         *   [KortexError.InvalidExclusiveZone] when an [ExclusiveZone.Reserve] reserves nothing.
+         * @return what [requirePlaceable] rejects [config] for, with nothing sent and no surface made.
          */
         fun create(
             display: WaylandDisplay,
-            namespace: String,
-            height: Int,
-            width: Int = SPAN_ANCHORED_AXIS,
-            layer: Layer = Layer.Top,
-            anchor: Set<Edge> = setOf(Edge.Top, Edge.Left, Edge.Right),
-            exclusiveZone: ExclusiveZone,
-            margins: Margins = Margins.None,
-            keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
+            config: SurfaceConfig,
             output: MemorySegment = MemorySegment.NULL,
-            exclusiveEdge: Edge? = null,
         ): Result<LayerShellSurface, KortexError> {
-            requirePlaceableSize(width, height, anchor).getOrElse { return Err(it) }
-            if (exclusiveEdge != null && exclusiveEdge !in anchor) {
-                return Err(KortexError.InvalidExclusiveEdge(exclusiveEdge, anchor))
-            }
-            // Tested on the rounded wire value, not the Dp: 0 is Yield's sentinel and -1 is Overlap's,
-            // so a Reserve that reaches either silently becomes the case it was not asking for.
-            if (exclusiveZone is ExclusiveZone.Reserve && exclusiveZone.toWireValue() < 1) {
-                return Err(KortexError.InvalidExclusiveZone(exclusiveZone.amount))
-            }
+            requirePlaceable(config).getOrElse { return Err(it) }
+            val namespace = config.namespace
+            val anchor = config.anchor
 
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
@@ -270,7 +302,7 @@ internal class LayerShellSurface(
                         WlArg.Ptr(MemorySegment.NULL),
                         WlArg.Ptr(surface),
                         WlArg.Ptr(output),
-                        WlArg.Num(layer.wireValue),
+                        WlArg.Num(config.layer.wireValue),
                         WlArg.Ptr(request.allocateFrom(namespace)),
                     ),
                 )
@@ -287,60 +319,64 @@ internal class LayerShellSurface(
             LibWayland.marshal(layerSurface, LayerShellProtocol.SET_ANCHOR, args = listOf(WlArg.Num(anchor.toBits())))
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_SIZE,
-                args = listOf(WlArg.Num(width), WlArg.Num(height)),
+                args = listOf(WlArg.Num(config.width.toLogicalPx()), WlArg.Num(config.height.toLogicalPx())),
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
-                args = listOf(WlArg.Num(exclusiveZone.toWireValue())),
+                args = listOf(WlArg.Num(config.exclusiveZone.toWireValue())),
             )
-            if (exclusiveEdge != null) {
+            config.exclusiveEdge?.let { edge ->
                 LibWayland.marshal(
-                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(exclusiveEdge.bit)),
+                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(edge.bit)),
                 )
             }
-            LibWayland.marshal(
-                layerSurface, LayerShellProtocol.SET_MARGIN,
-                args = listOf(
-                    WlArg.Num(margins.top.toLogicalPx()),
-                    WlArg.Num(margins.right.toLogicalPx()),
-                    WlArg.Num(margins.bottom.toLogicalPx()),
-                    WlArg.Num(margins.left.toLogicalPx()),
-                ),
-            )
+            LibWayland.marshal(layerSurface, LayerShellProtocol.SET_MARGIN, args = config.margins.toWireArgs())
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_KEYBOARD_INTERACTIVITY,
-                args = listOf(WlArg.Num(keyboard.wireValue)),
+                args = listOf(WlArg.Num(config.keyboard.wireValue)),
             )
 
             val result = LayerShellSurface(
-                display, surface, layerSurface, anchor, state, surfaceListener, compositor, shell, arena,
+                display, surface, layerSurface, config, state, surfaceListener, compositor, shell, arena,
             )
             result.commit()
             return Ok(result)
         }
 
         /**
-         * Checks that a surface anchored to [anchor] can ask for [width] by [height]. Neither may be below 0, which
-         * `set_size`'s unsigned arguments would read as a size above four billion. An axis left 0 for the compositor
-         * to size needs both of its edges anchored: the protocol allows omitting a dimension only then, and answers
-         * anything else by dropping the connection.
+         * Every rule a config must satisfy before any of it is sent: size, spanned axes, exclusive edge, zone.
+         *
+         * @return [KortexError.NegativeSize] when a dimension is below 0, which `set_size`'s unsigned arguments would
+         *   read as a size above four billion; [KortexError.UnspannableAxis] when an axis is left 0 without both of
+         *   its edges anchored, which the protocol allows only then and Hyprland answers by dropping the connection;
+         *   [KortexError.InvalidExclusiveEdge] when the anchor does not pin the exclusive edge; or
+         *   [KortexError.InvalidExclusiveZone] when an [ExclusiveZone.Reserve] reserves nothing.
          */
-        private fun requirePlaceableSize(
-            width: Int,
-            height: Int,
-            anchor: Set<Edge>,
-        ): EmptyResult<KortexError> = when {
-            width < 0 -> Err(KortexError.NegativeSize(Axis.Horizontal, width))
+        fun requirePlaceable(config: SurfaceConfig): EmptyResult<KortexError> {
+            val width = config.width.toLogicalPx()
+            val height = config.height.toLogicalPx()
+            val anchor = config.anchor
+            return when {
+                width < 0 -> Err(KortexError.NegativeSize(Axis.Horizontal, width))
 
-            height < 0 -> Err(KortexError.NegativeSize(Axis.Vertical, height))
+                height < 0 -> Err(KortexError.NegativeSize(Axis.Vertical, height))
 
-            width == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Horizontal.edges) ->
-                Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
+                width == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Horizontal.edges) ->
+                    Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
 
-            height == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Vertical.edges) ->
-                Err(KortexError.UnspannableAxis(Axis.Vertical, anchor))
+                height == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Vertical.edges) ->
+                    Err(KortexError.UnspannableAxis(Axis.Vertical, anchor))
 
-            else -> Ok(Unit)
+                config.exclusiveEdge != null && config.exclusiveEdge !in anchor ->
+                    Err(KortexError.InvalidExclusiveEdge(config.exclusiveEdge, anchor))
+
+                // Tested on the rounded wire value, not the Dp: 0 is Yield's sentinel and -1 is Overlap's,
+                // so a Reserve that reaches either silently becomes the case it was not asking for.
+                config.exclusiveZone is ExclusiveZone.Reserve && config.exclusiveZone.toWireValue() < 1 ->
+                    Err(KortexError.InvalidExclusiveZone(config.exclusiveZone.amount))
+
+                else -> Ok(Unit)
+            }
         }
 
         private const val WL_COMPOSITOR_CREATE_SURFACE = 0
@@ -351,6 +387,7 @@ internal class LayerShellSurface(
         private const val WL_SURFACE_DAMAGE_BUFFER = 9
         private const val MAX_SPINS = 32
         private const val SPAN_ANCHORED_AXIS = 0
+        private const val NO_EXCLUSIVE_EDGE = 0
 
         private val CONFIGURE_DESCRIPTOR =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT)

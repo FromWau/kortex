@@ -164,26 +164,28 @@ class SurfaceTest {
     }
 
     @Test
-    fun `changed settings replace the surface with a new one and report nothing`() {
-        val height = mutableIntStateOf(SHORT)
+    fun `a changed namespace replaces the surface with a new one and reports nothing`() {
+        val namespace = mutableStateOf(NAMESPACE)
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it })
+            TestSurface<Nothing>(namespace.value, onClose = { reports += it })
         }
 
         onApplication(content) { shell ->
             awaitPlaced(shell)
             val first = shell.shownSurfaces.single()
 
-            height.intValue = TALL
+            namespace.value = SECOND_NAMESPACE
 
             val replaced = shell.pumpOrFail(PUMP_MILLIS) {
                 shell.shownSurfaces.singleOrNull()?.let { it !== first } == true
             }
-            assertTrue(replaced, "changed settings never replaced the surface")
+            assertTrue(replaced, "a changed namespace never replaced the surface")
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { Screen.geometry(NAMESPACE)?.logicalHeight == TALL },
-                "hyprctl never listed the new surface at its new height",
+                shell.pumpOrFail(PUMP_MILLIS) {
+                    Screen.geometry(SECOND_NAMESPACE) != null && Screen.geometry(NAMESPACE) == null
+                },
+                "hyprctl never listed the surface under $SECOND_NAMESPACE alone",
             )
             shell.pumpOrFail(SETTLE_MILLIS)
             assertTrue(reports.isEmpty(), "replacing the surface reported $reports")
@@ -438,19 +440,17 @@ class SurfaceTest {
     }
 
     @Test
-    fun `content whose cleanup throws as changed settings replace its surface reports the crash and places nothing`() {
-        val height = mutableIntStateOf(SHORT)
+    fun `content whose cleanup throws as a new namespace replaces its surface reports the crash and places nothing`() {
+        val namespace = mutableStateOf(NAMESPACE)
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, height = height.intValue.dp, onClose = { reports += it }) {
-                ThrowingCleanup()
-            }
+            TestSurface<Nothing>(namespace.value, onClose = { reports += it }) { ThrowingCleanup() }
         }
 
         onApplication(content) { shell ->
             awaitPlaced(shell)
 
-            height.intValue = TALL
+            namespace.value = SECOND_NAMESPACE
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
@@ -1140,11 +1140,9 @@ class SurfaceTest {
         const val SECOND_NAMESPACE = "kortex-surface-second"
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 300L
-        const val SHORT = 8
         const val FIRST_LABEL = 1
         const val SECOND_LABEL = 2
-        const val TALL = 16
-        const val NEGATIVE_WIDTH = -SHORT
+        const val NEGATIVE_WIDTH = -8
         const val EFFECT_FAILURE = "an effect threw"
         const val CLEANUP_FAILURE = "cleanup threw as the surface went"
         const val APPLICATION_FAILURE = "the application's content threw"

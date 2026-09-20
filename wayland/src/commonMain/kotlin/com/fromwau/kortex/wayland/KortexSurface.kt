@@ -48,6 +48,8 @@ internal class KortexSurface private constructor(
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
     private val seat: Seat,
+    // How this surface takes a keyboard off its own seat, for a config that asks for interactivity later.
+    private val takeKeyboard: () -> KeyboardInput?,
 ) : AutoCloseable {
 
     // Filled through post() from any thread and drained only on the loop thread, which is the one thread
@@ -143,8 +145,26 @@ internal class KortexSurface private constructor(
     fun requestSize(
         width: Dp,
         height: Dp,
-    ): EmptyResult<KortexError> =
-        layer.setSize(width.toLogicalPx(), height.toLogicalPx()).onSuccess { layer.commit() }
+    ): EmptyResult<KortexError> = layer.setSize(width.toLogicalPx(), height.toLogicalPx())
+
+    /**
+     * Applies [new] to the live surface, keyboard included: everything changed reaches the compositor in one commit,
+     * and the composition on it keeps running and keeps its state.
+     *
+     * @return what [LayerShellSurface.apply] rejected, leaving the surface with the settings it already had.
+     */
+    fun applyConfig(new: SurfaceConfig): EmptyResult<KortexError> {
+        layer.apply(new).getOrElse { return Err(it) }
+        when {
+            new.keyboard == KeyboardInteractivity.None -> {
+                keyboardInput?.release()
+                keyboardInput = null
+            }
+            // The compositor gives an interactive surface focus, which reaches nothing until a keyboard is bound.
+            keyboardInput == null -> keyboardInput = takeKeyboard()
+        }
+        return Ok(Unit)
+    }
 
     /**
      * Pumps the connection until [predicate] holds or [timeoutMillis] elapses; exposed so a test can drive a bare
@@ -366,19 +386,7 @@ internal class KortexSurface private constructor(
             try {
                 val shm = Shm.bind(display).getOrElse { return Err(it) }
                 unwind += shm::close
-                val layer = LayerShellSurface.create(
-                    display,
-                    namespace = config.namespace,
-                    height = config.height.toLogicalPx(),
-                    width = config.width.toLogicalPx(),
-                    layer = config.layer,
-                    anchor = config.anchor,
-                    exclusiveZone = config.exclusiveZone,
-                    margins = config.margins,
-                    keyboard = config.keyboard,
-                    output = output,
-                    exclusiveEdge = config.exclusiveEdge,
-                ).getOrElse { return Err(it) }
+                val layer = LayerShellSurface.create(display, config, output).getOrElse { return Err(it) }
                 unwind += layer::close
                 layer.waitForConfigure().getOrElse { return Err(it) }
                 // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
@@ -425,14 +433,13 @@ internal class KortexSurface private constructor(
                 surface = KortexSurface(
                     config.namespace, display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface),
                     loop, surfaceWork, cursorTheme, cursorSurface, seat,
+                    takeKeyboard = { seat.attachKeyboard(scene, { open.get() }, onInputSerial, onKeyboardFocus) },
                 )
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true
                 surface.pointerInput =
                     seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
-                if (config.keyboard != KeyboardInteractivity.None) {
-                    surface.keyboardInput = seat.attachKeyboard(scene, { open.get() }, onInputSerial, onKeyboardFocus)
-                }
+                if (config.keyboard != KeyboardInteractivity.None) surface.keyboardInput = surface.takeKeyboard()
                 display.roundtrip()
                 return Ok(surface)
             } finally {

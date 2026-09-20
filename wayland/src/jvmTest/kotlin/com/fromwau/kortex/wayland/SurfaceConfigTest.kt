@@ -70,10 +70,7 @@ class SurfaceConfigTest {
 
             val panel = LayerShellSurface.create(
                 wayland,
-                namespace = PANEL_NAMESPACE,
-                height = PANEL_HEIGHT,
-                anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-                exclusiveZone = ExclusiveZone.Reserve(PANEL_HEIGHT.dp),
+                SurfaceConfig.panel(Edge.Top, PANEL_HEIGHT.dp).copy(namespace = PANEL_NAMESPACE),
                 output = monitor.proxy,
             ).getOrElse { error -> fail("panel creation failed: $error") }
 

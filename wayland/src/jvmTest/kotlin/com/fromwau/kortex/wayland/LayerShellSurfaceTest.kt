@@ -16,10 +16,9 @@ class LayerShellSurfaceTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = LayerShellSurface.create(
-                it, namespace = NAMESPACE, height = BAR_HEIGHT,
-                exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
-            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+            val bar = LayerShellSurface
+                .create(it, topBar(ExclusiveZone.Reserve(BAR_HEIGHT.dp)))
+                .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
                 bar.waitForConfigure()
@@ -40,13 +39,9 @@ class LayerShellSurfaceTest {
 
         display.use {
             val layer = Layer.Overlay
-            val overlay = LayerShellSurface.create(
-                it,
-                namespace = NAMESPACE,
-                height = BAR_HEIGHT,
-                exclusiveZone = ExclusiveZone.Yield,
-                layer = layer,
-            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+            val overlay = LayerShellSurface
+                .create(it, topBar(ExclusiveZone.Yield).copy(layer = layer))
+                .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             overlay.use {
                 overlay.waitForConfigure()
@@ -65,9 +60,9 @@ class LayerShellSurfaceTest {
         display.use {
             killConnection(it)
             // create only sends, so it succeeds before the connection's death has been read.
-            val bar = LayerShellSurface.create(
-                it, namespace = NAMESPACE, height = BAR_HEIGHT, exclusiveZone = ExclusiveZone.Yield,
-            ).getOrElse { error -> fail("layer surface creation failed: $error") }
+            val bar = LayerShellSurface
+                .create(it, topBar(ExclusiveZone.Yield))
+                .getOrElse { error -> fail("layer surface creation failed: $error") }
 
             bar.use {
                 val configured = bar.waitForConfigure()
@@ -80,8 +75,18 @@ class LayerShellSurfaceTest {
         }
     }
 
+    /** A bar across the top of the output, spanning its width. */
+    private fun topBar(exclusiveZone: ExclusiveZone) = SurfaceConfig(
+        namespace = NAMESPACE,
+        anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
+        width = SPAN_ANCHORED_AXIS.dp,
+        height = BAR_HEIGHT.dp,
+        exclusiveZone = exclusiveZone,
+    )
+
     private companion object {
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
+        const val SPAN_ANCHORED_AXIS = 0
     }
 }
