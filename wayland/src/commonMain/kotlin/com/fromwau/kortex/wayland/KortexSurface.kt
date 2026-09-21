@@ -270,12 +270,16 @@ internal class KortexSurface private constructor(
     /** Acts on a later configure, coalesced to whatever size is current by the time this runs. */
     private fun maybeResize(): EmptyResult<KortexError> {
         if (!layer.consumeResize()) return Ok(Unit)
+        // Read once each: a configure landing between two reads would pair one configure's width with the next
+        // configure's height, and buffers would be allocated for a size the compositor never asked for.
+        val configuredWidth = layer.logicalWidth
+        val configuredHeight = layer.logicalHeight
         // A configure of zero means "you choose", per the layer-shell protocol; it is never a real dimension.
-        val sizeChanged = layer.logicalWidth != 0 &&
-            layer.logicalHeight != 0 &&
-            (layer.logicalWidth != logicalWidth || layer.logicalHeight != logicalHeight)
+        val sizeChanged = configuredWidth != 0 &&
+            configuredHeight != 0 &&
+            (configuredWidth != logicalWidth || configuredHeight != logicalHeight)
         if (!sizeChanged) return Ok(Unit)
-        return resizeTo(layer.logicalWidth, layer.logicalHeight)
+        return resizeTo(configuredWidth, configuredHeight)
     }
 
     /** Acts on a later `wl_surface.preferred_buffer_scale`, coalesced to the scale current when this runs. */
