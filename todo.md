@@ -234,13 +234,13 @@ outlive it.
 
 - [x] **The presets are composables a host calls.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`,
       `Osd`, `AppMenu` and `ContextMenu` (`Presets.kt`) are composable functions, generic in `E` as
-      `LayerSurface` is, each taking the parameters its kind needs plus `namespace`, `onClose`,
-      `content` and a `monitor`, optional except on `ContextMenu`; none takes a setting that would change its
-      kind, such as a panel's anchors or a lock screen's keyboard. Each calls `LayerSurface` with the
-      `SurfaceConfig` preset of its kind, so each placement rule below is written once, in `SurfaceConfig`'s
-      companion. `PresetTest` checks the settings each preset asks for against that rule and shows every preset
-      that takes no keyboard focus; `SurfacePresetTest`, which needs the desktop to itself, shows `Dock`,
-      `AppMenu` and `LockScreen`, which take the keyboard as they map. (`PresetTest`, `SurfacePresetTest`)
+      `LayerSurface` is, each taking the parameters its kind needs plus `namespace`, `onClose`, `content` and
+      a `monitor`, optional except on `ContextMenu`; none takes a setting that would change its kind, such as
+      a panel's anchors or a lock screen's keyboard. Each calls `LayerSurface` with the `SurfaceConfig` preset
+      of its kind, so each placement rule below is written once, in `SurfaceConfig`'s companion. `PresetTest`
+      checks the settings each preset asks for against that rule and shows every preset that takes no keyboard
+      focus; `SurfacePresetTest`, which needs the desktop to itself, shows `Dock`, `AppMenu` and `LockScreen`,
+      which take the keyboard as they map. (`PresetTest`, `SurfacePresetTest`)
 - [x] `Bar`: a panel with every parameter defaulted, along the top edge, 32 dp thick, spanning it and reserving
       32 dp. Its edge, thickness, length, margins and keyboard are its own to set, the keyboard for a bar with a
       text field in it. (`PresetTest`)

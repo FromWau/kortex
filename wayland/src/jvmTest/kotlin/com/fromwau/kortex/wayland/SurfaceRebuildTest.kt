@@ -209,7 +209,7 @@ class SurfaceRebuildTest {
                 namespace = asked.namespace.value,
                 anchor = asked.anchor.value,
                 width = asked.width.value.dp,
-                height = asked.height.value.dp,
+                height = asked.height.dp,
                 onClose = { reports += it },
             ) {
                 DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
@@ -355,13 +355,13 @@ class SurfaceRebuildTest {
         }
     }
 
-    /** The surface one call asks for, every setting a state so a test can change it while the call is placed. */
-    private class Asked(
-        val namespace: MutableState<String> = mutableStateOf(FIRST_NAMESPACE),
-        val anchor: MutableState<Set<Edge>> = mutableStateOf(BOTTOM_RIGHT_SPECK),
-        val width: MutableState<Int> = mutableStateOf(SPECK),
-        val height: MutableState<Int> = mutableStateOf(SPECK),
-    )
+    /** The surface one call asks for: namespace, anchor and width are states a test can change while it is placed. */
+    private class Asked {
+        val namespace: MutableState<String> = mutableStateOf(FIRST_NAMESPACE)
+        val anchor: MutableState<Set<Edge>> = mutableStateOf(BOTTOM_RIGHT_SPECK)
+        val width: MutableState<Int> = mutableStateOf(SPECK)
+        val height: Int = SPECK
+    }
 
     /** What the surface's content publishes: how often it was composed, what it holds, and that its effect runs. */
     private class Watch {
@@ -380,7 +380,7 @@ class SurfaceRebuildTest {
             namespace = asked.namespace.value,
             anchor = asked.anchor.value,
             width = asked.width.value.dp,
-            height = asked.height.value.dp,
+            height = asked.height.dp,
             onClose = { watch.reports += it },
         ) {
             val surface = this
