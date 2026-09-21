@@ -178,6 +178,11 @@ class SurfaceRebuildTest {
             )
             assertTrue(shell.shownSurfaces.isEmpty(), "the ended surface is still held by the shell")
             assertNull(Screen.geometry(FIRST_NAMESPACE), "hyprctl layers still reports the surface that ended")
+
+            // The scene a failed rebuild leaves behind is one nothing would ever close again.
+            val ticks = watch.ticks.get()
+            shell.pumpOrFail(IDLE_WINDOW_MILLIS)
+            assertEquals(ticks, watch.ticks.get(), "the content of the ended surface kept running after it reported")
         }
     }
 
@@ -341,6 +346,9 @@ class SurfaceRebuildTest {
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 500L
         const val TICK_MILLIS = 20L
+
+        // Long enough that content still running would tick many times in it.
+        const val IDLE_WINDOW_MILLIS = 500L
         const val TICKS = 3
         const val WATCHER_JOIN_MILLIS = 2_000L
     }
