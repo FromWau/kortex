@@ -7,6 +7,7 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -72,8 +73,9 @@ class LateFailureTest {
     }
 
     @Test
-    fun `a pass drops the work of a closed owner, queued before the close or dispatched after it`() {
-        val loop = LoopQueue(wake = {})
+    fun `a closed owner's work is dropped, queued before the close or dispatched after it`() {
+        val wakes = AtomicInteger(0)
+        val loop = LoopQueue(wake = { wakes.incrementAndGet() })
         val ended = SurfaceWork()
         val sibling = SurfaceWork()
         val endedRan = AtomicBoolean(false)
@@ -87,10 +89,12 @@ class LateFailureTest {
         assertFalse(endedRan.get(), "a pass ran work its owner had queued before closing")
         assertTrue(siblingRan.get(), "a pass dropped another surface's work along with the closed owner's")
 
+        val woken = wakes.get()
         loop.dispatch(ended, { endedRan.set(true) })
         loop.runPass()
 
         assertFalse(endedRan.get(), "a pass ran work dispatched under an owner that had closed")
+        assertEquals(woken, wakes.get(), "a dispatch under a closed owner woke the loop for work it would drop")
     }
 
     /** Content that closes its own surface, and whose effect runs [cleanup] as the surface takes it down. */
