@@ -310,7 +310,7 @@ internal class KortexShell private constructor(
             surface.detach()
             surface.close()
         }
-        // Content that threw as the surface it was on went ends the surface, rather than coming back on a new one.
+        // Detaching cancels pointer input, which runs content: one that threw there ends rather than coming back.
         scene.crash?.let { return end(slot, Err(SurfaceError.Failed(it))) }
         build(slot, settings, scene, output)
             .onSuccess { settle(slot, settings) }

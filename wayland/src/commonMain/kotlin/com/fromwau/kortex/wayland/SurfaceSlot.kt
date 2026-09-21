@@ -21,7 +21,7 @@ internal sealed interface OwnEnding {
 
 /**
  * What the shell holds for one surface call: the newest content and `onClose` that call composed with, what it asks
- * for, its surface, and the ending its content asked for.
+ * for, the scene it runs and the surface drawn on it, and the ending its content asked for.
  *
  * @param parent the slot of the surface whose content this call is in; null for a call in the application's own
  *   content.
@@ -32,8 +32,8 @@ internal class SurfaceSlot(
     private val wake: () -> Unit,
     private val parent: SurfaceSlot?,
 ) {
-    // The parent's scene as this call entered its content: a new scene there takes this call out with it. The scene,
-    // not the surface: a rebuild puts a new surface under the same content, which this call is still part of.
+    // The parent's scene as this call entered its content: a new scene there takes this call out with it. A rebuild
+    // puts a new surface under the same scene, and this call is still part of the content on it.
     private val parentScene: SurfaceScene? = parent?.scene
 
     /** Whether the surface whose content this call is in has gone. */
@@ -59,7 +59,7 @@ internal class SurfaceSlot(
 
     /** What content sees as its own `this`, and as `LocalKortexSurface`, for as long as its call composes. */
     val scope: SurfaceScope<IError> = object : SurfaceScope<IError> {
-        // The scene's, not the surface's: a rebuild leaves it at the size it had until the new surface is configured.
+        // From the scene, which outlives a rebuild: the size holds until the surface that takes over is configured.
         override val size: IntSize get() = scene?.logicalSize ?: IntSize.Zero
 
         override fun close() = requestEnd(Ok(SurfaceEnd.Closed))
@@ -79,7 +79,7 @@ internal class SurfaceSlot(
     fun ownEnding(): OwnEnding {
         val standing = requested.get()
         val placed = surface
-        // The scene's, not the surface's: a rebuild leaves the crash where the content that threw it lives.
+        // From the scene, which outlives a rebuild, and whose content is what threw.
         val crash = scene?.crash
         return when {
             standing != null -> OwnEnding.Ended(standing)
