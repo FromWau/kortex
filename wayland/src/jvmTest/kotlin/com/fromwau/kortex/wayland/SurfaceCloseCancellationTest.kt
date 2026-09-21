@@ -34,7 +34,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
-/** Which of a surface's Compose work has run by the time its close returns, and what still runs after. */
+/** Which of a surface's Compose work has run by the time its close returns, and what is dropped after. */
 class SurfaceCloseCancellationTest {
     @Test
     fun `a surface's effects and recomposer have finished cancelling by the time its scene's close returns`() {
@@ -79,8 +79,9 @@ class SurfaceCloseCancellationTest {
     }
 
     @Test
-    fun `a closed surface's late work still runs while another surface keeps its application running`() {
+    fun `a closed surface's late work is dropped while another surface keeps its application running`() {
         val closeFirst = mutableStateOf(false)
+        val waiting = AtomicBoolean(false)
         val finished = AtomicBoolean(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
             TestSurface<Nothing>(FIRST_NAMESPACE) {
@@ -88,8 +89,11 @@ class SurfaceCloseCancellationTest {
                     try {
                         awaitCancellation()
                     } finally {
-                        // Suspends past the close, so it resumes only once its surface is gone.
-                        withContext(NonCancellable) { delay(LATE_MILLIS) }
+                        // Suspends past the close, so it would resume only once its surface is gone.
+                        withContext(NonCancellable) {
+                            waiting.set(true)
+                            delay(LATE_MILLIS)
+                        }
                         finished.set(true)
                     }
                 }
@@ -114,8 +118,16 @@ class SurfaceCloseCancellationTest {
                 LoopThread.awaitNamespace(FIRST_NAMESPACE, present = false),
                 "hyprctl layers still reports $FIRST_NAMESPACE after its content closed it",
             )
-            assertTrue(LoopThread.waitUntil { finished.get() }, "a closed surface's finally never got past its delay")
+            assertTrue(LoopThread.waitUntil { waiting.get() }, "a closed surface's finally never reached its delay")
+            assertFalse(
+                LoopThread.waitUntil(PAST_LATE_MILLIS) { finished.get() },
+                "a closed surface's finally got past its delay, after the surface had gone",
+            )
             assertTrue(loop.isAlive, "the application ended while $SECOND_NAMESPACE was still shown")
+            assertTrue(
+                SECOND_NAMESPACE in Hyprctl.namespaces(),
+                "hyprctl layers stopped reporting $SECOND_NAMESPACE once $FIRST_NAMESPACE closed",
+            )
         }
         assertEquals(Ok(Unit), result, "the application did not return Ok on exitApplication")
     }
@@ -197,7 +209,7 @@ class SurfaceCloseCancellationTest {
     }
 
     @Test
-    fun `an application's final drain runs work that reaches the queue after its last surface closed`() {
+    fun `work that reaches the queue after its surface closed is dropped, the application's final drain included`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val close = mutableStateOf(false)
         val parked = AtomicReference<CancellableContinuation<Unit>?>(null)
@@ -229,20 +241,20 @@ class SurfaceCloseCancellationTest {
             assertTrue(gone, "the surface never left hyprctl layers with its finally parked")
 
             val continuation = parked.get() ?: fail("the finally never reached its parked suspension point")
-            // The scene's dispatcher always redispatches, so this only queues the rest of the finally.
+            // The scene's dispatcher always redispatches, so this offers the rest of the finally to the queue.
             continuation.resume(Unit)
-            assertFalse(finished.get(), "the resume ran the finally inline instead of through the queue")
+            assertFalse(finished.get(), "the resume ran the finally inline, past the surface that had closed")
 
             shell.close()
-            assertTrue(
+            assertFalse(
                 finished.get(),
-                "the application's final drain never ran what reached the queue after its last surface closed",
+                "the application's final drain ran what its closed surface's content offered after the close",
             )
         }
     }
 
     @Test
-    fun `closing a surface returns while its own cleanup keeps yielding, and the application's passes run the rest`() {
+    fun `closing a surface runs its cleanup's yields to the drain's bound and drops the rest`() {
         val closeCleanup = mutableStateOf(false)
         val spin = Spin()
         val content: @Composable KortexApplicationScope.() -> Unit = {
@@ -272,10 +284,13 @@ class SurfaceCloseCancellationTest {
                     LoopThread.awaitNamespace(CLEANUP_NAMESPACE, present = false),
                     "hyprctl layers still reports $CLEANUP_NAMESPACE after its content closed it, its cleanup yielding",
                 )
-                val stepsOnceClosed = spin.steps.get()
                 assertTrue(
-                    LoopThread.waitUntil { spin.steps.get() > stepsOnceClosed },
-                    "$CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed",
+                    LoopThread.waitUntil { spin.steps.get() >= DRAIN_BOUND_STEPS },
+                    "$CLEANUP_NAMESPACE's cleanup did not yield the drain's rounds before its surface let it go",
+                )
+                assertFalse(
+                    LoopThread.waitUntil(SETTLE_MILLIS) { spin.steps.get() > DRAIN_BOUND_STEPS },
+                    "$CLEANUP_NAMESPACE's cleanup kept yielding past the drain's bound, its surface gone",
                 )
                 // Checked after the steps: an application that had ended would have advanced them in its final drain.
                 assertTrue(loop.isAlive, "the application ended while $CLEANUP_SIBLING_NAMESPACE was still shown")
@@ -290,7 +305,7 @@ class SurfaceCloseCancellationTest {
     }
 
     @Test
-    fun `an application's close returns while a closed surface's cleanup keeps yielding`() {
+    fun `an application's close returns once a closed surface's yielding cleanup has hit the drain's bound`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val close = mutableStateOf(false)
         val spin = Spin()
@@ -348,26 +363,36 @@ class SurfaceCloseCancellationTest {
         assertFalse(held, "setting the application up was held until its yielding content was made to stop")
     }
 
-    /** Pumps [shell] until its surface is up, closes it through [close], and checks [spin] still yields after. */
+    /** Pumps [shell] until its surface is up, closes it through [close], and checks where [spin] stopped. */
     private fun closeWhileCleanupYields(shell: KortexShell, spin: Spin, close: MutableState<Boolean>) {
         val up = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { APPLICATION_CLEANUP_NAMESPACE in Hyprctl.namespaces() }
         assertTrue(up, "hyprctl layers never reported $APPLICATION_CLEANUP_NAMESPACE")
         var gone = false
-        var yielding = false
+        var steps = 0L
         // The close and the passes after it all run on this thread, where a cleanup that never ends could hold them.
         val held = spin.stopIfHeldPast(SET_UP_BOUND_MILLIS) {
             close.value = true
+            // The teardown, its drain included, runs inside this pump, so its steps are final once the surface is gone.
             gone = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { APPLICATION_CLEANUP_NAMESPACE !in Hyprctl.namespaces() }
-            val stepsOnceClosed = spin.steps.get()
-            yielding = shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { spin.steps.get() > stepsOnceClosed }
+            steps = spin.steps.get()
+            shell.pumpOrFail(SETTLE_MILLIS)
         }
-        // Checked first: a spin the watchdog stopped would otherwise show up as a cleanup that stopped yielding.
+        // Checked first: a spin the watchdog stopped would otherwise show up as a cleanup that stopped too early.
         assertFalse(
             held,
             "closing $APPLICATION_CLEANUP_NAMESPACE, or a pass after it, was held until its cleanup was made to stop",
         )
         assertTrue(gone, "hyprctl layers still reports $APPLICATION_CLEANUP_NAMESPACE after its content closed it")
-        assertTrue(yielding, "$APPLICATION_CLEANUP_NAMESPACE's cleanup stopped yielding once its surface closed")
+        assertEquals(
+            DRAIN_BOUND_STEPS,
+            steps,
+            "$APPLICATION_CLEANUP_NAMESPACE's cleanup did not yield exactly the drain's rounds before it was dropped",
+        )
+        assertEquals(
+            DRAIN_BOUND_STEPS,
+            spin.steps.get(),
+            "$APPLICATION_CLEANUP_NAMESPACE's cleanup kept yielding in the passes after its surface had gone",
+        )
     }
 
     /** A speck in the output's bottom-right corner, where the pointer is least likely to reach it. */
@@ -395,6 +420,13 @@ class SurfaceCloseCancellationTest {
         const val SPECK_SIZE = 8
         const val LATE_MILLIS = 300L
         const val PUMP_TIMEOUT_MILLIS = 4000L
+
+        // Past the delay, so work the loop would have taken has had its chance to arrive and be turned away.
+        const val PAST_LATE_MILLIS = 3 * LATE_MILLIS
+        const val SETTLE_MILLIS = 500L
+
+        // One yield per round of the drain a closing scene runs, and none after it, since its work closes there.
+        const val DRAIN_BOUND_STEPS = LoopQueue.DRAIN_BOUND_ROUNDS.toLong()
 
         // Past both pumps' own timeouts, so only a pump the spin holds can outlast it.
         const val SET_UP_BOUND_MILLIS = 2 * PUMP_TIMEOUT_MILLIS + 1000L
