@@ -98,7 +98,7 @@ public sealed interface ExclusiveZone {
 
 /**
  * Every setting of a layer surface but its monitor, as [LayerSurface] places one. The companion's presets write each
- * kind's placement rule once, for the preset classes to pass on.
+ * kind's placement rule once, for the preset composables to pass on.
  *
  * [anchor], [width], [height] and [exclusiveZone] have no default: each is only sensible in the light of the others,
  * so a default would shape a surface nobody asked for.

@@ -64,7 +64,7 @@ public fun kortexApplication(
                 val run = shell.runEventLoop()
                 // Whatever the run returned: this is where exitApplication's calls leave and their surfaces report.
                 val closed = shell.close()
-                // A crash of the host's own code wins over the connection's, which every onClose has already had.
+                // The host's own throw is reported over the connection's error, which would otherwise hide it.
                 when (val closing = closed.errorOrNull()) {
                     is KortexError.ApplicationCrashed -> Err(closing)
                     else -> run.flatMap { closed }
