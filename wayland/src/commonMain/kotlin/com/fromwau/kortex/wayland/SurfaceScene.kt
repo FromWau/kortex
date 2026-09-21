@@ -28,19 +28,19 @@ import java.util.concurrent.atomic.AtomicReference
  * content here keeps its state, its running effects and the size it last read.
  */
 internal class SurfaceScene(
-    namespace: String,
+    /**
+     * What the compositor calls the surface this is drawn on, which names a crash of its content. A rebuild sets it
+     * to the namespace the new surface carries, so a crash names the surface the content was on when it threw.
+     *
+     * A property rather than a parameter kept beside one: a parameter would shadow it inside the initializers
+     * below, and the composition's onFailure would then name every crash after the first surface.
+     */
+    // Read from whichever thread content failed on, and written by the loop thread as it rebuilds.
+    @Volatile var namespace: String,
     private val loop: LoopQueue,
     platform: KortexPlatform,
     onCrash: (KortexError.SurfaceCrashed) -> Unit,
 ) : AutoCloseable {
-
-    /**
-     * What the compositor calls the surface this is drawn on, which names a crash of its content. A rebuild sets it
-     * to the namespace the new surface carries, so a crash names the surface the content was on when it threw.
-     */
-    // Read from whichever thread content failed on, and written by the loop thread as it rebuilds.
-    @Volatile
-    var namespace: String = namespace
 
     // Rides in the frame context below, so the loop can run this scene's work and leave its siblings' where it is.
     private val work = SurfaceWork()
@@ -52,6 +52,10 @@ internal class SurfaceScene(
 
     // The text-input session content has open, which belongs to the content rather than to any one surface.
     private val openTextInput = AtomicReference<KortexTextInput?>(null)
+
+    // Named as content throws rather than as the shell reports, so the name is the surface it was on at the time.
+    // Written from whichever thread content failed on, and read by the loop thread.
+    private val firstCrash = AtomicReference<KortexError.SurfaceCrashed?>(null)
 
     private val hostPlatform = object : KortexPlatform {
         override fun setCursor(cursor: KortexCursor) {
@@ -77,7 +81,12 @@ internal class SurfaceScene(
         frameContext = loop + work,
         onInvalidate = { surface?.invalidate() },
         platform = hostPlatform,
-        onFailure = { failure -> onCrash(KortexError.SurfaceCrashed(namespace, failure)) },
+        onFailure = { failure ->
+            val crashed = KortexError.SurfaceCrashed(namespace, failure)
+            // The first failure is the one the surface ends with; the ones after it only wake the loop again.
+            firstCrash.compareAndSet(null, crashed)
+            onCrash(crashed)
+        },
     )
 
     /** What content has open for typing into, which the surface's keyboard turns unconsumed keys into edits on. */
@@ -90,8 +99,7 @@ internal class SurfaceScene(
     var logicalSize: IntSize by mutableStateOf(IntSize.Zero)
 
     /** What this scene's content threw, once it has; the scene then runs none of it. */
-    val crash: KortexError.SurfaceCrashed?
-        get() = composition.failure?.let { KortexError.SurfaceCrashed(namespace, it) }
+    val crash: KortexError.SurfaceCrashed? get() = firstCrash.get()
 
     /** Whether content has been composed; a scene with none has nothing to draw. */
     var composed: Boolean = false

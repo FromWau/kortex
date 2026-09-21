@@ -15,11 +15,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.node.PointerInputModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexSurfaceHandle
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -28,6 +34,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
@@ -217,6 +224,56 @@ class SurfaceRebuildTest {
                 SECOND_NAMESPACE, crash.namespace,
                 "the crash named a surface the content was no longer on",
             )
+            assertEquals(DRAW_FAILURE, crash.failure.cause.message, "the crash did not carry what the draw threw")
+        }
+    }
+
+    /**
+     * Giving the pointer back runs content, which can throw there. That happens on the surface being given up, so
+     * that is the surface the crash names, and no surface takes its place.
+     *
+     * The content here takes the pointer through a node of its own, so its throw comes straight back out of the
+     * cancel. A `pointerInput` handler is resumed on the loop instead, and throws a pass later, on the surface the
+     * rebuild has by then put under it.
+     */
+    @Test
+    fun `content that throws as the rebuild gives its pointer back ends under the namespace it was on`() {
+        val namespace = mutableStateOf(FIRST_NAMESPACE)
+        val slotSeen = AtomicReference<SurfaceSlot?>(null)
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface<Nothing>(namespace.value, onClose = { reports += it }) {
+                val slot = LocalSurfaceSlot.current
+                SideEffect { slotSeen.set(slot) }
+                Box(Modifier.fillMaxSize().then(ThrowsOnPointerCancel))
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            shell.pumpOrFail(SETTLE_MILLIS)
+            val scene = assertNotNull(slotSeen.get()?.scene, "content never saw the slot its own call runs in")
+            scene.composition.sendPointerEvent(PointerEventType.Enter, PROBE_AT, ENTERED_AT_MILLIS)
+            scene.composition.sendPointerEvent(PointerEventType.Press, PROBE_AT, PRESSED_AT_MILLIS)
+
+            namespace.value = SECOND_NAMESPACE
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "content that threw as its pointer was given back reported nothing",
+            )
+            val crash = crashIn(reports.single(), "content that threw as its pointer was given back did not crash")
+            assertEquals(
+                FIRST_NAMESPACE, crash.namespace,
+                "the crash named a surface its content was never on",
+            )
+            val failure = assertIs<ContentFailure.PointerInput>(
+                crash.failure,
+                "the crash did not name the pointer as what the scene was doing: ${crash.failure}",
+            )
+            assertEquals(POINTER_FAILURE, failure.cause.message, "the crash did not carry what the pointer threw")
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface was built for content that had already crashed")
+            assertNull(Screen.geometry(SECOND_NAMESPACE), "hyprctl layers reports a surface the rebuild never made")
         }
     }
 
@@ -260,6 +317,28 @@ class SurfaceRebuildTest {
                     "the interaction outlived the surface it was made on",
                 )
             }
+        }
+    }
+
+    /** Content that takes the pointer and throws when the pointer is taken back off it. */
+    private data object ThrowsOnPointerCancel : ModifierNodeElement<ThrowsOnPointerCancel.Node>() {
+        override fun create(): Node = Node()
+
+        override fun update(node: Node) = Unit
+
+        override fun InspectorInfo.inspectableProperties() {
+            name = "throwsOnPointerCancel"
+        }
+
+        class Node : Modifier.Node(), PointerInputModifierNode {
+            // Hit testing only adds a node that takes events, and only a node it added is cancelled.
+            override fun onPointerEvent(
+                pointerEvent: PointerEvent,
+                pass: PointerEventPass,
+                bounds: IntSize,
+            ) = Unit
+
+            override fun onCancelPointerInput(): Unit = error(POINTER_FAILURE)
         }
     }
 
@@ -351,6 +430,7 @@ class SurfaceRebuildTest {
         const val FIRST_NAMESPACE = "kortex-rebuild-first"
         const val SECOND_NAMESPACE = "kortex-rebuild-second"
         const val DRAW_FAILURE = "content threw while drawing"
+        const val POINTER_FAILURE = "content threw on a pointer event"
 
         // A speck in the corner the pointer is least likely to be in, as TestSurface's own defaults place one.
         const val SPECK = 8
