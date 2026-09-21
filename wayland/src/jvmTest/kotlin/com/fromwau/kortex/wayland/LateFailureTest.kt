@@ -5,10 +5,13 @@ import androidx.compose.runtime.LaunchedEffect
 import com.fromwau.kern.result.Ok
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
@@ -48,6 +51,37 @@ class LateFailureTest {
             shell.pumpOrFail(PAST_THE_WAIT_MILLIS)
 
             assertFalse(ranPastTheWait.get(), "the cleanup ran on past its wait, after the surface had ended")
+        }
+    }
+
+    @Test
+    fun `cleanup that hops to another dispatcher runs there, and the run stays Ok`() {
+        val speck = SurfaceState()
+        val loopThread = Thread.currentThread()
+        val hoppedTo = AtomicReference<Thread?>(null)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface(NAMESPACE, state = speck) {
+                ClosingAfterCleanup {
+                    withContext(Dispatchers.IO) { hoppedTo.set(Thread.currentThread()) }
+                }
+            }
+        }
+
+        onApplication(content) { shell ->
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "a surface whose cleanup hops away ended nothing",
+            )
+            speck.assertEnded(Ok(SurfaceEnd.Closed), "the surface did not end with its own close")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { hoppedTo.get() != null },
+                "the cleanup never reached the dispatcher it hopped to",
+            )
+            assertNotEquals(
+                loopThread,
+                hoppedTo.get(),
+                "the cleanup ran on the loop's thread, not the dispatcher it hopped to",
+            )
         }
     }
 

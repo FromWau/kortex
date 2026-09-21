@@ -231,9 +231,9 @@ outlive it.
       drains the work that content has queued and then closes its `SurfaceWork`, and `LoopQueue` neither takes
       nor runs anything under an owner that has closed, so what that work throws is recorded before its surface's
       ending is published, and a suspending cleanup, such as a `delay` in a `NonCancellable` `finally`, stops at
-      its wait. A cleanup that hops to another dispatcher still runs there, and a throw of its own goes with the
-      resumption that would have carried it back, so that one failure is recorded nowhere. `kortexApplication`
-      returns the run's error, and otherwise what closing returned.
+      its wait. A cleanup that has hopped to another dispatcher finishes there, and its return to the loop is
+      dropped, throw and all, because running that return would run content whose surface has ended.
+      `kortexApplication` returns the run's error, and otherwise what closing returned.
       (`LateFailureTest`, `LoopQueueTest`, `SurfaceCloseCancellationTest`)
 
 ## Surface presets
