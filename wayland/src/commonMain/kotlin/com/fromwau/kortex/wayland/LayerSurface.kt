@@ -22,7 +22,7 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  *
  * kortexApplication {
  *     var level by remember { mutableStateOf<Float?>(0.4f) }
- *     level?.let { shown ->
+ *     level?.let { volume ->
  *         LayerSurface<OsdError>(
  *             namespace = "volume",
  *             layer = Layer.Overlay,
@@ -34,7 +34,7 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  *                 delay(2_000)
  *                 close(OsdError.Expired)
  *             }
- *             LinearProgressIndicator(progress = { shown })
+ *             LinearProgressIndicator(progress = { volume })
  *         }
  *     }
  * }
@@ -44,8 +44,9 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * and draws the newest [content] throughout, and a changed setting changes the surface on screen shortly after,
  * reporting nothing: [layer], [anchor], [width], [height], [margins], [exclusiveZone], [exclusiveEdge] and [keyboard]
  * reach it in one step, [visible] takes it off screen and back, and a changed [monitor] or [namespace] moves the
- * content onto a surface of its own on that monitor, under that name. State [content] keeps behind `remember` stands
- * through every one of those changes, and lasts until the surface ends.
+ * content to a layer surface the compositor sees as a new one, on whichever monitor and under whichever name the
+ * call asks for by then. State [content] keeps behind `remember` stands through every one of those changes, and
+ * lasts until the surface ends.
  *
  * Once the surface has ended by itself, in any of the ways [onClose] lists, the call shows nothing until you take it
  * out of composition and put it back. Taking it out reports nothing more.
@@ -126,8 +127,8 @@ public fun <E : IError> LayerSurface(
 
 /**
  * The surface a piece of content is drawn on, as its own `this`: its [size], and the two ways to end it. `close()`
- * ends it with `Ok(SurfaceEnd.Closed)`, and [size] is the surface's logical size while it is on screen,
- * `IntSize.Zero` before it is placed and once it has ended.
+ * ends it with `Ok(SurfaceEnd.Closed)`, and [size] is the logical size the compositor last gave the surface, which
+ * it keeps while the surface is off screen, and `IntSize.Zero` once the surface has ended.
  *
  * @param E the error the content can end the surface with, or `Nothing` for none.
  */
@@ -143,7 +144,7 @@ public interface SurfaceScope<in E : IError> : KortexSurfaceHandle {
     public fun close(error: E)
 }
 
-/** Every setting but [monitor] and [visible] from [config]: the presets' route to their kind's [SurfaceConfig]. */
+/** Every setting but [monitor] and [visible] from [config]: the route every surface call places through. */
 @Composable
 internal fun <E : IError> LayerSurface(
     monitor: Monitor?,

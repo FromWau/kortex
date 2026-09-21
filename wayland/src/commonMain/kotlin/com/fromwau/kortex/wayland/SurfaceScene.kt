@@ -142,9 +142,9 @@ internal class SurfaceScene(
 
     /**
      * Disposes the composition, even a failed one, and runs the work its cancellation leaves behind, so what that
-     * work throws is in [crash] before its surface is reported. Whatever this content schedules after that is
-     * dropped: a cleanup that throws on another dispatcher goes with the resumption that would have carried its
-     * throw back here, and is recorded nowhere.
+     * work throws is in [crash] before its surface is reported. Whatever this content schedules on the loop after
+     * that is dropped: a cleanup that throws on another dispatcher goes with the resumption that would have carried
+     * its throw back here, and is recorded nowhere.
      */
     override fun close() {
         composition.close()

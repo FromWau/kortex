@@ -99,8 +99,9 @@ public fun rememberMonitors(): State<List<Monitor>> = LocalKortexShell.current.m
 internal val LocalSurfaceSlot: ProvidableCompositionLocal<SurfaceSlot?> = staticCompositionLocalOf { null }
 
 /** The shell a surface call queues its slot with, provided around the application's content. */
-internal val LocalKortexShell: ProvidableCompositionLocal<KortexShell> =
-    staticCompositionLocalOf { error("a surface and rememberMonitors() work only inside kortexApplication") }
+internal val LocalKortexShell: ProvidableCompositionLocal<KortexShell> = staticCompositionLocalOf {
+    error("LayerSurface, a preset such as Bar, and rememberMonitors() must be called inside kortexApplication { }")
+}
 
 /**
  * The composition [kortexApplication]'s content runs in. It has no UI of its own, and recomposes on the loop's
