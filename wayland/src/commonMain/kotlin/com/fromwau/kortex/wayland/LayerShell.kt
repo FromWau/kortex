@@ -195,7 +195,8 @@ internal class LayerShellSurface(
     fun apply(new: SurfaceConfig): EmptyResult<KortexError> {
         check(new.namespace == config.namespace) { "get_layer_surface fixes the namespace for the surface's life" }
         requirePlaceable(new).getOrElse { return Err(it) }
-        fun changed(setting: SurfaceConfig.() -> Any?): Boolean = new.setting() != config.setting()
+        val known = config
+        fun changed(setting: SurfaceConfig.() -> Any?): Boolean = new.setting() != known.setting()
         // First: Hyprland validates an exclusive edge against the anchor pending when that request arrives.
         if (changed { anchor }) {
             LibWayland.marshal(

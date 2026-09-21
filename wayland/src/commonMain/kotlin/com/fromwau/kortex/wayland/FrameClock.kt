@@ -37,20 +37,15 @@ internal class FrameClock(private val surface: MemorySegment) {
         }
     }
 
-    /** Gives back an outstanding frame; a compositor owes none to a surface it is not drawing. */
-    fun cancel() {
+    /** Gives back a frame that will now never fire; destroying the proxy drops its queued done too. */
+    fun close() {
+        if (closed) return
+        closed = true
         if (!pending.equals(MemorySegment.NULL)) {
             LibWayland.proxyDestroy(pending)
             pending = MemorySegment.NULL
         }
         onFrame = null
-    }
-
-    /** Gives back a frame that will now never fire; destroying the proxy drops its queued done too. */
-    fun close() {
-        if (closed) return
-        closed = true
-        cancel()
         // After the destroy above, which is the only proxy that could still call into the stub this frees.
         arena.close()
     }

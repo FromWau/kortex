@@ -270,15 +270,13 @@ internal class KortexSurface private constructor(
     /** Acts on a later configure, coalesced to whatever size is current by the time this runs. */
     private fun maybeResize(): EmptyResult<KortexError> {
         if (!layer.consumeResize()) return Ok(Unit)
-        if (!configuredSizeChanged) return Ok(Unit)
-        return resizeTo(layer.logicalWidth, layer.logicalHeight)
-    }
-
-    // A configure of zero means "you choose", per the layer-shell protocol; it is never a real dimension.
-    private val configuredSizeChanged: Boolean
-        get() = layer.logicalWidth != 0 &&
+        // A configure of zero means "you choose", per the layer-shell protocol; it is never a real dimension.
+        val sizeChanged = layer.logicalWidth != 0 &&
             layer.logicalHeight != 0 &&
             (layer.logicalWidth != logicalWidth || layer.logicalHeight != logicalHeight)
+        if (!sizeChanged) return Ok(Unit)
+        return resizeTo(layer.logicalWidth, layer.logicalHeight)
+    }
 
     /** Acts on a later `wl_surface.preferred_buffer_scale`, coalesced to the scale current when this runs. */
     private fun maybeRescale(): EmptyResult<KortexError> {
@@ -427,7 +425,7 @@ internal class KortexSurface private constructor(
                 unwind += cursorTheme::close
                 val cursorSurface = WlCursorSurface.create(display).getOrElse { return Err(it) }
                 unwind += cursorSurface::close
-                // Pending state only, like the layer surface above; committed together with the first show().
+                // Pending state only, like the layer surface above; committed with the first WlCursorSurface.show.
                 cursorSurface.setBufferScale(bufferScale)
 
                 // Bound per surface, and never cached: each surface releases the seat it owns when it closes.
