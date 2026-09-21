@@ -90,14 +90,6 @@ internal class KortexSurface private constructor(
     internal var renders: Int = 0
         private set
 
-    /**
-     * Whether the surface is unmapped: it draws nothing, takes no input and reserves nothing until [show] maps it
-     * again, while its composition keeps running.
-     */
-    @Volatile
-    internal var hidden: Boolean = false
-        private set
-
     /** The buffer scale currently committed; exposed so a test can assert a rescale took effect. */
     internal val currentBufferScale: Int get() = bufferScale
 
@@ -160,10 +152,7 @@ internal class KortexSurface private constructor(
     fun requestSize(
         width: Dp,
         height: Dp,
-    ): EmptyResult<KortexError> {
-        check(!hidden) { "a surface off screen sends nothing; show() is what sends the config it comes back with" }
-        return layer.setSize(width.toLogicalPx(), height.toLogicalPx())
-    }
+    ): EmptyResult<KortexError> = layer.setSize(width.toLogicalPx(), height.toLogicalPx())
 
     /**
      * Applies [new] to the live surface, keyboard included: everything changed reaches the compositor in one commit,
@@ -172,46 +161,9 @@ internal class KortexSurface private constructor(
      * @return what [LayerShellSurface.apply] rejected, leaving the surface with the settings it already had.
      */
     fun applyConfig(new: SurfaceConfig): EmptyResult<KortexError> {
-        check(!hidden) { "a surface off screen sends nothing; show() is what sends the config it comes back with" }
         layer.apply(new).getOrElse { return Err(it) }
         followKeyboard(new)
         return Ok(Unit)
-    }
-
-    /**
-     * Checks [new] against the placement rules without sending any of it, for a surface that is off screen and
-     * stays there; [show] is what sends the config it comes back with.
-     *
-     * @return what [LayerShellSurface.requirePlaceable] rejects [new] for.
-     */
-    fun requirePlaceable(new: SurfaceConfig): EmptyResult<KortexError> = LayerShellSurface.requirePlaceable(new)
-
-    /**
-     * Takes the surface off screen and hands back the space it reserved. Its composition keeps running and keeps
-     * its state, and [logicalSize] keeps the value it had.
-     */
-    fun hide() {
-        hidden = true
-        // A compositor draws no unmapped surface, so a frame it owes is one it will never send.
-        clock.cancel()
-        layer.unmap()
-    }
-
-    /**
-     * Puts the surface back on screen with [config], every request of which is sent again, and draws the frame
-     * that gives the compositor a buffer to map it from.
-     *
-     * @return what [LayerShellSurface.resend] rejected [config] for, or why the compositor never configured the
-     *   surface again, leaving it off screen either way.
-     */
-    fun show(config: SurfaceConfig): EmptyResult<KortexError> {
-        layer.resend(config).getOrElse { return Err(it) }
-        layer.remap()
-        layer.waitForConfigure().getOrElse { return Err(it) }
-        hidden = false
-        // The interactivity [config] asks for reached the compositor only now, and with it whatever focus it grants.
-        followKeyboard(config)
-        return drawAtConfiguredSize()
     }
 
     /** Draws the attached scene at once, rather than waiting for a frame the compositor has yet to send. */
@@ -233,8 +185,6 @@ internal class KortexSurface private constructor(
     internal fun invalidate() {
         // Posted, never run here: Compose also invalidates from inside renderNow, ahead of that frame's own commit.
         post {
-            // The frame an off-screen surface asks for is one the compositor never sends; showing it draws instead.
-            if (hidden) return@post
             // Answer an invalidation by asking for a frame, never by rendering immediately: the
             // compositor decides when a frame happens.
             clock.request(::renderNow)
@@ -324,18 +274,6 @@ internal class KortexSurface private constructor(
         return resizeTo(layer.logicalWidth, layer.logicalHeight)
     }
 
-    /**
-     * Draws at the size the compositor last configured, taking the frames to that size first if they are not.
-     *
-     * Nothing else will: the configure that answers a [LayerShellSurface.remap] arrives while the surface counts as
-     * unconfigured, which is exactly what [LayerShellSurface.consumeResize] does not report.
-     */
-    private fun drawAtConfiguredSize(): EmptyResult<KortexError> {
-        if (configuredSizeChanged) return resizeTo(layer.logicalWidth, layer.logicalHeight)
-        renderNow(frameTimeNanos = 0L)
-        return Ok(Unit)
-    }
-
     // A configure of zero means "you choose", per the layer-shell protocol; it is never a real dimension.
     private val configuredSizeChanged: Boolean
         get() = layer.logicalWidth != 0 &&
@@ -399,8 +337,6 @@ internal class KortexSurface private constructor(
     }
 
     private fun renderNow(frameTimeNanos: Long) {
-        // An off-screen surface maps again at its next buffer, so nothing is drawn or committed until it shows.
-        if (hidden) return
         val scene = scene ?: return
         // A blank buffer would map the surface on a scene that has no content to show yet.
         if (!scene.composed) return
@@ -458,9 +394,6 @@ internal class KortexSurface private constructor(
         fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
-            // False makes the surface off screen from its first commit on, rather than briefly reserving [config]'s
-            // exclusive zone; [show] is what puts it on screen.
-            visible: Boolean = true,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
             // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
@@ -476,7 +409,7 @@ internal class KortexSurface private constructor(
             try {
                 val shm = Shm.bind(display).getOrElse { return Err(it) }
                 unwind += shm::close
-                val layer = LayerShellSurface.create(display, config, visible, output).getOrElse { return Err(it) }
+                val layer = LayerShellSurface.create(display, config, output).getOrElse { return Err(it) }
                 unwind += layer::close
                 layer.waitForConfigure().getOrElse { return Err(it) }
                 // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
@@ -510,7 +443,6 @@ internal class KortexSurface private constructor(
                     loopQueue ?: LoopQueue(display::wake), cursorTheme, cursorSurface, seat,
                     onInputSerial, onKeyboardFocus,
                 )
-                surface.hidden = !visible
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true
                 return Ok(surface)

@@ -108,7 +108,7 @@ internal fun settingsAskedBy(content: @Composable KortexApplicationScope.() -> U
     return assertNotNull(asked, "the content asked for no surface")
 }
 
-/** Pumps [shell] until [shell] has placed [count] surfaces, on screen or off; the test fails if it never does. */
+/** Pumps [shell] until [shell] has placed [count] surfaces; the test fails if it never does. */
 internal fun awaitPlaced(
     shell: KortexShell,
     count: Int = 1,
@@ -116,22 +116,6 @@ internal fun awaitPlaced(
     assertTrue(
         shell.pumpOrFail(PLACED_WITHIN_MILLIS) { shell.shownSurfaces.size == count },
         "the application never placed $count surfaces",
-    )
-}
-
-// Both wait on whatever surface the shell holds now, not on the one the test was handed, so a change that made a
-// surface of its own is caught by the assertion that looks for it rather than by a wait that times out.
-internal fun awaitOffScreen(shell: KortexShell) {
-    assertTrue(
-        shell.pumpOrFail(ON_SCREEN_WITHIN_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == true },
-        "the surface was never taken off screen",
-    )
-}
-
-internal fun awaitOnScreen(shell: KortexShell) {
-    assertTrue(
-        shell.pumpOrFail(ON_SCREEN_WITHIN_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == false },
-        "the surface was never put back on screen",
     )
 }
 
@@ -145,4 +129,3 @@ internal fun crashIn(
 }
 
 private const val PLACED_WITHIN_MILLIS = 4_000L
-private const val ON_SCREEN_WITHIN_MILLIS = 4_000L

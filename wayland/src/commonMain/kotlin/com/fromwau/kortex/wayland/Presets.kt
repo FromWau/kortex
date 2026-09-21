@@ -35,8 +35,6 @@ import com.fromwau.kern.result.Result
  * @param margins insets from the edges the bar is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param keyboard whether the bar can take keyboard focus, as a text field in it needs.
  * @param namespace what the compositor calls the bar, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether the bar is on screen. `false` takes it off screen and hands back the space it
- *   reserves, while its content keeps running and keeps its state; `true` puts it back.
  * @param onClose called once when the bar ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on the bar, with the bar itself as `this`.
  */
@@ -49,7 +47,6 @@ public fun <E : IError> Bar(
     margins: Margins = Margins.None,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
@@ -58,7 +55,6 @@ public fun <E : IError> Bar(
         config = SurfaceConfig
             .panel(edge, thickness, length)
             .copy(namespace = namespace, margins = margins, keyboard = keyboard),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -79,8 +75,6 @@ public fun <E : IError> Bar(
  *   is not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param margins insets from the edges the panel is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the panel, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether the panel is on screen. `false` takes it off screen and hands back the space it
- *   reserves, while its content keeps running and keeps its state; `true` puts it back.
  * @param onClose called once when the panel ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on the panel, with the panel itself as `this`.
  */
@@ -92,7 +86,6 @@ public fun <E : IError> Panel(
     length: Dp = 0.dp,
     margins: Margins = Margins.None,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
@@ -101,7 +94,6 @@ public fun <E : IError> Panel(
         config = SurfaceConfig
             .panel(edge, thickness, length)
             .copy(namespace = namespace, margins = margins),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -122,8 +114,6 @@ public fun <E : IError> Panel(
  *   not placed and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param margins insets from the edges the dock is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the dock, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether the dock is on screen. `false` takes it off screen and hands back the space it
- *   reserves, while its content keeps running and keeps its state; `true` puts it back.
  * @param onClose called once when the dock ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on the dock, with the dock itself as `this`.
  */
@@ -135,7 +125,6 @@ public fun <E : IError> Dock(
     length: Dp = 0.dp,
     margins: Margins = Margins.None,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
@@ -144,7 +133,6 @@ public fun <E : IError> Dock(
         config = SurfaceConfig
             .dock(edge, thickness, length)
             .copy(namespace = namespace, margins = margins),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -159,8 +147,6 @@ public fun <E : IError> Dock(
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to fill, one [rememberMonitors] lists; null lets the compositor choose.
  * @param namespace what the compositor calls the background, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether the background is on screen. `false` takes it off screen, while its content keeps running
- *   and keeps its state; `true` puts it back.
  * @param onClose called once when the background ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on the background, with the background itself as `this`.
  */
@@ -168,14 +154,12 @@ public fun <E : IError> Dock(
 public fun <E : IError> DesktopBackground(
     monitor: Monitor? = null,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
     LayerSurface(
         monitor = monitor,
         config = SurfaceConfig.desktopBackground().copy(namespace = namespace),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -194,8 +178,6 @@ public fun <E : IError> DesktopBackground(
  * @param E the error your content can end it with through `close(error)`, or `Nothing` for none.
  * @param monitor the monitor to cover, one [rememberMonitors] lists; null lets the compositor choose.
  * @param namespace what the compositor calls the lock screen, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether the lock screen is on screen. `false` takes it off screen, while its content keeps running
- *   and keeps its state; `true` puts it back.
  * @param onClose called once when the lock screen ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on the lock screen, with the lock screen itself as `this`.
  */
@@ -203,14 +185,12 @@ public fun <E : IError> DesktopBackground(
 public fun <E : IError> LockScreen(
     monitor: Monitor? = null,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
     LayerSurface(
         monitor = monitor,
         config = SurfaceConfig.lockScreen().copy(namespace = namespace),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -229,8 +209,6 @@ public fun <E : IError> LockScreen(
  *   unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether it is on screen. `false` takes it off screen, while its content keeps running
- *   and keeps its state; `true` puts it back.
  * @param onClose called once when it ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on it, with the surface itself as `this`.
  */
@@ -240,14 +218,12 @@ public fun <E : IError> Osd(
     width: Dp,
     height: Dp,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
     LayerSurface(
         monitor = monitor,
         config = SurfaceConfig.osd(width, height).copy(namespace = namespace),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -266,8 +242,6 @@ public fun <E : IError> Osd(
  *   unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param height its height, which must round to at least one logical pixel, checked as [width] is.
  * @param namespace what the compositor calls it, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether it is on screen. `false` takes it off screen, while its content keeps running
- *   and keeps its state; `true` puts it back.
  * @param onClose called once when it ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on it, with the surface itself as `this`.
  */
@@ -277,14 +251,12 @@ public fun <E : IError> AppMenu(
     width: Dp,
     height: Dp,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
     LayerSurface(
         monitor = monitor,
         config = SurfaceConfig.appMenu(width, height).copy(namespace = namespace),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -325,8 +297,6 @@ public fun <E : IError> AppMenu(
  * @param menuSize the menu's size in logical pixels, each at least 1. A width or height of 0 or below leaves the
  *   menu unplaced, and `onClose` receives `Err(SurfaceError.Failed(...))`.
  * @param namespace what the compositor calls the menu, e.g. in `hyprctl layers`, exactly as written.
- * @param visible whether the menu is on screen. `false` takes it off screen, while its content keeps running
- *   and keeps its state; `true` puts it back.
  * @param onClose called once when the menu ends, as [LayerSurface]'s `onClose` describes.
  * @param content what is drawn on the menu, with the menu itself as `this`.
  */
@@ -336,7 +306,6 @@ public fun <E : IError> ContextMenu(
     at: IntOffset,
     menuSize: IntSize,
     namespace: String = "kortex",
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
@@ -345,7 +314,6 @@ public fun <E : IError> ContextMenu(
         config = SurfaceConfig
             .contextMenu(at = at, menuSize = menuSize, outputSize = monitor.geometry.logicalSize)
             .copy(namespace = namespace),
-        visible = visible,
         onClose = onClose,
         content = content,
     )

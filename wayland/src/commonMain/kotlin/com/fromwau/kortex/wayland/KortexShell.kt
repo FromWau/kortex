@@ -283,29 +283,10 @@ internal class KortexShell private constructor(
         if (surface == null || placedWith == null || settings.rebuildsOver(placedWith)) {
             return rebuild(slot, settings)
         }
-        sendChange(surface, placedWith, settings)
+        surface
+            .applyConfig(settings.config)
             .onSuccess { slot.placedWith = settings }
             .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
-    }
-
-    /**
-     * Sends [settings] to a live [surface]. One on screen takes its changed settings before it is taken off, so it
-     * is the shape and place its call asks for while it is seen. One off screen sends nothing at all: showing it is
-     * what sends the settings it comes back with, and one that stays off screen only has them checked.
-     */
-    private fun sendChange(
-        surface: KortexSurface,
-        placedWith: SurfaceSettings,
-        settings: SurfaceSettings,
-    ): EmptyResult<KortexError> {
-        if (!placedWith.visible) {
-            return if (settings.visible) surface.show(settings.config) else surface.requirePlaceable(settings.config)
-        }
-        if (settings.config != placedWith.config) {
-            surface.applyConfig(settings.config).getOrElse { return Err(it) }
-        }
-        if (!settings.visible) surface.hide()
-        return Ok(Unit)
     }
 
     /**
@@ -365,7 +346,6 @@ internal class KortexShell private constructor(
             .create(
                 display,
                 settings.config,
-                visible = settings.visible,
                 output = output,
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,

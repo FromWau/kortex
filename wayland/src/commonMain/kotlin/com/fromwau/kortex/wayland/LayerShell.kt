@@ -8,7 +8,6 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kern.result.onSuccess
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
@@ -193,24 +192,10 @@ internal class LayerShellSurface(
      *
      * @return what [requirePlaceable] rejects [new] for, with nothing sent and the surface left as it was.
      */
-    fun apply(new: SurfaceConfig): EmptyResult<KortexError> = send(new, known = config).onSuccess { commit() }
-
-    /**
-     * Sends all of [new], for a surface that is to be mapped again: the protocol puts an unmapped surface back in
-     * its just-created state. Pending state only, which [remap] commits.
-     *
-     * @return what [requirePlaceable] rejects [new] for, with nothing sent.
-     */
-    fun resend(new: SurfaceConfig): EmptyResult<KortexError> = send(new, known = null)
-
-    /** Marshals what [new] changes from [known], or all of [new] when the compositor holds none of it. */
-    private fun send(
-        new: SurfaceConfig,
-        known: SurfaceConfig?,
-    ): EmptyResult<KortexError> {
+    fun apply(new: SurfaceConfig): EmptyResult<KortexError> {
         check(new.namespace == config.namespace) { "get_layer_surface fixes the namespace for the surface's life" }
         requirePlaceable(new).getOrElse { return Err(it) }
-        fun changed(setting: SurfaceConfig.() -> Any?): Boolean = known == null || new.setting() != known.setting()
+        fun changed(setting: SurfaceConfig.() -> Any?): Boolean = new.setting() != config.setting()
         // First: Hyprland validates an exclusive edge against the anchor pending when that request arrives.
         if (changed { anchor }) {
             LibWayland.marshal(
@@ -252,39 +237,8 @@ internal class LayerShellSurface(
             )
         }
         config = new
+        commit()
         return Ok(Unit)
-    }
-
-    /**
-     * Unmaps the surface and hands back the space its exclusive zone reserves, in one commit.
-     *
-     * The config this surface holds is left alone: Hyprland keeps an unmapped surface's state, and [resend] sends
-     * all of it again when the surface is mapped back.
-     */
-    fun unmap() {
-        LibWayland.marshal(
-            layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
-            args = listOf(WlArg.Num(ExclusiveZone.Yield.toWireValue())),
-        )
-        attachNothing()
-        commit()
-    }
-
-    /**
-     * Commits the surface with no buffer, which is how an unmapped one asks to be mapped again, and forgets the
-     * configure it acknowledged last so [waitForConfigure] waits for the one this commit brings.
-     */
-    fun remap() {
-        state.configured = false
-        commit()
-    }
-
-    /** Attaches no buffer at all, which unmaps the surface at the next [commit]. */
-    private fun attachNothing() {
-        LibWayland.marshal(
-            surface, WL_SURFACE_ATTACH,
-            args = listOf(WlArg.Ptr(MemorySegment.NULL), WlArg.Num(0), WlArg.Num(0)),
-        )
     }
 
     fun commit() {
@@ -310,23 +264,18 @@ internal class LayerShellSurface(
 
     companion object {
         /**
-         * Creates a layer surface of [config] on [output], and drives it to its first configure. A surface made
-         * with [visible] false reserves nothing until [resend] sends the zone [config] asks for.
+         * Creates a layer surface of [config] on [output], and drives it to its first configure.
          *
          * @return what [requirePlaceable] rejects [config] for, with nothing sent and no surface made.
          */
         fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
-            visible: Boolean = true,
             output: MemorySegment = MemorySegment.NULL,
         ): Result<LayerShellSurface, KortexError> {
             requirePlaceable(config).getOrElse { return Err(it) }
             val namespace = config.namespace
             val anchor = config.anchor
-            // Hyprland arranges an unmapped surface like any other, so a zone sent here would move the windows
-            // around a surface that is never drawn.
-            val zone = if (visible) config.exclusiveZone else ExclusiveZone.Yield
 
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
@@ -378,7 +327,7 @@ internal class LayerShellSurface(
             )
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_ZONE,
-                args = listOf(WlArg.Num(zone.toWireValue())),
+                args = listOf(WlArg.Num(config.exclusiveZone.toWireValue())),
             )
             config.exclusiveEdge?.let { edge ->
                 LibWayland.marshal(

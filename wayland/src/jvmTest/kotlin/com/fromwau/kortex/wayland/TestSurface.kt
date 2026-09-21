@@ -22,7 +22,6 @@ internal fun <E : IError> TestSurface(
     exclusiveZone: ExclusiveZone = ExclusiveZone.Yield,
     exclusiveEdge: Edge? = null,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit = {},
 ) {
@@ -37,7 +36,6 @@ internal fun <E : IError> TestSurface(
         exclusiveZone = exclusiveZone,
         exclusiveEdge = exclusiveEdge,
         keyboard = keyboard,
-        visible = visible,
         onClose = onClose,
         content = content,
     )

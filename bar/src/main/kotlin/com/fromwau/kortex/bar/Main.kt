@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -48,8 +47,6 @@ import com.fromwau.kortex.wayland.rememberMonitors
 import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
-import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.delay
 
 fun main() {
     val crashLog = crashLogPath(System.getenv())
@@ -103,12 +100,11 @@ private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
 }
 
 /**
- * The bar on [screen]: a click counter, a text field, a button that makes the bar taller and shorter, a button that
- * takes it off screen for a second, and a context menu for a right click on its background. A crash goes to
- * [crashLog].
+ * The bar on [screen]: a click counter, a text field, a button that makes the bar taller and shorter, and a context
+ * menu for a right click on its background. A crash goes to [crashLog].
  *
- * The count and the typed text are the bar's own content state, so both survive the resize and the moment off
- * screen, and the readout beside them is the size the compositor gave the bar.
+ * The count and the typed text are the bar's own content state, so both survive the resize, and the readout beside
+ * them is the size the compositor gave the bar.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -118,27 +114,18 @@ private fun DemoBar(
     onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
 ) {
     var tall by remember { mutableStateOf(false) }
-    var onScreen by remember { mutableStateOf(true) }
 
     Bar<Nothing>(
         monitor = screen,
         thickness = if (tall) TALL_THICKNESS else THICKNESS,
         keyboard = KeyboardInteractivity.OnDemand,
         namespace = "kortex-${screen.name}",
-        visible = onScreen,
         onClose = onClose,
     ) {
         val bar = this
         var clicks by remember { mutableStateOf(0) }
         var text by remember { mutableStateOf("") }
         var menuAt by remember { mutableStateOf<IntOffset?>(null) }
-
-        // The content keeps running while the bar is off screen, so the bar is what brings itself back.
-        LaunchedEffect(onScreen) {
-            if (onScreen) return@LaunchedEffect
-            delay(HIDDEN_FOR)
-            onScreen = true
-        }
 
         MaterialTheme(colorScheme = darkColorScheme()) {
             Box(
@@ -185,10 +172,6 @@ private fun DemoBar(
 
                     Button(onClick = { tall = !tall }) {
                         Text(if (tall) "shrink me" else "grow me")
-                    }
-
-                    Button(onClick = { onScreen = false }) {
-                        Text("hide me for a second")
                     }
 
                     Text(
@@ -294,6 +277,5 @@ private fun CrashPopup(
 
 private val THICKNESS = 56.dp
 private val TALL_THICKNESS = 96.dp
-private val HIDDEN_FOR = 1.seconds
 
 private val MENU_ITEMS = listOf("Option 1", "Option 2", "Option 3")

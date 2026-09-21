@@ -47,7 +47,7 @@ import kotlinx.coroutines.delay
 /**
  * `get_layer_surface` fixes a surface's monitor and namespace, so a call that changes either gets new Wayland
  * objects. The Compose scene is not one of them: content keeps its state, keeps its effects running, never reads a
- * zero size in between, and a surface off screen comes back off screen.
+ * zero size in between.
  *
  * Only the namespace is changed here. The desktop this runs on has one monitor, and a changed monitor takes the
  * identical path.
@@ -129,39 +129,6 @@ class SurfaceRebuildTest {
                 listOf(placedAt), sizes.toList(),
                 "content read a size other than the one it was placed at while its surface was rebuilt",
             )
-        }
-    }
-
-    @Test
-    fun `a surface rebuilt while it is off screen stays off screen, and draws once it is shown`() {
-        val asked = Asked(anchor = mutableStateOf(BOTTOM_PANEL), width = mutableStateOf(SPAN_ANCHORED_AXIS))
-        val watch = Watch()
-        val before = Hyprctl.monitors().associateBy(HyprMonitor::name)
-
-        onWatchedSurface(asked, watch) { shell, _ ->
-            val monitor = assertNotNull(
-                before[geometryOf(FIRST_NAMESPACE).monitor],
-                "hyprctl did not report the monitor the panel landed on before the run",
-            )
-            assertReservesMore(shell, monitor, Edge.Bottom, THICKNESS)
-
-            asked.visible.value = false
-
-            awaitOffScreen(shell)
-
-            asked.namespace.value = SECOND_NAMESPACE
-
-            awaitNamespace(shell, SECOND_NAMESPACE)
-            val rebuilt = shell.shownSurfaces.single()
-            assertTrue(rebuilt.hidden, "the panel came back on screen although its call still asks for it off")
-            assertEquals(0, rebuilt.renders, "a panel rebuilt off screen drew a frame")
-            assertReservesMore(shell, monitor, Edge.Bottom, RESERVES_NOTHING)
-
-            asked.visible.value = true
-
-            awaitOnScreen(shell)
-            assertReservesMore(shell, monitor, Edge.Bottom, THICKNESS)
-            assertTrue(rebuilt.renders > 0, "the panel drew nothing once it was shown again")
         }
     }
 
@@ -394,7 +361,6 @@ class SurfaceRebuildTest {
         val anchor: MutableState<Set<Edge>> = mutableStateOf(BOTTOM_RIGHT_SPECK),
         val width: MutableState<Int> = mutableStateOf(SPECK),
         val height: MutableState<Int> = mutableStateOf(SPECK),
-        val visible: MutableState<Boolean> = mutableStateOf(true),
     )
 
     /** What the surface's content publishes: how often it was composed, what it holds, and that its effect runs. */
@@ -415,9 +381,6 @@ class SurfaceRebuildTest {
             anchor = asked.anchor.value,
             width = asked.width.value.dp,
             height = asked.height.value.dp,
-            exclusiveZone = ExclusiveZone.Reserve(THICKNESS.dp).takeIf { asked.anchor.value == BOTTOM_PANEL }
-                ?: ExclusiveZone.Yield,
-            visible = asked.visible.value,
             onClose = { watch.reports += it },
         ) {
             val surface = this
@@ -468,11 +431,6 @@ class SurfaceRebuildTest {
         // A speck in the corner the pointer is least likely to be in, as TestSurface's own defaults place one.
         const val SPECK = 8
         val BOTTOM_RIGHT_SPECK = setOf(Edge.Bottom, Edge.Right)
-
-        // A panel along the bottom edge, clear of the desktop's own bar at the top.
-        const val THICKNESS = 18
-        const val RESERVES_NOTHING = 0
-        val BOTTOM_PANEL = setOf(Edge.Bottom, Edge.Left, Edge.Right)
 
         // Anchored to one edge of the horizontal axis only, so a width of 0 leaves that axis unspannable.
         val UNSPANNABLE = setOf(Edge.Bottom, Edge.Left)

@@ -43,10 +43,9 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * The surface appears shortly after the call enters composition, and goes when the call leaves it. It keeps running
  * and draws the newest [content] throughout, and a changed setting changes the surface on screen shortly after,
  * reporting nothing: [layer], [anchor], [width], [height], [margins], [exclusiveZone], [exclusiveEdge] and [keyboard]
- * reach it in one step, [visible] takes it off screen and back, and a changed [monitor] or [namespace] moves the
- * content to a layer surface the compositor sees as a new one, on whichever monitor and under whichever name the
- * call asks for by then. State [content] keeps behind `remember` stands through every one of those changes, and
- * lasts until the surface ends.
+ * reach it in one step, and a changed [monitor] or [namespace] moves the content to a layer surface the compositor
+ * sees as a new one, on whichever monitor and under whichever name the call asks for by then. State [content] keeps
+ * behind `remember` stands through every one of those changes, and lasts until the surface ends.
  *
  * Once the surface has ended by itself, in any of the ways [onClose] lists, the call shows nothing until you take it
  * out of composition and put it back. Taking it out reports nothing more.
@@ -71,10 +70,6 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * @param exclusiveEdge which anchored edge [exclusiveZone] is measured from, needed only when [anchor] pins a
  *   corner.
  * @param keyboard whether the surface can take keyboard focus.
- * @param visible whether the surface is on screen. `false` takes it off screen and hands back the space it reserved,
- *   while [content] keeps running and keeps its state, and `size` keeps the value it last had; `true` puts it back on
- *   screen, at whatever the settings ask for by then. Nothing is reported either way, and nothing is released until
- *   the call leaves composition.
  * @param onClose called once when the surface ends, after it has gone, on the thread that runs [kortexApplication].
  *   It receives `Ok` with how the surface ended: [SurfaceEnd.Closed] when `close()` is called,
  *   [SurfaceEnd.ClosedByCompositor] when the compositor closes it, [SurfaceEnd.MonitorUnplugged] when its [monitor]
@@ -102,7 +97,6 @@ public fun <E : IError> LayerSurface(
     exclusiveZone: ExclusiveZone = ExclusiveZone.Yield,
     exclusiveEdge: Edge? = null,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-    visible: Boolean = true,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
@@ -119,7 +113,6 @@ public fun <E : IError> LayerSurface(
             keyboard = keyboard,
             exclusiveEdge = exclusiveEdge,
         ),
-        visible = visible,
         onClose = onClose,
         content = content,
     )
@@ -127,8 +120,8 @@ public fun <E : IError> LayerSurface(
 
 /**
  * The surface a piece of content is drawn on, as its own `this`: its [size], and the two ways to end it. `close()`
- * ends it with `Ok(SurfaceEnd.Closed)`, and [size] is the logical size the compositor last gave the surface, which
- * it keeps while the surface is off screen, and `IntSize.Zero` once the surface has ended.
+ * ends it with `Ok(SurfaceEnd.Closed)`, and [size] is the logical size the compositor last gave the surface, or
+ * `IntSize.Zero` once the surface has ended.
  *
  * @param E the error the content can end the surface with, or `Nothing` for none.
  */
@@ -144,12 +137,11 @@ public interface SurfaceScope<in E : IError> : KortexSurfaceHandle {
     public fun close(error: E)
 }
 
-/** Every setting but [monitor] and [visible] from [config]: the route every surface call places through. */
+/** Every setting but [monitor] from [config]: the route every surface call places through. */
 @Composable
 internal fun <E : IError> LayerSurface(
     monitor: Monitor?,
     config: SurfaceConfig,
-    visible: Boolean,
     onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit,
     content: @Composable SurfaceScope<E>.() -> Unit,
 ) {
@@ -167,7 +159,7 @@ internal fun <E : IError> LayerSurface(
             parent = parent,
         )
     }
-    val settings = SurfaceSettings(monitor = monitor, config = config, visible = visible)
+    val settings = SurfaceSettings(monitor = monitor, config = config)
     SideEffect { shell.queueUpdate(slot, settings) }
     DisposableEffect(Unit) { onDispose { shell.queueRemove(slot) } }
 }
@@ -176,7 +168,6 @@ internal fun <E : IError> LayerSurface(
 internal data class SurfaceSettings(
     val monitor: Monitor?,
     val config: SurfaceConfig,
-    val visible: Boolean,
 ) {
     /**
      * Whether a surface placed with [placed] has to be made again to reach these settings, rather than changed:
