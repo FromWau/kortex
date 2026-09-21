@@ -230,7 +230,10 @@ internal class KortexShell private constructor(
         display.wake()
     }
 
-    /** [slot]'s call entered composition, or its settings changed: its surface is placed in the next pass. */
+    /**
+     * Takes what [slot]'s call asks for, from an effect that runs on every composition of that call: the next pass
+     * places its surface, or changes the one it holds to these settings.
+     */
     internal fun queueUpdate(
         slot: SurfaceSlot,
         settings: SurfaceSettings,
@@ -318,6 +321,9 @@ internal class KortexShell private constructor(
         slot: SurfaceSlot,
         settings: SurfaceSettings,
     ) {
+        // Only taking a surface down frees the scene under it, and that closes it: another here would be dropped
+        // with its recomposer and its queued work still running.
+        check(slot.scene == null) { "a surface call draws one scene at a time" }
         val output = when (val on = outputFor(settings.monitor)) {
             is OutputChoice.Bound -> on.proxy
             OutputChoice.CompositorChooses -> MemorySegment.NULL
