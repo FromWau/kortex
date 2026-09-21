@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +48,8 @@ import com.fromwau.kortex.wayland.rememberMonitors
 import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.delay
 
 fun main() {
     val crashLog = crashLogPath(System.getenv())
@@ -100,8 +103,12 @@ private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
 }
 
 /**
- * The bar on [screen]: a click counter, a text field, and a context menu for a right click on its background, whose
- * crash goes to [crashLog].
+ * The bar on [screen]: a click counter, a text field, a button that makes the bar taller and shorter, a button that
+ * takes it off screen for a second, and a context menu for a right click on its background. A crash goes to
+ * [crashLog].
+ *
+ * The count and the typed text are the bar's own content state, so both survive the resize and the moment off
+ * screen, and the readout beside them is the size the compositor gave the bar.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -110,19 +117,27 @@ private fun DemoBar(
     crashLog: Path,
     onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
 ) {
+    var tall by remember { mutableStateOf(false) }
+    var onScreen by remember { mutableStateOf(true) }
+
     Bar<Nothing>(
         monitor = screen,
-        thickness = 56.dp,
-        // Static keyboard interactivity: a layer surface that changes it at runtime never gets the keyboard back to
-        // the focused window (hyprwm/Hyprland#8293).
+        thickness = if (tall) TALL_THICKNESS else THICKNESS,
         keyboard = KeyboardInteractivity.OnDemand,
         namespace = "kortex-${screen.name}",
+        visible = onScreen,
         onClose = onClose,
     ) {
         val bar = this
         var clicks by remember { mutableStateOf(0) }
         var text by remember { mutableStateOf("") }
         var menuAt by remember { mutableStateOf<IntOffset?>(null) }
+
+        LaunchedEffect(onScreen) {
+            if (onScreen) return@LaunchedEffect
+            delay(HIDDEN_FOR)
+            onScreen = true
+        }
 
         MaterialTheme(colorScheme = darkColorScheme()) {
             Box(
@@ -164,11 +179,24 @@ private fun DemoBar(
                         value = text,
                         onValueChange = { text = it },
                         singleLine = true,
-                        modifier = Modifier.width(320.dp).fillMaxHeight(),
+                        modifier = Modifier.width(240.dp).fillMaxHeight(),
                     )
+
+                    Button(onClick = { tall = !tall }) {
+                        Text(if (tall) "shrink me" else "grow me")
+                    }
+
+                    Button(onClick = { onScreen = false }) {
+                        Text("hide me for a second")
+                    }
 
                     Text(
                         text = "typed: $text",
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    Text(
+                        text = "${bar.size.width} by ${bar.size.height}",
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
@@ -262,5 +290,9 @@ private fun CrashPopup(
         }
     }
 }
+
+private val THICKNESS = 56.dp
+private val TALL_THICKNESS = 96.dp
+private val HIDDEN_FOR = 1.seconds
 
 private val MENU_ITEMS = listOf("Option 1", "Option 2", "Option 3")
