@@ -61,8 +61,10 @@ public sealed interface SurfaceStatus {
  * [SurfaceStatus.Ended] can never come back, because that call is what would clear the ending. Read [status] for
  * what happened, and keep what to show beside it.
  *
- * One state belongs to one surface call at a time. Two calls each holding a surface cannot share one, and a second
- * call handed a state the first is still publishing to ends the application with [KortexError.ApplicationCrashed].
+ * One state belongs to one surface call at a time. Two calls each holding a surface cannot share one, and handing a
+ * second call a state the first is still publishing to ends what that call is part of: a call in
+ * [kortexApplication]'s own content ends the application with [KortexError.ApplicationCrashed], while a call in
+ * another surface's content ends that surface with [KortexError.SurfaceCrashed] and leaves the application running.
  */
 public class SurfaceState {
     // Both are written on the one thread the application runs on, by its loop and by the effects of a composition
