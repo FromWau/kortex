@@ -440,7 +440,7 @@ class SurfaceTest {
     }
 
     @Test
-    fun `content whose cleanup throws as a new namespace replaces its surface reports the crash and places nothing`() {
+    fun `content stays composed under a new namespace, so its cleanup does not run and nothing is reported`() {
         val namespace = mutableStateOf(NAMESPACE)
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
         val content: @Composable KortexApplicationScope.() -> Unit = {
@@ -453,16 +453,12 @@ class SurfaceTest {
             namespace.value = SECOND_NAMESPACE
 
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "the replaced content's crash reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { Screen.geometry(SECOND_NAMESPACE) != null },
+                "hyprctl never listed the surface under $SECOND_NAMESPACE",
             )
-            val crash = crashIn(
-                reports.single(),
-                "cleanup that threw as its surface was replaced did not report a crash",
-            )
-            assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what the cleanup threw")
             shell.pumpOrFail(SETTLE_MILLIS)
-            assertTrue(shell.shownSurfaces.isEmpty(), "a surface was placed for a call whose content had crashed")
+            assertEquals(emptyList(), reports.toList(), "a new namespace ran the content's cleanup and reported it")
+            assertEquals(1, shell.shownSurfaces.size, "the call was left without a surface under its new namespace")
         }
     }
 

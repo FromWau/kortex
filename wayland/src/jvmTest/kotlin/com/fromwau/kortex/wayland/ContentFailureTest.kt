@@ -73,33 +73,31 @@ class ContentFailureTest {
     }
 
     @Test
-    fun `a replacement's content that throws on its first frame reports the crash, and nothing takes its place`() {
+    fun `content that throws as its surface is rebuilt reports the crash, and nothing takes its place`() {
         val namespace = mutableStateOf(NAMESPACE)
+        val throwing = mutableStateOf(false)
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
-        val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             TestSurface<Nothing>(namespace.value, onClose = { reports += it }) {
-                val placement = remember { placements.incrementAndGet() }
-                Canvas(Modifier.fillMaxSize()) { if (placement > 1) error(DRAW_FAILURE) }
+                Canvas(Modifier.fillMaxSize()) { if (throwing.value) error(DRAW_FAILURE) }
             }
         }
 
         onApplication(content) { shell ->
             awaitPlaced(shell)
 
-            namespace.value = REPLACEMENT_NAMESPACE
+            // Both in one pass: the namespace is what rebuilds the surface, the flag what the next draw throws on.
+            throwing.value = true
+            namespace.value = REBUILT_NAMESPACE
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "a replacement that throws on its first frame reported nothing",
+                "content that threw around a rebuild reported nothing",
             )
-            val crash = crashIn(
-                reports.single(),
-                "a replacement that throws on its first frame did not report the crash",
-            )
+            val crash = crashIn(reports.single(), "content that threw around a rebuild did not report the crash")
             assertEquals(DRAW_FAILURE, crash.failure.cause.message)
             shell.pumpOrFail(SETTLE_MILLIS)
-            assertTrue(shell.shownSurfaces.isEmpty(), "a replacement whose content crashed was placed anyway")
+            assertTrue(shell.shownSurfaces.isEmpty(), "a surface was rebuilt for content that had crashed")
         }
     }
 
@@ -126,7 +124,7 @@ class ContentFailureTest {
         const val SETTLE_MILLIS = 300L
         const val CLOSE_AFTER_MILLIS = 50L
         const val PUMP_MILLIS = 2_000L
-        const val REPLACEMENT_NAMESPACE = "kortex-crash-replacement"
+        const val REBUILT_NAMESPACE = "kortex-crash-rebuilt"
         const val PROBE_MAIN_CLASS = "com.fromwau.kortex.wayland.CrashedSurfaceProbe"
     }
 }
