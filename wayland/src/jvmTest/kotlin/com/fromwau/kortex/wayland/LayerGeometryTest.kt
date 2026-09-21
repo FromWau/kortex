@@ -326,7 +326,6 @@ class LayerGeometryTest {
         const val IGNORED_MARGIN = 41
 
         const val DEFAULT_HEIGHT = 32
-        const val SPAN_ANCHORED_AXIS = 0
         const val NEGATIVE_WIDTH = -WIDTH
         const val NEGATIVE_HEIGHT = -HEIGHT
     }

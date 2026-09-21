@@ -136,7 +136,6 @@ class SurfaceLifetimeTest {
     private companion object {
         const val LAYER_NAMESPACE = "kortex-lifetime-layer"
         const val LAYER_HEIGHT = 24
-        const val SPAN_ANCHORED_AXIS = 0
         const val PANEL_NAMESPACE = "kortex-lifetime-panel"
         const val MENU_NAMESPACE = "kortex-lifetime-menu"
 

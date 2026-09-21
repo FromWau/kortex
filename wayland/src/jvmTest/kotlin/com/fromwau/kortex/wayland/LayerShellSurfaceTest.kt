@@ -87,6 +87,5 @@ class LayerShellSurfaceTest {
     private companion object {
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
-        const val SPAN_ANCHORED_AXIS = 0
     }
 }

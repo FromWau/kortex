@@ -365,22 +365,6 @@ class SurfaceVisibilityTest {
     private fun panelGeometry(): LayerGeometry =
         assertNotNull(Screen.awaitGeometry(NAMESPACE), "hyprctl never reported $NAMESPACE")
 
-    // Both wait on whatever surface the shell holds now, not on the one the test was handed, so a change that made
-    // a surface of its own is caught by the assertion that looks for it rather than by a wait that times out.
-    private fun awaitOffScreen(shell: KortexShell) {
-        assertTrue(
-            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == true },
-            "the panel was never taken off screen",
-        )
-    }
-
-    private fun awaitOnScreen(shell: KortexShell) {
-        assertTrue(
-            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == false },
-            "the panel was never put back on screen",
-        )
-    }
-
     /** What the panel's content publishes: how often it was composed, what it holds, that it runs, and its size. */
     private class Watch {
         val compositions = AtomicInteger()
@@ -394,7 +378,6 @@ class SurfaceVisibilityTest {
         const val THICKNESS = 18
         const val THICKER = 30
         const val RESERVES_NOTHING = 0
-        const val SPAN_ANCHORED_AXIS = 0
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 500L
 

@@ -119,6 +119,22 @@ internal fun awaitPlaced(
     )
 }
 
+// Both wait on whatever surface the shell holds now, not on the one the test was handed, so a change that made a
+// surface of its own is caught by the assertion that looks for it rather than by a wait that times out.
+internal fun awaitOffScreen(shell: KortexShell) {
+    assertTrue(
+        shell.pumpOrFail(ON_SCREEN_WITHIN_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == true },
+        "the surface was never taken off screen",
+    )
+}
+
+internal fun awaitOnScreen(shell: KortexShell) {
+    assertTrue(
+        shell.pumpOrFail(ON_SCREEN_WITHIN_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == false },
+        "the surface was never put back on screen",
+    )
+}
+
 /** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
 internal fun crashIn(
     report: Result<SurfaceEnd, SurfaceError<*>>,
@@ -129,3 +145,4 @@ internal fun crashIn(
 }
 
 private const val PLACED_WITHIN_MILLIS = 4_000L
+private const val ON_SCREEN_WITHIN_MILLIS = 4_000L

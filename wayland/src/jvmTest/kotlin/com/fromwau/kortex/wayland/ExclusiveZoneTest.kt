@@ -218,8 +218,6 @@ class ExclusiveZoneTest {
     )
 
     private companion object {
-        const val SPAN_ANCHORED_AXIS = 0
-
         const val PANEL_NAMESPACE = "kortex-exclusive-zone-panel"
         const val BACKGROUND_NAMESPACE = "kortex-exclusive-zone-background"
         const val CORNER_NAMESPACE = "kortex-exclusive-zone-corner"

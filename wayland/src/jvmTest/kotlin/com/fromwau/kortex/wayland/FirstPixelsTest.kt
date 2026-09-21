@@ -87,7 +87,6 @@ class FirstPixelsTest {
     private companion object {
         const val NAMESPACE = "kortex"
         const val BAR_HEIGHT = 32
-        const val SPAN_ANCHORED_AXIS = 0
         const val MID_GREY = 0xFF808080.toInt()
         const val RED = 0xFFFF0000.toInt()
         const val BLUE = 0xFF0000FF.toInt()

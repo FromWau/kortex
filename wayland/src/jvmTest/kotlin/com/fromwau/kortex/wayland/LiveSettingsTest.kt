@@ -276,7 +276,6 @@ class LiveSettingsTest {
         const val NAMESPACE = "kortex-live-settings"
         const val PUMP_MILLIS = 4_000L
         const val SPECK = 8
-        const val SPAN_ANCHORED_AXIS = 0
         const val RESERVES_NOTHING = 0
 
         // Distinct from each other, so a width that reached the height's place shows up as a wrong number.

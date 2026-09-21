@@ -102,7 +102,6 @@ class RecompositionTest {
         const val SURFACE_HEIGHT = 32
         const val RESIZED_HEIGHT = 64
         const val PUMP_TIMEOUT_MILLIS = 4000L
-        const val SPAN_ANCHORED_AXIS = 0
 
         const val MODE_CURRENT = 0x1
         const val X = 4321

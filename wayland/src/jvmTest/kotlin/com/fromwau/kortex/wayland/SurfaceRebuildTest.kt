@@ -458,20 +458,6 @@ class SurfaceRebuildTest {
         )
     }
 
-    private fun awaitOffScreen(shell: KortexShell) {
-        assertTrue(
-            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == true },
-            "the surface was never taken off screen",
-        )
-    }
-
-    private fun awaitOnScreen(shell: KortexShell) {
-        assertTrue(
-            shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.singleOrNull()?.hidden == false },
-            "the surface was never put back on screen",
-        )
-    }
-
     private companion object {
         const val FIRST_NAMESPACE = "kortex-rebuild-first"
         const val SECOND_NAMESPACE = "kortex-rebuild-second"
@@ -485,7 +471,6 @@ class SurfaceRebuildTest {
 
         // A panel along the bottom edge, clear of the desktop's own bar at the top.
         const val THICKNESS = 18
-        const val SPAN_ANCHORED_AXIS = 0
         const val RESERVES_NOTHING = 0
         val BOTTOM_PANEL = setOf(Edge.Bottom, Edge.Left, Edge.Right)
 

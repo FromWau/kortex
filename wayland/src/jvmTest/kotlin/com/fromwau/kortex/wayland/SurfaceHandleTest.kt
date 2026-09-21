@@ -98,7 +98,6 @@ class SurfaceHandleTest {
         const val SURFACE_HEIGHT = 32
         const val RESIZED_HEIGHT = 64
         const val PUMP_TIMEOUT_MILLIS = 4000L
-        const val SPAN_ANCHORED_AXIS = 0
 
         val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = SURFACE_HEIGHT.dp).copy(namespace = NAMESPACE)
     }

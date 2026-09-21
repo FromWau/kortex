@@ -16,6 +16,9 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import kotlin.math.roundToInt
 
+/** The `set_size` dimension that leaves an axis to the compositor, which needs both of that axis's edges anchored. */
+internal const val SPAN_ANCHORED_AXIS = 0
+
 // The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
 internal fun Dp.toLogicalPx(): Int = value.roundToInt()
 
@@ -218,7 +221,6 @@ internal class LayerShellSurface(
         if (changed { exclusiveEdge }) {
             LibWayland.marshal(
                 layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE,
-                // 0 is the wire's no edge, which is what a null asks for.
                 args = listOf(WlArg.Num(new.exclusiveEdge?.bit ?: NO_EXCLUSIVE_EDGE)),
             )
         }
@@ -439,7 +441,6 @@ internal class LayerShellSurface(
         private const val WL_SURFACE_SET_BUFFER_SCALE = 8
         private const val WL_SURFACE_DAMAGE_BUFFER = 9
         private const val MAX_SPINS = 32
-        private const val SPAN_ANCHORED_AXIS = 0
         private const val NO_EXCLUSIVE_EDGE = 0
 
         private val CONFIGURE_DESCRIPTOR =

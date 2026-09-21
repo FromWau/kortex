@@ -209,7 +209,7 @@ class SurfaceCloseCancellationTest {
     }
 
     @Test
-    fun `work that reaches the queue after its surface closed is dropped, the application's final drain included`() {
+    fun `work its content offers after its surface closed never runs, the application's final drain included`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val close = mutableStateOf(false)
         val parked = AtomicReference<CancellableContinuation<Unit>?>(null)
