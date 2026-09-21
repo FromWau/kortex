@@ -174,8 +174,9 @@ internal class KeyboardInput(
 
     /** Gives the keyboard, its stubs and its compiled keymap back; nothing here may be used afterwards. */
     fun release() {
-        // No leave follows a release, so the clipboard hears here that this keyboard's focus is gone.
+        // No leave follows a release, and a composition left focused blinks a caret that costs a frame each time.
         onKeyboardFocus(this, false)
+        scene.windowFocused = false
         if (keyboardProxy.equals(MemorySegment.NULL)) return
         LibWayland.marshalIfSince(keyboardProxy, WL_KEYBOARD_RELEASE, WL_KEYBOARD_RELEASE_SINCE)
         LibWayland.proxyDestroy(keyboardProxy)
