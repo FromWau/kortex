@@ -133,6 +133,7 @@ private fun DemoBar(
         var text by remember { mutableStateOf("") }
         var menuAt by remember { mutableStateOf<IntOffset?>(null) }
 
+        // The content keeps running while the bar is off screen, so the bar is what brings itself back.
         LaunchedEffect(onScreen) {
             if (onScreen) return@LaunchedEffect
             delay(HIDDEN_FOR)
@@ -196,7 +197,7 @@ private fun DemoBar(
                     )
 
                     Text(
-                        text = "${bar.size.width} by ${bar.size.height}",
+                        text = "size: ${bar.size.width} by ${bar.size.height}",
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                 }

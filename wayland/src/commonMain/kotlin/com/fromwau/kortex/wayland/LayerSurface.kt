@@ -72,7 +72,8 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * @param keyboard whether the surface can take keyboard focus.
  * @param visible whether the surface is on screen. `false` takes it off screen and hands back the space it reserved,
  *   while [content] keeps running and keeps its state, and `size` keeps the value it last had; `true` puts it back on
- *   screen as it was. Nothing is reported either way, and nothing is released until the call leaves composition.
+ *   screen, at whatever the settings ask for by then. Nothing is reported either way, and nothing is released until
+ *   the call leaves composition.
  * @param onClose called once when the surface ends, after it has gone, on the thread that runs [kortexApplication].
  *   It receives `Ok` with how the surface ended: [SurfaceEnd.Closed] when `close()` is called,
  *   [SurfaceEnd.ClosedByCompositor] when the compositor closes it, [SurfaceEnd.MonitorUnplugged] when its [monitor]
