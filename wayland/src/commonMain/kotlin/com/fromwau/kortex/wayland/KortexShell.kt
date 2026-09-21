@@ -259,7 +259,7 @@ internal class KortexShell private constructor(
 
     /**
      * Changes a surface its call still holds: what the live surface can take is sent to it, and a changed monitor or
-     * namespace places a new one. Settings it cannot take end it, as a first placement that fails does.
+     * namespace gets new Wayland objects. Settings it cannot take end it, as a first placement that fails does.
      */
     private fun change(
         slot: SurfaceSlot,
@@ -268,7 +268,7 @@ internal class KortexShell private constructor(
         val surface = slot.surface
         val placedWith = slot.placedWith
         if (surface == null || placedWith == null || settings.rebuildsOver(placedWith)) {
-            return replace(slot, settings)
+            return rebuild(slot, settings)
         }
         sendChange(surface, placedWith, settings)
             .onSuccess { slot.placedWith = settings }
@@ -294,51 +294,83 @@ internal class KortexShell private constructor(
         return if (settings.visible) Ok(Unit) else surface.hide()
     }
 
-    // The call is still in composition, so nothing has ended for its host, unless its content failed as it went.
-    private fun replace(
+    /**
+     * Puts the Wayland objects [settings] asks for around the scene [slot] already runs: `get_layer_surface` fixes a
+     * layer surface's monitor and namespace, so a call that changes either gets a new layer surface, while its
+     * content keeps its state, its running effects and the size it reads.
+     */
+    private fun rebuild(
         slot: SurfaceSlot,
         settings: SurfaceSettings,
     ) {
-        val crash = takeDown(slot) ?: return place(slot, settings)
-        report(slot, Err(SurfaceError.Failed(crash)))
+        val scene = slot.scene ?: return place(slot, settings)
+        val output = boundOutput(settings.monitor) ?: return end(slot, Ok(SurfaceEnd.MonitorUnplugged))
+        slot.surface?.let { surface ->
+            placed.remove(slot)
+            slot.surface = null
+            surface.detach()
+            surface.close()
+        }
+        // Content that threw as the surface it was on went ends the surface, rather than coming back on a new one.
+        scene.crash?.let { return end(slot, Err(SurfaceError.Failed(it))) }
+        build(slot, settings, scene, output)
+            .onSuccess { settle(slot, settings) }
+            .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
     }
 
     private fun place(
         slot: SurfaceSlot,
         settings: SurfaceSettings,
     ) {
-        val output = settings.monitor?.let { monitor ->
-            // An unplugged monitor's proxy is already destroyed: the surface ends, as one on it does when it goes.
-            monitor.output.takeIf { outputs[it.name] === it } ?: return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
-        }
+        val output = boundOutput(settings.monitor) ?: return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
+        // Only a wake on a crash: the next pass reads the scene's first failure, which this one may not be.
+        val scene = SurfaceScene(settings.config.namespace, loopQueue, platform, onCrash = { wake() })
+        slot.scene = scene
+        build(slot, settings, scene, output)
+            // After the attach, so the first composition already reads the size the surface was configured at.
+            .flatMap { scene.setContent { ShownContent(slot) } }
+            .onSuccess { settle(slot, settings) }
+            .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
+    }
+
+    /** Builds a Wayland side for [settings] on [output] and draws [scene] on it, closing it again if it cannot. */
+    private fun build(
+        slot: SurfaceSlot,
+        settings: SurfaceSettings,
+        scene: SurfaceScene,
+        output: MemorySegment,
+    ): EmptyResult<KortexError> =
         KortexSurface
             .create(
                 display,
                 settings.config,
                 visible = settings.visible,
-                platform = platform,
-                output = output?.proxy ?: MemorySegment.NULL,
+                output = output,
                 loopQueue = loopQueue,
-                // Only a wake: the next pass reads the scene's first failure, which this one may not be.
-                onCrash = { wake() },
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
             )
             .flatMap { surface ->
-                // Before the content composes, so its first composition already reads the surface's size.
                 slot.surface = surface
-                surface
-                    .setContent { ShownContent(slot) }
-                    .onError {
-                        slot.surface = null
-                        surface.close()
-                    }
+                surface.attach(scene).onError {
+                    slot.surface = null
+                    surface.close()
+                }
             }
-            .onSuccess {
-                slot.placedWith = settings
-                placed += slot
-            }
-            .onError { reason -> report(slot, Err(SurfaceError.Failed(reason))) }
+
+    private fun settle(
+        slot: SurfaceSlot,
+        settings: SurfaceSettings,
+    ) {
+        slot.placedWith = settings
+        placed += slot
+    }
+
+    /** The proxy of the output [monitor] names, `NULL` for the compositor's own choice, and null once it is gone. */
+    private fun boundOutput(monitor: Monitor?): MemorySegment? {
+        val wanted = monitor ?: return MemorySegment.NULL
+        // An unplugged monitor's proxy is already destroyed: the surface ends, as one on it does when it goes.
+        return wanted.output.takeIf { outputs[it.name] === it }?.proxy
     }
 
     /** What a shown surface's scene composes: its call's newest content, and around it what content reaches. */
@@ -364,14 +396,18 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Closes [slot]'s surface, if any, and returns its content's crash, including one its cleanup threw while closing.
+     * Closes [slot]'s surface and the scene it drew, if any, and returns its content's crash, including one its
+     * cleanup threw while closing.
      */
     private fun takeDown(slot: SurfaceSlot): KortexError.SurfaceCrashed? {
-        val surface = slot.surface ?: return null
+        val scene = slot.scene ?: return null
         placed.remove(slot)
+        // Before the scene: its seat keeps delivering into a composition this is about to dispose.
+        slot.surface?.close()
         slot.surface = null
-        surface.close()
-        return surface.crash
+        slot.scene = null
+        scene.close()
+        return scene.crash
     }
 
     private fun report(

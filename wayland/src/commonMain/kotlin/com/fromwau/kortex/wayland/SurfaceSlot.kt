@@ -32,18 +32,22 @@ internal class SurfaceSlot(
     private val wake: () -> Unit,
     private val parent: SurfaceSlot?,
 ) {
-    // The parent's surface as this call entered its content: a new surface there takes this call out with it.
-    private val parentSurface: KortexSurface? = parent?.surface
+    // The parent's scene as this call entered its content: a new scene there takes this call out with it. The scene,
+    // not the surface: a rebuild puts a new surface under the same content, which this call is still part of.
+    private val parentScene: SurfaceScene? = parent?.scene
 
     /** Whether the surface whose content this call is in has gone. */
-    val parentGone: Boolean get() = parent != null && parent.surface !== parentSurface
+    val parentGone: Boolean get() = parent != null && parent.scene !== parentScene
 
     // The settings its call asks for while in composition, and null once it has left. Loop thread only.
     var wanted: SurfaceSettings? = null
 
     // Null until placed, and again once it has ended. Snapshot state, written on the loop thread outside composition,
-    // so content that reads size recomposes as the surface is placed or goes, as it does on a configure.
+    // so a test driving the loop from a thread of its own sees it change.
     var surface: KortexSurface? by mutableStateOf(null)
+
+    // The Compose side of this call, which outlives the surfaces built around it. Loop thread only.
+    var scene: SurfaceScene? = null
 
     // What surface was placed with, which a change of settings replaces it over. Loop thread only.
     var placedWith: SurfaceSettings? = null
@@ -55,7 +59,8 @@ internal class SurfaceSlot(
 
     /** What content sees as its own `this`, and as `LocalKortexSurface`, for as long as its call composes. */
     val scope: SurfaceScope<IError> = object : SurfaceScope<IError> {
-        override val size: IntSize get() = surface?.logicalSize ?: IntSize.Zero
+        // The scene's, not the surface's: a rebuild leaves it at the size it had until the new surface is configured.
+        override val size: IntSize get() = scene?.logicalSize ?: IntSize.Zero
 
         override fun close() = requestEnd(Ok(SurfaceEnd.Closed))
 
@@ -74,7 +79,8 @@ internal class SurfaceSlot(
     fun ownEnding(): OwnEnding {
         val standing = requested.get()
         val placed = surface
-        val crash = placed?.crash
+        // The scene's, not the surface's: a rebuild leaves the crash where the content that threw it lives.
+        val crash = scene?.crash
         return when {
             standing != null -> OwnEnding.Ended(standing)
             crash != null -> OwnEnding.Ended(Err(SurfaceError.Failed(crash)))

@@ -1,8 +1,5 @@
 package com.fromwau.kortex.wayland
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -13,54 +10,53 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexCursor
-import com.fromwau.kortex.compose.KortexPlatform
-import com.fromwau.kortex.compose.KortexScene
-import com.fromwau.kortex.compose.KortexSurfaceHandle
-import com.fromwau.kortex.compose.KortexTextInput
-import com.fromwau.kortex.compose.LocalKortexSurface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicReference
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
 
 /**
- * A Compose composition rendered onto a `zwlr_layer_shell_v1` surface.
+ * The `zwlr_layer_shell_v1` side of a surface: the layer surface itself, the buffers drawn into it, its frame
+ * pacing, its cursor and the seat its input comes off.
  *
- * Frames are paced off `wl_surface.frame` and drawn only when the composition asks for one, so an idle
- * surface costs nothing.
+ * A [SurfaceScene] is drawn here for as long as it is attached. Frames are paced off `wl_surface.frame` and drawn
+ * only when that scene asks for one, so an idle surface costs nothing.
  */
 internal class KortexSurface private constructor(
-    private val namespace: String,
     private val display: WaylandDisplay,
     private val layer: LayerShellSurface,
     private val shm: Shm,
     private var bufferScale: Int,
     private var frames: List<Frame>,
-    private val scene: KortexScene,
     private val clock: FrameClock,
     private val loop: LoopQueue,
-    private val surfaceWork: SurfaceWork,
     private val cursorTheme: WlCursorTheme,
     private val cursorSurface: WlCursorSurface,
     private val seat: Seat,
-    // How this surface takes a keyboard off its own seat, for a config that asks for interactivity later.
-    private val takeKeyboard: () -> KeyboardInput?,
+    // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
+    private val onInputSerial: (Int) -> Unit,
+    // Told as this surface's keyboard gains and loses focus, which gates reading another client's text.
+    private val onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit,
+    // What the compositor was last told about keyboard focus, which decides whether a keyboard is taken.
+    private var keyboard: KeyboardInteractivity,
 ) : AutoCloseable {
 
     // Filled through post() from any thread and drained only on the loop thread, which is the one thread
     // ever allowed to call into libwayland.
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
 
-    // Set once by create() after the seat is bound; null only once close() has released it.
+    // The scene drawn here, which only detach() gives back: a closed surface keeps reading the crash of the scene
+    // it drew. Null before the first attach.
+    private var scene: SurfaceScene? = null
+
+    // Set by attach() once the seat is bound; null again once the scene is given back or the surface closes.
     @Volatile
     private var pointerInput: PointerInput? = null
 
-    // Null when config.keyboard is None, when the seat announced no keyboard, and once close() has released it.
+    // Null when the config asks for no interactivity, when the seat announced no keyboard, and once released.
     // Settable here so a test can hand one to a surface without keyboard interactivity, since Hyprland gives an
     // interactive surface the user's focus as it maps.
     @Volatile
@@ -68,18 +64,6 @@ internal class KortexSurface private constructor(
 
     private var logicalWidth: Int = layer.logicalWidth
     private var logicalHeight: Int = layer.logicalHeight
-
-    // Snapshot state, not a plain var: a configure must recompose whatever content reads handle.size.
-    private val sizeState = mutableStateOf(IntSize(logicalWidth, logicalHeight))
-
-    private val surfaceHandle: KortexSurfaceHandle = object : KortexSurfaceHandle {
-        override val size: IntSize get() = sizeState.value
-
-        override fun close() {
-            // No shown surface's content reaches this: ShownContent provides its slot's scope as LocalKortexSurface.
-            post { layer.markClosed() }
-        }
-    }
 
     // Frames a resize replaced while the compositor still held them; reaped once release() clears busy.
     private val retiring = mutableListOf<Frame>()
@@ -90,8 +74,8 @@ internal class KortexSurface private constructor(
     // A second close() would re-marshal every request below on proxies the first call already freed.
     private var disposed = false
 
-    /** The logical (surface-local) size the compositor last configured, the one content reads as its handle's size. */
-    internal val logicalSize: IntSize get() = sizeState.value
+    /** The logical (surface-local) size the compositor last configured this surface at. */
+    internal val logicalSize: IntSize get() = IntSize(logicalWidth, logicalHeight)
 
     /** The buffer (physical-pixel) size of the current frames; exposed so a test can assert a scale reached them. */
     val bufferSize: IntSize
@@ -116,18 +100,14 @@ internal class KortexSurface private constructor(
     /** The buffer scale currently committed; exposed so a test can assert a rescale took effect. */
     internal val currentBufferScale: Int get() = bufferScale
 
-    /** The composition's current density; exposed so a test can assert a rescale updated it too. */
-    internal val density: Density get() = scene.density
-
     /**
      * True once the compositor has closed this surface, or a test has in its place through [simulateCompositorClose];
      * either way it must be torn down.
      */
     internal val closed: Boolean get() = layer.closed
 
-    /** What this surface's content threw, once it has; the scene then runs none of it. */
-    internal val crash: KortexError.SurfaceCrashed?
-        get() = scene.failure?.let { KortexError.SurfaceCrashed(namespace, it) }
+    /** What the content drawn here threw, once it has; the scene then runs none of it. */
+    internal val crash: KortexError.SurfaceCrashed? get() = scene?.crash
 
     /** When this surface next needs a loop pass that no Wayland event will announce; null while nothing does. */
     internal val nextDeadlineNanos: Long? get() = keyboardInput?.nextRepeatDueNanos
@@ -138,13 +118,36 @@ internal class KortexSurface private constructor(
     }
 
     /**
-     * Composes [content] and, unless the surface is off screen, draws its first frame, failing as
-     * [KortexError.SurfaceCrashed] if content throws.
+     * Draws [scene] here from now on: its content takes this surface's pointer and keyboard, reads the size this
+     * surface was configured at, and is drawn at once if it has already been composed.
+     *
+     * @return what the content drawn here threw, as [KortexError.SurfaceCrashed].
      */
-    fun setContent(content: @Composable () -> Unit): EmptyResult<KortexError> {
-        scene.setContent { CompositionLocalProvider(LocalKortexSurface provides surfaceHandle) { content() } }
-            .onSuccess { renderNow(frameTimeNanos = 0L) }
-        return crash?.let { Err(it) } ?: Ok(Unit)
+    fun attach(scene: SurfaceScene): EmptyResult<KortexError> {
+        check(this.scene == null) { "a surface draws one scene; detach() gives back the one it has" }
+        this.scene = scene
+        scene.drawOn(this)
+        pointerInput =
+            seat.attachPointer(scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
+        if (keyboard != KeyboardInteractivity.None) keyboardInput = takeKeyboard()
+        display.roundtrip()
+        sizeScene()
+        renderNow(frameTimeNanos = 0L)
+        return scene.crash?.let { Err(it) } ?: Ok(Unit)
+    }
+
+    /**
+     * Gives back the scene drawn here, leaving it composed and holding everything its content has: its input devices
+     * go, and with them the interaction they were in the middle of.
+     */
+    fun detach() {
+        val scene = scene ?: return
+        releaseInputs()
+        // After the release, which drops the events queued for those proxies: an interaction ended here must not
+        // outlive the surface it was on, since the next surface's enter would never clear it.
+        scene.composition.cancelPointerInput()
+        scene.stopDrawingOn(this)
+        this.scene = null
     }
 
     /**
@@ -208,7 +211,42 @@ internal class KortexSurface private constructor(
         return drawAtConfiguredSize()
     }
 
+    /** Draws the attached scene at once, rather than waiting for a frame the compositor has yet to send. */
+    internal fun drawNow() {
+        renderNow(frameTimeNanos = 0L)
+    }
+
+    /** Shows [cursor] on this surface's pointer, from whichever thread content asked for it. */
+    internal fun setCursor(cursor: KortexCursor) {
+        post { pointerInput?.setCursor(cursor) }
+    }
+
+    /** Marks the surface closed, as the compositor closing it would; what content's own handle asks for. */
+    internal fun requestClose() {
+        post { layer.markClosed() }
+    }
+
+    /** Asks the compositor for a frame, from whichever thread noticed the attached scene needs one. */
+    internal fun invalidate() {
+        // Posted, never run here: Compose also invalidates from inside renderNow, ahead of that frame's own commit.
+        post {
+            // The frame an off-screen surface asks for is one the compositor never sends; showing it draws instead.
+            if (hidden) return@post
+            // Answer an invalidation by asking for a frame, never by rendering immediately: the
+            // compositor decides when a frame happens.
+            clock.request(::renderNow)
+            // wl_surface.frame only takes effect on the next commit; without one no callback arrives.
+            layer.commit()
+        }
+    }
+
+    private fun takeKeyboard(): KeyboardInput? {
+        val scene = scene ?: return null
+        return seat.attachKeyboard(scene.composition, scene::textInput, onInputSerial, onKeyboardFocus)
+    }
+
     private fun followKeyboard(config: SurfaceConfig) {
+        keyboard = config.keyboard
         when {
             config.keyboard == KeyboardInteractivity.None -> {
                 keyboardInput?.release()
@@ -217,6 +255,13 @@ internal class KortexSurface private constructor(
             // The compositor gives an interactive surface focus, which reaches nothing until a keyboard is bound.
             keyboardInput == null -> keyboardInput = takeKeyboard()
         }
+    }
+
+    private fun releaseInputs() {
+        pointerInput?.release()
+        keyboardInput?.release()
+        pointerInput = null
+        keyboardInput = null
     }
 
     /**
@@ -327,12 +372,18 @@ internal class KortexSurface private constructor(
         frames = newFrames
         logicalWidth = newLogicalWidth
         logicalHeight = newLogicalHeight
-        sizeState.value = IntSize(newLogicalWidth, newLogicalHeight)
-        scene.size = IntSize(bufferWidth, bufferHeight)
-        scene.density = Density(bufferScale.toFloat())
+        sizeScene()
         layer.setBufferScale(bufferScale)
         renderNow(frameTimeNanos = 0L)
         return Ok(Unit)
+    }
+
+    /** Hands the attached scene the size and scale this surface draws it at, in logical and in buffer pixels. */
+    private fun sizeScene() {
+        val scene = scene ?: return
+        scene.logicalSize = IntSize(logicalWidth, logicalHeight)
+        scene.composition.size = IntSize(logicalWidth * bufferScale, logicalHeight * bufferScale)
+        scene.composition.density = Density(bufferScale.toFloat())
     }
 
     private fun reapRetiredFrames() {
@@ -348,6 +399,9 @@ internal class KortexSurface private constructor(
     private fun renderNow(frameTimeNanos: Long) {
         // An off-screen surface maps again at its next buffer, so nothing is drawn or committed until it shows.
         if (hidden) return
+        val scene = scene ?: return
+        // A blank buffer would map the surface on a scene that has no content to show yet.
+        if (!scene.composed) return
         val frame = frames.firstOrNull { !it.buffer.busy }
         if (frame == null) {
             // Every buffer is still owned by the compositor. Ask for another frame rather than draw
@@ -357,7 +411,7 @@ internal class KortexSurface private constructor(
             return
         }
         // A frame content failed to draw is never shown; the scene keeps the failure for the loop to report.
-        scene.render(frame.surface.canvas.asComposeCanvas(), frameTimeNanos).getOrElse { return }
+        scene.composition.render(frame.surface.canvas.asComposeCanvas(), frameTimeNanos).getOrElse { return }
         frame.surface.flushAndSubmit()
         layer.attach(frame.buffer)
         frame.buffer.markAttached()
@@ -365,38 +419,18 @@ internal class KortexSurface private constructor(
         renders++
     }
 
-    private fun onInvalidate() {
-        // Posted, never run here: Compose also invalidates from inside renderNow, ahead of that frame's own commit.
-        post {
-            // The frame an off-screen surface asks for is one the compositor never sends; showing it draws instead.
-            if (hidden) return@post
-            // Answer an invalidation by asking for a frame, never by rendering immediately: the
-            // compositor decides when a frame happens.
-            clock.request(::renderNow)
-            // wl_surface.frame only takes effect on the next commit; without one no callback arrives.
-            layer.commit()
-        }
-    }
-
     override fun close() {
         if (disposed) return
         disposed = true
-        // Before scene.close(): the seat this surface owns keeps delivering, and a leave still in flight would
-        // otherwise reach a closed scene, which throws, and the scene would report its own close as a crash.
-        pointerInput?.release()
-        keyboardInput?.release()
-        pointerInput = null
-        keyboardInput = null
+        // Before whoever owns the scene closes it: the seat this surface owns keeps delivering, and a leave still in
+        // flight would otherwise reach a closed scene, which throws, and the scene would report that as a crash.
+        releaseInputs()
         seat.release()
         // Destroyed before the theme, and round-tripped, so the compositor has processed both the released
         // pointer and this surface's destroy, and holds no cursor buffer the theme is about to free.
         cursorSurface.close()
         display.roundtrip()
         cursorTheme.close()
-        scene.close()
-        // The scene's recomposer leaves Compose's global snapshot observers only as its cancelled run loop resumes.
-        // Only this scene's work: a whole-queue drain would run its siblings' work too, and spend the bound on it.
-        loop.drain(surfaceWork)
         frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.
         retiring.forEach(Frame::close)
@@ -415,45 +449,25 @@ internal class KortexSurface private constructor(
     }
 
     companion object {
+        /**
+         * Builds the Wayland objects for a surface of [config], up to its first configure. Nothing is drawn on it
+         * until a [SurfaceScene] is handed to [attach].
+         */
         fun create(
             display: WaylandDisplay,
             config: SurfaceConfig,
             // False makes the surface off screen from its first commit on, rather than briefly reserving [config]'s
             // exclusive zone; [show] is what puts it on screen.
             visible: Boolean = true,
-            platform: KortexPlatform = KortexPlatform.None,
             // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
             output: MemorySegment = MemorySegment.NULL,
             // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
             loopQueue: LoopQueue? = null,
-            // Where every crash of this surface's content goes, the first and any after it, cleanup included.
-            onCrash: (KortexError.SurfaceCrashed) -> Unit = {},
             // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
             onInputSerial: (Int) -> Unit = {},
             // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
         ): Result<KortexSurface, KortexError> {
-            // The surface tracks the open text-input session itself so a host does not have to; keys the
-            // composition does not consume are turned into edits on it.
-            val open = AtomicReference<KortexTextInput?>(null)
-            lateinit var surface: KortexSurface
-            val hostPlatform = object : KortexPlatform {
-                override fun setCursor(cursor: KortexCursor) {
-                    surface.post { surface.pointerInput?.setCursor(cursor) }
-                    platform.setCursor(cursor)
-                }
-
-                override fun onTextInputStarted(session: KortexTextInput) {
-                    open.set(session)
-                    platform.onTextInputStarted(session)
-                }
-
-                override fun onTextInputStopped() {
-                    open.set(null)
-                    platform.onTextInputStopped()
-                }
-            }
-
             // Run newest first by any exit taken before the surface exists, so nothing outlives what it leans on.
             val unwind = mutableListOf<() -> Unit>()
             var handedOver = false
@@ -470,15 +484,9 @@ internal class KortexSurface private constructor(
 
                 // layer.logicalWidth/logicalHeight are surface-local (logical) per configure; the shm buffer
                 // and Skia surface must hold the buffer (physical) pixels the compositor expects.
-                val bufferWidth = layer.logicalWidth * bufferScale
-                val bufferHeight = layer.logicalHeight * bufferScale
-                val frames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }
+                val frames = createFrames(shm, layer.logicalWidth * bufferScale, layer.logicalHeight * bufferScale)
+                    .getOrElse { return Err(it) }
                 frames.forEach { frame -> unwind += frame::close }
-
-                val loop = loopQueue ?: LoopQueue(display::wake)
-                val surfaceWork = SurfaceWork()
-                // Added before the scene so it unwinds after it, running that scene's cancellation and no other work.
-                unwind += { loop.drain(surfaceWork) }
 
                 val cursorTheme = WlCursorTheme.load(display, bufferScale).getOrElse { return Err(it) }
                 unwind += cursorTheme::close
@@ -487,15 +495,6 @@ internal class KortexSurface private constructor(
                 // Pending state only, like the layer surface above; committed together with the first show().
                 cursorSurface.setBufferScale(bufferScale)
 
-                val scene = KortexScene(
-                    size = IntSize(bufferWidth, bufferHeight),
-                    density = Density(bufferScale.toFloat()),
-                    frameContext = loop + surfaceWork,
-                    onInvalidate = { surface.onInvalidate() },
-                    platform = hostPlatform,
-                    onFailure = { failure -> onCrash(KortexError.SurfaceCrashed(config.namespace, failure)) },
-                )
-                unwind += scene::close
                 // Bound per surface, and never cached: each surface releases the seat it owns when it closes.
                 val seat = Seat.bind(display).getOrElse { return Err(it) }
                 unwind += seat::release
@@ -504,18 +503,14 @@ internal class KortexSurface private constructor(
                     // A dead connection surfaces first as a seat with no devices; prefer the real cause.
                     return display.requireAlive().flatMap { Err(KortexError.MissingSeatDevice(SeatDevice.Pointer)) }
                 }
-                surface = KortexSurface(
-                    config.namespace, display, layer, shm, bufferScale, frames, scene, FrameClock(layer.surface),
-                    loop, surfaceWork, cursorTheme, cursorSurface, seat,
-                    takeKeyboard = { seat.attachKeyboard(scene, { open.get() }, onInputSerial, onKeyboardFocus) },
+                val surface = KortexSurface(
+                    display, layer, shm, bufferScale, frames, FrameClock(layer.surface),
+                    loopQueue ?: LoopQueue(display::wake), cursorTheme, cursorSurface, seat,
+                    onInputSerial, onKeyboardFocus, config.keyboard,
                 )
                 surface.hidden = !visible
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true
-                surface.pointerInput =
-                    seat.attachPointer(scene, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
-                if (config.keyboard != KeyboardInteractivity.None) surface.keyboardInput = surface.takeKeyboard()
-                display.roundtrip()
                 return Ok(surface)
             } finally {
                 if (!handedOver) unwind.asReversed().forEach { it() }

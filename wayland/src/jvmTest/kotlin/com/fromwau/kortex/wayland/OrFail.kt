@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.KortexPlatform
+import java.lang.foreign.MemorySegment
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -49,6 +51,31 @@ internal fun onApplication(
 ) {
     val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
     display.use { KortexShell.createApplicationOrFail(display, content).useOrFail(block) }
+}
+
+/**
+ * Runs [block] on a surface of [config] and the scene drawn on it, the pair a shell builds around one surface call,
+ * and closes both after; a surface that cannot be created or attached fails the test.
+ */
+internal fun onBareSurface(
+    display: WaylandDisplay,
+    config: SurfaceConfig,
+    output: MemorySegment = MemorySegment.NULL,
+    platform: KortexPlatform = KortexPlatform.None,
+    block: (surface: KortexSurface, scene: SurfaceScene) -> Unit,
+) {
+    val loop = LoopQueue(display::wake)
+    val scene = SurfaceScene(config.namespace, loop, platform, onCrash = {})
+    val surface = KortexSurface
+        .create(display, config, output = output, loopQueue = loop)
+        .getOrElse { error -> fail("the surface was not created: $error") }
+    try {
+        surface.attach(scene).getOrElse { error -> fail("the scene was not attached to the surface: $error") }
+        block(surface, scene)
+    } finally {
+        surface.close()
+        scene.close()
+    }
 }
 
 /**
