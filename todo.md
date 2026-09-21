@@ -16,7 +16,8 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] Cursor shapes from `Modifier.pointerHoverIcon`, including move, wait and all eight resize directions
       (`WlCursorTheme`)
 - [x] Configurable layer, anchor, exclusive zone, keyboard mode (`Layer`, `Edge`, `ExclusiveZone`,
-      `KeyboardInteractivity`), each a setting `LayerSurface`'s constructor takes
+      `KeyboardInteractivity`), each a parameter `LayerSurface` takes and each one a surface already on
+      screen follows (`LiveSettingsTest`, `LiveKeyboardTest`)
 
 ## Ahead of the reference
 
@@ -76,19 +77,20 @@ outlive it.
       the number the compositor sent, so a value kortex does not know stays typed and nothing throws inside
       the listener. (`OutputGeometryTest`)
 - [x] **A surface handle.** `KortexSurfaceHandle` (`size`, `close()`) and a `LocalKortexSurface`
-      composition local; `compose` still knows nothing about wayland. A `LayerSurface` is a handle, and a
-      shown surface's content reaches its own instance through the local. `size` is logical (surface-local)
-      pixels, backed by Compose state, and a configure recomposes a reader (`RecompositionTest`). `close()`
-      asks the shell to end the surface, which it does in its next pass through the same reconcile that
-      reaps a surface the compositor has closed. (`SurfaceHandleTest`)
-- [x] **Several independent surfaces on one connection.** Each `Show`, in `kortexApplication`'s content or in
-      a surface's, places a surface of its own on the application's one connection, so a dock, an OSD and a
-      menu run side by side, each on its own monitor or the compositor's choice. Closing one surface releases
-      the `wl_pointer`, `wl_keyboard` and `wl_seat` it bound before its scene goes, so a sibling on the same
-      connection keeps taking input and the closed scene records no crash. `SurfaceTeardownTest` pins the
-      sibling's input and the clean scene, but not the release itself, which Hyprland hides (see Housekeeping).
-      `KortexSurface.create` is internal, since filling its `wl_output` needs a proxy only this module can
-      bind. (`MultiSurfaceTest`, `ShowTest`)
+      composition local; `compose` still knows nothing about wayland. A surface's content reaches its own
+      surface as its receiver, a `SurfaceScope<E>`, which is one of these handles, and as
+      `LocalKortexSurface.current` further down: one handle for the life of the call. `size` is logical
+      (surface-local) pixels, backed by Compose state, and a configure recomposes a reader
+      (`RecompositionTest`). `close()` asks the shell to end the surface, which it does in its next pass
+      through the same reconcile that reaps a surface the compositor has closed. (`SurfaceHandleTest`)
+- [x] **Several independent surfaces on one connection.** Each surface call, in `kortexApplication`'s content
+      or in another surface's, places a surface of its own on the application's one connection, so a dock, an
+      OSD and a menu run side by side, each on its own monitor or the compositor's choice. Closing one surface
+      releases the `wl_pointer`, `wl_keyboard` and `wl_seat` it bound before its scene goes, so a sibling on
+      the same connection keeps taking input and the closed scene records no crash. `SurfaceTeardownTest` pins
+      the sibling's input and the clean scene, but not the release itself, which Hyprland hides (see
+      Housekeeping). `KortexSurface.create` is internal, since filling its `wl_output` needs a proxy only this
+      module can bind. (`MultiSurfaceTest`, `SurfaceTest`)
 - [x] **The rest of that teardown.** `Shm`, `WlCursorTheme` and `WlCursorSurface` each have a `close()`
       now, so the `wl_shm` a surface binds, the second `wl_shm` behind its cursor theme, the
       `wl_compositor` `WlCursorSurface` binds, its cursor `wl_surface` and every `wl_cursor_theme` handle
@@ -169,48 +171,48 @@ outlive it.
       host's content as an application composition on the thread that calls it: Compose's `FrameRecomposer` on
       the shell's `LoopQueue`, recomposed in a loop pass once it asks for a frame, over an applier that takes no
       node, so UI placed in it ends the run as `KortexError.ApplicationCrashed`. It runs in the internal
-      `KortexShell`, which owns the outputs, clipboard, loop queue and display. A surface is a `LayerSurface<E>`
-      subclass: its class and the values it passes to `LayerSurface`'s constructor are its settings, and its
-      `invoke()` is its content. `Show(surface)` queues a placement from a `DisposableEffect` keyed on the
-      settings, and the shell places the surface in its next pass, never inside composition, under its namespace
-      as written, on its monitor or the compositor's choice. Content reads the surface's size from its first
-      composition on. A new instance with the same settings keeps the surface, which composes the newest
-      instance's `invoke()` and reports to its `onClose`; changed settings, another class among them, replace the
-      surface and report nothing. Every ending reports once, on the loop thread, after the surface has gone, and
-      names how it ended: `close()` reports `Ok(SurfaceEnd.Closed)`, the compositor closing it
-      `Ok(SurfaceEnd.ClosedByCompositor)`, its monitor unplugged `Ok(SurfaceEnd.MonitorUnplugged)`, and its `Show`
+      `KortexShell`, which owns the outputs, clipboard, loop queue and display. A surface is a call to
+      `LayerSurface` or to one of the presets: its arguments are its settings and its `content` lambda is what
+      it draws. The call queues a placement as it enters composition, and the shell places the surface in its
+      next pass, never inside composition, under its namespace as written, on its monitor or the compositor's
+      choice. Content reads the surface's size from its first composition on. The call site is the surface's
+      identity: the same call keeps its surface however its arguments change, drawing its newest `content` and
+      reporting to its newest `onClose`, while another surface composable in that place is another surface and
+      the first reports that it left. Every ending reports once, on the loop thread, after the surface has gone,
+      and names how it ended: `close()` reports `Ok(SurfaceEnd.Closed)`, the compositor closing it
+      `Ok(SurfaceEnd.ClosedByCompositor)`, its monitor unplugged `Ok(SurfaceEnd.MonitorUnplugged)`, and its call
       leaving composition `Ok(SurfaceEnd.LeftComposition)`; `close(error)` reports `Err(SurfaceError.Closed(error))`,
       and an unplaceable surface `SurfaceError.Failed` with the reason. Content that throws ends only its own
       surface, reporting `Failed(SurfaceCrashed)` with the scene's first failure, and so does cleanup that throws
       as the surface goes, whatever else ended it. An ending and a removal in one pass report the ending, and a
-      `Show` taken out after its surface ended reports nothing more. `close()` and `close(error)` act on the
-      `Show`'s surface from any of its instances of the class it shows, from any thread, the first deciding; on
-      an instance never shown, or of a class its `Show` has since left, they do nothing. `exitApplication()`, from
-      any thread and more than once, ends the run, and closing the shell takes every `Show` out, each reporting
-      `LeftComposition` unless its content throws as it goes. The host's own code throwing, its content or an
-      `onClose`, ends the run as `ApplicationCrashed`: no `onClose` is called after it, and nothing
-      more is placed. Nothing else ends the run: an application with nothing on screen keeps running. An
+      call taken out after its surface ended reports nothing more. `close()` and `close(error)` act on the call's
+      own surface, from any thread, the first deciding; once it has ended they do nothing. `exitApplication()`,
+      from any thread and more than once, ends the run, and closing the shell takes every surface call out, each
+      reporting `LeftComposition` unless its content throws as it goes. The host's own code throwing, its content
+      or an `onClose`, ends the run as `ApplicationCrashed`: no `onClose` is called after it, and nothing more is
+      placed. Nothing else ends the run: an application with nothing on screen keeps running. An
       application whose compositor lacks `wl_compositor`, `wl_shm` or `zwlr_layer_shell_v1` fails as it starts,
       with `MissingGlobal`. `rememberMonitors()`, in the application's content or a surface's, is snapshot state
       listing a `Monitor` for each bound `wl_output` once the round trip after its bind has brought its first
       `done`, and dropping it as its global is removed. A `Monitor` is equal by the output it stands for; its
       `name` is `wl_output.name` and its `geometry` the output's own snapshot state, so a new mode makes no new
-      monitor. `LayerSurface.monitor` puts a surface on that output's own `wl_output`, under its namespace as
-      written, and is one of the settings, so a changed monitor replaces the surface. A surface asked for on a
-      monitor that has gone reports `MonitorUnplugged` and is never placed, and one on a monitor whose global is
-      removed ends then, reporting it too, whether or not the compositor closes it. A surface's content reaches its
-      instance as `LocalKortexSurface.current`, the typed clipboard as `LocalKortexClipboard.current` and the
-      shell, so a `Show` there places a surface of its own; a surface that ends, removed or crashed, takes the
-      surfaces its content showed with it, each reporting `LeftComposition`. A connection that dies under the run
-      ends it with the connection's error, and every surface still shown reports that same error to its `onClose`
-      as `Failed`; the test ends only its own connection, with a bind of a global the compositor never advertised.
+      monitor. `LayerSurface`'s `monitor` puts a surface on that output's own `wl_output`, under its namespace as
+      written, and a changed one moves the content to a layer surface on the new output, reporting nothing. A
+      surface asked for on a monitor that has gone reports `MonitorUnplugged` and is never placed, and one on a
+      monitor whose global is removed ends then, reporting it too, whether or not the compositor closes it. A
+      surface's content reaches its own surface as its receiver and as `LocalKortexSurface.current`, the typed
+      clipboard as `LocalKortexClipboard.current` and the shell, so a surface call there places a surface of its
+      own; a surface that ends, removed or crashed, takes the surfaces its content showed with it, each reporting
+      `LeftComposition`. A connection that dies under the run ends it with the connection's error, and every
+      surface still shown reports that same error to its `onClose` as `Failed`; the test ends only its own
+      connection, with a bind of a global the compositor never advertised.
       Two paths are covered by reading rather than by a test: a shown surface whose tick fails, which ends as
       `Failed`; and that startup check's call, whose check itself is tested. A monitor plugged in while the
       application runs, listed after the round trip that follows its bind, is tested only by `@Hotplug` tests,
       which run once `-Pkortex.hotplugTests=true` opts them in.
-      (`ShowTest`, which pins `Closed`, `LeftComposition` and a dying connection's `Failed`, and `ClosedByCompositor`
-      with `CompositorChoiceTest`; `MonitorTest`, which pins `MonitorUnplugged` on both of its paths; and
-      `KortexShellTest` and `MultiSurfaceTest` for a monitor plugged in)
+      (`SurfaceTest`, which pins `Closed`, `LeftComposition` and a dying connection's `Failed`, and
+      `ClosedByCompositor` with `CompositorChoiceTest`; `MonitorTest`, which pins `MonitorUnplugged` on both of
+      its paths; and `KortexShellTest` and `MultiSurfaceTest` for a monitor plugged in)
 - [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
       `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
       clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
@@ -218,47 +220,46 @@ outlive it.
       each on Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event
       queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
       `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
-- [x] **A failure after a surface has reported reaches no one.** Nothing of an ended surface's content runs
-      after its `onClose`. A scene's close drains the work that content has queued and then closes its
-      `SurfaceWork`, and `LoopQueue` neither takes nor runs anything under an owner that has closed, so every
-      failure of that content is recorded before its surface reports and a suspending cleanup, such as a
-      `delay` in a `NonCancellable` `finally`, stops at its wait. `kortexApplication` returns the
-      `ApplicationCrashed` an `onClose` threw as the application closed even on a dead connection, whose error
-      every `onClose` has had by then. (`LateFailureTest`, `LoopQueueTest`, `SurfaceCloseCancellationTest`,
-      `SurfaceTest`)
+- [x] **Nothing of an ended surface's content runs after its `onClose`.** A scene's close drains the work that
+      content has queued and then closes its `SurfaceWork`, and `LoopQueue` neither takes nor runs anything
+      under an owner that has closed, so what that work throws is recorded before its surface reports, and a
+      suspending cleanup, such as a `delay` in a `NonCancellable` `finally`, stops at its wait. A cleanup that
+      hops to another dispatcher still runs there, and a throw of its own goes with the resumption that would
+      have carried it back, so that one failure is recorded nowhere. `kortexApplication` returns the
+      `ApplicationCrashed` an `onClose` threw as the application closed, over the connection's error, and calls
+      no further `onClose`. (`LateFailureTest`, `LoopQueueTest`, `SurfaceCloseCancellationTest`, `SurfaceTest`)
 
 ## Surface presets
 
-- [x] **The presets are classes a host extends.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`, `Osd`,
-      `AppMenu` and `ContextMenu` (`Presets.kt`) are abstract `LayerSurface<E>` subclasses, generic in `E` as
-      `LayerSurface` is, which a host extends with its own `invoke()` and shows with `Show`. Each takes the parameters
-      its kind needs, plus `namespace`, `onClose` and a `monitor`, optional except on `ContextMenu`; none takes a
-      setting that would change its kind, such as a panel's anchors or a lock screen's keyboard. Each hands the
-      `SurfaceConfig` preset of its kind to an internal `LayerSurface` constructor, so each placement rule below is
-      written once, in `SurfaceConfig`'s companion. `PresetClassTest` checks every class's settings against that
-      preset and shows each class that takes no keyboard focus; `SurfacePresetTest`, which needs the desktop to
-      itself, shows `Dock`, `AppMenu` and `LockScreen`, which take the keyboard as they map.
-      (`PresetClassTest`, `SurfacePresetTest`)
+- [x] **The presets are composables a host calls.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`,
+      `Osd`, `AppMenu` and `ContextMenu` (`Presets.kt`) are composable functions, generic in `E` as
+      `LayerSurface` is, each taking the parameters its kind needs plus `namespace`, `visible`, `onClose`,
+      `content` and a `monitor`, optional except on `ContextMenu`; none takes a setting that would change its
+      kind, such as a panel's anchors or a lock screen's keyboard. Each calls `LayerSurface` with the
+      `SurfaceConfig` preset of its kind, so each placement rule below is written once, in `SurfaceConfig`'s
+      companion. `PresetTest` checks the settings each preset asks for against that rule and shows every preset
+      that takes no keyboard focus; `SurfacePresetTest`, which needs the desktop to itself, shows `Dock`,
+      `AppMenu` and `LockScreen`, which take the keyboard as they map. (`PresetTest`, `SurfacePresetTest`)
 - [x] `Bar`: a panel with every parameter defaulted, along the top edge, 32 dp thick, spanning it and reserving
       32 dp. Its edge, thickness, length, margins and keyboard are its own to set, the keyboard for a bar with a
-      text field in it. (`PresetClassTest`)
+      text field in it. (`PresetTest`)
 - [x] `Panel(edge, thickness, length)`, over `SurfaceConfig.panel`: anchored to `edge` plus the two edges
       perpendicular to it; `thickness` is both the surface's extent perpendicular to `edge` and exactly what it
       reserves, `length` runs along `edge` and 0 spans it. `Bar` is built on the same preset. Still wants
-      `ContentPosition`, a Compose-side layout concern. (`PresetClassTest`, `SurfacePresetTest`)
+      `ContentPosition`, a Compose-side layout concern. (`PresetTest`, `SurfacePresetTest`)
 - [x] `Dock(edge, thickness, length)`, over `SurfaceConfig.dock`: a panel with `OnDemand` keyboard.
-      (`PresetClassTest`, `SurfacePresetTest`)
+      (`PresetTest`, `SurfacePresetTest`)
 - [x] `DesktopBackground`, over `SurfaceConfig.desktopBackground()`: `Layer.Background`, anchored to all four
       edges, with `ExclusiveZone.Overlap` so it reserves nothing and is never displaced by a panel's zone.
-      (`PresetClassTest`, `SurfacePresetTest`)
+      (`PresetTest`, `SurfacePresetTest`)
 - [x] `Osd(width, height)`, over `SurfaceConfig.osd`: floating, centred on its monitor by anchoring nothing, sized
       exactly `width` by `height`. Anchoring nothing forces `ExclusiveZone.Yield`, because `Overlap` extends a
       surface to its anchored edges and one with no anchor has nothing to extend to: Hyprland lists such a surface
       in `hyprctl layers` and draws nothing. The cost is that a yielding OSD is centred in the *usable* area, so
       another surface's own exclusive zone can push it off true centre. A surface that must sit dead centre has to
-      anchor and place itself with margins, which also lets it `Overlap`. (`PresetClassTest`, `SurfacePresetTest`)
+      anchor and place itself with margins, which also lets it `Overlap`. (`PresetTest`, `SurfacePresetTest`)
 - [x] `AppMenu(width, height)`, over `SurfaceConfig.appMenu`: an osd that also takes keyboard focus on demand, for
-      a floating panel whose content dismisses it with `close()`. (`PresetClassTest`, `SurfacePresetTest`)
+      a floating panel whose content dismisses it with `close()`. (`PresetTest`, `SurfacePresetTest`)
 - [x] `ContextMenu(monitor, at, menuSize)`, over `SurfaceConfig.contextMenu(at, menuSize, outputSize)`: places a menu so
       its top-left corner sits at `at`, flipping to whichever corner keeps it inside its monitor, independently per
       axis. `outputSize` is the monitor's logical size, its geometry's width and height over its scale, read as the
@@ -271,17 +272,17 @@ outlive it.
       coordinates: a yielding menu is anchored and margined inside whatever the surfaces that reserve space leave over,
       so a bar's zone displaces it by that bar's thickness. A corner anchor is two perpendicular edges, so `Overlap`
       has edges to extend to and the explicit size survives: the restriction that forces `osd` onto `Yield` does not
-      reach here. (`MenuAnchorTest` for the flip, the logical size and a turned monitor, `PresetClassTest` for the
+      reach here. (`MenuAnchorTest` for the flip, the logical size and a turned monitor, `PresetTest` for the
       coordinate space and the flip on the live monitor, `SurfacePresetTest`)
 - [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
       anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
-      `ext-session-lock-v1`. (`PresetClassTest`, `SurfacePresetTest`)
-- [x] The escape hatch is `LayerSurface`'s own constructor, which takes every setting with a default, so a surface
-      no preset covers extends it directly. One that asks the compositor to span an axis it has no anchor for is not
+      `ext-session-lock-v1`. (`PresetTest`, `SurfacePresetTest`)
+- [x] The escape hatch is `LayerSurface` itself, which takes every setting with a default, so a surface no preset
+      covers calls it directly. One that asks the compositor to span an axis it has no anchor for is not
       placed, and reports `SurfaceError.Failed(KortexError.UnspannableAxis)` to its `onClose`. The internal
       `SurfaceConfig` behind it gives its four fields that decide the shape, `anchor`, `width`, `height` and
       `exclusiveZone`, no default, because each is only sensible in the light of the others, so each preset states
-      a whole shape. (`ShowTest`, `SurfaceConfigTest`)
+      a whole shape. (`SurfaceTest`, `SurfaceConfigTest`)
 - [ ] **A fractionally scaled monitor measures short.** `OutputGeometry`'s width and height over its
       `scale` are the monitor's logical size only at a whole-number scale. `wl_output.scale` is an
       integer, and Hyprland rounds a fractional scale up, so at 1.5 the monitor measures a quarter short.
@@ -297,31 +298,55 @@ outlive it.
       preset's negative `length` or a `ContextMenu`'s negative `menuSize` leaves the surface unplaced, and its
       `onClose` receives `Failed(NegativeSize)` once while the run goes on. A `thickness` below one logical
       pixel is caught as `InvalidExclusiveZone`, because `Bar`, `Panel` and `Dock` reserve it.
-      (`LayerGeometryTest`, `ShowTest`)
+      (`LayerGeometryTest`, `SurfaceTest`)
 
-## Raising a surface while the host runs
+## Raising and changing a surface while the host runs
 
-- [x] **A surface can be raised while the application runs.** A `Show` put into content at any time, the
-      application's own or a surface's, places its surface in the shell's next pass, and taking the `Show` out
-      removes the surface again. So a context menu can be built from the position of a click that has already
-      happened, and an OSD raised in answer to an event such as a volume change. A `Show` in a surface's content
-      leaves with that surface, crashed or removed, its own surface reporting `Ok(SurfaceEnd.LeftComposition)`.
-      (`SurfaceOpenTest`, `ShowTest`)
-- [x] **A surface can be aimed at a chosen monitor.** `LayerSurface.monitor` puts a surface on the `wl_output`
-      behind a `Monitor` that `rememberMonitors()` lists, whose `name` is `wl_output.name`, the same string
-      `hyprctl monitors` prints; null leaves the choice to the compositor. A `Monitor` exists only while its
+- [x] **A surface can be raised while the application runs.** A surface call put into content at any time, the
+      application's own or another surface's, places its surface in the shell's next pass, and taking the call
+      out removes the surface again. So a context menu can be built from the position of a click that has
+      already happened, and an OSD raised in answer to an event such as a volume change. A call in a surface's
+      content leaves with that surface, crashed or removed, its own surface reporting
+      `Ok(SurfaceEnd.LeftComposition)`. (`SurfaceOpenTest`, `SurfaceTest`)
+- [x] **A surface follows its call's arguments while it is on screen.** A call whose arguments change keeps its
+      surface and its content's state, and reports nothing: `layer`, `anchor`, `width`, `height`, `margins`,
+      `exclusiveZone`, `exclusiveEdge` and `keyboard` go to the live layer surface in one commit, only the
+      values that changed, `set_anchor` first, since Hyprland validates an exclusive edge against the anchor
+      pending as that request arrives. A new size comes back as a `configure`, and the surface draws at the size
+      the compositor chose. The whole of the new settings is checked before any of it is sent, so a combination
+      Hyprland would answer by dropping the connection never reaches it: the surface ends as `Failed` with the
+      reason and the run goes on. A changed `monitor` or `namespace` cannot be sent at all, since
+      `get_layer_surface` fixes both, so kortex puts a new layer surface around the same composition: the
+      content keeps its state and its running effects, and reads the size it last had until the new configure
+      arrives.
+      (`LiveSettingsTest`, `LiveKeyboardTest`, `SurfaceRebuildTest`)
+- [x] **A surface can be taken off screen and put back.** `visible = false` unmaps the surface and hands back
+      the space it reserved, while its content keeps running, keeps what it holds and reads the size it last
+      had, draws nothing and takes no input; `true` maps it again, at whatever its settings ask for by then,
+      drawing the content that was there all along. Nothing is reported either way, and nothing is released
+      until the call leaves composition. A call that asks for a surface off screen from the start puts none on
+      screen, and settings an off-screen surface cannot be placed with end it as they would one on screen. The
+      space comes back because the zone is set to 0 before the null buffer: Hyprland goes on reserving what an
+      unmapped surface asked for. (`SurfaceVisibilityTest`)
+- [x] **A surface can be aimed at a chosen monitor.** `LayerSurface`'s `monitor` puts a surface on the
+      `wl_output` behind a `Monitor` that `rememberMonitors()` lists, whose `name` is `wl_output.name`, the same
+      string `hyprctl monitors` prints; null leaves the choice to the compositor. A `Monitor` exists only while its
       output is connected, so there is no name to wait for: a surface asked for on a monitor that has gone
       reports `Ok(SurfaceEnd.MonitorUnplugged)` and is never placed, and one whose monitor is unplugged ends,
       reporting the same, while the surfaces on the other monitors stand. (`MonitorTest`; `NamedOutputTest`, with
       `-Pkortex.hotplugTests=true`)
 - [x] **A surface the compositor closes reports `Ok(SurfaceEnd.ClosedByCompositor)`, and nothing takes its
-      place**, whether it was shown in the application's content or in another surface's. Its `Show` then shows
-      nothing until the host takes it out and puts it back. The end-to-end trigger, the output under a surface
-      left to the compositor's choice going away, is not exercised anywhere: `KortexSurface.simulateCompositorClose`
-      stands in for it. (`CompositorChoiceTest`, `ShowTest`)
+      place**, whether it was shown in the application's content or in another surface's. Its call then shows
+      nothing until the host takes it out of composition and puts it back. The end-to-end trigger, the output
+      under a surface left to the compositor's choice going away, is not exercised anywhere:
+      `KortexSurface.simulateCompositorClose` stands in for it. (`CompositorChoiceTest`, `SurfaceTest`)
 
 The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a `Bar` on each
-monitor `rememberMonitors()` lists, 56 dp thick with `OnDemand` keyboard for its text field. A right click on
+monitor `rememberMonitors()` lists, 56 dp thick with `OnDemand` keyboard for its text field. Its content sets
+the thickness its own call asks for, so one button takes the bar to 96 dp and back, and another takes it off
+screen for a second, a `LaunchedEffect` that keeps running while it is gone bringing it back. The click count
+and the typed text sit behind `remember` in that content, so both stand through the resize and through the
+second off screen, and a readout beside them is the size the compositor gave the bar. A right click on
 the bar's own background, not on its button or its text field, shows a `ContextMenu` from the bar's content, on
 the bar's monitor and just below the bar at the click's x; a second right click moves it, and picking an item
 closes it through `close()`. A bar whose content crashes has the crash appended to the crash log, and a bar that
@@ -346,8 +371,8 @@ the bar would begin if nothing else reserved that edge.
       does libwayland's read dance itself: events already queued are dispatched and the loop goes round
       again; otherwise it flushes, `poll`s the Wayland fd beside an `eventfd`, reads or cancels, and
       dispatches what arrived. `WaylandDisplay.wake()` counts that `eventfd` up from any thread, and every
-      post the loop drains calls it after enqueueing: a `Show` entering or leaving composition, `close()` and
-      `close(error)` on a shown surface, `exitApplication()`, the surface queue that invalidations and cursor
+      post the loop drains calls it after enqueueing: a surface call entering or leaving composition, `close()`
+      and `close(error)` on a shown surface, `exitApplication()`, the surface queue that invalidations and cursor
       changes go through, and the `LoopQueue` that carries Compose's coroutine work. `KeyboardInput` reports
       a held key's next repeat, the same deadline its own `checkRepeat` delivers against. A shell waits for
       the earliest of those across its surfaces, rounded up to whole milliseconds for `poll`. With no key
@@ -357,8 +382,8 @@ the bar would begin if nothing else reserved that edge.
       surface before it waits again. Another source, D-Bus or a timerfd, would be one more fd in that `poll`.
       A `close()` from another thread wakes the loop through `requestEnd`'s `wake()`, which is covered by
       reading rather than by a test: no test closes a surface from another thread while the loop sleeps.
-      (`EventLoopWakeTest` for an idle loop, a `Show` entering composition and coroutine work that keeps
-      yielding; `ShowTest` for `exitApplication()` from another thread; `KeyRepeatTest`;
+      (`EventLoopWakeTest` for an idle loop, a surface call entering composition and coroutine work that keeps
+      yielding; `SurfaceTest` for `exitApplication()` from another thread; `KeyRepeatTest`;
       `WaylandDisplayTest`)
 - [x] **Content that throws ends its own surface with a typed error, not the process.** The reference's
       gradient, a `Brush.linearGradient` ending at `Offset(Float.MAX_VALUE, Float.MAX_VALUE)`, does throw
@@ -372,7 +397,7 @@ the bar would begin if nothing else reserved that edge.
       goes ends it the same way, whatever else ended it. A surface that cannot be placed, and a failed shm
       reallocation on resize, reach `onClose` as `Failed` with their `KortexError` the same way instead of
       throwing; the failed reallocation is covered by reading rather than by a test. (`KortexSceneTest`,
-      `KeyboardDeliveryTest`, `ContentFailureTest`, and `ShowTest` for a surface that cannot be placed)
+      `KeyboardDeliveryTest`, `ContentFailureTest`, and `SurfaceTest` for a surface that cannot be placed)
 - [x] **A state change read only while drawing or placing redraws.** Compose reports a change that
       recomposes nothing through the scene's `invalidateDraw` and `invalidateLayout`, not the recomposer.
       That covers a read only in a `Canvas` draw lambda, a `drawBehind` or `graphicsLayer` block or a
@@ -633,7 +658,7 @@ the bar would begin if nothing else reserved that edge.
       handler, so libwayland's default, `wl_log_stderr_handler` (1.26's `wayland-util.c`), writes a protocol
       error to the process's own stderr as the error is read: `wl_registry#2: error 0: global wl_output
       (2147483647) is unavailable` for each connection `killConnection` (`KillConnection.kt`) ends, in
-      `LayerShellSurfaceTest` and `ShowTest`. Gradle's results record only `System.err`, so the line shows on
+      `LayerShellSurfaceTest` and `SurfaceTest`. Gradle's results record only `System.err`, so the line shows on
       the console and in no test's `system-err`. A host's stderr gets the same line, though the error already
       comes back typed from `WaylandDisplay.requireAlive`. Open: a handler through `wl_log_set_handler_client`,
       whose `void (*)(const char *fmt, va_list args)` an upcall can read only by handing the `va_list` to
@@ -641,7 +666,7 @@ the bar would begin if nothing else reserved that edge.
       pass it on somewhere a host can reach.
 - [ ] **`KortexSceneTest` prints a Compose error on every run.** One test's content throws while recomposing,
       on purpose, and Compose prints its own report of it, "Error was captured in composition." and the
-      `IllegalStateException` it caught, 109 lines of the class's `system-err`. `ShowTest` keeps the same report
+      `IllegalStateException` it caught, 109 lines of the class's `system-err`. `SurfaceTest` keeps the same report
       off its output with `capturingStderr` (`LoopThread.kt`), which the `compose` module's tests have no copy
       of. Open: a helper there, or one test fixture both modules share.
 - [ ] **No test sees a closed surface's `wl_pointer` outlive it.** `KortexSurface.close` releases the
