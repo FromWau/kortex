@@ -249,7 +249,7 @@ private fun BarMenu(
     }
 }
 
-/** Stands in for a bar that stopped, saying why, until a click dismisses it through [onDismiss]. */
+/** Stands in for a bar that stopped, saying why; [onDismiss] follows however the popup itself ends. */
 @Composable
 private fun CrashPopup(
     monitor: Monitor,
@@ -259,34 +259,43 @@ private fun CrashPopup(
 ) {
     LaunchedEffect(stopped) { logIfCrashed(crashLog, stopped) }
 
-    Osd(
-        monitor = monitor,
-        width = 480.dp,
-        height = 120.dp,
-        namespace = "kortex-stopped",
-    ) {
-        MaterialTheme(colorScheme = darkColorScheme()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.errorContainer)
-                    .clickable { onDismiss() }
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "The bar stopped. Click to bring it back.",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
+    val popup = rememberSurfaceState()
+    when (val status = popup.status) {
+        is SurfaceStatus.Ended -> LaunchedEffect(status) {
+            logIfCrashed(crashLog, status.result)
+            onDismiss()
+        }
 
-                Text(
-                    text = stopped.crash?.failure?.cause?.toString() ?: "$stopped",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        else -> Osd(
+            monitor = monitor,
+            width = 480.dp,
+            height = 120.dp,
+            namespace = "kortex-stopped",
+            state = popup,
+        ) {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .clickable { close() }
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "The bar stopped. Click to bring it back.",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+
+                    Text(
+                        text = stopped.crash?.failure?.cause?.toString() ?: "$stopped",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

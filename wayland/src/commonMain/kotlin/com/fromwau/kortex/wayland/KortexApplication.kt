@@ -61,7 +61,8 @@ public fun kortexApplication(
             KortexShell.createApplication(display, platform, content = content).flatMap { shell ->
                 val run = shell.runEventLoop()
                 // Whatever the run returned: this is where exitApplication's calls leave and their surfaces end.
-                run.flatMap { shell.close() }
+                val closed = shell.close()
+                run.flatMap { closed }
             }
         }
     }
@@ -139,7 +140,7 @@ internal class ApplicationComposition(
 }
 
 /** Runs the host's own code, handing whatever it throws to [onFailure] instead of letting it reach kortex's loop. */
-internal inline fun runHostCode(
+private inline fun runHostCode(
     onFailure: (Throwable) -> Unit,
     call: () -> Unit,
 ) {

@@ -63,7 +63,7 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * @param keyboard whether the surface can take keyboard focus.
  * @param state where to read what the surface is doing: [SurfaceStatus.Placing] until it reaches the screen,
  *   [SurfaceStatus.OnScreen] with the size it is drawn at, and [SurfaceStatus.Ended] with how it ended, once and for
- *   good. Pass a state of your own to keep reading it after the call has left composition.
+ *   good. Pass a state of your own to keep reading it after the call has left composition, one per surface call.
  * @param content what is drawn on the surface. It reaches the surface itself as `this`, the clipboard as
  *   [LocalKortexClipboard], and the same surface through `LocalKortexSurface.current` in a composable further down.
  * @throws IllegalStateException when called outside [kortexApplication].
@@ -128,7 +128,7 @@ internal fun LayerSurface(
     }
     val settings = SurfaceSettings(monitor = monitor, config = config)
     SideEffect {
-        slot.state = state
+        slot.bindTo(state)
         shell.queueUpdate(slot, settings)
     }
     DisposableEffect(Unit) { onDispose { shell.queueRemove(slot) } }

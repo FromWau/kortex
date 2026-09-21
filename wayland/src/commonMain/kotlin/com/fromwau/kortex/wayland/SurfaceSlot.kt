@@ -88,6 +88,18 @@ internal class SurfaceSlot(
         }
     }
 
+    /**
+     * Publishes this call's status to [state] from now on, failing fast on a state that cannot carry it: one
+     * another call is already publishing to, or a new one for a call whose surface has already ended.
+     */
+    fun bindTo(state: SurfaceState) {
+        if (state === this.state && state.boundTo === this) return
+        check(state.boundTo == null || state.boundTo === this) { SURFACE_STATE_SHARED }
+        check(!reported || state === this.state) { SURFACE_STATE_AFTER_END }
+        state.boundTo = this
+        this.state = state
+    }
+
     /** Publishes that its surface is on screen, drawing [scene] at whatever size the compositor gives it. */
     fun onScreen(scene: SurfaceScene) {
         state.progress = SurfaceProgress.OnScreen(scene)
@@ -98,3 +110,11 @@ internal class SurfaceSlot(
         state.progress = SurfaceProgress.Ended(ending)
     }
 }
+
+/** What a surface call fails with when it is handed a state another call publishes to; a test checks for it. */
+internal const val SURFACE_STATE_SHARED =
+    "a SurfaceState belongs to one surface call at a time: give this call a state of its own"
+
+/** What a call whose surface has ended fails with when it is handed another state; a test checks for it. */
+internal const val SURFACE_STATE_AFTER_END =
+    "a surface that has ended keeps the state it ended on: show it again from a call of its own"

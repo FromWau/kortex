@@ -550,6 +550,84 @@ class SurfaceTest {
     }
 
     @Test
+    fun `a connection that dies under kortexApplication returns its error, and its surface ends with it`() {
+        val killRequested = mutableStateOf(false)
+        val speck = SurfaceState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val shell = LocalKortexShell.current
+            TestSurface(NAMESPACE, state = speck) {
+                val kill = killRequested.value
+                LaunchedEffect(kill) { if (kill) killConnection(shell.display) }
+            }
+        }
+
+        val result = LoopThread.runApplication(content) { _, loop ->
+            assertTrue(LoopThread.awaitNamespace(NAMESPACE, present = true), "hyprctl never listed $NAMESPACE")
+
+            killRequested.value = true
+
+            loop.join(LoopThread.JOIN_MILLIS)
+            assertFalse(loop.isAlive, "the connection dying did not end the run")
+        }
+
+        val violation = assertIs<KortexError.ProtocolViolation>(
+            result.errorOrNull(),
+            "an application whose connection died did not return the run's protocol error: $result",
+        )
+        speck.assertEnded(Err(violation), "the shown surface did not end with the connection's error")
+    }
+
+    @Test
+    fun `two surface calls sharing one state fail as ApplicationCrashed`() {
+        val shared = SurfaceState()
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use {
+            var error: KortexError? = null
+            capturingStderr {
+                error = KortexShell
+                    .createApplication(display) {
+                        TestSurface(NAMESPACE, state = shared)
+                        TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, state = shared)
+                    }
+                    .onSuccess { it.close() }
+                    .errorOrNull()
+            }
+
+            val crash = assertIs<KortexError.ApplicationCrashed>(error, "two calls sharing a state started")
+            assertEquals(SURFACE_STATE_SHARED, crash.cause.message, "the crash did not name the shared state")
+        }
+    }
+
+    @Test
+    fun `a call handed another state once its surface has ended fails as ApplicationCrashed`() {
+        val swapped = mutableStateOf(false)
+        val first = SurfaceState()
+        val second = SurfaceState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface(NAMESPACE, state = if (swapped.value) second else first) {
+                LaunchedEffect(Unit) { close() }
+            }
+        }
+
+        capturingStderr {
+            onCrashingApplication(content) { shell ->
+                assertTrue(shell.pumpOrFail(PUMP_MILLIS) { first.hasEnded }, "the surface never closed itself")
+
+                swapped.value = true
+
+                val crash = assertIs<KortexError.ApplicationCrashed>(
+                    shell.pump(PUMP_MILLIS).errorOrNull(),
+                    "a state handed to a call whose surface had ended did not end the run",
+                )
+                assertEquals(SURFACE_STATE_AFTER_END, crash.cause.message, "the crash did not name the ended call")
+                crash
+            }
+        }
+        assertEquals(SurfaceStatus.Placing, second.status, "the state handed to an ended call was published to")
+    }
+
+    @Test
     fun `an application with no surface shown keeps running, and a call added later still places`() {
         val showing = mutableStateOf(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {

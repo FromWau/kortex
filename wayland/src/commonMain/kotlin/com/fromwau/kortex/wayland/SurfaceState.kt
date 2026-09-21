@@ -48,14 +48,19 @@ public sealed interface SurfaceStatus {
  * }
  * ```
  *
- * Give one state to one surface call at a time: two calls sharing it overwrite each other's status.
- * [rememberSurfaceState] keeps one where the call is, which is enough to read it beside that call.
- * Remembering your own further up keeps it readable after you have taken the call out of composition; showing that
- * surface again then takes a new state, since [SurfaceStatus.Ended] is where a state stops.
+ * [rememberSurfaceState] keeps one where the call is, which is enough to read it beside that call. Remembering your
+ * own further up keeps it readable after you have taken the call out of composition; showing that surface again then
+ * takes a new state, since [SurfaceStatus.Ended] is where a state stops.
+ *
+ * One state belongs to one surface call. A second call handed the same state ends the application with
+ * [KortexError.ApplicationCrashed], and so does handing another state to a call whose surface has already ended.
  */
 public class SurfaceState {
     // Written on the thread that runs kortexApplication, outside composition; read wherever a caller composes.
     internal var progress: SurfaceProgress by mutableStateOf(SurfaceProgress.Placing)
+
+    // The call publishing to this state, which is how a second call taking it is caught. Composition only.
+    internal var boundTo: SurfaceSlot? = null
 
     /** What the surface is doing now. */
     public val status: SurfaceStatus

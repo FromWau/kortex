@@ -447,7 +447,7 @@ internal class KortexShell private constructor(
         // Every surface call leaves composition here, and reconciling reports how each of their surfaces ended.
         application.close()
         reconcileSlots()
-        // A disposal that threw can leave slots in place; that throw ended the application, so they go unreported.
+        // Whatever reconciling could not take down, so no scene outlives the shell that drew it.
         placed.toList().forEach(::takeDown)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
