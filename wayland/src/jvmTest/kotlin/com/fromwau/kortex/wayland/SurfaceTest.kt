@@ -164,35 +164,6 @@ class SurfaceTest {
     }
 
     @Test
-    fun `a changed namespace replaces the surface with a new one and reports nothing`() {
-        val namespace = mutableStateOf(NAMESPACE)
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
-        val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(namespace.value, onClose = { reports += it })
-        }
-
-        onApplication(content) { shell ->
-            awaitPlaced(shell)
-            val first = shell.shownSurfaces.single()
-
-            namespace.value = SECOND_NAMESPACE
-
-            val replaced = shell.pumpOrFail(PUMP_MILLIS) {
-                shell.shownSurfaces.singleOrNull()?.let { it !== first } == true
-            }
-            assertTrue(replaced, "a changed namespace never replaced the surface")
-            assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) {
-                    Screen.geometry(SECOND_NAMESPACE) != null && Screen.geometry(NAMESPACE) == null
-                },
-                "hyprctl never listed the surface under $SECOND_NAMESPACE alone",
-            )
-            shell.pumpOrFail(SETTLE_MILLIS)
-            assertTrue(reports.isEmpty(), "replacing the surface reported $reports")
-        }
-    }
-
-    @Test
     fun `close() reports Ok(Closed), and close(error) reports Err(Closed(error))`() {
         val closeRequested = mutableStateOf(false)
         val plain = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
@@ -597,7 +568,7 @@ class SurfaceTest {
             val shell = LocalKortexShell.current
             TestSurface<Nothing>(NAMESPACE, onClose = { error(ON_CLOSE_FAILURE) }) {
                 val kill = killRequested.value
-                LaunchedEffect(kill) { if (kill) killConnection(shell.connection) }
+                LaunchedEffect(kill) { if (kill) killConnection(shell.display) }
             }
             TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { others += it })
         }

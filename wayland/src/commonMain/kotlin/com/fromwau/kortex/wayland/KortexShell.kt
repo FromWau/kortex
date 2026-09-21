@@ -52,7 +52,8 @@ private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipb
  * and a surface for each surface call in it.
  */
 internal class KortexShell private constructor(
-    private val display: WaylandDisplay,
+    /** The connection this shell runs on; not private because a test ends it from inside the application. */
+    internal val display: WaylandDisplay,
     private val platform: KortexPlatform,
     // Shared by every surface: GlobalSnapshotManager keys each snapshot pump on its recomposer's own trampoline.
     private val loopQueue: LoopQueue,
@@ -95,9 +96,6 @@ internal class KortexShell private constructor(
 
     // Filled by each surface call's effects, which run inside a composition's apply, and acted on in the next pass.
     private val changedSlots = ConcurrentLinkedQueue<SurfaceSlot>()
-
-    /** The connection this shell runs on; not private because a test ends it from inside the application. */
-    internal val connection: WaylandDisplay get() = display
 
     /** Every surface a call holds, on screen or off, in the order they were placed; a test reads them. */
     internal val shownSurfaces: List<KortexSurface> get() = placed.mapNotNull { it.surface }
@@ -306,7 +304,8 @@ internal class KortexShell private constructor(
         if (settings.config != placedWith.config) {
             surface.applyConfig(settings.config).getOrElse { return Err(it) }
         }
-        return if (settings.visible) Ok(Unit) else surface.hide()
+        if (!settings.visible) surface.hide()
+        return Ok(Unit)
     }
 
     /**
@@ -329,7 +328,7 @@ internal class KortexShell private constructor(
             surface.detach()
             surface.close()
         }
-        // Detaching cancels pointer input, which runs content: one that threw there ends rather than coming back.
+        // Detaching runs content, which can throw there: a surface for it would reserve its zone, then be destroyed.
         scene.crash?.let { return end(slot, Err(SurfaceError.Failed(it))) }
         build(slot, settings, scene, output)
             .onSuccess { settle(slot, settings) }

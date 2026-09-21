@@ -72,7 +72,10 @@ internal class KortexSurface private constructor(
     // A second close() would re-marshal every request below on proxies the first call already freed.
     private var disposed = false
 
-    /** The logical (surface-local) size the compositor last configured this surface at. */
+    /**
+     * The logical (surface-local) size the compositor last configured this surface at; exposed so a test can read
+     * it, where content reads the size off the scene drawn here.
+     */
     internal val logicalSize: IntSize get() = IntSize(logicalWidth, logicalHeight)
 
     /** The buffer (physical-pixel) size of the current frames; exposed so a test can assert a scale reached them. */
@@ -157,7 +160,10 @@ internal class KortexSurface private constructor(
     fun requestSize(
         width: Dp,
         height: Dp,
-    ): EmptyResult<KortexError> = layer.setSize(width.toLogicalPx(), height.toLogicalPx())
+    ): EmptyResult<KortexError> {
+        check(!hidden) { "a surface off screen sends nothing; show() is what sends the config it comes back with" }
+        return layer.setSize(width.toLogicalPx(), height.toLogicalPx())
+    }
 
     /**
      * Applies [new] to the live surface, keyboard included: everything changed reaches the compositor in one commit,
@@ -184,12 +190,11 @@ internal class KortexSurface private constructor(
      * Takes the surface off screen and hands back the space it reserved. Its composition keeps running and keeps
      * its state, and [logicalSize] keeps the value it had.
      */
-    fun hide(): EmptyResult<KortexError> {
+    fun hide() {
         hidden = true
         // A compositor draws no unmapped surface, so a frame it owes is one it will never send.
         clock.cancel()
         layer.unmap()
-        return Ok(Unit)
     }
 
     /**
