@@ -600,31 +600,37 @@ class SurfaceTest {
     }
 
     @Test
-    fun `a call handed another state once its surface has ended fails as ApplicationCrashed`() {
-        val swapped = mutableStateOf(false)
-        val first = SurfaceState()
-        val second = SurfaceState()
+    fun `a state held above its call reads the ending, and goes back to Placing when the call returns`() {
+        val showing = mutableStateOf(true)
+        val bar = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface(NAMESPACE, state = if (swapped.value) second else first) {
-                LaunchedEffect(Unit) { close() }
-            }
+            if (showing.value) TestSurface(NAMESPACE, state = bar)
         }
 
-        capturingStderr {
-            onCrashingApplication(content) { shell ->
-                assertTrue(shell.pumpOrFail(PUMP_MILLIS) { first.hasEnded }, "the surface never closed itself")
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
 
-                swapped.value = true
+            showing.value = false
 
-                val crash = assertIs<KortexError.ApplicationCrashed>(
-                    shell.pump(PUMP_MILLIS).errorOrNull(),
-                    "a state handed to a call whose surface had ended did not end the run",
-                )
-                assertEquals(SURFACE_STATE_AFTER_END, crash.cause.message, "the crash did not name the ended call")
-                crash
+            assertTrue(shell.pumpOrFail(PUMP_MILLIS) { bar.hasEnded }, "taking the call out ended nothing")
+            bar.assertEnded(Ok(SurfaceEnd.LeftComposition), "the state held above the call did not read its ending")
+
+            showing.value = true
+
+            // Pass by pass to the one that composes the call again, where it takes the state back: a pass places
+            // what is queued before it composes, so the state is read while nothing is placed for it yet.
+            val asked = (1..PASSES_FOR_A_RECOMPOSITION).any {
+                shell.passOrFail()
+                shell.queuedSettings.isNotEmpty()
             }
+            assertTrue(asked, "the call that came back never asked for a surface")
+            assertEquals(SurfaceStatus.Placing, bar.status, "the call that took the state back left it on its ending")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { bar.status is SurfaceStatus.OnScreen },
+                "the surface placed for the call that came back never reached the state: ${bar.status}",
+            )
+            assertEquals(1, shell.shownSurfaces.size, "the call that came back placed no surface of its own")
         }
-        assertEquals(SurfaceStatus.Placing, second.status, "the state handed to an ended call was published to")
     }
 
     @Test
@@ -1088,6 +1094,9 @@ class SurfaceTest {
         const val APPLICATION_FAILURE = "the application's content threw"
         const val EFFECT_DELAY_MILLIS = 50L
         const val IDLE_MILLIS = 500L
+
+        // A recomposition the loop asks for arrives within a pass or two; the bound only keeps a test from spinning.
+        const val PASSES_FOR_A_RECOMPOSITION = 20
 
         // Long enough for a fresh surface's own configure, first frames and buffer releases to come and go.
         const val QUIET_MILLIS = 1_500L

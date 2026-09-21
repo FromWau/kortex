@@ -49,17 +49,19 @@ public sealed interface SurfaceStatus {
  * ```
  *
  * [rememberSurfaceState] keeps one where the call is, which is enough to read it beside that call. Remembering your
- * own further up keeps it readable after you have taken the call out of composition; showing that surface again then
- * takes a new state, since [SurfaceStatus.Ended] is where a state stops.
+ * own further up keeps it readable after you have taken the call out of composition, where it holds the ending it
+ * last saw. Putting the call back reuses the same state: it goes to [SurfaceStatus.Placing] and on as the new
+ * surface is placed, so you read a surface that ended and came back.
  *
- * One state belongs to one surface call. A second call handed the same state ends the application with
- * [KortexError.ApplicationCrashed], and so does handing another state to a call whose surface has already ended.
+ * One state belongs to one surface call at a time. Two calls each holding a surface cannot share one, and a second
+ * call handed a state the first is still publishing to ends the application with [KortexError.ApplicationCrashed].
  */
 public class SurfaceState {
     // Written on the thread that runs kortexApplication, outside composition; read wherever a caller composes.
     internal var progress: SurfaceProgress by mutableStateOf(SurfaceProgress.Placing)
 
-    // The call publishing to this state, which is how a second call taking it is caught. Composition only.
+    // The call publishing to this state, which is how a second call taking it while the first holds it is caught.
+    // Written in composition, on the thread the application runs on.
     internal var boundTo: SurfaceSlot? = null
 
     /** What the surface is doing now. */

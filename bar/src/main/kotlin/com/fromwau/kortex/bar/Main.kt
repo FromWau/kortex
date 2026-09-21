@@ -20,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,26 +57,34 @@ fun main() {
     kortexApplication {
         val monitors by rememberMonitors()
         for (monitor in monitors) key(monitor) {
-            var attempt by remember { mutableIntStateOf(0) }
-            // A bar that has stopped stays stopped, so bringing it back takes a fresh state and a fresh call.
-            key(attempt) {
-                val bar = rememberSurfaceState()
-                when (val status = bar.status) {
-                    is SurfaceStatus.Ended -> CrashPopup(
-                        monitor = monitor,
-                        stopped = status.result,
-                        crashLog = crashLog,
-                        onDismiss = { attempt++ },
-                    )
+            val bar = rememberSurfaceState()
+            var stopped by remember { mutableStateOf<Stopped>(Stopped.NotYet) }
+            val status = bar.status
+            LaunchedEffect(status) { if (status is SurfaceStatus.Ended) stopped = Stopped.With(status.result) }
 
-                    else -> DemoBar(screen = monitor, crashLog = crashLog, state = bar)
-                }
+            when (val ended = stopped) {
+                // Dismissing puts the bar back under the same state, which reads Placing again as it is replaced.
+                Stopped.NotYet -> DemoBar(screen = monitor, crashLog = crashLog, state = bar)
+
+                is Stopped.With -> CrashPopup(
+                    monitor = monitor,
+                    stopped = ended.ending,
+                    crashLog = crashLog,
+                    onDismiss = { stopped = Stopped.NotYet },
+                )
             }
         }
     }.onError { error ->
         System.err.println("kortex: $error")
         exitProcess(1)
     }
+}
+
+/** Whether a monitor's bar has stopped, and what it stopped with. */
+private sealed interface Stopped {
+    data object NotYet : Stopped
+
+    data class With(val ending: Result<SurfaceEnd, KortexError>) : Stopped
 }
 
 private val Result<SurfaceEnd, KortexError>.crash: KortexError.SurfaceCrashed?

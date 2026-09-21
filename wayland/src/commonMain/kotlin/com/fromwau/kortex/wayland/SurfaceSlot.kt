@@ -28,7 +28,7 @@ internal sealed interface OwnEnding {
  */
 internal class SurfaceSlot(
     val content: State<@Composable SurfaceScope.() -> Unit>,
-    var state: SurfaceState,
+    private var state: SurfaceState,
     private val wake: () -> Unit,
     private val parent: SurfaceSlot?,
 ) {
@@ -55,6 +55,13 @@ internal class SurfaceSlot(
     // Set as its ending is published: whatever the shell sees of this slot afterwards reports nothing. Loop thread
     // only, and not the state's own status, which the call can swap under it.
     var reported = false
+
+    // What its surface is doing, which every state this call binds is given. Composition and loop thread, both the
+    // one thread the application runs on.
+    private var progress: SurfaceProgress = SurfaceProgress.Placing
+
+    /** Whether this call still holds its surface; one that has left composition or ended publishes nothing more. */
+    val live: Boolean get() = wanted != null && !reported
 
     private val requested = AtomicReference<Result<SurfaceEnd, KortexError>?>(null)
 
@@ -89,32 +96,36 @@ internal class SurfaceSlot(
     }
 
     /**
-     * Publishes this call's status to [state] from now on, failing fast on a state that cannot carry it: one
-     * another call is already publishing to, or a new one for a call whose surface has already ended.
+     * Publishes this call's status to [state] from now on, starting with what its surface is doing already: a state
+     * another call has finished with reads this call's own status from here on.
+     *
+     * Two calls holding a surface each cannot share one state, and that is API misuse.
      */
     fun bindTo(state: SurfaceState) {
-        if (state === this.state && state.boundTo === this) return
-        check(state.boundTo == null || state.boundTo === this) { SURFACE_STATE_SHARED }
-        check(!reported || state === this.state) { SURFACE_STATE_AFTER_END }
+        val bound = state.boundTo
+        check(bound == null || bound === this || !bound.live) { SURFACE_STATE_SHARED }
         state.boundTo = this
         this.state = state
+        publish(progress)
     }
 
     /** Publishes that its surface is on screen, drawing [scene] at whatever size the compositor gives it. */
     fun onScreen(scene: SurfaceScene) {
-        state.progress = SurfaceProgress.OnScreen(scene)
+        publish(SurfaceProgress.OnScreen(scene))
     }
 
-    /** Publishes [ending] as the last status the newest state its call composed with will show. */
+    /** Publishes [ending] as the last status this call shows. */
     fun report(ending: Result<SurfaceEnd, KortexError>) {
-        state.progress = SurfaceProgress.Ended(ending)
+        publish(SurfaceProgress.Ended(ending))
+    }
+
+    private fun publish(next: SurfaceProgress) {
+        progress = next
+        // Only while this call still holds the state: a call that takes it over owns what it shows from then on.
+        if (state.boundTo === this) state.progress = next
     }
 }
 
-/** What a surface call fails with when it is handed a state another call publishes to; a test checks for it. */
+/** What a surface call fails with when it is handed a state another call is still publishing to; a test reads it. */
 internal const val SURFACE_STATE_SHARED =
     "a SurfaceState belongs to one surface call at a time: give this call a state of its own"
-
-/** What a call whose surface has ended fails with when it is handed another state; a test checks for it. */
-internal const val SURFACE_STATE_AFTER_END =
-    "a surface that has ended keeps the state it ended on: show it again from a call of its own"

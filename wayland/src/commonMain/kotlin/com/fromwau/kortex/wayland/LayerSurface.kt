@@ -42,7 +42,7 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * behind `remember` stands through every one of those changes, and lasts until the surface ends.
  *
  * Once the surface has ended, in any of the ways [SurfaceStatus.Ended] lists, the call shows nothing until you take
- * it out of composition and put it back, with a [SurfaceState] of its own.
+ * it out of composition and put it back, which places a surface again and takes [state] with it.
  *
  * @param monitor the monitor to put the surface on, one [rememberMonitors] lists; null lets the compositor choose.
  *   When that monitor is unplugged, the surface ends with `Ok(SurfaceEnd.MonitorUnplugged)`.
@@ -63,7 +63,8 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * @param keyboard whether the surface can take keyboard focus.
  * @param state where to read what the surface is doing: [SurfaceStatus.Placing] until it reaches the screen,
  *   [SurfaceStatus.OnScreen] with the size it is drawn at, and [SurfaceStatus.Ended] with how it ended, once and for
- *   good. Pass a state of your own to keep reading it after the call has left composition, one per surface call.
+ *   good. Pass a state of your own to keep reading it after the call has left composition; one call at a time
+ *   publishes to a state.
  * @param content what is drawn on the surface. It reaches the surface itself as `this`, the clipboard as
  *   [LocalKortexClipboard], and the same surface through `LocalKortexSurface.current` in a composable further down.
  * @throws IllegalStateException when called outside [kortexApplication].
