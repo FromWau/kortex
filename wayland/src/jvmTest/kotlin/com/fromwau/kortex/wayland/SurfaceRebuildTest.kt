@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
@@ -229,6 +230,47 @@ class SurfaceRebuildTest {
     }
 
     /**
+     * A rebuild that cannot be placed makes no surface under the name it asked for, so content that throws as the
+     * scene goes is still named after the surface it was last on.
+     */
+    @Test
+    fun `a rebuild that cannot be placed names a crash after the surface its content was last on`() {
+        val asked = Asked()
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface<Nothing>(
+                namespace = asked.namespace.value,
+                anchor = asked.anchor.value,
+                width = asked.width.value.dp,
+                height = asked.height.value.dp,
+                onClose = { reports += it },
+            ) {
+                DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+
+            // Both in one recomposition: the namespace is what makes this a rebuild, the anchor what fails it.
+            asked.width.value = SPAN_ANCHORED_AXIS
+            asked.anchor.value = UNSPANNABLE
+            asked.namespace.value = SECOND_NAMESPACE
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "a rebuild that could not be placed reported nothing",
+            )
+            val crash = crashIn(reports.single(), "the cleanup that threw as the scene went did not report a crash")
+            assertEquals(
+                FIRST_NAMESPACE, crash.namespace,
+                "the crash named the surface the rebuild asked for and never made",
+            )
+            assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what cleanup threw")
+        }
+    }
+
+    /**
      * Giving the pointer back runs content, which can throw there. That happens on the surface being given up, so
      * that is the surface the crash names, and no surface takes its place.
      *
@@ -431,6 +473,7 @@ class SurfaceRebuildTest {
         const val SECOND_NAMESPACE = "kortex-rebuild-second"
         const val DRAW_FAILURE = "content threw while drawing"
         const val POINTER_FAILURE = "content threw on a pointer event"
+        const val CLEANUP_FAILURE = "cleanup threw as the scene went"
 
         // A speck in the corner the pointer is least likely to be in, as TestSurface's own defaults place one.
         const val SPECK = 8
