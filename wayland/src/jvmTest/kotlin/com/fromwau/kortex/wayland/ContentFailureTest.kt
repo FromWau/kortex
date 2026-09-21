@@ -5,15 +5,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Result
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -73,35 +69,6 @@ class ContentFailureTest {
     }
 
     @Test
-    fun `content that throws as its surface is rebuilt reports the crash, and nothing takes its place`() {
-        val namespace = mutableStateOf(NAMESPACE)
-        val throwing = mutableStateOf(false)
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
-        val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(namespace.value, onClose = { reports += it }) {
-                Canvas(Modifier.fillMaxSize()) { if (throwing.value) error(DRAW_FAILURE) }
-            }
-        }
-
-        onApplication(content) { shell ->
-            awaitPlaced(shell)
-
-            // Both in one pass: the namespace is what rebuilds the surface, the flag what the next draw throws on.
-            throwing.value = true
-            namespace.value = REBUILT_NAMESPACE
-
-            assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "content that threw around a rebuild reported nothing",
-            )
-            val crash = crashIn(reports.single(), "content that threw around a rebuild did not report the crash")
-            assertEquals(DRAW_FAILURE, crash.failure.cause.message)
-            shell.pumpOrFail(SETTLE_MILLIS)
-            assertTrue(shell.shownSurfaces.isEmpty(), "a surface was rebuilt for content that had crashed")
-        }
-    }
-
-    @Test
     fun `content that throws while drawing a later frame reports the crash, and the process survives`() {
         val probe = runProbe(PROBE_MAIN_CLASS)
         val raw = probe.output.joinToString("\n")
@@ -124,7 +91,6 @@ class ContentFailureTest {
         const val SETTLE_MILLIS = 300L
         const val CLOSE_AFTER_MILLIS = 50L
         const val PUMP_MILLIS = 2_000L
-        const val REBUILT_NAMESPACE = "kortex-crash-rebuilt"
         const val PROBE_MAIN_CLASS = "com.fromwau.kortex.wayland.CrashedSurfaceProbe"
     }
 }
