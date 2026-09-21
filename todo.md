@@ -16,8 +16,8 @@ repo can land here. Read it for protocol structure; build from the wlroots XML a
 - [x] Cursor shapes from `Modifier.pointerHoverIcon`, including move, wait and all eight resize directions
       (`WlCursorTheme`)
 - [x] Configurable layer, anchor, exclusive zone, keyboard mode (`Layer`, `Edge`, `ExclusiveZone`,
-      `KeyboardInteractivity`), each a parameter `LayerSurface` takes and each one a surface already on
-      screen follows (`LiveSettingsTest`, `LiveKeyboardTest`)
+      `KeyboardInteractivity`), each a parameter `LayerSurface` takes, and a change to any of them reaches a
+      surface already on screen (`LiveSettingsTest`, `LiveKeyboardTest`)
 
 ## Ahead of the reference
 
@@ -325,7 +325,7 @@ outlive it.
       had, draws nothing and takes no input; `true` maps it again, at whatever its settings ask for by then,
       drawing the content that was there all along. Nothing is reported either way, and nothing is released
       until the call leaves composition. A call that asks for a surface off screen from the start puts none on
-      screen, and settings an off-screen surface cannot be placed with end it as they would one on screen. The
+      screen, and settings that cannot be placed end an off-screen surface as they would one on screen. The
       space comes back because the zone is set to 0 before the null buffer: Hyprland goes on reserving what an
       unmapped surface asked for. (`SurfaceVisibilityTest`)
 - [x] **A surface can be aimed at a chosen monitor.** `LayerSurface`'s `monitor` puts a surface on the
