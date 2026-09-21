@@ -1,14 +1,14 @@
 # Feature parity with OShane-McKenzie/wayland
 
 Tracking against that project's README. It is **GPL-3.0**; kortex is **Apache-2.0**. Those combine in one
-direction only — Apache-2.0 code may be taken into a GPLv3 work, never the reverse — so nothing from that
+direction only: Apache-2.0 code may be taken into a GPLv3 work, never the reverse, so nothing from that
 repo can land here. Read it for protocol structure; build from the wlroots XML and the Wayland spec.
 
 ## Already there
 
 - [x] `zwlr_layer_shell_v1` surfaces
 - [x] Compose Desktop content with state, animation, interactivity
-- [x] Frame pacing off `wl_surface.frame` — an idle bar draws nothing (`FrameClock`, `IdleFrameTest`).
+- [x] Frame pacing off `wl_surface.frame`: an idle bar draws nothing (`FrameClock`, `IdleFrameTest`).
       Its event loop sleeps until an event, posted work or a key-repeat deadline needs it (`EventLoopWakeTest`).
 - [x] Keyboard through xkbcommon: layout-aware keysyms, modifier state (`KeyboardInput`, `Xkb`)
 - [x] Text input via `TextField` with an IME session (`KortexTextInput`)
@@ -43,7 +43,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       `ClipboardTest` for `wl_data_device_manager`)
 - [x] **2. Per-surface scale** from `wl_surface.preferred_buffer_scale` (compositor v6). `WlOutput.Handle`
       and `WlOutput.detectScale`, which guessed one scale across every output, are gone. Hyprland answers
-      `get_layer_surface` with the event, so the first frame already has it — and nothing depends on that
+      `get_layer_surface` with the event, so the first frame already has it, and nothing depends on that
       ordering, since `maybeRescale` runs on every loop pass. (`SurfaceScaleTest`)
 - [x] **3. Output geometry**: position, transform, `mode` width/height (current-flagged only), `name`,
       `description` and `scale`, accumulated into pending fields and published atomically on `done`, and
@@ -206,10 +206,11 @@ outlive it.
       `LeftComposition`. A connection that dies under the run ends it with the connection's error, and every
       surface still shown reports that same error to its `onClose` as `Failed`; the test ends only its own
       connection, with a bind of a global the compositor never advertised.
-      Two paths are covered by reading rather than by a test: a shown surface whose tick fails, which ends as
-      `Failed`; and that startup check's call, whose check itself is tested. A monitor plugged in while the
-      application runs, listed after the round trip that follows its bind, is tested only by `@Hotplug` tests,
-      which run once `-Pkortex.hotplugTests=true` opts them in.
+      Three paths are covered by reading rather than by a test: a shown surface whose tick fails, which ends as
+      `Failed`; that startup check's call, whose check itself is tested; and a changed `monitor`, which this
+      desktop's single output leaves nothing to move a surface to. A monitor plugged in while the application
+      runs, listed after the round trip that follows its bind, is tested only by `@Hotplug` tests, which run
+      once `-Pkortex.hotplugTests=true` opts them in.
       (`SurfaceTest`, which pins `Closed`, `LeftComposition` and a dying connection's `Failed`, and
       `ClosedByCompositor` with `CompositorChoiceTest`; `MonitorTest`, which pins `MonitorUnplugged` on both of
       its paths; and `KortexShellTest` and `MultiSurfaceTest` for a monitor plugged in)
@@ -220,12 +221,12 @@ outlive it.
       each on Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event
       queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
       `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
-- [x] **Nothing of an ended surface's content runs after its `onClose`.** A scene's close drains the work that
-      content has queued and then closes its `SurfaceWork`, and `LoopQueue` neither takes nor runs anything
-      under an owner that has closed, so what that work throws is recorded before its surface reports, and a
-      suspending cleanup, such as a `delay` in a `NonCancellable` `finally`, stops at its wait. A cleanup that
-      hops to another dispatcher still runs there, and a throw of its own goes with the resumption that would
-      have carried it back, so that one failure is recorded nowhere. `kortexApplication` returns the
+- [x] **Nothing of an ended surface's content runs on kortex's loop after its `onClose`.** A scene's close
+      drains the work that content has queued and then closes its `SurfaceWork`, and `LoopQueue` neither takes
+      nor runs anything under an owner that has closed, so what that work throws is recorded before its surface
+      reports, and a suspending cleanup, such as a `delay` in a `NonCancellable` `finally`, stops at its wait. A
+      cleanup that hops to another dispatcher still runs there, and a throw of its own goes with the resumption
+      that would have carried it back, so that one failure is recorded nowhere. `kortexApplication` returns the
       `ApplicationCrashed` an `onClose` threw as the application closed, over the connection's error, and calls
       no further `onClose`. (`LateFailureTest`, `LoopQueueTest`, `SurfaceCloseCancellationTest`, `SurfaceTest`)
 
@@ -318,7 +319,8 @@ outlive it.
       reason and the run goes on. A changed `monitor` or `namespace` cannot be sent at all, since
       `get_layer_surface` fixes both, so kortex puts a new layer surface around the same composition: the
       content keeps its state and its running effects, and reads the size it last had until the new configure
-      arrives.
+      arrives. Only the namespace half is tested: this desktop has one monitor, so a changed `monitor` is
+      covered by reading rather than by a test, and takes the identical path from `rebuildsOver` on.
       (`LiveSettingsTest`, `LiveKeyboardTest`, `SurfaceRebuildTest`)
 - [x] **A surface can be taken off screen and put back.** `visible = false` unmaps the surface and hands back
       the space it reserved, while its content keeps running, keeps what it holds and reads the size it last
@@ -347,7 +349,7 @@ the thickness its own call asks for, so one button takes the bar to 96 dp and ba
 screen for a second, a `LaunchedEffect` that keeps running while it is gone bringing it back. The click count
 and the typed text sit behind `remember` in that content, so both stand through the resize and through the
 second off screen, and a readout beside them is the size the compositor gave the bar. A right click on
-the bar's own background, not on its button or its text field, shows a `ContextMenu` from the bar's content, on
+the bar's own background, not on its buttons or its text field, shows a `ContextMenu` from the bar's content, on
 the bar's monitor and just below the bar at the click's x; a second right click moves it, and picking an item
 closes it through `close()`. A bar whose content crashes has the crash appended to the crash log, and a bar that
 ends with any error has an `Osd` in its place saying why, until a click on it brings the bar back. The menu
@@ -689,9 +691,9 @@ the bar would begin if nothing else reserved that edge.
 
 ## Deliberately not doing
 
-- `BinarySource` / bundled binary extraction / arch-specific resources — no helper binary exists.
-- The two JVM reflection flags — kortex reaches `PlatformContext` directly.
-- JitPack publishing — publishing is out of scope for now.
+- `BinarySource` / bundled binary extraction / arch-specific resources: no helper binary exists.
+- The two JVM reflection flags: kortex reaches `PlatformContext` directly.
+- JitPack publishing: publishing is out of scope for now.
 - A per-surface density override. The reference takes `density = Density(2f)` and reads
   `GDK_SCALE`/`QT_SCALE_FACTOR`; kortex takes density from each surface's `preferred_buffer_scale`, so an
   override would only zoom content its dp values already size.

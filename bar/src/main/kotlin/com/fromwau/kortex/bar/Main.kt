@@ -146,7 +146,7 @@ private fun DemoBar(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surface),
             ) {
-                // Under the row, not around it: a right click on the button or the field is theirs alone.
+                // Under the row, not around it: a right click on a button or the field is theirs alone.
                 Box(
                     Modifier
                         .matchParentSize()
