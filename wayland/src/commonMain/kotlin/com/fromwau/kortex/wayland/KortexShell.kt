@@ -32,6 +32,18 @@ internal class ShellOutput(
     }
 }
 
+/** Where a surface call's settings put it: which `wl_output` its layer surface is made on, if any is left. */
+private sealed interface OutputChoice {
+    /** The still-bound output the call's monitor names. */
+    data class Bound(val proxy: MemorySegment) : OutputChoice
+
+    /** The call named no monitor, so the compositor picks. */
+    data object CompositorChooses : OutputChoice
+
+    /** The monitor the call named has been unplugged, and its surface ends with it. */
+    data object Unplugged : OutputChoice
+}
+
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
 
@@ -304,12 +316,18 @@ internal class KortexShell private constructor(
         settings: SurfaceSettings,
     ) {
         val scene = slot.scene ?: return place(slot, settings)
-        val output = boundOutput(settings.monitor) ?: return end(slot, Ok(SurfaceEnd.MonitorUnplugged))
+        val output = when (val on = outputFor(settings.monitor)) {
+            is OutputChoice.Bound -> on.proxy
+            OutputChoice.CompositorChooses -> MemorySegment.NULL
+            OutputChoice.Unplugged -> return end(slot, Ok(SurfaceEnd.MonitorUnplugged))
+        }
         slot.surface?.let { surface ->
             slot.surface = null
             surface.detach()
             surface.close()
         }
+        // Before anything content can throw in: a crash is named after the surface the content is on when it throws.
+        scene.namespace = settings.config.namespace
         // Detaching cancels pointer input, which runs content: one that threw there ends rather than coming back.
         scene.crash?.let { return end(slot, Err(SurfaceError.Failed(it))) }
         build(slot, settings, scene, output)
@@ -321,7 +339,11 @@ internal class KortexShell private constructor(
         slot: SurfaceSlot,
         settings: SurfaceSettings,
     ) {
-        val output = boundOutput(settings.monitor) ?: return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
+        val output = when (val on = outputFor(settings.monitor)) {
+            is OutputChoice.Bound -> on.proxy
+            OutputChoice.CompositorChooses -> MemorySegment.NULL
+            OutputChoice.Unplugged -> return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
+        }
         // Only a wake on a crash: the next pass reads the scene's first failure, which this one may not be.
         val scene = SurfaceScene(settings.config.namespace, loopQueue, platform, onCrash = { wake() })
         slot.scene = scene
@@ -366,11 +388,12 @@ internal class KortexShell private constructor(
         if (slot !in placed) placed += slot
     }
 
-    /** The proxy of the output [monitor] names, `NULL` for the compositor's own choice, and null once it is gone. */
-    private fun boundOutput(monitor: Monitor?): MemorySegment? {
-        val wanted = monitor ?: return MemorySegment.NULL
+    /** Which output a surface asking for [monitor] goes on. */
+    private fun outputFor(monitor: Monitor?): OutputChoice {
+        val wanted = monitor ?: return OutputChoice.CompositorChooses
         // An unplugged monitor's proxy is already destroyed: the surface ends, as one on it does when it goes.
-        return wanted.output.takeIf { outputs[it.name] === it }?.proxy
+        val bound = wanted.output.takeIf { outputs[it.name] === it } ?: return OutputChoice.Unplugged
+        return OutputChoice.Bound(bound.proxy)
     }
 
     /** What a shown surface's scene composes: its call's newest content, and around it what content reaches. */

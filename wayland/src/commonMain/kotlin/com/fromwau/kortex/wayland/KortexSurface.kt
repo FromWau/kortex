@@ -46,8 +46,8 @@ internal class KortexSurface private constructor(
     // ever allowed to call into libwayland.
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
 
-    // The scene drawn here, which only detach() gives back: a closed surface keeps reading the crash of the scene
-    // it drew. Null before the first attach.
+    // The scene drawn here, which only detach() gives back. Null before the first attach, and again once the scene
+    // has been handed on; a surface closed while it still holds one keeps reading that scene's crash.
     private var scene: SurfaceScene? = null
 
     // Set by attach() once the seat is bound; null again once the scene is given back or the surface closes.
@@ -104,7 +104,7 @@ internal class KortexSurface private constructor(
      */
     internal val closed: Boolean get() = layer.closed
 
-    /** What the content drawn here threw, once it has; the scene then runs none of it. */
+    /** What the content drawn here threw, once it has; null once the scene it threw in has been detached. */
     internal val crash: KortexError.SurfaceCrashed? get() = scene?.crash
 
     /** When this surface next needs a loop pass that no Wayland event will announce; null while nothing does. */

@@ -28,17 +28,26 @@ import java.util.concurrent.atomic.AtomicReference
  * content here keeps its state, its running effects and the size it last read.
  */
 internal class SurfaceScene(
-    /** What the compositor calls the surface this is drawn on, which names a crash of its content. */
-    val namespace: String,
+    namespace: String,
     private val loop: LoopQueue,
     platform: KortexPlatform,
     onCrash: (KortexError.SurfaceCrashed) -> Unit,
 ) : AutoCloseable {
 
+    /**
+     * What the compositor calls the surface this is drawn on, which names a crash of its content. A rebuild sets it
+     * to the namespace the new surface carries, so a crash names the surface the content was on when it threw.
+     */
+    // Read from whichever thread content failed on, and written by the loop thread as it rebuilds.
+    @Volatile
+    var namespace: String = namespace
+
     // Rides in the frame context below, so the loop can run this scene's work and leave its siblings' where it is.
     private val work = SurfaceWork()
 
     // The surface drawing this scene, which a rebuild exchanges; null before the first attach and after a detach.
+    // Read from whichever thread content invalidates or asks for a cursor on, and written by the loop thread.
+    @Volatile
     private var surface: KortexSurface? = null
 
     // The text-input session content has open, which belongs to the content rather than to any one surface.
@@ -112,8 +121,9 @@ internal class SurfaceScene(
         return crash?.let { Err(it) } ?: Ok(Unit)
     }
 
-    /** Draws this scene on [surface] from now on, in place of whichever surface drew it before. */
+    /** Draws this scene on [surface] from now on. */
     fun drawOn(surface: KortexSurface) {
+        check(this.surface == null) { "a scene is drawn on one surface; detach() gives back the one holding it" }
         this.surface = surface
     }
 

@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -105,7 +106,7 @@ class SurfaceRebuildTest {
             // The rebuild runs to its end inside one pass of the loop, so only another thread can watch it happen.
             val sizes = CopyOnWriteArrayList<IntSize>()
             val watching = AtomicBoolean(true)
-            val watcher = thread(name = "size-watcher") {
+            val watcher = thread(name = "size-watcher", isDaemon = true) {
                 while (watching.get()) sizes.addIfAbsent(handle.size)
             }
             try {
@@ -183,6 +184,39 @@ class SurfaceRebuildTest {
             val ticks = watch.ticks.get()
             shell.pumpOrFail(IDLE_WINDOW_MILLIS)
             assertEquals(ticks, watch.ticks.get(), "the content of the ended surface kept running after it reported")
+        }
+    }
+
+    @Test
+    fun `a crash after a rebuild names the namespace its content was on`() {
+        val namespace = mutableStateOf(FIRST_NAMESPACE)
+        val throwing = mutableStateOf(false)
+        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface<Nothing>(namespace.value, onClose = { reports += it }) {
+                Canvas(Modifier.fillMaxSize()) { if (throwing.value) error(DRAW_FAILURE) }
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+
+            namespace.value = SECOND_NAMESPACE
+
+            awaitNamespace(shell, SECOND_NAMESPACE)
+
+            // Only once the rebuild is over, so the surface the content is on is beyond doubt.
+            throwing.value = true
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
+                "content that threw after the rebuild reported nothing",
+            )
+            val crash = crashIn(reports.single(), "content that threw after the rebuild did not report a crash")
+            assertEquals(
+                SECOND_NAMESPACE, crash.namespace,
+                "the crash named a surface the content was no longer on",
+            )
         }
     }
 
@@ -316,6 +350,7 @@ class SurfaceRebuildTest {
     private companion object {
         const val FIRST_NAMESPACE = "kortex-rebuild-first"
         const val SECOND_NAMESPACE = "kortex-rebuild-second"
+        const val DRAW_FAILURE = "content threw while drawing"
 
         // A speck in the corner the pointer is least likely to be in, as TestSurface's own defaults place one.
         const val SPECK = 8

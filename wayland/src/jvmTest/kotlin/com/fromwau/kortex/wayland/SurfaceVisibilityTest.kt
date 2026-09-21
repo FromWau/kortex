@@ -211,7 +211,10 @@ class SurfaceVisibilityTest {
                 surface.bufferSize,
                 "the panel came back drawing at the size it had before",
             )
-            assertEquals(THICKER, surface.logicalSize.height, "content reads the size the panel had before")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { watch.size.get().height == THICKER },
+                "content never read the thickness the panel came back at; it reads ${watch.size.get()}",
+            )
         }
     }
 
