@@ -590,6 +590,37 @@ class SurfaceTest {
     }
 
     @Test
+    fun `an onClose that throws on a dead connection returns ApplicationCrashed, and no other onClose is called`() {
+        val killRequested = mutableStateOf(false)
+        val others = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            val shell = LocalKortexShell.current
+            TestSurface<Nothing>(NAMESPACE, onClose = { error(ON_CLOSE_FAILURE) }) {
+                val kill = killRequested.value
+                LaunchedEffect(kill) { if (kill) killConnection(shell.connection) }
+            }
+            TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, onClose = { others += it })
+        }
+
+        val result = LoopThread.runApplication(content) { _, loop ->
+            // Both on screen first: a connection killed as the first is placed takes the second's placement with it.
+            assertTrue(LoopThread.awaitNamespace(SECOND_NAMESPACE, present = true), "both surfaces never appeared")
+
+            killRequested.value = true
+
+            loop.join(LoopThread.JOIN_MILLIS)
+            assertFalse(loop.isAlive, "the connection dying did not end the run")
+        }
+
+        val crash = assertIs<KortexError.ApplicationCrashed>(
+            result.errorOrNull(),
+            "an onClose that threw on a dead connection did not return ApplicationCrashed: $result",
+        )
+        assertEquals(ON_CLOSE_FAILURE, crash.cause.message, "the crash did not carry what onClose threw")
+        assertTrue(others.isEmpty(), "another surface's onClose was called after an onClose threw: $others")
+    }
+
+    @Test
     fun `an application with no surface shown keeps running, and a call added later still places`() {
         val showing = mutableStateOf(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
