@@ -83,7 +83,7 @@ internal class SurfaceScene(
         platform = hostPlatform,
         onFailure = { failure ->
             val crashed = KortexError.SurfaceCrashed(namespace, failure)
-            // The first failure is the one the surface ends with; the ones after it only wake the loop again.
+            // The first failure recorded here is the one the surface ends with; later ones only wake the loop.
             firstCrash.compareAndSet(null, crashed)
             onCrash(crashed)
         },

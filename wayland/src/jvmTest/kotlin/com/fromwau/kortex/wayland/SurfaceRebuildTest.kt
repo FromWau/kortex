@@ -14,13 +14,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.InspectorInfo
-import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.node.PointerInputModifierNode
+import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
@@ -267,6 +267,10 @@ class SurfaceRebuildTest {
                 "the crash named the surface the rebuild asked for and never made",
             )
             assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what cleanup threw")
+            assertNull(
+                Screen.geometry(SECOND_NAMESPACE),
+                "the surface the rebuild could not place is on screen under the name it asked for",
+            )
         }
     }
 
