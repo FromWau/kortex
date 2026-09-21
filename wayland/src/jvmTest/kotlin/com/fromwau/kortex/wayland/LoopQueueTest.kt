@@ -8,7 +8,8 @@ import kotlin.test.assertEquals
 /** What [LoopQueue]'s drains run and where they stop, with plain runnables and no compositor. */
 class LoopQueueTest {
     private val ran = mutableListOf<String>()
-    private val queue = LoopQueue(wake = {})
+    private var wakes = 0
+    private val queue = LoopQueue(wake = { wakes++ })
     private val closing = SurfaceWork()
     private val sibling = SurfaceWork()
 
@@ -94,6 +95,31 @@ class LoopQueueTest {
             chains.map { it.runs },
             "what a bounded drain of the whole queue left queued did not run in the next pass",
         )
+    }
+
+    @Test
+    fun `a pass drops the work an owner queued before it closed, and runs every other entry`() {
+        queueMixedWork()
+        closing.close()
+
+        queue.runPass()
+
+        assertEquals(
+            listOf("sibling 1", "unowned", "sibling 2"),
+            ran,
+            "a pass ran the work of an owner that had closed, or dropped another owner's with it",
+        )
+    }
+
+    @Test
+    fun `a dispatch under a closed owner is neither queued nor woken for`() {
+        closing.close()
+
+        queue.dispatch(closing, record("closing 1"))
+        queue.runPass()
+
+        assertEquals(emptyList(), ran, "a pass ran work dispatched under an owner that had closed")
+        assertEquals(0, wakes, "a dispatch under a closed owner woke the loop for work it would drop")
     }
 
     private fun queueMixedWork() {
