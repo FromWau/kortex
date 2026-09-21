@@ -140,11 +140,15 @@ internal class SurfaceScene(
         if (this.surface === surface) this.surface = null
     }
 
-    /** Disposes the composition, even a failed one, and runs the work its cancellation leaves behind. */
+    /**
+     * Disposes the composition, even a failed one, runs the work its cancellation leaves behind, and drops whatever
+     * this content schedules from then on, so every failure of it is in [crash] before the surface is reported.
+     */
     override fun close() {
         composition.close()
         // The scene's recomposer leaves Compose's global snapshot observers only as its cancelled run loop resumes.
         // Only this scene's work: a whole-queue drain would run its siblings' work too, and spend the bound on it.
         loop.drain(work)
+        work.close()
     }
 }

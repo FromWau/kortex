@@ -8,6 +8,16 @@ import kotlinx.coroutines.Runnable
 
 /** Rides in one surface's frame context, so [LoopQueue] can tell that surface's work from its siblings' by instance. */
 internal class SurfaceWork : AbstractCoroutineContextElement(SurfaceWork) {
+    // Set on the loop thread, and read from whichever thread that surface's content dispatches on.
+    @Volatile
+    var closed: Boolean = false
+        private set
+
+    /** After this, work dispatched under this owner is dropped rather than queued or run. */
+    fun close() {
+        closed = true
+    }
+
     companion object Key : CoroutineContext.Key<SurfaceWork>
 }
 
@@ -17,7 +27,8 @@ internal class SurfaceWork : AbstractCoroutineContextElement(SurfaceWork) {
  * run its own and leave the rest where it is.
  *
  * Work runs in rounds, each one what was queued as it began, so work that keeps queuing itself waits for the next
- * round. A pass runs one round; a drain runs several, up to [DRAIN_BOUND_ROUNDS].
+ * round. A pass runs one round; a drain runs several, up to [DRAIN_BOUND_ROUNDS]. Work of an owner that has closed
+ * is neither taken nor run, whether it was dispatched before the close or after it.
  *
  * Once the loop's owner has closed, no pass follows: what its last drain left, and work arriving after, stays in a
  * queue nobody drains, and that work's `wake()` is a guarded no-op.
@@ -26,7 +37,9 @@ internal class LoopQueue(private val wake: () -> Unit) : CoroutineDispatcher() {
     private val work = ConcurrentLinkedQueue<Queued>()
 
     override fun dispatch(context: CoroutineContext, block: Runnable) {
-        work += Queued(context[SurfaceWork], block)
+        val owner = context[SurfaceWork]
+        if (owner?.closed == true) return
+        work += Queued(owner, block)
         wake()
     }
 
@@ -65,7 +78,13 @@ internal class LoopQueue(private val wake: () -> Unit) : CoroutineDispatcher() {
         .filter { it.owner === owner }
         .onEach { work.remove(it) }
 
-    private class Queued(val owner: SurfaceWork?, block: Runnable) : Runnable by block
+    private class Queued(val owner: SurfaceWork?, private val block: Runnable) : Runnable {
+        // Its owner can close between the dispatch and this, and an ended surface's content never runs again.
+        override fun run() {
+            if (owner?.closed == true) return
+            block.run()
+        }
+    }
 
     companion object {
         // Thirty-two times the two rounds the longest measured close took, leaving a scene's cancellation wide room.
