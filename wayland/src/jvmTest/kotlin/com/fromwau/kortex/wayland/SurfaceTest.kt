@@ -706,6 +706,37 @@ class SurfaceTest {
     }
 
     @Test
+    fun `a call whose dispose the application's own cleanup skipped still ends`() {
+        val speck = SurfaceState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface(NAMESPACE, state = speck)
+            // Composed after the call above, so Compose disposes it first, and throwing here leaves that call's
+            // own dispose unrun: the call still asks for its surface while the application is already crashed.
+            ThrowingCleanup()
+        }
+
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        display.use {
+            val shell = KortexShell.createApplicationOrFail(display, content)
+            try {
+                awaitPlaced(shell)
+            } catch (failure: Throwable) {
+                shell.close()
+                throw failure
+            }
+
+            val closed = shell.close()
+
+            val crash = assertIs<KortexError.ApplicationCrashed>(
+                closed.errorOrNull(),
+                "cleanup that threw as the application closed did not close it as ApplicationCrashed",
+            )
+            assertEquals(CLEANUP_FAILURE, crash.cause.message, "the crash did not carry what the cleanup threw")
+            assertTrue(speck.hasEnded, "the call whose dispose was skipped never ended its surface: ${speck.status}")
+        }
+    }
+
+    @Test
     fun `UI placed directly in the application's content ends the run as ApplicationCrashed`() {
         val addUi = mutableStateOf(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
