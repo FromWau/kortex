@@ -234,7 +234,7 @@ outlive it.
 
 - [x] **The presets are composables a host calls.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`,
       `Osd`, `AppMenu` and `ContextMenu` (`Presets.kt`) are composable functions, generic in `E` as
-      `LayerSurface` is, each taking the parameters its kind needs plus `namespace`, `visible`, `onClose`,
+      `LayerSurface` is, each taking the parameters its kind needs plus `namespace`, `onClose`,
       `content` and a `monitor`, optional except on `ContextMenu`; none takes a setting that would change its
       kind, such as a panel's anchors or a lock screen's keyboard. Each calls `LayerSurface` with the
       `SurfaceConfig` preset of its kind, so each placement rule below is written once, in `SurfaceConfig`'s
@@ -322,14 +322,6 @@ outlive it.
       arrives. Only the namespace half is tested: this desktop has one monitor, so a changed `monitor` is
       covered by reading rather than by a test, and takes the identical path from `rebuildsOver` on.
       (`LiveSettingsTest`, `LiveKeyboardTest`, `SurfaceRebuildTest`)
-- [x] **A surface can be taken off screen and put back.** `visible = false` unmaps the surface and hands back
-      the space it reserved, while its content keeps running, keeps what it holds and reads the size it last
-      had, draws nothing and takes no input; `true` maps it again, at whatever its settings ask for by then,
-      drawing the content that was there all along. Nothing is reported either way, and nothing is released
-      until the call leaves composition. A call that asks for a surface off screen from the start puts none on
-      screen, and settings that cannot be placed end an off-screen surface as they would one on screen. The
-      space comes back because the zone is set to 0 before the null buffer: Hyprland goes on reserving what an
-      unmapped surface asked for. (`SurfaceVisibilityTest`)
 - [x] **A surface can be aimed at a chosen monitor.** `LayerSurface`'s `monitor` puts a surface on the
       `wl_output` behind a `Monitor` that `rememberMonitors()` lists, whose `name` is `wl_output.name`, the same
       string `hyprctl monitors` prints; null leaves the choice to the compositor. A `Monitor` exists only while its
@@ -345,19 +337,17 @@ outlive it.
 
 The bar demo (`bar/src/main/kotlin/com/fromwau/kortex/bar/Main.kt`) is the worked example: a `Bar` on each
 monitor `rememberMonitors()` lists, 56 dp thick with `OnDemand` keyboard for its text field. Its content sets
-the thickness its own call asks for, so one button takes the bar to 96 dp and back, and another takes it off
-screen for a second, a `LaunchedEffect` that keeps running while it is gone bringing it back. The click count
-and the typed text sit behind `remember` in that content, so both stand through the resize and through the
-second off screen, and a readout beside them is the size the compositor gave the bar. A right click on
-the bar's own background, not on its buttons or its text field, shows a `ContextMenu` from the bar's content, on
-the bar's monitor and just below the bar at the click's x; a second right click moves it, and picking an item
-closes it through `close()`. A bar whose content crashes has the crash appended to the crash log, and a bar that
-ends with any error has an `Osd` in its place saying why, until a click on it brings the bar back. The menu
-assumes the bar's own top-left is the monitor's top-left, true only when nothing else also reserves space on the
-monitor's Top edge: `zwlr_layer_shell_v1` reports a surface's size but never its position, so a bar sharing the
-Top edge with another exclusive-zone surface has no way to learn how far down it was actually pushed. Measured
-against a desktop that runs one: the bar sat at y=62 and its menu opened at y=56, its own height, which is where
-the bar would begin if nothing else reserved that edge.
+the thickness its own call asks for, so one button takes the bar to 96 dp and back. The click count and the typed
+text sit behind `remember` in that content, so both stand through the resize, and a readout beside them is the size
+the compositor gave the bar. A right click on the bar's own background, not on its buttons or its text field, shows
+a `ContextMenu` from the bar's content, on the bar's monitor and just below the bar at the click's x; a second right
+click moves it, and picking an item closes it through `close()`. A bar whose content crashes has the crash appended
+to the crash log, and a bar that ends with any error has an `Osd` in its place saying why, until a click on it
+brings the bar back. The menu assumes the bar's own top-left is the monitor's top-left, true only when nothing else
+also reserves space on the monitor's Top edge: `zwlr_layer_shell_v1` reports a surface's size but never its
+position, so a bar sharing the Top edge with another exclusive-zone surface has no way to learn how far down it was
+actually pushed. Measured against a desktop that runs one: the bar sat at y=62 and its menu opened at y=56, its own
+height, which is where the bar would begin if nothing else reserved that edge.
 
 ## Polish
 
