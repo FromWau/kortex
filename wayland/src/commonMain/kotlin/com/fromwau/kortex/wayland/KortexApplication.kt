@@ -9,6 +9,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.platform.FrameRecomposer
 import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kortex.compose.KortexPlatform
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -62,7 +64,11 @@ public fun kortexApplication(
                 val run = shell.runEventLoop()
                 // Whatever the run returned: this is where exitApplication's calls leave and their surfaces report.
                 val closed = shell.close()
-                run.flatMap { closed }
+                // A crash of the host's own code wins over the connection's, which every onClose has already had.
+                when (val closing = closed.errorOrNull()) {
+                    is KortexError.ApplicationCrashed -> Err(closing)
+                    else -> run.flatMap { closed }
+                }
             }
         }
     }
