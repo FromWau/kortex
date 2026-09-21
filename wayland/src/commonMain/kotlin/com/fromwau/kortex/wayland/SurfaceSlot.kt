@@ -104,6 +104,8 @@ internal class SurfaceSlot(
     fun bindTo(state: SurfaceState) {
         val bound = state.boundTo
         check(bound == null || bound === this || !bound.live) { SURFACE_STATE_SHARED }
+        // The state this call leaves is free for another: nothing of this one reaches it again.
+        if (this.state !== state && this.state.boundTo === this) this.state.boundTo = null
         state.boundTo = this
         this.state = state
         publish(progress)

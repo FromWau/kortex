@@ -600,6 +600,30 @@ class SurfaceTest {
     }
 
     @Test
+    fun `a state its call has swapped away from is free for another call`() {
+        val swapped = mutableStateOf(false)
+        val first = SurfaceState()
+        val second = SurfaceState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface(NAMESPACE, state = if (swapped.value) second else first)
+            if (swapped.value) TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT, state = first)
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+
+            swapped.value = true
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.size == 2 },
+                "the call handed the state the first call left behind placed no surface",
+            )
+            assertIs<SurfaceStatus.OnScreen>(first.status, "the state left behind did not follow its new call")
+            assertIs<SurfaceStatus.OnScreen>(second.status, "the state the first call took did not follow it")
+        }
+    }
+
+    @Test
     fun `a state held above its call reads the ending, and goes back to Placing when the call returns`() {
         val showing = mutableStateOf(true)
         val bar = SurfaceState()

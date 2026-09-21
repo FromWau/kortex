@@ -42,9 +42,13 @@ public sealed interface SurfaceStatus {
  *
  * ```kotlin
  * val bar = rememberSurfaceState()
- * when (val status = bar.status) {
- *     is SurfaceStatus.Ended -> Osd(width = 320.dp, height = 96.dp) { Text("the bar stopped: ${status.result}") }
- *     else -> Bar(state = bar) { Text("12:00") }
+ * var showing by remember { mutableStateOf(true) }
+ * val status = bar.status
+ * LaunchedEffect(status) { if (status is SurfaceStatus.Ended) showing = false }
+ *
+ * when {
+ *     showing -> Bar(state = bar) { Text("12:00") }
+ *     else -> Osd(width = 320.dp, height = 96.dp) { Text("the bar stopped: $status") }
  * }
  * ```
  *
@@ -53,15 +57,19 @@ public sealed interface SurfaceStatus {
  * last saw. Putting the call back reuses the same state: it goes to [SurfaceStatus.Placing] and on as the new
  * surface is placed, so you read a surface that ended and came back.
  *
+ * Decide what to show from state of your own, not from [status]: a call you compose only while its status is not
+ * [SurfaceStatus.Ended] can never come back, because that call is what would clear the ending. Read [status] for
+ * what happened, and keep what to show beside it.
+ *
  * One state belongs to one surface call at a time. Two calls each holding a surface cannot share one, and a second
  * call handed a state the first is still publishing to ends the application with [KortexError.ApplicationCrashed].
  */
 public class SurfaceState {
-    // Written on the thread that runs kortexApplication, outside composition; read wherever a caller composes.
+    // Both are written on the one thread the application runs on, by its loop and by the effects of a composition
+    // on it; the status below is read wherever a caller composes.
     internal var progress: SurfaceProgress by mutableStateOf(SurfaceProgress.Placing)
 
-    // The call publishing to this state, which is how a second call taking it while the first holds it is caught.
-    // Written in composition, on the thread the application runs on.
+    // The call publishing here, which is how a second call taking this state while the first holds it is caught.
     internal var boundTo: SurfaceSlot? = null
 
     /** What the surface is doing now. */
@@ -74,7 +82,11 @@ public class SurfaceState {
         }
 }
 
-/** A [SurfaceState] remembered where it is called, for the surface call beside it. */
+/**
+ * A [SurfaceState] remembered where it is called, for the surface call beside it.
+ *
+ * [SurfaceState] says what its status is for, and why what to show belongs in state of your own beside it.
+ */
 @Composable
 public fun rememberSurfaceState(): SurfaceState = remember { SurfaceState() }
 

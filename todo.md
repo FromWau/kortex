@@ -189,7 +189,8 @@ outlive it.
       that stopped it. Content that throws ends only its own surface, with `Err(SurfaceCrashed)` carrying the
       scene's first failure, and so does cleanup that throws as the surface goes, whatever else ended it. An
       ending and a removal in one pass keep the ending, and a call taken out after its surface ended changes
-      nothing: `Ended` is where a state stops, and showing that surface again takes a state of its own.
+      nothing more. The state it leaves behind holds that ending for its caller to read, and the call that puts
+      the surface back takes the same state to `Placing` and on as its new surface is placed.
       `close()` acts on the call's own surface, from any thread, the first call deciding; once it has ended it
       does nothing. `exitApplication()`, from any thread and more than once, ends the run, and closing the shell
       takes every surface call out, each ending as `LeftComposition` unless its content throws as it goes.
@@ -415,10 +416,10 @@ height, which is where the bar would begin if nothing else reserved that edge.
       `ContentFailure.PointerInput`, reaching its own `SurfaceState` once, while the probe's own process exits
       cleanly. Its content closes its own surface if no click ever lands, so a missed click fails the test
       on the probe's own output instead of a kill. (`VirtualPointerCrashTest`)
-- [x] **The bar demo logs its crashes.** `Main.kt` reads the `SurfaceState` of the bar and of its context menu,
-      and appends the crash an ending carries, a `KortexError.SurfaceCrashed`, as the crash's ISO-8601 instant,
-      namespace and failure kind
-      (`Composition`, `KeyInput` or `PointerInput`), then the cause's full stack trace, to
+- [x] **The bar demo logs its crashes.** `Main.kt` reads the `SurfaceState` of the bar, of its context menu and
+      of its crash popup, and appends the crash an ending carries, a `KortexError.SurfaceCrashed`, as the crash's
+      ISO-8601 instant, namespace and failure kind (`Composition`, `KeyInput` or `PointerInput`), then the
+      cause's full stack trace, to
       `$XDG_STATE_HOME/kortex-bar/crash.log`, or `$HOME/.local/state/kortex-bar/crash.log` when
       `XDG_STATE_HOME` is unset, empty or relative, per the XDG Base Directory spec; missing parent
       directories are created as needed. `CrashLog.kt`'s `crashLogPath` is a pure function of the
