@@ -248,7 +248,7 @@ class SurfaceRebuildTest {
         val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
     }
 
-    /** One surface driven by [asked], whose content reports itself to [watch] from an effect that outlives a rebuild. */
+    /** One surface driven by [asked], whose content reports itself to [watch] from an effect a rebuild outlives. */
     @Composable
     private fun WatchedSurface(asked: Asked, watch: Watch) {
         TestSurface<Nothing>(
