@@ -43,9 +43,9 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * The surface appears shortly after the call enters composition, and goes when the call leaves it. It keeps running
  * and draws the newest [content] throughout, and a changed setting changes the surface on screen shortly after,
  * reporting nothing: [layer], [anchor], [width], [height], [margins], [exclusiveZone], [exclusiveEdge] and [keyboard]
- * reach it in one step, [visible] takes it off screen and back, and a changed [monitor] or [namespace] puts a new
- * surface in its place, drawn from scratch. State [content] keeps behind `remember` lives as long as the surface it
- * is drawn on.
+ * reach it in one step, [visible] takes it off screen and back, and a changed [monitor] or [namespace] moves the
+ * content onto a surface of its own on that monitor, under that name. State [content] keeps behind `remember` stands
+ * through every one of those changes, and lasts until the surface ends.
  *
  * Once the surface has ended by itself, in any of the ways [onClose] lists, the call shows nothing until you take it
  * out of composition and put it back. Taking it out reports nothing more.
