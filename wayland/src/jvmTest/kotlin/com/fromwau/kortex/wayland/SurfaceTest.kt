@@ -39,14 +39,25 @@ import kotlin.test.fail
 /** A surface a call keeps on screen in an application composition, and how each of its endings reaches its state. */
 class SurfaceTest {
     @Test
-    fun `a surface call places its surface one pass after it enters composition, under its namespace as written`() {
-        onApplication({ TestSurface(NAMESPACE) }) { shell ->
+    fun `a call is Placing until the pass after it enters composition places its surface, under its namespace`() {
+        val speck = SurfaceState()
+
+        onApplication({ TestSurface(NAMESPACE, state = speck) }) { shell ->
             assertTrue(shell.shownSurfaces.isEmpty(), "the call placed its surface inside composition")
+            assertEquals(SurfaceStatus.Placing, speck.status, "a call was not Placing before its surface was placed")
 
             shell.passOrFail()
 
             assertEquals(1, shell.shownSurfaces.size, "the pass after the call entered composition placed no surface")
-            assertNotNull(Screen.awaitGeometry(NAMESPACE), "hyprctl never listed $NAMESPACE, its namespace as written")
+            val geometry = assertNotNull(
+                Screen.awaitGeometry(NAMESPACE),
+                "hyprctl never listed $NAMESPACE, its namespace as written",
+            )
+            assertEquals(
+                SurfaceStatus.OnScreen(IntSize(geometry.logicalWidth, geometry.logicalHeight)),
+                speck.status,
+                "a placed surface was not OnScreen at the size hyprctl reports",
+            )
         }
     }
 
