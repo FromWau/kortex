@@ -59,14 +59,14 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
-starts in a scene with a text field, and a failure after a surface has reported, which reaches no one; under
-Surface presets, a fractionally scaled monitor, which measures short; under Keyboard and clipboard, the character
-a Ctrl+key types when no layout has an ASCII one on that key, the clipboard that content inside a `Popup` or
-`Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap
-xkb rejects, images on the clipboard as PNG and JPEG, and drag and drop; under Housekeeping, the protocol errors
-libwayland prints to stderr, the Compose error `KortexSceneTest` prints, the Compose warning `KeyRepeatTest`
-prints, and a closed surface's `wl_pointer`, which no test sees outlive it.
+Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short;
+under Keyboard and clipboard, the character a Ctrl+key types when no layout has an ASCII one on that key, the
+clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest`
+proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG, and drag and
+drop; under Housekeeping, the protocol errors libwayland prints to stderr, the Compose error `KortexSceneTest`
+prints, the Compose warning `KeyRepeatTest` prints, and a closed surface's `wl_pointer`, which no test sees
+outlive it.
 
 ## Foundations
 
@@ -218,14 +218,14 @@ prints, and a closed surface's `wl_pointer`, which no test sees outlive it.
       each on Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event
       queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
       `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
-- [ ] **A failure after a surface has reported reaches no one.** A crash in a closed scene's leftover work,
-      such as a `delay` in a `NonCancellable` `finally`, is recorded by the scene but only wakes the loop,
-      through the `onCrash` that `KortexShell.place` passes: the surface has reported by then, and its `Show`
-      no longer holds it, so nothing reads its crash again. When the connection has died, an
-      `ApplicationCrashed` from an `onClose` called as the application closes is dropped for the connection's
-      error, by `kortexApplication`'s `run.flatMap { closed }`. Open:
-      whether a surface's report waits for its closed scene's leftover work, within a bound, or `onClose`'s
-      KDoc says such failures go unreported; decided with spec B, which reworks teardown.
+- [x] **A failure after a surface has reported reaches no one.** Nothing of an ended surface's content runs
+      after its `onClose`. A scene's close drains the work that content has queued and then closes its
+      `SurfaceWork`, and `LoopQueue` neither takes nor runs anything under an owner that has closed, so every
+      failure of that content is recorded before its surface reports and a suspending cleanup, such as a
+      `delay` in a `NonCancellable` `finally`, stops at its wait. `kortexApplication` returns the
+      `ApplicationCrashed` an `onClose` threw as the application closed even on a dead connection, whose error
+      every `onClose` has had by then. (`LateFailureTest`, `LoopQueueTest`, `SurfaceCloseCancellationTest`,
+      `SurfaceTest`)
 
 ## Surface presets
 
