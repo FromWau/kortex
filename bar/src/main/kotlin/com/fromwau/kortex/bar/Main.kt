@@ -58,16 +58,16 @@ fun main() {
     kortexApplication {
         val monitors by rememberMonitors()
         for (monitor in monitors) key(monitor) {
-            var run by remember { mutableIntStateOf(0) }
+            var attempt by remember { mutableIntStateOf(0) }
             // A bar that has stopped stays stopped, so bringing it back takes a fresh state and a fresh call.
-            key(run) {
+            key(attempt) {
                 val bar = rememberSurfaceState()
                 when (val status = bar.status) {
                     is SurfaceStatus.Ended -> CrashPopup(
                         monitor = monitor,
                         stopped = status.result,
                         crashLog = crashLog,
-                        onDismiss = { run++ },
+                        onDismiss = { attempt++ },
                     )
 
                     else -> DemoBar(screen = monitor, crashLog = crashLog, state = bar)
