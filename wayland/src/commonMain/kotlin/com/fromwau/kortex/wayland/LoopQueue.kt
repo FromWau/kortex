@@ -27,8 +27,8 @@ internal class SurfaceWork : AbstractCoroutineContextElement(SurfaceWork) {
  * run its own and leave the rest where it is.
  *
  * Work runs in rounds, each one what was queued as it began, so work that keeps queuing itself waits for the next
- * round. A pass runs one round; a drain runs several, up to [DRAIN_BOUND_ROUNDS]. Work of an owner that has closed
- * is neither taken nor run, whether it was dispatched before the close or after it.
+ * round. A pass runs one round; a drain runs several, up to [DRAIN_BOUND_ROUNDS]. Work under a [SurfaceWork] that
+ * has closed is neither taken nor run, whether it was dispatched before that close or after it.
  *
  * Once the loop's owner has closed, no pass follows: what its last drain left, and work arriving after, stays in a
  * queue nobody drains, and that work's `wake()` is a guarded no-op.

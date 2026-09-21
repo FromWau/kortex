@@ -141,8 +141,8 @@ internal class SurfaceScene(
     }
 
     /**
-     * Disposes the composition, even a failed one, runs the work its cancellation leaves behind, and drops whatever
-     * this content schedules from then on, so every failure of it is in [crash] before the surface is reported.
+     * Disposes the composition, even a failed one, and runs the work its cancellation leaves behind. Whatever this
+     * content schedules after that is dropped, so every failure of it is in [crash] before its surface is reported.
      */
     override fun close() {
         composition.close()

@@ -604,7 +604,14 @@ class SurfaceTest {
 
         val result = LoopThread.runApplication(content) { _, loop ->
             // Both on screen first: a connection killed as the first is placed takes the second's placement with it.
-            assertTrue(LoopThread.awaitNamespace(SECOND_NAMESPACE, present = true), "both surfaces never appeared")
+            assertTrue(
+                LoopThread.awaitNamespace(NAMESPACE, present = true),
+                "hyprctl layers never reported $NAMESPACE",
+            )
+            assertTrue(
+                LoopThread.awaitNamespace(SECOND_NAMESPACE, present = true),
+                "hyprctl layers never reported $SECOND_NAMESPACE",
+            )
 
             killRequested.value = true
 
