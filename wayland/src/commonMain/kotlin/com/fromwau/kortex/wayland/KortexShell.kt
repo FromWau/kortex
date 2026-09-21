@@ -328,8 +328,6 @@ internal class KortexShell private constructor(
         }
         // Detaching cancels pointer input, which runs content: one that threw there ends rather than coming back.
         scene.crash?.let { return end(slot, Err(SurfaceError.Failed(it))) }
-        // After the detach: its pointer cancel runs content, and a throw there names the surface being given up.
-        scene.namespace = settings.config.namespace
         build(slot, settings, scene, output)
             .onSuccess { settle(slot, settings) }
             .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
@@ -373,6 +371,8 @@ internal class KortexShell private constructor(
             )
             .flatMap { surface ->
                 slot.surface = surface
+                // Only now that a surface carries the name: a crash before this one names the surface it was on.
+                scene.namespace = settings.config.namespace
                 surface.attach(scene).onError {
                     slot.surface = null
                     surface.close()
