@@ -326,10 +326,10 @@ internal class KortexShell private constructor(
             surface.detach()
             surface.close()
         }
-        // Before anything content can throw in: a crash is named after the surface the content is on when it throws.
-        scene.namespace = settings.config.namespace
         // Detaching cancels pointer input, which runs content: one that threw there ends rather than coming back.
         scene.crash?.let { return end(slot, Err(SurfaceError.Failed(it))) }
+        // After the check above, so a crash from the detach still names the surface its content was on.
+        scene.namespace = settings.config.namespace
         build(slot, settings, scene, output)
             .onSuccess { settle(slot, settings) }
             .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
