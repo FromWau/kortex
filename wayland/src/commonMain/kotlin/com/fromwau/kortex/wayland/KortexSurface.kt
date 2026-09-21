@@ -441,9 +441,18 @@ internal class KortexSurface private constructor(
                     return display.requireAlive().flatMap { Err(KortexError.MissingSeatDevice(SeatDevice.Pointer)) }
                 }
                 val surface = KortexSurface(
-                    display, layer, shm, bufferScale, frames, FrameClock(layer.surface),
-                    loopQueue ?: LoopQueue(display::wake), cursorTheme, cursorSurface, seat,
-                    onInputSerial, onKeyboardFocus,
+                    display = display,
+                    layer = layer,
+                    shm = shm,
+                    bufferScale = bufferScale,
+                    frames = frames,
+                    clock = FrameClock(layer.surface),
+                    loop = loopQueue ?: LoopQueue(display::wake),
+                    cursorTheme = cursorTheme,
+                    cursorSurface = cursorSurface,
+                    seat = seat,
+                    onInputSerial = onInputSerial,
+                    onKeyboardFocus = onKeyboardFocus,
                 )
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true
