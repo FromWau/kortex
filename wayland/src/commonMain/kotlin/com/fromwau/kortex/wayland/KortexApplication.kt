@@ -9,8 +9,6 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.platform.FrameRecomposer
 import com.fromwau.kern.result.EmptyResult
-import com.fromwau.kern.result.Err
-import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kortex.compose.KortexPlatform
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -18,7 +16,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 /** What your application's content can do besides composing: end the application. */
 public interface KortexApplicationScope {
     /**
-     * Ends the application: every surface call leaves composition, each surface's `onClose` receives
+     * Ends the application: every surface call leaves composition, each surface ending with
      * `Ok(SurfaceEnd.LeftComposition)` unless its content throws as it goes, and [kortexApplication] returns. Safe to
      * call from any thread, and more than once.
      */
@@ -33,26 +31,26 @@ public interface KortexApplicationScope {
  * fun main() {
  *     kortexApplication {
  *         var showing by remember { mutableStateOf(true) }
- *         if (showing) Bar<Nothing>(onClose = { showing = false }) { Text("12:00") }
+ *         if (showing) Bar { Text("12:00") }
  *     }.onError { exitProcess(1) }
  * }
  * ```
  *
- * Blocks the calling thread until the application ends. [content], every surface's content and every `onClose` run
- * on that thread, which also draws, so blocking inside an effect stalls every surface; move blocking work off it,
- * e.g. with `withContext(Dispatchers.IO)`.
+ * Blocks the calling thread until the application ends. [content] and every surface's content run on that thread,
+ * which also draws, so blocking inside an effect stalls every surface; move blocking work off it, e.g. with
+ * `withContext(Dispatchers.IO)`.
  *
  * An application with no surface on screen keeps running until [KortexApplicationScope.exitApplication] is called.
  *
  * @param platform hooks the surfaces' content drives, e.g. the cursor shape a hover asks for.
  * @param content your application's state and its surface calls. It draws nothing itself: UI belongs in a surface's
  *   own content.
- * @return `Ok(Unit)` once `exitApplication()` has ended the application, with every surface's `onClose` called.
+ * @return `Ok(Unit)` once `exitApplication()` has ended the application, with every surface ended.
  *   [KortexError.NoCompositorResponse], [KortexError.ConnectionError], [KortexError.ProtocolViolation] or
  *   [KortexError.MissingGlobal] when the compositor cannot be reached, goes away, or lacks what kortex needs. When
- *   the connection fails while the application runs, the `onClose` of every surface you still show receives that
- *   same error, as `Err(SurfaceError.Failed(error))`, unless its content throws as it goes.
- *   [KortexError.ApplicationCrashed] when your own code threw, UI placed directly in [content] included.
+ *   the connection fails while the application runs, every surface you still show ends with that same error, unless
+ *   its content throws as it goes. [KortexError.ApplicationCrashed] when your own code threw, UI placed directly in
+ *   [content] included.
  */
 public fun kortexApplication(
     platform: KortexPlatform = KortexPlatform.None,
@@ -62,13 +60,8 @@ public fun kortexApplication(
         display.use {
             KortexShell.createApplication(display, platform, content = content).flatMap { shell ->
                 val run = shell.runEventLoop()
-                // Whatever the run returned: this is where exitApplication's calls leave and their surfaces report.
-                val closed = shell.close()
-                // The host's own throw is reported over the connection's error, which would otherwise hide it.
-                when (val closing = closed.errorOrNull()) {
-                    is KortexError.ApplicationCrashed -> Err(closing)
-                    else -> run.flatMap { closed }
-                }
+                // Whatever the run returned: this is where exitApplication's calls leave and their surfaces end.
+                run.flatMap { shell.close() }
             }
         }
     }
@@ -81,13 +74,13 @@ public fun kortexApplication(
  * kortexApplication {
  *     val monitors by rememberMonitors()
  *     for (monitor in monitors) key(monitor) {
- *         Bar<Nothing>(monitor = monitor, namespace = "bar-${monitor.name}") { Text("12:00") }
+ *         Bar(monitor = monitor, namespace = "bar-${monitor.name}") { Text("12:00") }
  *     }
  * }
  * ```
  *
  * A monitor is listed once the compositor has described it. It leaves the list when it is unplugged, and every
- * surface you put on it ends then, as [LayerSurface]'s `onClose` describes. Call it in [kortexApplication]'s content
+ * surface you put on it ends then, as [LayerSurface]'s `state` describes. Call it in [kortexApplication]'s content
  * or in a surface's content.
  *
  * @throws IllegalStateException when called anywhere else.

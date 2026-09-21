@@ -29,7 +29,7 @@ class SurfaceHandleTest {
         val handleRef = AtomicReference<KortexSurfaceHandle>()
         val closeRequested = mutableStateOf(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE) {
+            TestSurface(NAMESPACE) {
                 val surface = LocalKortexSurface.current
                 handleRef.set(surface)
                 val requested = closeRequested.value

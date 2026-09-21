@@ -33,7 +33,7 @@ class RecompositionTest {
             val content: @Composable KortexApplicationScope.() -> Unit = {
                 val monitors by rememberMonitors()
                 monitors.firstOrNull()?.let { monitor ->
-                    TestSurface<Nothing>(NAMESPACE, monitor = monitor) {
+                    TestSurface(NAMESPACE, monitor = monitor) {
                         val geometry = monitor.geometry
                         SideEffect { composed += geometry }
                         Box(Modifier.fillMaxSize())

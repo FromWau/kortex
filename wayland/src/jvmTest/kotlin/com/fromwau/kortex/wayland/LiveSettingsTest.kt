@@ -7,9 +7,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
-import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,7 +27,7 @@ class LiveSettingsTest {
         val size = mutableStateOf(IntSize(SPECK, SPECK))
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, width = size.value.width.dp, height = size.value.height.dp) {
+            TestSurface(NAMESPACE, width = size.value.width.dp, height = size.value.height.dp) {
                 remember { placements.incrementAndGet() }
             }
         }
@@ -53,7 +51,7 @@ class LiveSettingsTest {
         val margins = mutableStateOf(Margins.None)
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, margins = margins.value) { remember { placements.incrementAndGet() } }
+            TestSurface(NAMESPACE, margins = margins.value) { remember { placements.incrementAndGet() } }
         }
 
         onSurface(content) { shell, placed ->
@@ -70,7 +68,7 @@ class LiveSettingsTest {
     fun `a change reaches a surface whose content asks for no frame of its own`() {
         val margins = mutableStateOf(Margins.None)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, margins = margins.value)
+            TestSurface(NAMESPACE, margins = margins.value)
         }
 
         onSurface(content) { shell, placed ->
@@ -87,7 +85,7 @@ class LiveSettingsTest {
         val anchor = mutableStateOf(setOf(Edge.Bottom, Edge.Right))
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, anchor = anchor.value) { remember { placements.incrementAndGet() } }
+            TestSurface(NAMESPACE, anchor = anchor.value) { remember { placements.incrementAndGet() } }
         }
 
         onSurface(content) { shell, placed ->
@@ -106,7 +104,7 @@ class LiveSettingsTest {
         val layer = mutableStateOf(Layer.Overlay)
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, layer = layer.value) { remember { placements.incrementAndGet() } }
+            TestSurface(NAMESPACE, layer = layer.value) { remember { placements.incrementAndGet() } }
         }
 
         onSurface(content) { shell, placed ->
@@ -124,7 +122,7 @@ class LiveSettingsTest {
         val zone = mutableStateOf<ExclusiveZone>(ExclusiveZone.Reserve(ZONE.dp))
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(
+            TestSurface(
                 NAMESPACE,
                 anchor = BOTTOM_BAR,
                 width = SPAN_ANCHORED_AXIS.dp,
@@ -157,7 +155,7 @@ class LiveSettingsTest {
         val corner = mutableStateOf(RESERVING_RIGHT)
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(
+            TestSurface(
                 NAMESPACE,
                 anchor = corner.value.anchor,
                 width = WIDER.dp,
@@ -189,16 +187,16 @@ class LiveSettingsTest {
     }
 
     @Test
-    fun `a change the compositor could not place reports Failed with the reason, and the connection lives on`() {
+    fun `a change the compositor could not place ends the surface with the reason, and the connection lives on`() {
         val anchor = mutableStateOf(BOTTOM_BAR)
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val bar = SurfaceState()
         val unspannable = setOf(Edge.Bottom, Edge.Left)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(
+            TestSurface(
                 NAMESPACE,
                 anchor = anchor.value,
                 width = SPAN_ANCHORED_AXIS.dp,
-                onClose = { reports += it },
+                state = bar,
             )
         }
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
@@ -210,13 +208,12 @@ class LiveSettingsTest {
                 anchor.value = unspannable
 
                 assertTrue(
-                    shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                    "the rejected change reported nothing",
+                    shell.pumpOrFail(PUMP_MILLIS) { bar.hasEnded },
+                    "the rejected change ended nothing",
                 )
-                assertEquals(
-                    listOf(Err(SurfaceError.Failed(KortexError.UnspannableAxis(Axis.Horizontal, unspannable)))),
-                    reports.toList(),
-                    "a change that leaves an axis unspannable did not report Failed with that reason once",
+                bar.assertEnded(
+                    Err(KortexError.UnspannableAxis(Axis.Horizontal, unspannable)),
+                    "a change that leaves an axis unspannable did not end the surface with that reason",
                 )
                 assertTrue(shell.shownSurfaces.isEmpty(), "the surface a rejected change ended is listed as shown")
                 assertEquals(

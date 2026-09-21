@@ -119,13 +119,21 @@ internal fun awaitPlaced(
     )
 }
 
-/** The crash [report] carries; the test fails with [message] if it is not `Err(Failed(SurfaceCrashed))`. */
-internal fun crashIn(
-    report: Result<SurfaceEnd, SurfaceError<*>>,
+/** Whether the surface [this] watches has ended, which a pump waits for. */
+internal val SurfaceState.hasEnded: Boolean get() = status is SurfaceStatus.Ended
+
+/** Fails with [message] unless the surface [this] watches has ended, with [ending]. */
+internal fun SurfaceState.assertEnded(
+    ending: Result<SurfaceEnd, KortexError>,
     message: String,
-): KortexError.SurfaceCrashed {
-    val failed = assertIs<SurfaceError.Failed>(report.errorOrNull(), "$message: $report")
-    return assertIs<KortexError.SurfaceCrashed>(failed.error, "$message: $report")
+) {
+    assertEquals(SurfaceStatus.Ended(ending), status, message)
+}
+
+/** The crash the surface [this] watches ended with; the test fails with [message] if it ended any other way. */
+internal fun SurfaceState.crashOrFail(message: String): KortexError.SurfaceCrashed {
+    val ended = assertIs<SurfaceStatus.Ended>(status, "$message: $status")
+    return assertIs<KortexError.SurfaceCrashed>(ended.result.errorOrNull(), "$message: ${ended.result}")
 }
 
 private const val PLACED_WITHIN_MILLIS = 4_000L

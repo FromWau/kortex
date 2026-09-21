@@ -24,7 +24,6 @@ import androidx.compose.ui.platform.InspectorInfo
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
-import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexSurfaceHandle
@@ -35,6 +34,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -76,7 +76,7 @@ class SurfaceRebuildTest {
                 placed, shell.shownSurfaces.single(),
                 "the call kept the surface it was placed on, which cannot carry another namespace",
             )
-            assertEquals(emptyList(), watch.reports.toList(), "the rebuild ended the surface instead of remaking it")
+            assertFalse(watch.state.hasEnded, "the rebuild ended the surface instead of remaking it")
         }
     }
 
@@ -144,12 +144,11 @@ class SurfaceRebuildTest {
             asked.namespace.value = SECOND_NAMESPACE
 
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { watch.reports.isNotEmpty() },
-                "a rebuild onto settings that cannot be placed reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { watch.state.hasEnded },
+                "a rebuild onto settings that cannot be placed ended nothing",
             )
-            assertEquals(
-                listOf(Err(SurfaceError.Failed(KortexError.UnspannableAxis(Axis.Horizontal, UNSPANNABLE)))),
-                watch.reports.toList(),
+            watch.state.assertEnded(
+                Err(KortexError.UnspannableAxis(Axis.Horizontal, UNSPANNABLE)),
                 "the rebuild did not end the surface with the reason its settings were rejected for",
             )
             assertTrue(shell.shownSurfaces.isEmpty(), "the ended surface is still held by the shell")
@@ -158,7 +157,7 @@ class SurfaceRebuildTest {
             // The scene a failed rebuild leaves behind is one nothing would ever close again.
             val ticks = watch.ticks.get()
             shell.pumpOrFail(IDLE_WINDOW_MILLIS)
-            assertEquals(ticks, watch.ticks.get(), "the content of the ended surface kept running after it reported")
+            assertEquals(ticks, watch.ticks.get(), "the content of the ended surface kept running after it ended")
         }
     }
 
@@ -166,9 +165,9 @@ class SurfaceRebuildTest {
     fun `a crash after a rebuild names the namespace its content was on`() {
         val namespace = mutableStateOf(FIRST_NAMESPACE)
         val throwing = mutableStateOf(false)
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(namespace.value, onClose = { reports += it }) {
+            TestSurface(namespace.value, state = speck) {
                 Canvas(Modifier.fillMaxSize()) { if (throwing.value) error(DRAW_FAILURE) }
             }
         }
@@ -184,10 +183,10 @@ class SurfaceRebuildTest {
             throwing.value = true
 
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "content that threw after the rebuild reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "content that threw after the rebuild ended nothing",
             )
-            val crash = crashIn(reports.single(), "content that threw after the rebuild did not report a crash")
+            val crash = speck.crashOrFail("content that threw after the rebuild did not end with a crash")
             assertEquals(
                 SECOND_NAMESPACE, crash.namespace,
                 "the crash named a surface the content was no longer on",
@@ -203,14 +202,14 @@ class SurfaceRebuildTest {
     @Test
     fun `a rebuild that cannot be placed names a crash after the surface its content was last on`() {
         val asked = Asked()
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(
+            TestSurface(
                 namespace = asked.namespace.value,
                 anchor = asked.anchor.value,
                 width = asked.width.value.dp,
                 height = asked.height.dp,
-                onClose = { reports += it },
+                state = speck,
             ) {
                 DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
             }
@@ -225,10 +224,10 @@ class SurfaceRebuildTest {
             asked.namespace.value = SECOND_NAMESPACE
 
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "a rebuild that could not be placed reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "a rebuild that could not be placed ended nothing",
             )
-            val crash = crashIn(reports.single(), "the cleanup that threw as the scene went did not report a crash")
+            val crash = speck.crashOrFail("the cleanup that threw as the scene went did not end with a crash")
             assertEquals(
                 FIRST_NAMESPACE, crash.namespace,
                 "the crash named the surface the rebuild asked for and never made",
@@ -253,9 +252,9 @@ class SurfaceRebuildTest {
     fun `content that throws as the rebuild gives its pointer back ends under the namespace it was on`() {
         val namespace = mutableStateOf(FIRST_NAMESPACE)
         val slotSeen = AtomicReference<SurfaceSlot?>(null)
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(namespace.value, onClose = { reports += it }) {
+            TestSurface(namespace.value, state = speck) {
                 val slot = LocalSurfaceSlot.current
                 SideEffect { slotSeen.set(slot) }
                 Box(Modifier.fillMaxSize().then(ThrowsOnPointerCancel))
@@ -272,10 +271,10 @@ class SurfaceRebuildTest {
             namespace.value = SECOND_NAMESPACE
 
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "content that threw as its pointer was given back reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "content that threw as its pointer was given back ended nothing",
             )
-            val crash = crashIn(reports.single(), "content that threw as its pointer was given back did not crash")
+            val crash = speck.crashOrFail("content that threw as its pointer was given back did not crash")
             assertEquals(
                 FIRST_NAMESPACE, crash.namespace,
                 "the crash named a surface its content was never on",
@@ -370,18 +369,18 @@ class SurfaceRebuildTest {
         val held = AtomicInteger()
         val ticks = AtomicInteger()
         val handle = AtomicReference<KortexSurfaceHandle?>(null)
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val state = SurfaceState()
     }
 
     /** One surface driven by [asked], whose content reports itself to [watch] from an effect a rebuild outlives. */
     @Composable
     private fun WatchedSurface(asked: Asked, watch: Watch) {
-        TestSurface<Nothing>(
+        TestSurface(
             namespace = asked.namespace.value,
             anchor = asked.anchor.value,
             width = asked.width.value.dp,
             height = asked.height.dp,
-            onClose = { watch.reports += it },
+            state = watch.state,
         ) {
             val surface = this
             val held = remember { watch.compositions.incrementAndGet() }

@@ -273,7 +273,7 @@ class SurfacePresetTest {
     fun `a Dock shown in an application spans its edge and reserves exactly its own thickness`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            Dock<Nothing>(
+            Dock(
                 monitor = monitors.first(),
                 edge = Edge.Left,
                 thickness = DOCK_SHOWN_THICKNESS.dp,
@@ -302,7 +302,7 @@ class SurfacePresetTest {
     fun `an AppMenu shown in an application is its own size, centred in the usable area`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            AppMenu<Nothing>(
+            AppMenu(
                 monitor = monitors.first(),
                 width = APP_MENU_SHOWN_WIDTH.dp,
                 height = APP_MENU_SHOWN_HEIGHT.dp,
@@ -330,7 +330,7 @@ class SurfacePresetTest {
     fun `a LockScreen shown in an application covers its whole monitor above everything else`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            LockScreen<Nothing>(monitor = monitors.first(), namespace = LOCK_SHOWN_NAMESPACE) {}
+            LockScreen(monitor = monitors.first(), namespace = LOCK_SHOWN_NAMESPACE) {}
         }
 
         onApplication(content) { shell ->

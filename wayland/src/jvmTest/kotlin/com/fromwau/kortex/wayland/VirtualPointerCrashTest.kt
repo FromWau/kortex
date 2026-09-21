@@ -69,7 +69,7 @@ class VirtualPointerCrashTest {
             assertEquals(
                 1,
                 probe.output.count { it == hookLine },
-                "the click handler's crash must reach onClose exactly once; output:\n$raw",
+                "the click handler's crash must reach the surface's state exactly once; output:\n$raw",
             )
         }
     }

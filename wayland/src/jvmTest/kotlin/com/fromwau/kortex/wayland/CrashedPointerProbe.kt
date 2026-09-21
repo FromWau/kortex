@@ -9,7 +9,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.onError
 import com.fromwau.kortex.compose.LocalKortexSurface
 import kotlinx.coroutines.delay
 
@@ -21,31 +20,27 @@ internal const val POINTER_PROBE_FAILURE = "a click handler threw"
 // What Screen.pixelReaching waits for before a click: proof the probe has its first buffer on screen.
 internal const val POINTER_PROBE_PIXEL = 0xFFFF00FF.toInt()
 
-/** Shows one clickable surface whose content throws when clicked, and reports how it ended. */
+/** Shows one clickable surface whose content throws when clicked, and prints how it ended. */
 object CrashedPointerProbe {
     @JvmStatic
     fun main(args: Array<String>) {
         kortexApplication {
-            TestSurface<Nothing>(
-                POINTER_PROBE_NAMESPACE,
-                layer = Layer.Overlay,
-                anchor = setOf(Edge.Top, Edge.Left),
-                width = 32.dp,
-                height = 32.dp,
-                onClose = { ending ->
-                    ending.onError { error ->
-                        val crash = (error as SurfaceError.Failed).error as KortexError.SurfaceCrashed
-                        System.err.println(
-                            "$PROBE_MARKER hook crashed=${crash.namespace} cause=${crash.failure.cause.message}",
-                        )
-                        System.err.println(
-                            "$PROBE_MARKER crashed=${crash.namespace} failure=${crash.failure::class.simpleName} " +
-                                "cause=${crash.failure.cause.message}",
-                        )
-                    }
+            val probe = rememberSurfaceState()
+            when (val status = probe.status) {
+                is SurfaceStatus.Ended -> LaunchedEffect(status) {
+                    printEnding(status.result)
                     exitApplication()
-                },
-            ) { ThrowOnClick() }
+                }
+
+                else -> TestSurface(
+                    POINTER_PROBE_NAMESPACE,
+                    layer = Layer.Overlay,
+                    anchor = setOf(Edge.Top, Edge.Left),
+                    width = 32.dp,
+                    height = 32.dp,
+                    state = probe,
+                ) { ThrowOnClick() }
+            }
         }
     }
 }

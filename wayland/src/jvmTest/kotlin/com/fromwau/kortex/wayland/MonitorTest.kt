@@ -7,12 +7,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.Ok
-import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -47,7 +46,7 @@ class MonitorTest {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
             SideEffect { inApplication.set(monitors) }
-            TestSurface<Nothing>(NAMESPACE) {
+            TestSurface(NAMESPACE) {
                 val seen by rememberMonitors()
                 SideEffect { inContent.set(seen) }
             }
@@ -71,7 +70,7 @@ class MonitorTest {
     fun `a surface shown on a monitor lands on it, under its namespace as written`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            monitors.firstOrNull()?.let { TestSurface<Nothing>(NAMESPACE, monitor = it) }
+            monitors.firstOrNull()?.let { TestSurface(NAMESPACE, monitor = it) }
         }
 
         onApplication(content) { shell ->
@@ -119,15 +118,15 @@ class MonitorTest {
     @Test
     fun `settings that differ only by monitor are different, and equal monitors make equal settings`() {
         withUnboundMonitors("LEFT-1", "RIGHT-1") { (left, right) ->
-            val onLeft = settingsAskedBy { TestSurface<Nothing>(NAMESPACE, monitor = left) }
+            val onLeft = settingsAskedBy { TestSurface(NAMESPACE, monitor = left) }
             assertNotEquals(
                 onLeft,
-                settingsAskedBy { TestSurface<Nothing>(NAMESPACE, monitor = right) },
+                settingsAskedBy { TestSurface(NAMESPACE, monitor = right) },
                 "surfaces on two monitors had equal settings",
             )
             assertNotEquals(
                 onLeft,
-                settingsAskedBy { TestSurface<Nothing>(NAMESPACE) },
+                settingsAskedBy { TestSurface(NAMESPACE) },
                 "a surface on a monitor had the settings of one the compositor places",
             )
 
@@ -136,7 +135,7 @@ class MonitorTest {
             assertEquals(left.hashCode(), leftAgain.hashCode(), "two Monitors of one output hashed apart")
             assertEquals(
                 onLeft,
-                settingsAskedBy { TestSurface<Nothing>(NAMESPACE, monitor = leftAgain) },
+                settingsAskedBy { TestSurface(NAMESPACE, monitor = leftAgain) },
                 "surfaces on equal monitors had different settings",
             )
         }
@@ -146,7 +145,7 @@ class MonitorTest {
     fun `a call replaces its surface when only the monitor changes, and keeps it for an equal monitor`() {
         val placement = mutableStateOf(Placement.CompositorChoice)
         val composed = AtomicReference<Placement?>(null)
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
             val listed = monitors.first()
@@ -157,7 +156,7 @@ class MonitorTest {
                 Placement.EqualToListed -> Monitor(listed.output)
             }
             SideEffect { composed.set(current) }
-            TestSurface<Nothing>(NAMESPACE, monitor = monitor, onClose = { reports += it })
+            TestSurface(NAMESPACE, monitor = monitor, state = speck)
         }
 
         onApplication(content) { shell ->
@@ -180,28 +179,27 @@ class MonitorTest {
             )
             shell.pumpOrFail(SETTLE_MILLIS)
             assertSame(placedOnMonitor, shell.shownSurfaces.singleOrNull(), "an equal Monitor replaced the surface")
-            assertTrue(reports.isEmpty(), "changing the monitor reported $reports")
+            assertFalse(speck.hasEnded, "changing the monitor ended the surface: ${speck.status}")
         }
     }
 
     @Test
-    fun `a surface shown on a monitor that has gone reports MonitorUnplugged and is never placed`() {
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+    fun `a surface shown on a monitor that has gone ends as MonitorUnplugged and is never placed`() {
+        val speck = SurfaceState()
         withUnboundMonitors("GONE-1") { (gone) ->
             val content: @Composable KortexApplicationScope.() -> Unit = {
-                TestSurface<Nothing>(NAMESPACE, monitor = gone, onClose = { reports += it })
+                TestSurface(NAMESPACE, monitor = gone, state = speck)
             }
 
             onApplication(content) { shell ->
                 assertTrue(
-                    shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                    "a surface on a monitor that has gone reported nothing",
+                    shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                    "a surface on a monitor that has gone ended nothing",
                 )
                 shell.pumpOrFail(SETTLE_MILLIS)
-                assertEquals(
-                    listOf(Ok(SurfaceEnd.MonitorUnplugged)),
-                    reports.toList(),
-                    "a surface on a monitor that has gone did not report MonitorUnplugged once",
+                speck.assertEnded(
+                    Ok(SurfaceEnd.MonitorUnplugged),
+                    "a surface on a monitor that has gone did not end as MonitorUnplugged",
                 )
                 assertTrue(shell.shownSurfaces.isEmpty(), "a surface on a monitor that has gone was placed")
                 assertNull(Screen.geometry(NAMESPACE), "hyprctl lists a surface on a monitor that has gone")
@@ -210,15 +208,15 @@ class MonitorTest {
     }
 
     @Test
-    fun `a monitor the registry removes leaves the list, and a surface on it ends reporting MonitorUnplugged`() {
+    fun `a monitor the registry removes leaves the list, and a surface on it ends as MonitorUnplugged`() {
         val listed = AtomicReference<List<Monitor>>(emptyList())
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
             // Kept once taken, so the call stays in composition after its monitor has left the list.
             val first = remember { monitors.first() }
             SideEffect { listed.set(monitors) }
-            TestSurface<Nothing>(NAMESPACE, monitor = first, onClose = { reports += it })
+            TestSurface(NAMESPACE, monitor = first, state = speck)
         }
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
@@ -232,14 +230,13 @@ class MonitorTest {
                 assertNotNull(display.onGlobalRemoved, "the shell listens for no removed global").invoke(global)
 
                 assertTrue(
-                    shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                    "a surface on a monitor that went away reported nothing",
+                    shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                    "a surface on a monitor that went away ended nothing",
                 )
                 shell.pumpOrFail(SETTLE_MILLIS)
-                assertEquals(
-                    listOf(Ok(SurfaceEnd.MonitorUnplugged)),
-                    reports.toList(),
-                    "a surface on a monitor that went away did not report MonitorUnplugged once",
+                speck.assertEnded(
+                    Ok(SurfaceEnd.MonitorUnplugged),
+                    "a surface on a monitor that went away did not end as MonitorUnplugged",
                 )
                 assertTrue(shell.shownSurfaces.isEmpty(), "a surface outlived its monitor")
                 assertTrue(listed.get().isEmpty(), "a monitor that went away stayed listed: ${listed.get()}")

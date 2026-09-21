@@ -17,8 +17,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -33,6 +35,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.onError
 import com.fromwau.kortex.wayland.Bar
 import com.fromwau.kortex.wayland.ContextMenu
@@ -41,9 +44,11 @@ import com.fromwau.kortex.wayland.KortexError
 import com.fromwau.kortex.wayland.Monitor
 import com.fromwau.kortex.wayland.Osd
 import com.fromwau.kortex.wayland.SurfaceEnd
-import com.fromwau.kortex.wayland.SurfaceError
+import com.fromwau.kortex.wayland.SurfaceState
+import com.fromwau.kortex.wayland.SurfaceStatus
 import com.fromwau.kortex.wayland.kortexApplication
 import com.fromwau.kortex.wayland.rememberMonitors
+import com.fromwau.kortex.wayland.rememberSurfaceState
 import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
@@ -53,25 +58,20 @@ fun main() {
     kortexApplication {
         val monitors by rememberMonitors()
         for (monitor in monitors) key(monitor) {
-            var ended by remember { mutableStateOf<SurfaceError<Nothing>?>(null) }
-            when (val stopped = ended) {
-                null -> DemoBar(
-                    screen = monitor,
-                    crashLog = crashLog,
-                    onClose = { result ->
-                        logIfCrashed(crashLog, result)
-                        result.onError { failure -> ended = failure }
-                    },
-                )
+            var run by remember { mutableIntStateOf(0) }
+            // A bar that has stopped stays stopped, so bringing it back takes a fresh state and a fresh call.
+            key(run) {
+                val bar = rememberSurfaceState()
+                when (val status = bar.status) {
+                    is SurfaceStatus.Ended -> CrashPopup(
+                        monitor = monitor,
+                        stopped = status.result,
+                        crashLog = crashLog,
+                        onDismiss = { run++ },
+                    )
 
-                else -> CrashPopup(
-                    monitor = monitor,
-                    stopped = stopped,
-                    onClose = { result ->
-                        logIfCrashed(crashLog, result)
-                        ended = null
-                    },
-                )
+                    else -> DemoBar(screen = monitor, crashLog = crashLog, state = bar)
+                }
             }
         }
     }.onError { error ->
@@ -80,15 +80,15 @@ fun main() {
     }
 }
 
-private val SurfaceError<Nothing>.crash: KortexError.SurfaceCrashed?
-    get() = (this as? SurfaceError.Failed)?.error as? KortexError.SurfaceCrashed
+private val Result<SurfaceEnd, KortexError>.crash: KortexError.SurfaceCrashed?
+    get() = errorOrNull() as? KortexError.SurfaceCrashed
 
 /** Appends the crash a surface ended with to the crash log at [path], if it ended with one. */
 private fun logIfCrashed(
     path: Path,
-    result: Result<SurfaceEnd, SurfaceError<Nothing>>,
+    ending: Result<SurfaceEnd, KortexError>,
 ) {
-    result.onError { failure -> failure.crash?.let { crash -> logCrash(path, crash) } }
+    ending.crash?.let { crash -> logCrash(path, crash) }
 }
 
 private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
@@ -111,21 +111,21 @@ private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
 private fun DemoBar(
     screen: Monitor,
     crashLog: Path,
-    onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
+    state: SurfaceState,
 ) {
     var tall by remember { mutableStateOf(false) }
 
-    Bar<Nothing>(
+    Bar(
         monitor = screen,
         thickness = if (tall) TALL_THICKNESS else THICKNESS,
         keyboard = KeyboardInteractivity.OnDemand,
         namespace = "kortex-${screen.name}",
-        onClose = onClose,
+        state = state,
     ) {
         val bar = this
         var clicks by remember { mutableStateOf(0) }
         var text by remember { mutableStateOf("") }
-        var menuAt by remember { mutableStateOf<IntOffset?>(null) }
+        var menu by remember { mutableStateOf<Menu>(Menu.Closed) }
 
         MaterialTheme(colorScheme = darkColorScheme()) {
             Box(
@@ -148,7 +148,7 @@ private fun DemoBar(
                                     val x = (event.changes.first().position.x / density).roundToInt()
                                     // Bar-local is monitor-local only while nothing else reserves the Top
                                     // edge; a second bar above this one displaces the menu by its height.
-                                    menuAt = IntOffset(x, bar.size.height)
+                                    menu = Menu.OpenAt(IntOffset(x, bar.size.height))
                                 }
                             }
                         },
@@ -187,73 +187,90 @@ private fun DemoBar(
             }
         }
 
-        menuAt?.let { at ->
-            BarMenu(
+        when (val open = menu) {
+            Menu.Closed -> Unit
+            is Menu.OpenAt -> BarMenu(
                 monitor = screen,
-                at = at,
-                onClose = { result ->
-                    logIfCrashed(crashLog, result)
-                    menuAt = null
-                },
+                at = open.at,
+                crashLog = crashLog,
+                onClosed = { menu = Menu.Closed },
             )
         }
     }
 }
 
-/** The bar's context menu, opened at [at] on [monitor]; picking an item closes it. */
+/** Whether the bar's context menu is open, and where it opened. */
+private sealed interface Menu {
+    data object Closed : Menu
+
+    data class OpenAt(val at: IntOffset) : Menu
+}
+
+/** The bar's context menu, opened at [at] on [monitor]; picking an item closes it, and [onClosed] follows. */
 @Composable
 private fun BarMenu(
     monitor: Monitor,
     at: IntOffset,
-    onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
+    crashLog: Path,
+    onClosed: () -> Unit,
 ) {
-    ContextMenu<Nothing>(
-        monitor = monitor,
-        at = at,
-        menuSize = IntSize(width = 160, height = 120),
-        namespace = "kortex-menu",
-        onClose = onClose,
-    ) {
-        MaterialTheme(colorScheme = darkColorScheme()) {
-            Column(
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                MENU_ITEMS.forEach { item ->
-                    Text(
-                        text = item,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { close() }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+    val menu = rememberSurfaceState()
+    when (val status = menu.status) {
+        is SurfaceStatus.Ended -> LaunchedEffect(status) {
+            logIfCrashed(crashLog, status.result)
+            onClosed()
+        }
+
+        else -> ContextMenu(
+            monitor = monitor,
+            at = at,
+            menuSize = IntSize(width = 160, height = 120),
+            namespace = "kortex-menu",
+            state = menu,
+        ) {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    MENU_ITEMS.forEach { item ->
+                        Text(
+                            text = item,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { close() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-/** Stands in for a bar that stopped, saying why, until a click dismisses it. */
+/** Stands in for a bar that stopped, saying why, until a click dismisses it through [onDismiss]. */
 @Composable
 private fun CrashPopup(
     monitor: Monitor,
-    stopped: SurfaceError<Nothing>,
-    onClose: (Result<SurfaceEnd, SurfaceError<Nothing>>) -> Unit,
+    stopped: Result<SurfaceEnd, KortexError>,
+    crashLog: Path,
+    onDismiss: () -> Unit,
 ) {
-    Osd<Nothing>(
+    LaunchedEffect(stopped) { logIfCrashed(crashLog, stopped) }
+
+    Osd(
         monitor = monitor,
         width = 480.dp,
         height = 120.dp,
         namespace = "kortex-stopped",
-        onClose = onClose,
     ) {
         MaterialTheme(colorScheme = darkColorScheme()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.errorContainer)
-                    .clickable { close() }
+                    .clickable { onDismiss() }
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {

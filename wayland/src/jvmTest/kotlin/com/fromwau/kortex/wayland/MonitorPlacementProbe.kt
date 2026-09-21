@@ -17,7 +17,7 @@ object MonitorPlacementProbe {
             val application = this
             val monitors by rememberMonitors()
             monitors.firstOrNull()?.let { monitor ->
-                TestSurface<Nothing>(MONITOR_PROBE_NAMESPACE, monitor = monitor) {
+                TestSurface(MONITOR_PROBE_NAMESPACE, monitor = monitor) {
                     LaunchedEffect(Unit) {
                         System.err.println("$MONITOR_PROBE_MARKER${monitor.name}")
                         application.exitApplication()

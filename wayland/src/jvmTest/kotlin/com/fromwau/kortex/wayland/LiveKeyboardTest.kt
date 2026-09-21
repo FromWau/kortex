@@ -19,7 +19,7 @@ class LiveKeyboardTest {
     fun `a surface that drops to None gives its keyboard back`() {
         val keyboard = mutableStateOf(KeyboardInteractivity.OnDemand)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, keyboard = keyboard.value)
+            TestSurface(NAMESPACE, keyboard = keyboard.value)
         }
 
         onApplication(content) { shell ->
@@ -40,7 +40,7 @@ class LiveKeyboardTest {
     fun `a surface that takes interactivity takes a keyboard with it`() {
         val keyboard = mutableStateOf(KeyboardInteractivity.None)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, keyboard = keyboard.value)
+            TestSurface(NAMESPACE, keyboard = keyboard.value)
         }
 
         onApplication(content) { shell ->

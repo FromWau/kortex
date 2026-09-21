@@ -149,7 +149,7 @@ class MultiSurfaceTest {
         val monitors by rememberMonitors()
         for (monitor in monitors) {
             key(monitor) {
-                Panel<Nothing>(
+                Panel(
                     monitor = monitor,
                     edge = Edge.Top,
                     thickness = PANEL_HEIGHT.dp,
@@ -159,7 +159,7 @@ class MultiSurfaceTest {
                 }
             }
         }
-        Osd<Nothing>(width = OSD_WIDTH.dp, height = OSD_HEIGHT.dp, namespace = OSD_NAMESPACE) {
+        Osd(width = OSD_WIDTH.dp, height = OSD_HEIGHT.dp, namespace = OSD_NAMESPACE) {
             val requested = osdClosed.value
             LaunchedEffect(requested) { if (requested) close() }
             Box(Modifier.fillMaxSize().background(OSD_COLOUR))

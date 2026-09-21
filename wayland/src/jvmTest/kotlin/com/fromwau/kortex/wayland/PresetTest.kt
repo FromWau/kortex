@@ -23,13 +23,13 @@ class PresetTest {
         // Before anything is shown: Hyprland hands a surface that takes the keyboard the user's focus as it maps.
         assertEquals(
             KeyboardInteractivity.None,
-            settingsAskedBy { Bar<Nothing>(namespace = BAR_NAMESPACE) {} }.config.keyboard,
+            settingsAskedBy { Bar(namespace = BAR_NAMESPACE) {} }.config.keyboard,
             "a Bar left at its defaults takes the keyboard",
         )
         // Every monitor's usable area: the compositor picks the bar's monitor, and a desktop bar may reserve space.
         val before = Hyprctl.monitors().associateBy { it.name }
 
-        onApplication({ Bar<Nothing>(namespace = BAR_NAMESPACE) {} }) { shell ->
+        onApplication({ Bar(namespace = BAR_NAMESPACE) {} }) { shell ->
             awaitPlaced(shell)
 
             val geometry = assertNotNull(Screen.awaitGeometry(BAR_NAMESPACE), "hyprctl never listed $BAR_NAMESPACE")
@@ -47,7 +47,7 @@ class PresetTest {
     fun `a Panel spans its edge and reserves exactly its own thickness`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            Panel<Nothing>(
+            Panel(
                 monitor = monitors.first(),
                 edge = Edge.Bottom,
                 thickness = PANEL_THICKNESS.dp,
@@ -78,7 +78,7 @@ class PresetTest {
     fun `a Bar asks for a SurfaceConfig panel's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
-                Bar<Nothing>(
+                Bar(
                     monitor = monitor,
                     edge = Edge.Left,
                     thickness = THICKNESS.dp,
@@ -104,7 +104,7 @@ class PresetTest {
     fun `a Panel asks for a SurfaceConfig panel's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
-                Panel<Nothing>(
+                Panel(
                     monitor = monitor,
                     edge = Edge.Right,
                     thickness = THICKNESS.dp,
@@ -129,7 +129,7 @@ class PresetTest {
     fun `a DesktopBackground covers its whole monitor on the background layer`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            DesktopBackground<Nothing>(monitor = monitors.first(), namespace = BACKGROUND_NAMESPACE) {}
+            DesktopBackground(monitor = monitors.first(), namespace = BACKGROUND_NAMESPACE) {}
         }
 
         onApplication(content) { shell ->
@@ -152,7 +152,7 @@ class PresetTest {
     fun `an Osd is exactly its own size, centred in the usable area above every other layer`() {
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            Osd<Nothing>(
+            Osd(
                 monitor = monitors.first(),
                 width = OSD_WIDTH.dp,
                 height = OSD_HEIGHT.dp,
@@ -177,7 +177,7 @@ class PresetTest {
     fun `a DesktopBackground asks for a SurfaceConfig desktopBackground's settings, with the values it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
-                DesktopBackground<Nothing>(monitor = monitor, namespace = BACKGROUND_NAMESPACE) {}
+                DesktopBackground(monitor = monitor, namespace = BACKGROUND_NAMESPACE) {}
             }
 
             assertSame(monitor, settings.monitor, "the background was not put on the monitor it was given")
@@ -193,7 +193,7 @@ class PresetTest {
     fun `an Osd asks for a SurfaceConfig osd's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
-                Osd<Nothing>(
+                Osd(
                     monitor = monitor,
                     width = OSD_WIDTH.dp,
                     height = OSD_HEIGHT.dp,
@@ -216,13 +216,13 @@ class PresetTest {
             val monitors by rememberMonitors()
             val monitor = monitors.first()
             // A reservation of the test's own, so the point is shown to be the monitor's, not the usable area's.
-            Panel<Nothing>(
+            Panel(
                 monitor = monitor,
                 edge = Edge.Left,
                 thickness = MENU_PANEL_THICKNESS.dp,
                 namespace = MENU_PANEL_NAMESPACE,
             ) {}
-            ContextMenu<Nothing>(
+            ContextMenu(
                 monitor = monitor,
                 at = IntOffset(MENU_X, MENU_Y),
                 menuSize = MENU_SIZE,
@@ -250,7 +250,7 @@ class PresetTest {
         val at = IntOffset(screen.logicalWidth - FLIP_INSET, screen.logicalHeight - FLIP_INSET)
         val content: @Composable KortexApplicationScope.() -> Unit = {
             val monitors by rememberMonitors()
-            ContextMenu<Nothing>(
+            ContextMenu(
                 monitor = monitors.first { it.name == screen.name },
                 at = at,
                 menuSize = MENU_SIZE,
@@ -280,7 +280,7 @@ class PresetTest {
         withUnboundMonitors(MONITOR_NAME, mode = MONITOR_MODE) { (monitor) ->
             val at = IntOffset(MENU_X, MENU_Y)
             val settings = settingsAskedBy {
-                ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE, namespace = MENU_NAMESPACE) {}
+                ContextMenu(monitor = monitor, at = at, menuSize = MENU_SIZE, namespace = MENU_NAMESPACE) {}
             }
 
             assertSame(monitor, settings.monitor, "the menu was not put on the monitor it was given")
@@ -296,7 +296,7 @@ class PresetTest {
     fun `a Dock asks for a SurfaceConfig dock's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
-                Dock<Nothing>(
+                Dock(
                     monitor = monitor,
                     edge = Edge.Bottom,
                     thickness = THICKNESS.dp,
@@ -326,7 +326,7 @@ class PresetTest {
     fun `an AppMenu asks for a SurfaceConfig appMenu's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
-                AppMenu<Nothing>(
+                AppMenu(
                     monitor = monitor,
                     width = OSD_WIDTH.dp,
                     height = OSD_HEIGHT.dp,
@@ -352,7 +352,7 @@ class PresetTest {
     fun `a LockScreen asks for a SurfaceConfig lockScreen's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
-                LockScreen<Nothing>(monitor = monitor, namespace = LOCK_NAMESPACE) {}
+                LockScreen(monitor = monitor, namespace = LOCK_NAMESPACE) {}
             }
 
             assertEquals(

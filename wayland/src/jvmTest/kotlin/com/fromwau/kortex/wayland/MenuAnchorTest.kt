@@ -100,7 +100,7 @@ class MenuAnchorTest {
         withUnboundMonitors(MONITOR_NAME, mode = mode, scale = SCALE) { (monitor) ->
             val at = IntOffset(OUTPUT.width - CLEAR_MARGIN, OUTPUT.height - CLEAR_MARGIN)
             val config = settingsAskedBy {
-                ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {}
+                ContextMenu(monitor = monitor, at = at, menuSize = MENU_SIZE) {}
             }.config
 
             assertEquals(
@@ -149,7 +149,7 @@ class MenuAnchorTest {
     ): Pair<Set<Edge>, Margins> =
         withUnboundMonitors(MONITOR_NAME, mode = OUTPUT, transform = transform) { (monitor) ->
             val config = settingsAskedBy {
-                ContextMenu<Nothing>(monitor = monitor, at = at, menuSize = MENU_SIZE) {}
+                ContextMenu(monitor = monitor, at = at, menuSize = MENU_SIZE) {}
             }.config
             config.anchor to config.margins
         }

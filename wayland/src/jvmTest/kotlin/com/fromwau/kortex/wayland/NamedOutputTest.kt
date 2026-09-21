@@ -89,7 +89,7 @@ class NamedOutputTest {
         val monitors by rememberMonitors()
         for (monitor in monitors) {
             key(monitor) {
-                Panel<Nothing>(
+                Panel(
                     monitor = monitor,
                     edge = Edge.Top,
                     thickness = PANEL_HEIGHT.dp,
@@ -98,7 +98,7 @@ class NamedOutputTest {
             }
         }
         monitors.firstOrNull { it.name == outputName }?.let { monitor ->
-            Osd<Nothing>(
+            Osd(
                 monitor = monitor,
                 width = OSD_SIZE.dp,
                 height = OSD_SIZE.dp,

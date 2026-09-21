@@ -20,8 +20,8 @@ class EffectsOnLoopThreadTest {
         val effects = EffectThreads()
         val pumping = Thread.currentThread()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(FIRST_NAMESPACE) { RecordEffectThread(effects) }
-            TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT) { RecordEffectThread(effects) }
+            TestSurface(FIRST_NAMESPACE) { RecordEffectThread(effects) }
+            TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT) { RecordEffectThread(effects) }
         }
 
         val printed = capturingStdout {
@@ -49,8 +49,8 @@ class EffectsOnLoopThreadTest {
     fun `effects under a real loop run on its thread and GlobalSnapshotManager never warns`() {
         val effects = EffectThreads()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(FIRST_NAMESPACE) { RecordEffectThread(effects) }
-            TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT) { RecordEffectThread(effects) }
+            TestSurface(FIRST_NAMESPACE) { RecordEffectThread(effects) }
+            TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT) { RecordEffectThread(effects) }
         }
 
         val printed = capturingStdout {

@@ -32,7 +32,7 @@ class KortexShellTest {
                 val monitors by rememberMonitors()
                 for (monitor in monitors) {
                     key(monitor) {
-                        Panel<Nothing>(
+                        Panel(
                             monitor = monitor,
                             edge = Edge.Top,
                             thickness = SURFACE_HEIGHT.dp,

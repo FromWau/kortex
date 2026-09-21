@@ -3,9 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import com.fromwau.kern.result.Ok
-import com.fromwau.kern.result.Result
 import com.fromwau.kortex.compose.LocalKortexSurface
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,17 +16,17 @@ import kotlinx.coroutines.withContext
 
 /**
  * What a surface's content still runs once that surface has ended: the work its scene had already queued, and
- * nothing it schedules after. Every failure of that content reaches `onClose`, rather than arriving too late for
- * anyone to report it.
+ * nothing it schedules after. Every failure of that content reaches the surface's state, rather than arriving too
+ * late for anyone to see it.
  */
 class LateFailureTest {
     @Test
-    fun `cleanup that waits stops at the wait, the surface reports first, and the run stays Ok`() {
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+    fun `cleanup that waits stops at the wait, the surface ends first, and the run stays Ok`() {
+        val speck = SurfaceState()
         val reachedTheWait = AtomicBoolean(false)
         val ranPastTheWait = AtomicBoolean(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+            TestSurface(NAMESPACE, state = speck) {
                 ClosingAfterCleanup {
                     reachedTheWait.set(true)
                     delay(WAIT_MILLIS)
@@ -40,34 +38,34 @@ class LateFailureTest {
 
         onApplication(content) { shell ->
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "a surface whose cleanup waits reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "a surface whose cleanup waits ended nothing",
             )
-            assertEquals(listOf(Ok(SurfaceEnd.Closed)), reports.toList(), "the surface did not report its own close")
+            speck.assertEnded(Ok(SurfaceEnd.Closed), "the surface did not end with its own close")
             assertTrue(reachedTheWait.get(), "the cleanup never reached its wait, so nothing of it was left to drop")
 
             // Well past the wait, so the loop has been offered its resumption and has turned it away.
             shell.pumpOrFail(PAST_THE_WAIT_MILLIS)
 
-            assertFalse(ranPastTheWait.get(), "the cleanup ran on past its wait, after the surface had reported")
+            assertFalse(ranPastTheWait.get(), "the cleanup ran on past its wait, after the surface had ended")
         }
     }
 
     @Test
-    fun `cleanup that throws without waiting reports the crash`() {
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+    fun `cleanup that throws without waiting ends with the crash`() {
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+            TestSurface(NAMESPACE, state = speck) {
                 ClosingAfterCleanup { error(CLEANUP_FAILURE) }
             }
         }
 
         onApplication(content) { shell ->
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "a surface whose cleanup throws reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "a surface whose cleanup throws ended nothing",
             )
-            val crash = crashIn(reports.single(), "cleanup that threw did not report Failed(SurfaceCrashed)")
+            val crash = speck.crashOrFail("cleanup that threw did not end the surface with SurfaceCrashed")
             assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what cleanup threw")
         }
     }

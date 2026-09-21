@@ -7,7 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.Err
-import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import java.util.concurrent.atomic.AtomicReference
@@ -16,19 +15,20 @@ import java.util.concurrent.atomic.AtomicReference
 internal sealed interface OwnEnding {
     data object NotEnded : OwnEnding
 
-    data class Ended(val ending: Result<SurfaceEnd, SurfaceError<IError>>) : OwnEnding
+    data class Ended(val ending: Result<SurfaceEnd, KortexError>) : OwnEnding
 }
 
 /**
- * What the shell holds for one surface call: the newest content and `onClose` that call composed with, what it asks
+ * What the shell holds for one surface call: the newest content and state that call composed with, what it asks
  * for, the scene it runs and the surface drawn on it, and the ending its content asked for.
  *
+ * @param state where its call reads what its surface is doing; a later composition can hand it another.
  * @param parent the slot of the surface whose content this call is in; null for a call in the application's own
  *   content.
  */
 internal class SurfaceSlot(
-    val content: State<@Composable SurfaceScope<IError>.() -> Unit>,
-    val onClose: State<(Result<SurfaceEnd, SurfaceError<IError>>) -> Unit>,
+    val content: State<@Composable SurfaceScope.() -> Unit>,
+    var state: SurfaceState,
     private val wake: () -> Unit,
     private val parent: SurfaceSlot?,
 ) {
@@ -52,23 +52,22 @@ internal class SurfaceSlot(
     // What surface was placed with, which a change of settings replaces it over. Loop thread only.
     var placedWith: SurfaceSettings? = null
 
-    // Set as its onClose is called: whatever the shell sees of this slot afterwards reports nothing. Loop thread only.
+    // Set as its ending is published: whatever the shell sees of this slot afterwards reports nothing. Loop thread
+    // only, and not the state's own status, which the call can swap under it.
     var reported = false
 
-    private val requested = AtomicReference<Result<SurfaceEnd, SurfaceError<IError>>?>(null)
+    private val requested = AtomicReference<Result<SurfaceEnd, KortexError>?>(null)
 
     /** What content sees as its own `this`, and as `LocalKortexSurface`, for as long as its call composes. */
-    val scope: SurfaceScope<IError> = object : SurfaceScope<IError> {
+    val scope: SurfaceScope = object : SurfaceScope {
         // From the scene, which outlives a rebuild: the size holds until the surface that takes over is configured.
         override val size: IntSize get() = scene?.logicalSize ?: IntSize.Zero
 
         override fun close() = requestEnd(Ok(SurfaceEnd.Closed))
-
-        override fun close(error: IError) = requestEnd(Err(SurfaceError.Closed(error)))
     }
 
     /** Asks for [ending], from any thread; the shell acts on it in its next pass. The first ask decides. */
-    fun requestEnd(ending: Result<SurfaceEnd, SurfaceError<IError>>) {
+    fun requestEnd(ending: Result<SurfaceEnd, KortexError>) {
         if (requested.compareAndSet(null, ending)) wake()
     }
 
@@ -83,14 +82,19 @@ internal class SurfaceSlot(
         val crash = scene?.crash
         return when {
             standing != null -> OwnEnding.Ended(standing)
-            crash != null -> OwnEnding.Ended(Err(SurfaceError.Failed(crash)))
+            crash != null -> OwnEnding.Ended(Err(crash))
             placed?.closed == true -> OwnEnding.Ended(Ok(SurfaceEnd.ClosedByCompositor))
             else -> OwnEnding.NotEnded
         }
     }
 
-    /** Hands [ending] to the newest `onClose` its call composed with. */
-    fun report(ending: Result<SurfaceEnd, SurfaceError<IError>>) {
-        onClose.value(ending)
+    /** Publishes that its surface is on screen, drawing [scene] at whatever size the compositor gives it. */
+    fun onScreen(scene: SurfaceScene) {
+        state.progress = SurfaceProgress.OnScreen(scene)
+    }
+
+    /** Publishes [ending] as the last status the newest state its call composed with will show. */
+    fun report(ending: Result<SurfaceEnd, KortexError>) {
+        state.progress = SurfaceProgress.Ended(ending)
     }
 }

@@ -120,7 +120,7 @@ class SurfaceTeardownTest {
         val monitors by rememberMonitors()
         for (monitor in monitors) {
             key(monitor) {
-                Panel<Nothing>(
+                Panel(
                     monitor = monitor,
                     edge = Edge.Top,
                     thickness = PANEL_HEIGHT.dp,
@@ -130,7 +130,7 @@ class SurfaceTeardownTest {
                 }
             }
         }
-        AppMenu<Nothing>(width = MENU_SIZE.dp, height = MENU_SIZE.dp, namespace = MENU_NAMESPACE) {
+        AppMenu(width = MENU_SIZE.dp, height = MENU_SIZE.dp, namespace = MENU_NAMESPACE) {
             val requested = closeRequested.value
             LaunchedEffect(requested) { if (requested) close() }
             Box(

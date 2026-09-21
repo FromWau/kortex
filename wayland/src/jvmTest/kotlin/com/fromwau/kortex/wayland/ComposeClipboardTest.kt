@@ -310,7 +310,7 @@ class ComposeClipboardTest {
      * own clipboard, or [contentClipboard]'s stand-in for it.
      */
     private fun withSpeckShell(
-        content: @Composable SurfaceScope<Nothing>.() -> Unit,
+        content: @Composable SurfaceScope.() -> Unit,
         contentClipboard: (WaylandClipboard) -> TextClipboard = { it },
         block: (KortexShell) -> Unit,
     ) {

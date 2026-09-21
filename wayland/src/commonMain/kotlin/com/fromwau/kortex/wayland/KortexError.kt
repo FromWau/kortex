@@ -56,9 +56,8 @@ public sealed interface KortexError : IError {
     public data class SurfaceCrashed(public val namespace: String, public val failure: ContentFailure) : KortexError
 
     /**
-     * Your application's own code threw: the content of `kortexApplication`, UI placed directly in it rather than in a
-     * surface, or an `onClose` you passed. [cause] is what it threw. The application ends with this error, and no
-     * other `onClose` is called.
+     * Your application's own code threw: the content of `kortexApplication`, or UI placed directly in it rather than
+     * in a surface. [cause] is what it threw, and the application ends with this error.
      */
     public data class ApplicationCrashed(public val cause: Throwable) : KortexError
 }

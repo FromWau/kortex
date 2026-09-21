@@ -6,33 +6,31 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
-import com.fromwau.kern.result.Result
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.LocalKortexSurface
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.delay
 
-/** Content that throws reaches its `onClose` as a [KortexError.SurfaceCrashed], and the run goes on. */
+/** Content that throws ends its surface with a [KortexError.SurfaceCrashed], and the run goes on. */
 class ContentFailureTest {
     @Test
-    fun `content that throws on its first frame reports the crash, and the run goes on`() {
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+    fun `content that throws on its first frame ends with the crash, and the run goes on`() {
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+            TestSurface(NAMESPACE, state = speck) {
                 Canvas(Modifier.fillMaxSize()) { error(DRAW_FAILURE) }
             }
         }
 
         onApplication(content) { shell ->
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "a first frame that throws reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "a first frame that throws ended nothing",
             )
-            val crash = crashIn(reports.single(), "a first frame that throws did not report Failed(SurfaceCrashed)")
+            val crash = speck.crashOrFail("a first frame that throws did not end with SurfaceCrashed")
             assertEquals(NAMESPACE, crash.namespace)
             assertIs<ContentFailure.Composition>(crash.failure)
             assertEquals(DRAW_FAILURE, crash.failure.cause.message)
@@ -42,10 +40,10 @@ class ContentFailureTest {
     }
 
     @Test
-    fun `content that closes itself and whose cleanup then throws reports the crash, not Ok`() {
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+    fun `content that closes itself and whose cleanup then throws ends with the crash, not Ok`() {
+        val speck = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(NAMESPACE, onClose = { reports += it }) {
+            TestSurface(NAMESPACE, state = speck) {
                 val surface = LocalKortexSurface.current
                 DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
                 LaunchedEffect(Unit) {
@@ -57,19 +55,16 @@ class ContentFailureTest {
 
         onApplication(content) { shell ->
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { reports.isNotEmpty() },
-                "a self-close whose cleanup throws reported nothing",
+                shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded },
+                "a self-close whose cleanup throws ended nothing",
             )
-            val crash = crashIn(
-                reports.single(),
-                "a self-close whose cleanup throws reported Ok instead of the crash",
-            )
+            val crash = speck.crashOrFail("a self-close whose cleanup throws ended in Ok instead of the crash")
             assertEquals(CLEANUP_FAILURE, crash.failure.cause.message)
         }
     }
 
     @Test
-    fun `content that throws while drawing a later frame reports the crash, and the process survives`() {
+    fun `content that throws while drawing a later frame ends with the crash, and the process survives`() {
         val probe = runProbe(PROBE_MAIN_CLASS)
         val raw = probe.output.joinToString("\n")
 
@@ -80,7 +75,7 @@ class ContentFailureTest {
         )
         assertTrue(
             "$PROBE_MARKER hook crashed=$PROBE_NAMESPACE cause=$PROBE_FAILURE" in probe.output,
-            "the later frame's crash never reached onClose; output:\n$raw",
+            "the later frame's crash never reached the surface's state; output:\n$raw",
         )
     }
 

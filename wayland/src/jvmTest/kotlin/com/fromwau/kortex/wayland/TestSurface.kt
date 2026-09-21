@@ -3,15 +3,13 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.IError
-import com.fromwau.kern.result.Result
 
 /**
  * A [LayerSurface] with a test's defaults: left at them it is a speck in the bottom-right corner, where the pointer
  * is least likely to be, that takes no keyboard focus.
  */
 @Composable
-internal fun <E : IError> TestSurface(
+internal fun TestSurface(
     namespace: String,
     monitor: Monitor? = null,
     layer: Layer = Layer.Overlay,
@@ -22,8 +20,8 @@ internal fun <E : IError> TestSurface(
     exclusiveZone: ExclusiveZone = ExclusiveZone.Yield,
     exclusiveEdge: Edge? = null,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
-    onClose: (Result<SurfaceEnd, SurfaceError<E>>) -> Unit = {},
-    content: @Composable SurfaceScope<E>.() -> Unit = {},
+    state: SurfaceState = rememberSurfaceState(),
+    content: @Composable SurfaceScope.() -> Unit = {},
 ) {
     LayerSurface(
         monitor = monitor,
@@ -36,7 +34,7 @@ internal fun <E : IError> TestSurface(
         exclusiveZone = exclusiveZone,
         exclusiveEdge = exclusiveEdge,
         keyboard = keyboard,
-        onClose = onClose,
+        state = state,
         content = content,
     )
 }

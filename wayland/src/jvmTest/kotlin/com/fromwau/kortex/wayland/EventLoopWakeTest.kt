@@ -17,7 +17,7 @@ import kotlinx.coroutines.yield
 class EventLoopWakeTest {
     @Test
     fun `an idle application's loop stays asleep`() {
-        val content: @Composable KortexApplicationScope.() -> Unit = { TestSurface<Nothing>(IDLE_NAMESPACE) }
+        val content: @Composable KortexApplicationScope.() -> Unit = { TestSurface(IDLE_NAMESPACE) }
 
         LoopThread.runApplicationOnDisplay(content) { display, _, _ ->
             assertTrue(
@@ -40,14 +40,14 @@ class EventLoopWakeTest {
     fun `a surface content shows later is placed while the loop sleeps`() {
         val showOpened = mutableStateOf(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(OPENER_NAMESPACE) {
+            TestSurface(OPENER_NAMESPACE) {
                 // Once the loop has gone quiet, so nothing but the new surface call itself can wake it.
                 LaunchedEffect(Unit) {
                     delay(QUIET_MILLIS)
                     showOpened.value = true
                 }
             }
-            if (showOpened.value) TestSurface<Nothing>(OPENED_NAMESPACE, anchor = BOTTOM_LEFT)
+            if (showOpened.value) TestSurface(OPENED_NAMESPACE, anchor = BOTTOM_LEFT)
         }
 
         val printed = capturingStdout {
@@ -81,7 +81,7 @@ class EventLoopWakeTest {
         val loopDisplay = AtomicReference<WaylandDisplay>()
         val waitsWhileYielding = AtomicReference<Long?>(null)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(YIELDING_NAMESPACE) {
+            TestSurface(YIELDING_NAMESPACE) {
                 // Twice: hyprctl lists this namespace once the compositor maps it, which can race this
                 // surface's own first composition; a first frame can still land inside
                 // KortexSurface.setContent's own synchronous flush, a second cannot.

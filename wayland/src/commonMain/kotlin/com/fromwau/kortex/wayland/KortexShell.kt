@@ -6,7 +6,6 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
-import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
@@ -76,11 +75,11 @@ internal class KortexShell private constructor(
     @Volatile
     private var exitRequested = false
 
-    // The first throw of the application's own code, which ends the run; no onClose is called after it.
+    // The first throw of the application's own code, which ends the run; nothing is placed after it.
     private val applicationCrash = AtomicReference<KortexError.ApplicationCrashed?>(null)
 
-    // Once the connection dies, every call leaves because of it, and reports its error. Loop thread only.
-    private var endingOnLeave: Result<SurfaceEnd, SurfaceError<IError>> = Ok(SurfaceEnd.LeftComposition)
+    // Once the connection dies, every call leaves because of it, and ends with its error. Loop thread only.
+    private var endingOnLeave: Result<SurfaceEnd, KortexError> = Ok(SurfaceEnd.LeftComposition)
 
     private val application = ApplicationComposition(loopQueue, display::wake, ::applicationFailed)
 
@@ -127,7 +126,7 @@ internal class KortexShell private constructor(
                 // The application did not ask to stop, so the connection dying is its error.
                 return display.requireAlive()
                     .flatMap { Err(KortexError.NoCompositorResponse) }
-                    .onError { lost -> endingOnLeave = Err(SurfaceError.Failed(lost)) }
+                    .onError { lost -> endingOnLeave = Err(lost) }
             }
             serviceSurfaces().getOrElse { return Err(it) }
         }
@@ -175,7 +174,6 @@ internal class KortexShell private constructor(
             removes.forEach(::removeOutput)
         }
         reconcileSlots()
-        // Reconciling calls each onClose, and one that threw there ends the run here.
         return runResult()
     }
 
@@ -184,9 +182,9 @@ internal class KortexShell private constructor(
         loopQueue.runPass()
         // After the pass, which runs the snapshot pump that asks the application for a frame.
         application.frame()
-        // A shown surface that fails its tick ends by itself, as Failed; the run goes on.
+        // A shown surface that fails its tick ends by itself, with that error; the run goes on.
         placed.forEach { slot ->
-            slot.surface?.serviceTick()?.onError { reason -> slot.requestEnd(Err(SurfaceError.Failed(reason))) }
+            slot.surface?.serviceTick()?.onError { reason -> slot.requestEnd(Err(reason)) }
         }
         return runResult()
     }
@@ -286,7 +284,7 @@ internal class KortexShell private constructor(
         surface
             .applyConfig(settings.config)
             .onSuccess { slot.placedWith = settings }
-            .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
+            .onError { reason -> end(slot, Err(reason)) }
     }
 
     /**
@@ -310,10 +308,10 @@ internal class KortexShell private constructor(
             surface.close()
         }
         // Detaching runs content, which can throw there: a surface for it would reserve its zone, then be destroyed.
-        scene.crash?.let { return end(slot, Err(SurfaceError.Failed(it))) }
+        scene.crash?.let { return end(slot, Err(it)) }
         build(slot, settings, scene, output)
-            .onSuccess { settle(slot, settings) }
-            .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
+            .onSuccess { settle(slot, settings, scene) }
+            .onError { reason -> end(slot, Err(reason)) }
     }
 
     private fun place(
@@ -331,8 +329,8 @@ internal class KortexShell private constructor(
         build(slot, settings, scene, output)
             // After the attach, so the first composition already reads the size the surface was configured at.
             .flatMap { scene.setContent { ShownContent(slot) } }
-            .onSuccess { settle(slot, settings) }
-            .onError { reason -> end(slot, Err(SurfaceError.Failed(reason))) }
+            .onSuccess { settle(slot, settings, scene) }
+            .onError { reason -> end(slot, Err(reason)) }
     }
 
     /** Builds a Wayland side for [settings] on [output] and draws [scene] on it, closing it again if it cannot. */
@@ -364,8 +362,10 @@ internal class KortexShell private constructor(
     private fun settle(
         slot: SurfaceSlot,
         settings: SurfaceSettings,
+        scene: SurfaceScene,
     ) {
         slot.placedWith = settings
+        slot.onScreen(scene)
         // A rebuild keeps the place it already holds, so a surface shown from its content still comes after it.
         if (slot !in placed) placed += slot
     }
@@ -393,11 +393,11 @@ internal class KortexShell private constructor(
 
     private fun end(
         slot: SurfaceSlot,
-        ending: Result<SurfaceEnd, SurfaceError<IError>>,
+        ending: Result<SurfaceEnd, KortexError>,
     ) {
         // Content failing, its cleanup as the surface goes included, ends it as a crash whatever else ended it.
         val crash = takeDown(slot)
-        report(slot, crash?.let { Err(SurfaceError.Failed(it)) } ?: ending)
+        report(slot, crash?.let { Err(it) } ?: ending)
     }
 
     /**
@@ -417,12 +417,10 @@ internal class KortexShell private constructor(
 
     private fun report(
         slot: SurfaceSlot,
-        ending: Result<SurfaceEnd, SurfaceError<IError>>,
+        ending: Result<SurfaceEnd, KortexError>,
     ) {
         slot.reported = true
-        // Once the application's own code has thrown, none of it runs again.
-        if (applicationCrash.get() != null) return
-        runHostCode(::applicationFailed) { slot.report(ending) }
+        slot.report(ending)
     }
 
     private fun applicationFailed(cause: Throwable) {
@@ -437,10 +435,10 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Takes every surface call out of composition, each reporting how its surface ended, then closes every output,
+     * Takes every surface call out of composition, each surface ending as it goes, then closes every output,
      * runs what is left on the queue and gives the clipboard back, whatever content throws meanwhile.
      *
-     * @return [KortexError.ApplicationCrashed] once the application's own code has thrown, an `onClose` called here
+     * @return [KortexError.ApplicationCrashed] once the application's own code has thrown, its disposal here
      *   included.
      */
     fun close(): EmptyResult<KortexError> {
@@ -471,8 +469,8 @@ internal class KortexShell private constructor(
             contentClipboard: (WaylandClipboard) -> TextClipboard = { it },
             content: @Composable KortexApplicationScope.() -> Unit,
         ): Result<KortexShell, KortexError> {
-            // Before the content runs: its surfaces are placed in later passes, where a missing global would reach
-            // each one's onClose instead of ending the run.
+            // Before the content runs: its surfaces are placed in later passes, where a missing global would end
+            // each surface instead of the run.
             requireSurfaceGlobals(display.globals).getOrElse { return Err(it) }
             val loopQueue = LoopQueue(display::wake)
             // Before any surface can take focus: the selection comes as focus arrives, to the devices there are then.

@@ -84,7 +84,7 @@ class SurfaceCloseCancellationTest {
         val waiting = AtomicBoolean(false)
         val finished = AtomicBoolean(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(FIRST_NAMESPACE) {
+            TestSurface(FIRST_NAMESPACE) {
                 LaunchedEffect(Unit) {
                     try {
                         awaitCancellation()
@@ -99,7 +99,7 @@ class SurfaceCloseCancellationTest {
                 }
                 CloseWhen(closeFirst)
             }
-            TestSurface<Nothing>(SECOND_NAMESPACE, anchor = BOTTOM_LEFT)
+            TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT)
         }
 
         val result = LoopThread.runApplication(content) { _, loop ->
@@ -137,11 +137,11 @@ class SurfaceCloseCancellationTest {
         val closeQuiet = mutableStateOf(false)
         val spin = Spin()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(QUIET_NAMESPACE) {
+            TestSurface(QUIET_NAMESPACE) {
                 CloseWhen(closeQuiet)
                 Box(Modifier.fillMaxSize())
             }
-            TestSurface<Nothing>(SPINNING_NAMESPACE, anchor = BOTTOM_LEFT) {
+            TestSurface(SPINNING_NAMESPACE, anchor = BOTTOM_LEFT) {
                 Spinning(spin)
                 Box(Modifier.fillMaxSize())
             }
@@ -191,8 +191,8 @@ class SurfaceCloseCancellationTest {
         display.use { wayland ->
             // The quiet surface first: an application closes its surfaces in the order it placed them.
             val content: @Composable KortexApplicationScope.() -> Unit = {
-                TestSurface<Nothing>(APPLICATION_QUIET_NAMESPACE)
-                TestSurface<Nothing>(APPLICATION_SPINNING_NAMESPACE, anchor = BOTTOM_LEFT) {
+                TestSurface(APPLICATION_QUIET_NAMESPACE)
+                TestSurface(APPLICATION_SPINNING_NAMESPACE, anchor = BOTTOM_LEFT) {
                     Spinning(spin)
                     Box(Modifier.fillMaxSize())
                 }
@@ -217,7 +217,7 @@ class SurfaceCloseCancellationTest {
 
         display.use { wayland ->
             val content: @Composable KortexApplicationScope.() -> Unit = {
-                TestSurface<Nothing>(DRAIN_NAMESPACE) {
+                TestSurface(DRAIN_NAMESPACE) {
                     LaunchedEffect(Unit) {
                         try {
                             awaitCancellation()
@@ -258,13 +258,13 @@ class SurfaceCloseCancellationTest {
         val closeCleanup = mutableStateOf(false)
         val spin = Spin()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(CLEANUP_NAMESPACE) {
+            TestSurface(CLEANUP_NAMESPACE) {
                 SpinningCleanup(spin)
                 CloseWhen(closeCleanup)
                 Box(Modifier.fillMaxSize())
             }
             // Keeps the application running once the other surface is gone, so its passes are all that can run cleanup.
-            TestSurface<Nothing>(CLEANUP_SIBLING_NAMESPACE, anchor = BOTTOM_LEFT)
+            TestSurface(CLEANUP_SIBLING_NAMESPACE, anchor = BOTTOM_LEFT)
         }
 
         LoopThread.runApplication(content) { _, loop ->
@@ -312,7 +312,7 @@ class SurfaceCloseCancellationTest {
 
         display.use { wayland ->
             val content: @Composable KortexApplicationScope.() -> Unit = {
-                TestSurface<Nothing>(APPLICATION_CLEANUP_NAMESPACE) {
+                TestSurface(APPLICATION_CLEANUP_NAMESPACE) {
                     SpinningCleanup(spin)
                     CloseWhen(close)
                     Box(Modifier.fillMaxSize())

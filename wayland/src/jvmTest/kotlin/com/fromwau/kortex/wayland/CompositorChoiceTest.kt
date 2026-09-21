@@ -3,8 +3,6 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import com.fromwau.kern.result.Ok
-import com.fromwau.kern.result.Result
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -16,10 +14,10 @@ import kotlin.test.assertTrue
  */
 class CompositorChoiceTest {
     @Test
-    fun `the compositor closing a shown surface reports ClosedByCompositor, and it is not placed again`() {
-        val reports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+    fun `the compositor closing a shown surface ends it as ClosedByCompositor, and it is not placed again`() {
+        val osd = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(OSD_NAMESPACE, onClose = { reports += it })
+            TestSurface(OSD_NAMESPACE, state = osd)
         }
 
         onApplication(content) { shell ->
@@ -28,15 +26,14 @@ class CompositorChoiceTest {
             shell.shownSurfaces.single().simulateCompositorClose()
 
             assertTrue(
-                shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { reports.isNotEmpty() },
-                "the compositor's close reported nothing",
-            )
-            assertEquals(
-                listOf(Ok(SurfaceEnd.ClosedByCompositor)),
-                reports.toList(),
-                "the compositor's close did not report ClosedByCompositor once",
+                shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { osd.hasEnded },
+                "the compositor's close ended nothing",
             )
             shell.pumpOrFail(SETTLE_MILLIS)
+            osd.assertEnded(
+                Ok(SurfaceEnd.ClosedByCompositor),
+                "the compositor's close did not end the surface as ClosedByCompositor",
+            )
             assertTrue(shell.shownSurfaces.isEmpty(), "a surface the compositor closed was placed again")
             assertTrue(
                 shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { Screen.geometry(OSD_NAMESPACE) == null },
@@ -48,14 +45,14 @@ class CompositorChoiceTest {
     @Test
     fun `a surface shown from inside another's content is not placed again once the compositor closes it`() {
         val showChild = mutableStateOf(false)
-        val childReports = CopyOnWriteArrayList<Result<SurfaceEnd, SurfaceError<Nothing>>>()
+        val child = SurfaceState()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface<Nothing>(PANEL_NAMESPACE) {
+            TestSurface(PANEL_NAMESPACE) {
                 if (showChild.value) {
-                    TestSurface<Nothing>(
+                    TestSurface(
                         OPENED_NAMESPACE,
                         anchor = BOTTOM_LEFT,
-                        onClose = { childReports += it },
+                        state = child,
                     )
                 }
             }
@@ -72,15 +69,14 @@ class CompositorChoiceTest {
             shell.shownSurfaces.last().simulateCompositorClose()
 
             assertTrue(
-                shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { childReports.isNotEmpty() },
-                "the compositor's close reported nothing",
-            )
-            assertEquals(
-                listOf(Ok(SurfaceEnd.ClosedByCompositor)),
-                childReports.toList(),
-                "the compositor's close did not report ClosedByCompositor once",
+                shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { child.hasEnded },
+                "the compositor's close ended nothing",
             )
             shell.pumpOrFail(SETTLE_MILLIS)
+            child.assertEnded(
+                Ok(SurfaceEnd.ClosedByCompositor),
+                "the compositor's close did not end the surface as ClosedByCompositor",
+            )
             assertEquals(
                 panelAlone, shell.shownSurfaces.size,
                 "the surface the compositor closed was placed again, or the panel went with it",
