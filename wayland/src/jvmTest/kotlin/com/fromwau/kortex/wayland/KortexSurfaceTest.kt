@@ -19,11 +19,8 @@ class KortexSurfaceTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexSurface.create(display, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Box(Modifier.fillMaxSize().background(Color(GREY, GREY, GREY))) }
+            onBareSurface(display, CONFIG) { _, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(Color(GREY, GREY, GREY))) }
                 display.roundtrip()
 
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl did not report $NAMESPACE")

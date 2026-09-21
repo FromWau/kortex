@@ -70,11 +70,8 @@ class SurfaceHandleTest {
         val handleRef = AtomicReference<KortexSurfaceHandle>()
 
         display.use {
-            val surface = KortexSurface.create(it, CONFIG)
-                .getOrElse { error -> fail("surface creation failed: $error") }
-
-            surface.use {
-                surface.setContent {
+            onBareSurface(display, CONFIG) { surface, scene ->
+                scene.setContent {
                     handleRef.set(LocalKortexSurface.current)
                     Box(Modifier.fillMaxSize())
                 }

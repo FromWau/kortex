@@ -23,11 +23,8 @@ class BufferReleaseTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexSurface.create(it, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Box(Modifier.fillMaxSize().background(colour.value)) }
+            onBareSurface(display, CONFIG) { bar, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(colour.value)) }
 
                 // Drive real frames: each state change asks for one, and each committed frame is a
                 // buffer the compositor has to give back.

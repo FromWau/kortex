@@ -306,7 +306,6 @@ internal class KortexShell private constructor(
         val scene = slot.scene ?: return place(slot, settings)
         val output = boundOutput(settings.monitor) ?: return end(slot, Ok(SurfaceEnd.MonitorUnplugged))
         slot.surface?.let { surface ->
-            placed.remove(slot)
             slot.surface = null
             surface.detach()
             surface.close()
@@ -363,7 +362,8 @@ internal class KortexShell private constructor(
         settings: SurfaceSettings,
     ) {
         slot.placedWith = settings
-        placed += slot
+        // A rebuild keeps the place it already holds, so a surface shown from its content still comes after it.
+        if (slot !in placed) placed += slot
     }
 
     /** The proxy of the output [monitor] names, `NULL` for the compositor's own choice, and null once it is gone. */

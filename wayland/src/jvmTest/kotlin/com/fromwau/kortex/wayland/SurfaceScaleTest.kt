@@ -27,11 +27,8 @@ class SurfaceScaleTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexSurface.create(display, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
+            onBareSurface(display, CONFIG) { bar, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
                 bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
                 // The first commit may still be in flight; force it through before reading hyprctl.
                 display.roundtrip()
@@ -63,26 +60,28 @@ class SurfaceScaleTest {
                     val output = wayland.bind(global, LibWayland.outputInterface, WlVersion.OUTPUT)
                     // A wl_output proxy with no listener crashes on its first event.
                     OutputListener().install(output)
-                    val bar = KortexSurface.create(wayland, CONFIG.copy(namespace = namespace), output = output)
-                        .getOrElse { error -> fail("bar creation failed on output ${global.name}: $error") }
-                    namespace to bar
+                    val (bar, scene) = bareSurface(wayland, CONFIG.copy(namespace = namespace), output = output)
+                    Triple(namespace, bar, scene)
                 }
 
                 try {
-                    bars.forEach { (_, bar) ->
-                        bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
+                    bars.forEach { (_, bar, scene) ->
+                        scene.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
                         bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
                     }
                     wayland.roundtrip()
-                    bars.forEach { (namespace, bar) -> assertRendersAtItsMonitorScale(bar, namespace) }
+                    bars.forEach { (namespace, bar, _) -> assertRendersAtItsMonitorScale(bar, namespace) }
                     // Hyprland's own default is what makes the headless output a different scale; if
                     // that ever changed, every assertion above would still pass on a uniform setup.
                     assertTrue(
-                        bars.distinctBy { (_, bar) -> bar.currentBufferScale }.size > 1,
+                        bars.distinctBy { (_, bar, _) -> bar.currentBufferScale }.size > 1,
                         "every bar came up at the same scale, so this leg no longer covers mixed DPI",
                     )
                 } finally {
-                    bars.forEach { (_, bar) -> bar.close() }
+                    bars.forEach { (_, bar, scene) ->
+                        bar.close()
+                        scene.close()
+                    }
                 }
             } finally {
                 // Guarantees the virtual output never survives a failed assertion above.

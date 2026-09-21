@@ -31,11 +31,8 @@ class OutputRescaleTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexSurface.create(display, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
+            onBareSurface(display, CONFIG) { bar, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
                 bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
 
                 val initialScale = bar.currentBufferScale
@@ -62,7 +59,7 @@ class OutputRescaleTest {
                     "buffer height did not follow logicalHeight * newScale",
                 )
                 assertEquals(
-                    Density(newScale.toFloat()), bar.density,
+                    Density(newScale.toFloat()), scene.composition.density,
                     "the composition's density is still the one computed at startup",
                 )
             }
@@ -84,71 +81,69 @@ class OutputRescaleTest {
             val monitor = assertNotNull(Hyprctl.monitors().firstOrNull(), "hyprctl monitors reported no monitor")
             val landedAt = AtomicReference<Offset?>(null)
 
-            KortexSurface.create(wayland, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-                .use { bar ->
-                    bar.setContent {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.Red)
-                                .pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            // wl_pointer.enter carries the position of a cursor that
-                                            // arrives from outside; no motion follows it.
-                                            if (event.type !in POSITIONED) continue
-                                            // The first only: every pointer device on the seat moves this
-                                            // one cursor, so a later position need not be this test's.
-                                            landedAt.updateAndGet { it ?: event.changes.first().position }
-                                        }
+            onBareSurface(wayland, CONFIG) { bar, scene ->
+                scene.setContent {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.Red)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        // wl_pointer.enter carries the position of a cursor that
+                                        // arrives from outside; no motion follows it.
+                                        if (event.type !in POSITIONED) continue
+                                        // The first only: every pointer device on the seat moves this
+                                        // one cursor, so a later position need not be this test's.
+                                        landedAt.updateAndGet { it ?: event.changes.first().position }
                                     }
-                                },
-                        )
-                    }
-                    bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
-
-                    val newScale = if (bar.currentBufferScale == 1) 2 else 1
-                    bar.scaleOverride = newScale
-                    assertTrue(
-                        bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { bar.currentBufferScale == newScale },
-                        "the observed scale change never reached bufferScale",
-                    )
-
-                    val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
-                    manager.createVirtualPointer().use { pointer ->
-                        fun moveTo(x: Int, y: Int) {
-                            pointer.moveTo(monitor, x, y)
-                            wayland.roundtrip()
-                            bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
-                        }
-
-                        // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
-                        // cursor already parked on these coordinates would never enter the new surface.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-                        // Whatever reached the bar before this move is not where the move landed.
-                        landedAt.set(null)
-                        moveTo(geometry.x + PROBE_LOGICAL_X, geometry.y + PROBE_LOGICAL_Y)
-                        val delivered = bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { landedAt.get() != null }
-                        // Off it again: a cursor left on a target would deny the next test's own move
-                        // here an enter, the same hazard the first move above avoids.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-
-                        assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
-                        assertTrue(delivered, "no pointer motion over the bar reached the composition")
-                    }
-
-                    val expected =
-                        Offset((PROBE_LOGICAL_X * newScale).toFloat(), (PROBE_LOGICAL_Y * newScale).toFloat())
-                    val observed = checkNotNull(landedAt.get())
-                    assertTrue(
-                        abs(observed.x - expected.x) <= POSITION_TOLERANCE_PX &&
-                            abs(observed.y - expected.y) <= POSITION_TOLERANCE_PX,
-                        "surface-local $PROBE_LOGICAL_X,$PROBE_LOGICAL_Y at scale $newScale must reach the scene " +
-                            "at $expected, not $observed",
+                                }
+                            },
                     )
                 }
+                bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
+
+                val newScale = if (bar.currentBufferScale == 1) 2 else 1
+                bar.scaleOverride = newScale
+                assertTrue(
+                    bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { bar.currentBufferScale == newScale },
+                    "the observed scale change never reached bufferScale",
+                )
+
+                val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
+                manager.createVirtualPointer().use { pointer ->
+                    fun moveTo(x: Int, y: Int) {
+                        pointer.moveTo(monitor, x, y)
+                        wayland.roundtrip()
+                        bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
+                    }
+
+                    // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
+                    // cursor already parked on these coordinates would never enter the new surface.
+                    moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
+                    // Whatever reached the bar before this move is not where the move landed.
+                    landedAt.set(null)
+                    moveTo(geometry.x + PROBE_LOGICAL_X, geometry.y + PROBE_LOGICAL_Y)
+                    val delivered = bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { landedAt.get() != null }
+                    // Off it again: a cursor left on a target would deny the next test's own move
+                    // here an enter, the same hazard the first move above avoids.
+                    moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
+
+                    assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
+                    assertTrue(delivered, "no pointer motion over the bar reached the composition")
+                }
+
+                val expected =
+                    Offset((PROBE_LOGICAL_X * newScale).toFloat(), (PROBE_LOGICAL_Y * newScale).toFloat())
+                val observed = checkNotNull(landedAt.get())
+                assertTrue(
+                    abs(observed.x - expected.x) <= POSITION_TOLERANCE_PX &&
+                        abs(observed.y - expected.y) <= POSITION_TOLERANCE_PX,
+                    "surface-local $PROBE_LOGICAL_X,$PROBE_LOGICAL_Y at scale $newScale must reach the scene " +
+                        "at $expected, not $observed",
+                )
+            }
         }
     }
 

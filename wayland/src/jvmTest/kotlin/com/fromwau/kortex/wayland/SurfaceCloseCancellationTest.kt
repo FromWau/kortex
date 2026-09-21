@@ -37,20 +37,19 @@ import kotlinx.coroutines.yield
 /** Which of a surface's Compose work has run by the time its close returns, and what still runs after. */
 class SurfaceCloseCancellationTest {
     @Test
-    fun `a surface's effects and recomposer have finished cancelling by the time its close returns`() {
+    fun `a surface's effects and recomposer have finished cancelling by the time its scene's close returns`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val started = AtomicBoolean(false)
         val cancelled = AtomicBoolean(false)
 
         display.use { wayland ->
             val before = Recomposer.runningRecomposers.value
-            // A bare surface: a shell's own close runs its queue once more, which would hide what the surface's did.
-            val surface = KortexSurface.create(wayland, speckConfig(BARE_NAMESPACE))
-                .getOrElse { error -> fail("surface creation failed: $error") }
+            // A bare surface: a shell's own close runs its queue once more, which would hide what the scene's did.
+            val (surface, scene) = bareSurface(wayland, speckConfig(BARE_NAMESPACE))
             val ours = Recomposer.runningRecomposers.value - before
 
-            surface.use {
-                surface.setContent {
+            try {
+                scene.setContent {
                     LaunchedEffect(Unit) {
                         started.set(true)
                         try {
@@ -65,13 +64,16 @@ class SurfaceCloseCancellationTest {
                     surface.pumpOrFail(PUMP_TIMEOUT_MILLIS) { started.get() },
                     "the surface's effect never started",
                 )
+            } finally {
+                surface.close()
+                scene.close()
             }
 
             assertEquals(1, ours.size, "the surface did not run exactly one recomposer")
-            assertTrue(cancelled.get(), "an effect's finally had not run by the time its surface's close returned")
+            assertTrue(cancelled.get(), "an effect's finally had not run by the time its scene's close returned")
             assertTrue(
                 Recomposer.runningRecomposers.value.none { it in ours },
-                "a closed surface's recomposer was still running after its close returned",
+                "a closed scene's recomposer was still running after its close returned",
             )
         }
     }

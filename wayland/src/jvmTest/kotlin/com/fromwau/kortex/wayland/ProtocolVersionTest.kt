@@ -108,15 +108,13 @@ class ProtocolVersionTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            KortexSurface.create(wayland, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-                .use { bar ->
-                    bar.setContent { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
-                    bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS)
+            onBareSurface(wayland, CONFIG) { bar, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
+                bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS)
 
-                    assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
-                    assertTrue(bar.renders > 0, "the bar never rendered a frame")
-                }
+                assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
+                assertTrue(bar.renders > 0, "the bar never rendered a frame")
+            }
         }
     }
 
@@ -137,63 +135,61 @@ class ProtocolVersionTest {
             val offBarY = monitor.logicalHeight - 1
             val scrolled = AtomicReference(Offset.Zero)
 
-            KortexSurface.create(wayland, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-                .use { bar ->
-                    bar.setContent {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(Color.DarkGray)
-                                .pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            if (event.type != PointerEventType.Scroll) continue
-                                            scrolled.set(event.changes.first().scrollDelta)
-                                        }
+            onBareSurface(wayland, CONFIG) { bar, scene ->
+                scene.setContent {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.DarkGray)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        if (event.type != PointerEventType.Scroll) continue
+                                        scrolled.set(event.changes.first().scrollDelta)
                                     }
-                                },
-                        )
-                    }
-                    wayland.roundtrip()
-
-                    val geometry =
-                        assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
-
-                    manager.createVirtualPointer().use { wheel ->
-                        fun moveTo(x: Int, y: Int) {
-                            wheel.moveTo(monitor, x, y)
-                            wayland.roundtrip()
-                            bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
-                        }
-
-                        // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
-                        // cursor already parked on these coordinates would never enter the new surface.
-                        moveTo(offBarX, offBarY)
-                        // The move onto the bar and the scroll reach the compositor together, so no other
-                        // pointer device's motion can come between them and carry the scroll elsewhere.
-                        wheel.moveTo(
-                            monitor,
-                            geometry.x + geometry.logicalWidth / 2,
-                            geometry.y + geometry.logicalHeight / 2,
-                        )
-                        wheel.axisSource(AXIS_SOURCE_WHEEL)
-                        wheel.axis(AXIS_VERTICAL, SCROLL_FIXED)
-                        wheel.frame()
-                        wayland.roundtrip()
-                        // Off it again: a cursor left on a target would deny the next test's own move
-                        // here an enter, the same hazard the first move above avoids.
-                        moveTo(offBarX, offBarY)
-                    }
-
-                    val delivered =
-                        bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { scrolled.get() != Offset.Zero }
-
-                    assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
-                    assertTrue(delivered, "a wheel scroll over the bar never reached the composition")
-                    assertTrue(scrolled.get().y != 0f, "the scroll arrived on the wrong axis: ${scrolled.get()}")
+                                }
+                            },
+                    )
                 }
+                wayland.roundtrip()
+
+                val geometry =
+                    assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
+
+                manager.createVirtualPointer().use { wheel ->
+                    fun moveTo(x: Int, y: Int) {
+                        wheel.moveTo(monitor, x, y)
+                        wayland.roundtrip()
+                        bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
+                    }
+
+                    // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
+                    // cursor already parked on these coordinates would never enter the new surface.
+                    moveTo(offBarX, offBarY)
+                    // The move onto the bar and the scroll reach the compositor together, so no other
+                    // pointer device's motion can come between them and carry the scroll elsewhere.
+                    wheel.moveTo(
+                        monitor,
+                        geometry.x + geometry.logicalWidth / 2,
+                        geometry.y + geometry.logicalHeight / 2,
+                    )
+                    wheel.axisSource(AXIS_SOURCE_WHEEL)
+                    wheel.axis(AXIS_VERTICAL, SCROLL_FIXED)
+                    wheel.frame()
+                    wayland.roundtrip()
+                    // Off it again: a cursor left on a target would deny the next test's own move
+                    // here an enter, the same hazard the first move above avoids.
+                    moveTo(offBarX, offBarY)
+                }
+
+                val delivered =
+                    bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { scrolled.get() != Offset.Zero }
+
+                assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
+                assertTrue(delivered, "a wheel scroll over the bar never reached the composition")
+                assertTrue(scrolled.get().y != 0f, "the scroll arrived on the wrong axis: ${scrolled.get()}")
+            }
         }
     }
 

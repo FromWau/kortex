@@ -118,6 +118,9 @@ internal class LayerShellSurface(
     // Paired with closed, which says the surface must be torn down rather than that it has been.
     private var disposed = false
 
+    /** What the compositor has last been told about keyboard focus, which decides whether a keyboard is bound. */
+    val keyboard: KeyboardInteractivity get() = config.keyboard
+
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns `Ok`. */
     val logicalWidth: Int get() = state.width
     val logicalHeight: Int get() = state.height

@@ -24,11 +24,8 @@ class IdleFrameTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexSurface.create(it, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Box(Modifier.fillMaxSize().background(colour.value)) }
+            onBareSurface(display, CONFIG) { bar, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(colour.value)) }
                 // Lets any transient renders from the initial configure/rescale settle before baselining.
                 bar.pumpOrFail(timeoutMillis = SETTLE_MILLIS)
 

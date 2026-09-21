@@ -54,9 +54,29 @@ internal fun onApplication(
 }
 
 /**
- * Runs [block] on a surface of [config] and the scene drawn on it, the pair a shell builds around one surface call,
- * and closes both after; a surface that cannot be created or attached fails the test.
+ * A surface of [config] with a scene attached to it, the pair a shell builds around one surface call; both are the
+ * caller's to close, the surface first. A surface that cannot be created or attached fails the test.
  */
+internal fun bareSurface(
+    display: WaylandDisplay,
+    config: SurfaceConfig,
+    output: MemorySegment = MemorySegment.NULL,
+    platform: KortexPlatform = KortexPlatform.None,
+): Pair<KortexSurface, SurfaceScene> {
+    val loop = LoopQueue(display::wake)
+    val scene = SurfaceScene(config.namespace, loop, platform, onCrash = {})
+    val surface = KortexSurface
+        .create(display, config, output = output, loopQueue = loop)
+        .getOrElse { error -> fail("the surface was not created: $error") }
+    surface.attach(scene).getOrElse { error ->
+        surface.close()
+        scene.close()
+        fail("the scene was not attached to the surface: $error")
+    }
+    return surface to scene
+}
+
+/** Runs [block] on a [bareSurface] of [config] and closes the pair after, whatever [block] does. */
 internal fun onBareSurface(
     display: WaylandDisplay,
     config: SurfaceConfig,
@@ -64,15 +84,11 @@ internal fun onBareSurface(
     platform: KortexPlatform = KortexPlatform.None,
     block: (surface: KortexSurface, scene: SurfaceScene) -> Unit,
 ) {
-    val loop = LoopQueue(display::wake)
-    val scene = SurfaceScene(config.namespace, loop, platform, onCrash = {})
-    val surface = KortexSurface
-        .create(display, config, output = output, loopQueue = loop)
-        .getOrElse { error -> fail("the surface was not created: $error") }
+    val (surface, scene) = bareSurface(display, config, output, platform)
     try {
-        surface.attach(scene).getOrElse { error -> fail("the scene was not attached to the surface: $error") }
         block(surface, scene)
     } finally {
+        // Before the scene: its seat keeps delivering into a composition the close is about to dispose.
         surface.close()
         scene.close()
     }

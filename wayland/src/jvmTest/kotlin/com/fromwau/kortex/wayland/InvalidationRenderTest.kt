@@ -31,11 +31,8 @@ class InvalidationRenderTest {
         val colour = mutableStateOf(Color.Red)
 
         display.use {
-            val bar = KortexSurface.create(display, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Box(Modifier.fillMaxSize().background(colour.value)) }
+            onBareSurface(display, CONFIG) { bar, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(colour.value)) }
                 display.roundtrip()
 
                 val geometry = assertNotNull(Screen.geometry(NAMESPACE), "hyprctl did not report $NAMESPACE")
@@ -58,11 +55,8 @@ class InvalidationRenderTest {
         val drawn = mutableListOf<Int>()
 
         display.use {
-            val bar = KortexSurface.create(display, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Canvas(Modifier.fillMaxSize()) { drawn += counter.intValue } }
+            onBareSurface(display, CONFIG) { bar, scene ->
+                scene.setContent { Canvas(Modifier.fillMaxSize()) { drawn += counter.intValue } }
 
                 repeat(BUMPS) {
                     val value = ++counter.intValue

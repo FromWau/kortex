@@ -30,48 +30,46 @@ class VirtualPointerClickTest {
 
             val clicks = AtomicInteger()
 
-            KortexSurface.create(it, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-                .use { bar ->
-                    bar.setContent {
-                        Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() })
+            onBareSurface(it, CONFIG) { bar, scene ->
+                scene.setContent {
+                    Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() })
+                }
+                it.roundtrip()
+
+                val geometry =
+                    assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
+                // Screen.geometry and the virtual pointer's absolute space agree only because this
+                // suite runs against a single output pinned at the compositor's origin.
+                val targetX = geometry.x + TARGET_DP / 2
+                val targetY = geometry.y + TARGET_DP / 2
+
+                val delivered = manager.createVirtualPointer().use { pointer ->
+                    fun moveTo(x: Int, y: Int) {
+                        pointer.moveTo(monitor, x, y)
+                        it.roundtrip()
                     }
+
+                    // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
+                    // cursor already parked on these coordinates would never enter the new surface.
+                    moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
+                    pointer.clickAt(monitor, targetX, targetY)
                     it.roundtrip()
 
-                    val geometry =
-                        assertNotNull(Screen.geometry(NAMESPACE), "hyprctl layers did not report $NAMESPACE")
-                    // Screen.geometry and the virtual pointer's absolute space agree only because this
-                    // suite runs against a single output pinned at the compositor's origin.
-                    val targetX = geometry.x + TARGET_DP / 2
-                    val targetY = geometry.y + TARGET_DP / 2
-
-                    val delivered = manager.createVirtualPointer().use { pointer ->
-                        fun moveTo(x: Int, y: Int) {
-                            pointer.moveTo(monitor, x, y)
-                            it.roundtrip()
-                        }
-
-                        // Off the bar first: the compositor re-evaluates pointer focus on motion, so a
-                        // cursor already parked on these coordinates would never enter the new surface.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-                        pointer.clickAt(monitor, targetX, targetY)
-                        it.roundtrip()
-
-                        val landed = bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
-                        // Off it again: a cursor left on a target would deny the next test's own move
-                        // here an enter, the same hazard the first move above avoids.
-                        moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
-                        landed
-                    }
-
-                    it.requireAlive().getOrElse { error ->
-                        fail("wayland protocol error while driving the virtual pointer: $error")
-                    }
-                    assertTrue(
-                        delivered, "a virtual-pointer click at $targetX,$targetY never reached the composable",
-                    )
-                    assertEquals(1, clicks.get(), "one press and release must be one click")
+                    val landed = bar.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { clicks.get() == 1 }
+                    // Off it again: a cursor left on a target would deny the next test's own move
+                    // here an enter, the same hazard the first move above avoids.
+                    moveTo(monitor.logicalWidth / 2, monitor.logicalHeight - 1)
+                    landed
                 }
+
+                it.requireAlive().getOrElse { error ->
+                    fail("wayland protocol error while driving the virtual pointer: $error")
+                }
+                assertTrue(
+                    delivered, "a virtual-pointer click at $targetX,$targetY never reached the composable",
+                )
+                assertEquals(1, clicks.get(), "one press and release must be one click")
+            }
         }
     }
 

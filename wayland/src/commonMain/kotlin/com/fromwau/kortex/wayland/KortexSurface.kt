@@ -40,8 +40,6 @@ internal class KortexSurface private constructor(
     private val onInputSerial: (Int) -> Unit,
     // Told as this surface's keyboard gains and loses focus, which gates reading another client's text.
     private val onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit,
-    // What the compositor was last told about keyboard focus, which decides whether a keyboard is taken.
-    private var keyboard: KeyboardInteractivity,
 ) : AutoCloseable {
 
     // Filled through post() from any thread and drained only on the loop thread, which is the one thread
@@ -129,7 +127,7 @@ internal class KortexSurface private constructor(
         scene.drawOn(this)
         pointerInput =
             seat.attachPointer(scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
-        if (keyboard != KeyboardInteractivity.None) keyboardInput = takeKeyboard()
+        if (layer.keyboard != KeyboardInteractivity.None) keyboardInput = takeKeyboard()
         display.roundtrip()
         sizeScene()
         renderNow(frameTimeNanos = 0L)
@@ -246,7 +244,6 @@ internal class KortexSurface private constructor(
     }
 
     private fun followKeyboard(config: SurfaceConfig) {
-        keyboard = config.keyboard
         when {
             config.keyboard == KeyboardInteractivity.None -> {
                 keyboardInput?.release()
@@ -506,7 +503,7 @@ internal class KortexSurface private constructor(
                 val surface = KortexSurface(
                     display, layer, shm, bufferScale, frames, FrameClock(layer.surface),
                     loopQueue ?: LoopQueue(display::wake), cursorTheme, cursorSurface, seat,
-                    onInputSerial, onKeyboardFocus, config.keyboard,
+                    onInputSerial, onKeyboardFocus,
                 )
                 surface.hidden = !visible
                 // From here the surface's own close() is the one owner of every piece above.

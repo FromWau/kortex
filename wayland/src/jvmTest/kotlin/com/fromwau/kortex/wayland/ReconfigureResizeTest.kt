@@ -23,11 +23,8 @@ class ReconfigureResizeTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
-            val bar = KortexSurface.create(display, CONFIG)
-                .getOrElse { error -> fail("bar creation failed: $error") }
-
-            bar.use {
-                bar.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
+            onBareSurface(display, CONFIG) { bar, scene ->
+                scene.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
                 bar.pumpOrFail(timeoutMillis = PUMP_MILLIS)
 
                 val scale = bar.currentBufferScale

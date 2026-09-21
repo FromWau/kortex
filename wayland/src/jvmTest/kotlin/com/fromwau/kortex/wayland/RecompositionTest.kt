@@ -76,11 +76,8 @@ class RecompositionTest {
         val composed = CopyOnWriteArrayList<IntSize>()
 
         display.use {
-            val surface = KortexSurface.create(it, SURFACE_CONFIG)
-                .getOrElse { error -> fail("surface creation failed: $error") }
-
-            surface.use {
-                surface.setContent {
+            onBareSurface(display, SURFACE_CONFIG) { surface, scene ->
+                scene.setContent {
                     val size = LocalKortexSurface.current.size
                     SideEffect { composed += size }
                     Box(Modifier.fillMaxSize())
