@@ -156,8 +156,9 @@ public class WindowState {
      *
      * Call it where the user chooses to keep the window, such as a prompt over unsaved changes they turned down.
      * Nothing else about the window changes: it stays on screen, its content keeps running and keeps what it
-     * holds, and its [status] stands. Call it from wherever you read the answer, on any thread. Calling it when
-     * nothing has been asked for, or once the window has ended, does nothing.
+     * holds, and its [status] stands. Call it from wherever you read the answer, on any thread. Call it only
+     * where [closeRequested] reads true: refusing an ask that never came can swallow one arriving at that moment.
+     * Once the window has ended it does nothing.
      *
      * ```kotlin
      * val state = rememberWindowState()
