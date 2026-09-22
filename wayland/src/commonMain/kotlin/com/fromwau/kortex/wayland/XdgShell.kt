@@ -1067,7 +1067,7 @@ internal class XdgPopupSurface private constructor(
             return positioner
         }
 
-        /** `set_anchor_rect` rejects an empty rectangle, so the point asked for is a rectangle one pixel wide. */
+        /** `set_anchor_rect` rejects an empty rectangle, so the point asked for is one pixel on each side. */
         private const val ANCHOR_SPAN = 1
 
         /** `xdg_positioner.anchor`'s `top_left`: the popup hangs off the anchor rectangle's top-left corner. */

@@ -25,7 +25,7 @@ import kotlin.test.fail
  */
 class PopupTest {
     @Test
-    fun `a popup shown from a bar's content reaches the screen, and hyprctl layers gains nothing`() {
+    fun `a popup shown from a bar's content reaches the screen, and hyprctl layers lists only the bar`() {
         val bar = SurfaceState()
         val menu = SurfaceState()
         val showing = mutableStateOf(false)
@@ -38,7 +38,6 @@ class PopupTest {
         onApplication(content) { shell ->
             awaitPlaced(shell)
             assertNotNull(Screen.awaitGeometry(BAR_NAMESPACE), "hyprctl never listed $BAR_NAMESPACE")
-            val withoutTheMenu = Hyprctl.namespaces().sorted()
 
             showing.value = true
 
@@ -49,8 +48,8 @@ class PopupTest {
             )
             assertEquals(2, shell.shownSurfaces.size, "the bar and the popup on it are not both held by the shell")
             assertEquals(
-                withoutTheMenu, Hyprctl.namespaces().sorted(),
-                "a popup belongs to the surface it opens over, and hyprctl layers gained a surface of its own",
+                listOf(BAR_NAMESPACE), ourNamespaces(),
+                "a popup belongs to the surface it opens over, and hyprctl layers lists one of its own",
             )
         }
     }
@@ -142,7 +141,6 @@ class PopupTest {
             )
             val placed = assertNotNull(listedWindow(), "the window hyprctl listed was gone again a moment later")
             val screen = Hyprctl.monitors().first()
-            val withoutTheMenu = Hyprctl.namespaces().sorted()
 
             showing.value = true
 
@@ -154,10 +152,7 @@ class PopupTest {
             )
             assertEquals(AT, popupRole(shell).placedAt, "the popup did not open at its point inside the window")
             assertEquals(1, Hyprctl.windows().count { it.appId == APP_ID }, "the popup is a window of its own")
-            assertEquals(
-                withoutTheMenu, Hyprctl.namespaces().sorted(),
-                "the popup is a layer-shell surface of its own",
-            )
+            assertEquals(emptyList(), ourNamespaces(), "the popup is a layer-shell surface of its own")
             assertIs<WindowStatus.OnScreen>(window.status, "the popup took its window with it: ${window.status}")
         }
     }
@@ -239,11 +234,15 @@ class PopupTest {
         "the last surface the shell placed was built on another role",
     )
 
+    /** Every layer surface hyprctl lists under a namespace of this test's own. */
+    private fun ourNamespaces(): List<String> = Hyprctl.namespaces().filter { it.startsWith(NAMESPACE_PREFIX) }
+
     /** The window hyprctl lists under this test's app id, or null while it lists none. */
     private fun listedWindow(): HyprWindow? = Hyprctl.windows().firstOrNull { it.appId == APP_ID }
 
     private companion object {
-        const val BAR_NAMESPACE = "kortex-popup-test-bar"
+        const val NAMESPACE_PREFIX = "kortex-popup-test"
+        const val BAR_NAMESPACE = "$NAMESPACE_PREFIX-bar"
         const val TITLE = "kortex popup host"
         const val APP_ID = "kortex-popup-test"
 
