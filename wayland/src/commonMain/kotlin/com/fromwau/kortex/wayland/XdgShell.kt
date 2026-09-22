@@ -563,16 +563,13 @@ internal class XdgToplevelSurface private constructor(
                     return Err(it)
                 }
             // Bound before any object is created, so the one step here that can fail has nothing to unwind.
-            val decorationManager = display
-                .require(
-                    "zxdg_decoration_manager_v1",
-                    XdgDecorationProtocol.decorationManagerInterface,
-                    WlVersion.XDG_DECORATION,
-                )
-                .getOrElse {
+            // Absent, the protocol itself says the client self-decorates, which is what this error means.
+            val decorationManager = display.global("zxdg_decoration_manager_v1")
+                ?.let { display.bind(it, XdgDecorationProtocol.decorationManagerInterface, WlVersion.XDG_DECORATION) }
+                ?: run {
                     destroyWmBase(wmBase)
                     releaseCompositor(compositor)
-                    return Err(it)
+                    return display.requireAlive().flatMap { Err(KortexError.ClientSideDecorationRequired) }
                 }
 
             // Closed by the XdgToplevelSurface this all ends up in, which is the one owner of every proxy.

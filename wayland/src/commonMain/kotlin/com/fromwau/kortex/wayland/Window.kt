@@ -97,9 +97,9 @@ public sealed interface WindowStatus {
      *
      * @property result how it ended. `Ok` carries a [SurfaceEnd]: `close()`, the compositor, or the call leaving
      *   composition. `Err` carries what ended it instead: [KortexError.SurfaceCrashed] when your content threw;
-     *   [KortexError.MissingGlobal] when the compositor puts no application windows on screen at all, or decorates
-     *   none of them; [KortexError.ClientSideDecorationRequired] when it leaves this window's title bar and resize
-     *   handles to the application, which kortex does not draw; [KortexError.MissingSeatDevice],
+     *   [KortexError.MissingGlobal] when the compositor puts no application windows on screen at all;
+     *   [KortexError.ClientSideDecorationRequired] when it leaves this window's title bar and resize handles to the
+     *   application, which kortex does not draw; [KortexError.MissingSeatDevice],
      *   [KortexError.SurfaceNotConfigured] or [KortexError.ShmAllocationFailed] when the compositor would not give
      *   the window what it needs to draw; and the same error [kortexApplication] returns when the connection to the
      *   compositor failed.
@@ -147,13 +147,19 @@ public class WindowState {
     /** The compositor has asked for this window to close. Nothing happens until the caller acts on it. */
     public val closeRequested: Boolean get() = published.windowStates.closeRequested
 
-    /** The window fills the screen except for whatever the compositor keeps reserved, such as a panel. */
+    /**
+     * The window fills the screen except for whatever the compositor keeps reserved, such as a panel. Read it
+     * as what the compositor reports, not as a measurement of what the window currently covers.
+     */
     public val maximized: Boolean get() = published.windowStates.maximized
 
     /** The window has the whole screen, with nothing else over it. */
     public val fullscreen: Boolean get() = published.windowStates.fullscreen
 
-    /** The window shares at least one edge with the layout around it, so it cannot choose its own size. */
+    /**
+     * The window shares at least one edge with the layout around it, so it cannot choose its own size. Read it
+     * as what the compositor reports, not as a measurement of the window's actual placement.
+     */
     public val tiled: Boolean get() = published.windowStates.tiled
 
     /** The window is the one the user is working in, and is where their typing goes. */
