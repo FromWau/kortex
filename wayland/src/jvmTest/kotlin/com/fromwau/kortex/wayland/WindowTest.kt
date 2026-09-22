@@ -1,19 +1,11 @@
 package com.fromwau.kortex.wayland
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Ok
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,11 +15,11 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
-import kotlinx.coroutines.delay
 
 /**
  * Places a real window on the compositor, which takes the user's focus and tiles into the workspace they are
- * looking at, so this class runs only in a session kept free for it.
+ * looking at. One test parks its window on a special workspace and focuses it there, which pulls that workspace
+ * up over the screen and warps the pointer onto the window. So this class runs only in a session kept free for it.
  */
 class WindowTest {
     @Test
@@ -139,18 +131,7 @@ class WindowTest {
         val title = mutableStateOf(TITLE)
         val watch = Watch()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            Window(title = title.value, appId = APP_ID, width = WIDTH, height = HEIGHT) {
-                val held = remember { watch.compositions.incrementAndGet() }
-                LaunchedEffect(Unit) {
-                    watch.effects.incrementAndGet()
-                    while (true) {
-                        watch.held.set(held)
-                        watch.ticks.incrementAndGet()
-                        delay(TICK_MILLIS)
-                    }
-                }
-                Grey()
-            }
+            Window(title = title.value, appId = APP_ID, width = WIDTH, height = HEIGHT) { Watched(watch) }
         }
 
         onApplication(content) { shell ->
@@ -338,20 +319,6 @@ class WindowTest {
         }
     }
 
-    /** What the window's content publishes: how often it was composed, what it holds, and that its effect runs. */
-    private class Watch {
-        val compositions = AtomicInteger()
-        val effects = AtomicInteger()
-        val held = AtomicInteger()
-        val ticks = AtomicInteger()
-    }
-
-    /** A grey fill, so the window that maps has something of its own in it. */
-    @Composable
-    private fun Grey() {
-        Box(Modifier.fillMaxSize().background(Color.Gray))
-    }
-
     /** The window hyprctl lists under this test's app id, or null while it lists none. */
     private fun listedWindow(): HyprWindow? = Hyprctl.windows().firstOrNull { it.appId == APP_ID }
 
@@ -369,7 +336,10 @@ class WindowTest {
         const val SECOND_TITLE = "kortex window renamed"
         const val APP_ID = "kortex-window-test"
 
-        /** A workspace of the window's own, which the user is not looking at and which goes when it does. */
+        /**
+         * A workspace of the window's own, which goes when the window does. Focusing a window parked here pulls
+         * it up over whatever the user is looking at and warps their pointer onto the window.
+         */
         const val ASIDE = "special:kortex-window-test"
 
         val WIDTH = 640.dp
@@ -384,7 +354,6 @@ class WindowTest {
 
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 1_000L
-        const val TICK_MILLIS = 20L
         const val TICKS = 3
     }
 }

@@ -60,6 +60,18 @@ internal data class HyprWindow(
     val workspace: String,
 )
 
+/** A way through the layout, in the four words the compositor's own parser reads. */
+internal enum class Direction(private val word: String) {
+    Left("left"),
+    Right("right"),
+    Up("up"),
+    Down("down"),
+    ;
+
+    /** This direction written as one of [Hyprctl.dispatch]'s fields. */
+    val field: String get() = "direction = \"$word\""
+}
+
 /** One entry of `hyprctl clients -j`, in the shape Hyprland writes it. */
 @Serializable
 private data class ClientEntry(

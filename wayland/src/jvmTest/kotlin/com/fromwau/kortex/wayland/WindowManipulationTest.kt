@@ -1,24 +1,15 @@
 package com.fromwau.kortex.wayland
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlinx.coroutines.delay
 
 /**
  * Hands a real window to the compositor's own dispatchers, which re-tile the windows the user has open around it
@@ -80,15 +71,25 @@ class WindowManipulationTest {
     }
 
     @Test
-    fun `a window the compositor moves through the layout keeps its content`() {
-        onWindow { placed ->
-            Hyprctl.dispatch("window.move", TOWARD_THE_LEFT, address = placed.window.address)
+    fun `a window the compositor moves through the layout takes its neighbour's place and keeps its content`() {
+        onTwoWindows { placed, neighbour ->
+            val at = placed.window.at
 
-            placed.assertWhole("after the compositor moved it through the layout")
-            assertEquals(
-                placed.window.workspace, Hyprctl.window(TITLE)?.workspace,
-                "the move through the layout took the window off the workspace it was placed on",
+            Hyprctl.dispatch(
+                "window.move", placed.window.directionToward(neighbour).field,
+                address = placed.window.address,
             )
+
+            placed.shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.window(TITLE)?.at == neighbour.at }
+            assertEquals(
+                neighbour.at, Hyprctl.window(TITLE)?.at,
+                "the compositor was asked to move the window past the one beside it and never moved it",
+            )
+            assertEquals(
+                at, Hyprctl.window(NEIGHBOUR_TITLE)?.at,
+                "the window moved past never took the place of the one moved",
+            )
+            placed.assertWhole("after the compositor moved it through the layout")
         }
     }
 
@@ -118,9 +119,10 @@ class WindowManipulationTest {
                 address = placed.window.address,
             )
 
-            assertTrue(
-                placed.shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.window(TITLE)?.at == neighbour.at },
-                "the compositor was asked to swap the windows and lists this one at ${Hyprctl.window(TITLE)?.at}",
+            placed.shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.window(TITLE)?.at == neighbour.at }
+            assertEquals(
+                neighbour.at, Hyprctl.window(TITLE)?.at,
+                "the compositor was asked to swap the windows and never moved this one",
             )
             assertEquals(
                 at, Hyprctl.window(NEIGHBOUR_TITLE)?.at,
@@ -146,9 +148,10 @@ class WindowManipulationTest {
             )
 
             val grown = IntSize(before.width + GROW_BY, before.height + GROW_BY)
-            assertTrue(
-                placed.shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.window(TITLE)?.size == grown },
-                "the compositor was asked to grow the window and lists it at ${Hyprctl.window(TITLE)?.size}",
+            placed.shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.window(TITLE)?.size == grown }
+            assertEquals(
+                grown, Hyprctl.window(TITLE)?.size,
+                "the compositor was asked to grow the window and never grew it",
             )
             placed.assertWhole("after the compositor resized it")
         }
@@ -183,6 +186,8 @@ class WindowManipulationTest {
                 shell.pumpOrFail(PUMP_MILLIS) { state.status == WindowStatus.OnScreen(NARROW_SIZE) },
                 "the changed width never reached the window, which reports ${state.status}",
             )
+            shell.pumpOrFail(SETTLE_MILLIS)
+
             assertEquals(
                 given, Hyprctl.window(TITLE)?.size,
                 "the compositor took the size the window drew itself at as the window's own",
@@ -291,33 +296,12 @@ class WindowManipulationTest {
         return assertNotNull(Hyprctl.window(title), "the window hyprctl listed was gone again a moment later")
     }
 
-    /** What the window's content publishes: how often it was composed, what it holds, and that its effect runs. */
-    private class Watch {
-        val compositions = AtomicInteger()
-        val effects = AtomicInteger()
-        val held = AtomicInteger()
-        val ticks = AtomicInteger()
-    }
-
-    /** Content publishing to [watch] what it holds behind `remember` and that its effect is still running. */
-    @Composable
-    private fun Watched(watch: Watch) {
-        val held = remember { watch.compositions.incrementAndGet() }
-        LaunchedEffect(Unit) {
-            watch.effects.incrementAndGet()
-            while (true) {
-                watch.held.set(held)
-                watch.ticks.incrementAndGet()
-                delay(TICK_MILLIS)
-            }
-        }
-        Grey()
-    }
-
-    /** A grey fill, so the window that maps has something of its own in it. */
-    @Composable
-    private fun Grey() {
-        Box(Modifier.fillMaxSize().background(Color.Gray))
+    /** The way from this window toward [neighbour], which is the axis the layout split the two along. */
+    private fun HyprWindow.directionToward(neighbour: HyprWindow): Direction = when {
+        neighbour.at.x < at.x -> Direction.Left
+        neighbour.at.x > at.x -> Direction.Right
+        neighbour.at.y < at.y -> Direction.Up
+        else -> Direction.Down
     }
 
     private companion object {
@@ -327,9 +311,6 @@ class WindowManipulationTest {
 
         /** A workspace of the window's own, which the user is not looking at and which goes when it does. */
         const val ASIDE = "special:kortex-window-manipulation-test"
-
-        /** What the compositor's own configuration language calls a move toward the left of the layout. */
-        const val TOWARD_THE_LEFT = "direction = \"left\""
 
         /** Logical pixels to grow the window by on each axis, far enough out that no rounding hides it. */
         const val GROW_BY = 60
@@ -343,7 +324,6 @@ class WindowManipulationTest {
 
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 1_000L
-        const val TICK_MILLIS = 20L
         const val TICKS = 3
     }
 }
