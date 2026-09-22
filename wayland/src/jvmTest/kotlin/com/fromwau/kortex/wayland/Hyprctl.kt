@@ -1,6 +1,7 @@
 package com.fromwau.kortex.wayland
 
 import kotlin.math.roundToInt
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -40,6 +41,15 @@ private const val LEFT = 0
 private const val TOP = 1
 private const val RIGHT = 2
 private const val BOTTOM = 3
+
+/** One window of `hyprctl clients -j`, which lists only windows the compositor has mapped. */
+@Serializable
+internal data class HyprClient(
+    val title: String,
+    /** What Hyprland calls a window's class, which for a Wayland window is its `xdg_toplevel` app id. */
+    @SerialName("class") val appId: String,
+    val floating: Boolean,
+)
 
 /** One surface entry nested under a monitor's `levels` in `hyprctl layers -j`. */
 @Serializable
@@ -85,6 +95,9 @@ internal object Hyprctl {
 
     fun monitor(name: String): HyprMonitor =
         checkNotNull(monitors().firstOrNull { it.name == name }) { "hyprctl lost monitor $name" }
+
+    /** Every window the compositor has mapped, in the order Hyprland lists them. */
+    fun clients(): List<HyprClient> = JSON.decodeFromString(run("clients", "-j"))
 
     /** Every monitor's layer-shell surfaces, keyed by monitor name. */
     fun layers(): Map<String, MonitorLayers> = JSON.decodeFromString(run("layers", "-j"))

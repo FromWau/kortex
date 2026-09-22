@@ -42,6 +42,13 @@ internal object WlVersion {
     const val LAYER_SHELL = 5
     const val VIRTUAL_POINTER = 2
 
+    /**
+     * xdg_wm_base and the xdg_surface and xdg_toplevel it hands out, which share its version.
+     *
+     * xdg_toplevel's `configure_bounds` arrives at v4 and `wm_capabilities` at v5; both are listened for.
+     */
+    const val XDG_SHELL = 7
+
     /** wl_pointer and wl_keyboard inherit it, so their listeners grow with it. */
     const val SEAT = 11
 
