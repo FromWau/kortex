@@ -127,7 +127,7 @@ internal fun LayerSurface(
             parent = parent,
         )
     }
-    val settings = SurfaceSettings(monitor = monitor, config = config)
+    val settings = LayerSettings(monitor = monitor, config = config)
     SideEffect {
         slot.bindTo(state)
         shell.queueUpdate(slot, settings)
@@ -136,16 +136,22 @@ internal fun LayerSurface(
 }
 
 /** What a surface call asks for: a surface placed with other settings is changed to these. */
-internal data class SurfaceSettings(
+internal sealed interface SurfaceSettings {
+    /** Whether a surface placed with [placed] has to be made again rather than changed. */
+    fun rebuildsOver(placed: SurfaceSettings): Boolean
+}
+
+/** What a [LayerSurface] call asks for. */
+internal data class LayerSettings(
     val monitor: Monitor?,
     val config: SurfaceConfig,
-) {
+) : SurfaceSettings {
     /**
-     * Whether a surface placed with [placed] has to be made again to reach these settings, rather than changed:
-     * `get_layer_surface` fixes the monitor and the namespace for the life of a layer surface.
+     * `get_layer_surface` fixes the monitor and the namespace for the life of a layer surface, and no surface
+     * built on another role can be turned into a layer surface at all.
      */
-    fun rebuildsOver(placed: SurfaceSettings): Boolean =
-        monitor != placed.monitor || config.namespace != placed.config.namespace
+    override fun rebuildsOver(placed: SurfaceSettings): Boolean =
+        placed !is LayerSettings || monitor != placed.monitor || config.namespace != placed.config.namespace
 }
 
 /** How a surface ended cleanly: what [SurfaceStatus.Ended] carries inside `Ok`. */

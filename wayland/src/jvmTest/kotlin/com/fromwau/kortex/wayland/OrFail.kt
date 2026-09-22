@@ -8,7 +8,6 @@ import com.fromwau.kortex.compose.KortexPlatform
 import java.lang.foreign.MemorySegment
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -98,14 +97,14 @@ internal fun onBareSurface(
  * The settings the one surface [content] composes asks for, read before any pass could place it: nothing of the
  * surface reaches the compositor, so this is safe even for a surface that would take the keyboard as it maps.
  */
-internal fun settingsAskedBy(content: @Composable KortexApplicationScope.() -> Unit): SurfaceSettings {
+internal fun settingsAskedBy(content: @Composable KortexApplicationScope.() -> Unit): LayerSettings {
     var asked: SurfaceSettings? = null
     onApplication(content) { shell ->
         val queued = shell.queuedSettings
         assertEquals(1, queued.size, "the content asked for ${queued.size} surfaces, not one")
         asked = queued.first()
     }
-    return assertNotNull(asked, "the content asked for no surface")
+    return assertIs<LayerSettings>(asked, "the content asked for no layer surface")
 }
 
 /** Pumps [shell] until [shell] has placed [count] surfaces; the test fails if it never does. */

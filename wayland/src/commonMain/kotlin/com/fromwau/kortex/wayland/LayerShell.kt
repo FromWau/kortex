@@ -105,7 +105,7 @@ internal object LayerShellProtocol {
  */
 internal class LayerShellSurface(
     private val display: WaylandDisplay,
-    internal val surface: MemorySegment,
+    override val surface: MemorySegment,
     private val layerSurface: MemorySegment,
     // What the compositor has been told, which apply() sends the difference from.
     private var config: SurfaceConfig,
@@ -115,34 +115,24 @@ internal class LayerShellSurface(
     private val shell: MemorySegment,
     // Holds the stubs of both listeners above, since one close() gives back the two proxies they hang off.
     private val arena: Arena,
-) : AutoCloseable {
+) : SurfaceRole {
 
     // Paired with closed, which says the surface must be torn down rather than that it has been.
     private var disposed = false
 
-    /** What the compositor has last been told about keyboard focus, which decides whether a keyboard is bound. */
-    val keyboard: KeyboardInteractivity get() = config.keyboard
+    override val wantsKeyboard: Boolean get() = config.keyboard != KeyboardInteractivity.None
 
-    /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns `Ok`. */
-    val logicalWidth: Int get() = state.width
-    val logicalHeight: Int get() = state.height
-    val closed: Boolean get() = state.closed
+    override val logicalWidth: Int get() = state.width
+    override val logicalHeight: Int get() = state.height
+    override val closed: Boolean get() = state.closed
 
-    /**
-     * The buffer scale the compositor wants for this surface, from `wl_surface.preferred_buffer_scale`.
-     *
-     * It reflects the output this surface is actually on, so two surfaces on a mixed-DPI setup report
-     * different scales. Reads 1 until the compositor says otherwise, as the protocol prescribes.
-     */
-    val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
+    override val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
 
     /**
-     * Blocks until the compositor has configured this surface, acknowledging the serial it sent.
-     *
      * @return `Ok` once configured; else the connection's error when it died before a configure came, else
      *   [KortexError.SurfaceNotConfigured].
      */
-    fun waitForConfigure(): EmptyResult<KortexError> {
+    override fun waitForConfigure(): EmptyResult<KortexError> {
         display.roundtrip()
         var spins = 0
         while (!state.configured && !state.closed && spins < MAX_SPINS) {
@@ -154,16 +144,13 @@ internal class LayerShellSurface(
         return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
     }
 
-    /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */
-    internal fun consumeResize(): Boolean = state.consumeResize()
+    override fun consumeResize(): Boolean = state.consumeResize()
 
-    /** Sets the flag a real `closed` event sets, as though the compositor had closed the surface. */
-    internal fun markClosed() {
+    override fun markClosed() {
         state.closed = true
     }
 
-    /** Attaches [buffer] and marks the whole surface damaged. Must follow an acknowledged configure. */
-    fun attach(buffer: ShmBuffer) {
+    override fun attach(buffer: ShmBuffer) {
         LibWayland.marshal(
             surface, WL_SURFACE_ATTACH,
             args = listOf(WlArg.Ptr(buffer.buffer), WlArg.Num(0), WlArg.Num(0)),
@@ -174,8 +161,7 @@ internal class LayerShellSurface(
         )
     }
 
-    /** Double-buffered like every pending surface state: takes effect only at the next [commit]. */
-    fun setBufferScale(scale: Int) {
+    override fun setBufferScale(scale: Int) {
         LibWayland.marshal(surface, WL_SURFACE_SET_BUFFER_SCALE, args = listOf(WlArg.Num(scale)))
     }
 
@@ -242,7 +228,7 @@ internal class LayerShellSurface(
         return Ok(Unit)
     }
 
-    fun commit() {
+    override fun commit() {
         LibWayland.marshal(surface, WL_SURFACE_COMMIT)
         display.flush()
     }
@@ -425,4 +411,57 @@ internal class ConfigureState(private val layerSurface: MemorySegment) {
         resized = false
         return true
     }
+}
+
+/**
+ * Builds a surface on a layer surface of [config], on [output].
+ *
+ * @return what [LayerShellSurface.create] refused [config] for, or what the engine around it failed on, with
+ *   nothing of either left behind.
+ */
+internal fun KortexSurface.Companion.create(
+    display: WaylandDisplay,
+    config: SurfaceConfig,
+    // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
+    output: MemorySegment = MemorySegment.NULL,
+    // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
+    loopQueue: LoopQueue? = null,
+    // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
+    onInputSerial: (Int) -> Unit = {},
+    // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
+    onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
+): Result<KortexSurface, KortexError> = KortexSurface.create(
+    display = display,
+    loopQueue = loopQueue,
+    onInputSerial = onInputSerial,
+    onKeyboardFocus = onKeyboardFocus,
+) { LayerShellSurface.create(display, config, output) }
+
+/**
+ * Applies [new] to a live surface built on a layer surface, keyboard included: everything changed reaches the
+ * compositor in one commit, and the composition on it keeps running and keeps its state.
+ *
+ * @return what [LayerShellSurface.apply] rejected, leaving the surface with the settings it already had.
+ */
+internal fun KortexSurface.applyConfig(new: SurfaceConfig): EmptyResult<KortexError> {
+    role.asLayerShell().apply(new).getOrElse { return Err(it) }
+    followKeyboard()
+    return Ok(Unit)
+}
+
+/**
+ * Requests a new size from the compositor, on the loop thread like every other request to the surface; exposed
+ * so a test can make the compositor configure the surface again.
+ *
+ * @return what [LayerShellSurface.setSize] rejected, leaving the surface at the size it already had.
+ */
+internal fun KortexSurface.requestSize(
+    width: Dp,
+    height: Dp,
+): EmptyResult<KortexError> = role.asLayerShell().setSize(width.toLogicalPx(), height.toLogicalPx())
+
+/** Only the factory above places a surface [LayerSettings] reaches, and it builds every one on a layer surface. */
+private fun SurfaceRole.asLayerShell(): LayerShellSurface {
+    check(this is LayerShellSurface) { "a layer-shell request reached a surface built on another role" }
+    return this
 }

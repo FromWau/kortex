@@ -43,6 +43,18 @@ private sealed interface OutputChoice {
     data object Unplugged : OutputChoice
 }
 
+/** Which monitor a surface these settings place goes on; null leaves the choice to the compositor. */
+private val SurfaceSettings.monitor: Monitor?
+    get() = when (this) {
+        is LayerSettings -> monitor
+    }
+
+/** What the compositor calls a surface these settings place, and the name a crash on it is reported under. */
+private val SurfaceSettings.namespace: String
+    get() = when (this) {
+        is LayerSettings -> config.namespace
+    }
+
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
 
@@ -284,8 +296,10 @@ internal class KortexShell private constructor(
         if (surface == null || placedWith == null || settings.rebuildsOver(placedWith)) {
             return rebuild(slot, settings)
         }
-        surface
-            .applyConfig(settings.config)
+        val applied = when (settings) {
+            is LayerSettings -> surface.applyConfig(settings.config)
+        }
+        applied
             .onSuccess { slot.placedWith = settings }
             .onError { reason -> end(slot, Err(reason)) }
     }
@@ -330,7 +344,7 @@ internal class KortexShell private constructor(
             OutputChoice.Unplugged -> return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
         }
         // Only a wake on a crash: the next pass reads the scene's first failure, which this one may not be.
-        val scene = SurfaceScene(settings.config.namespace, loopQueue, platform, onCrash = { wake() })
+        val scene = SurfaceScene(settings.namespace, loopQueue, platform, onCrash = { wake() })
         slot.scene = scene
         build(slot, settings, scene, output)
             // After the attach, so the first composition already reads the size the surface was configured at.
@@ -345,9 +359,9 @@ internal class KortexShell private constructor(
         settings: SurfaceSettings,
         scene: SurfaceScene,
         output: MemorySegment,
-    ): EmptyResult<KortexError> =
-        KortexSurface
-            .create(
+    ): EmptyResult<KortexError> {
+        val built = when (settings) {
+            is LayerSettings -> KortexSurface.create(
                 display,
                 settings.config,
                 output = output,
@@ -355,15 +369,17 @@ internal class KortexShell private constructor(
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
             )
-            .flatMap { surface ->
-                slot.surface = surface
-                // Only now that a surface carries the name: a crash before this one names the surface it was on.
-                scene.namespace = settings.config.namespace
-                surface.attach(scene).onError {
-                    slot.surface = null
-                    surface.close()
-                }
+        }
+        return built.flatMap { surface ->
+            slot.surface = surface
+            // Only now that a surface carries the name: a crash before this one names the surface it was on.
+            scene.namespace = settings.namespace
+            surface.attach(scene).onError {
+                slot.surface = null
+                surface.close()
             }
+        }
+    }
 
     private fun settle(
         slot: SurfaceSlot,

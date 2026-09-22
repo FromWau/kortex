@@ -2,7 +2,6 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
@@ -11,7 +10,6 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexCursor
-import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
@@ -19,15 +17,16 @@ import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
 
 /**
- * The `zwlr_layer_shell_v1` side of a surface: the layer surface itself, the buffers drawn into it, its frame
- * pacing, its cursor and the seat its input comes off.
+ * The engine behind a surface: the [SurfaceRole] it is built on, the buffers drawn into it, its frame pacing, its
+ * cursor and the seat its input comes off.
  *
  * A [SurfaceScene] is drawn here for as long as it is attached. Frames are paced off `wl_surface.frame` and drawn
  * only when that scene asks for one, so an idle surface costs nothing.
  */
 internal class KortexSurface private constructor(
     private val display: WaylandDisplay,
-    private val layer: LayerShellSurface,
+    /** What this surface is built on; a caller that knows the role sends it what only that role takes. */
+    internal val role: SurfaceRole,
     private val shm: Shm,
     private var bufferScale: Int,
     private var frames: List<Frame>,
@@ -60,8 +59,8 @@ internal class KortexSurface private constructor(
     @Volatile
     internal var keyboardInput: KeyboardInput? = null
 
-    private var logicalWidth: Int = layer.logicalWidth
-    private var logicalHeight: Int = layer.logicalHeight
+    private var logicalWidth: Int = role.logicalWidth
+    private var logicalHeight: Int = role.logicalHeight
 
     // Frames a resize replaced while the compositor still held them; reaped once release() clears busy.
     private val retiring = mutableListOf<Frame>()
@@ -97,7 +96,7 @@ internal class KortexSurface private constructor(
      * True once the compositor has closed this surface, or a test has in its place through [simulateCompositorClose];
      * either way it must be torn down.
      */
-    internal val closed: Boolean get() = layer.closed
+    internal val closed: Boolean get() = role.closed
 
     /** What the content drawn here threw, once it has; null once the scene it threw in has been detached. */
     internal val crash: KortexError.SurfaceCrashed? get() = scene?.crash
@@ -107,7 +106,7 @@ internal class KortexSurface private constructor(
 
     /** A test cannot make the compositor close this surface: that needs removing whatever output it chose. */
     internal fun simulateCompositorClose() {
-        layer.markClosed()
+        role.markClosed()
     }
 
     /**
@@ -122,7 +121,7 @@ internal class KortexSurface private constructor(
         scene.drawOn(this)
         pointerInput =
             seat.attachPointer(scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
-        if (layer.keyboard != KeyboardInteractivity.None) keyboardInput = takeKeyboard()
+        if (role.wantsKeyboard) keyboardInput = takeKeyboard()
         display.roundtrip()
         sizeScene()
         renderNow(frameTimeNanos = 0L)
@@ -143,29 +142,6 @@ internal class KortexSurface private constructor(
         this.scene = null
     }
 
-    /**
-     * Requests a new size from the compositor, on the loop thread like every request here; exposed so a test can
-     * make the compositor configure the surface again.
-     *
-     * @return what [LayerShellSurface.setSize] rejected, leaving the surface at the size it already had.
-     */
-    fun requestSize(
-        width: Dp,
-        height: Dp,
-    ): EmptyResult<KortexError> = layer.setSize(width.toLogicalPx(), height.toLogicalPx())
-
-    /**
-     * Applies [new] to the live surface, keyboard included: everything changed reaches the compositor in one commit,
-     * and the composition on it keeps running and keeps its state.
-     *
-     * @return what [LayerShellSurface.apply] rejected, leaving the surface with the settings it already had.
-     */
-    fun applyConfig(new: SurfaceConfig): EmptyResult<KortexError> {
-        layer.apply(new).getOrElse { return Err(it) }
-        followKeyboard(new)
-        return Ok(Unit)
-    }
-
     /** Draws the attached scene at once, rather than waiting for a frame the compositor has yet to send. */
     internal fun drawNow() {
         renderNow(frameTimeNanos = 0L)
@@ -178,7 +154,7 @@ internal class KortexSurface private constructor(
 
     /** Marks the surface closed, as the compositor closing it would; what content's own handle asks for. */
     internal fun requestClose() {
-        post { layer.markClosed() }
+        post { role.markClosed() }
     }
 
     /** Asks the compositor for a frame, from whichever thread noticed the attached scene needs one. */
@@ -189,7 +165,7 @@ internal class KortexSurface private constructor(
             // compositor decides when a frame happens.
             clock.request(::renderNow)
             // wl_surface.frame only takes effect on the next commit; without one no callback arrives.
-            layer.commit()
+            role.commit()
         }
     }
 
@@ -198,9 +174,10 @@ internal class KortexSurface private constructor(
         return seat.attachKeyboard(scene.composition, scene::textInput, onInputSerial, onKeyboardFocus)
     }
 
-    private fun followKeyboard(config: SurfaceConfig) {
+    /** Takes or gives back the keyboard to match what [role] asks for, for a caller that has just changed it. */
+    internal fun followKeyboard() {
         when {
-            config.keyboard == KeyboardInteractivity.None -> {
+            !role.wantsKeyboard -> {
                 keyboardInput?.release()
                 keyboardInput = null
             }
@@ -269,12 +246,12 @@ internal class KortexSurface private constructor(
 
     /** Acts on a later configure, coalesced to whatever size is current by the time this runs. */
     private fun maybeResize(): EmptyResult<KortexError> {
-        if (!layer.consumeResize()) return Ok(Unit)
+        if (!role.consumeResize()) return Ok(Unit)
         // Read once each: a configure landing between two reads would pair one configure's width with the next
         // configure's height, and buffers would be allocated for a size the compositor never asked for.
-        val configuredWidth = layer.logicalWidth
-        val configuredHeight = layer.logicalHeight
-        // A configure of zero means "you choose", per the layer-shell protocol; it is never a real dimension.
+        val configuredWidth = role.logicalWidth
+        val configuredHeight = role.logicalHeight
+        // A configure of zero means "you choose", as every shell reads it; it is never a real dimension.
         val sizeChanged = configuredWidth != 0 &&
             configuredHeight != 0 &&
             (configuredWidth != logicalWidth || configuredHeight != logicalHeight)
@@ -284,7 +261,7 @@ internal class KortexSurface private constructor(
 
     /** Acts on a later `wl_surface.preferred_buffer_scale`, coalesced to the scale current when this runs. */
     private fun maybeRescale(): EmptyResult<KortexError> {
-        val newScale = scaleOverride ?: layer.preferredBufferScale
+        val newScale = scaleOverride ?: role.preferredBufferScale
         if (newScale == bufferScale) return Ok(Unit)
         bufferScale = newScale
         cursorTheme.rescale(bufferScale)
@@ -315,7 +292,7 @@ internal class KortexSurface private constructor(
         logicalWidth = newLogicalWidth
         logicalHeight = newLogicalHeight
         sizeScene()
-        layer.setBufferScale(bufferScale)
+        role.setBufferScale(bufferScale)
         renderNow(frameTimeNanos = 0L)
         return Ok(Unit)
     }
@@ -347,15 +324,15 @@ internal class KortexSurface private constructor(
             // Every buffer is still owned by the compositor. Ask for another frame rather than draw
             // into one it is reading.
             clock.request(::renderNow)
-            layer.commit()
+            role.commit()
             return
         }
         // A frame content failed to draw is never shown; the scene keeps the failure for the loop to report.
         scene.composition.render(frame.surface.canvas.asComposeCanvas(), frameTimeNanos).getOrElse { return }
         frame.surface.flushAndSubmit()
-        layer.attach(frame.buffer)
+        role.attach(frame.buffer)
         frame.buffer.markAttached()
-        layer.commit()
+        role.commit()
         renders++
     }
 
@@ -374,9 +351,9 @@ internal class KortexSurface private constructor(
         frames.forEach(Frame::close)
         // No further loop tick will reap these; tearing the surface down makes any lingering scanout moot.
         retiring.forEach(Frame::close)
-        // Before layer.close() destroys the wl_surface this callback was requested on.
+        // Before role.close() destroys the wl_surface this callback was requested on.
         clock.close()
-        layer.close()
+        role.close()
         shm.close()
     }
 
@@ -390,20 +367,19 @@ internal class KortexSurface private constructor(
 
     companion object {
         /**
-         * Builds the Wayland objects for a surface of [config], up to its first configure. Nothing is drawn on it
-         * until a [SurfaceScene] is handed to [attach].
+         * Builds the buffers, frame pacing, cursor and seat around the role [buildRole] makes, and drives it to
+         * its first configure. Nothing is drawn on it until a [SurfaceScene] is handed to [attach].
          */
         fun create(
             display: WaylandDisplay,
-            config: SurfaceConfig,
-            // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
-            output: MemorySegment = MemorySegment.NULL,
             // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
             loopQueue: LoopQueue? = null,
             // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
             onInputSerial: (Int) -> Unit = {},
             // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
+            // Makes what the surface is built on, which the surface owns from the moment it is handed over.
+            buildRole: () -> Result<SurfaceRole, KortexError>,
         ): Result<KortexSurface, KortexError> {
             // Run newest first by any exit taken before the surface exists, so nothing outlives what it leans on.
             val unwind = mutableListOf<() -> Unit>()
@@ -411,17 +387,17 @@ internal class KortexSurface private constructor(
             try {
                 val shm = Shm.bind(display).getOrElse { return Err(it) }
                 unwind += shm::close
-                val layer = LayerShellSurface.create(display, config, output).getOrElse { return Err(it) }
-                unwind += layer::close
-                layer.waitForConfigure().getOrElse { return Err(it) }
+                val role = buildRole().getOrElse { return Err(it) }
+                unwind += role::close
+                role.waitForConfigure().getOrElse { return Err(it) }
                 // waitForConfigure has just round-tripped, so the surface's own preferred_buffer_scale is in.
-                val bufferScale = layer.preferredBufferScale
+                val bufferScale = role.preferredBufferScale
                 // Pending state only; it is committed together with the first attach() below.
-                layer.setBufferScale(bufferScale)
+                role.setBufferScale(bufferScale)
 
-                // layer.logicalWidth/logicalHeight are surface-local (logical) per configure; the shm buffer
+                // role.logicalWidth/logicalHeight are surface-local (logical) per configure; the shm buffer
                 // and Skia surface must hold the buffer (physical) pixels the compositor expects.
-                val frames = createFrames(shm, layer.logicalWidth * bufferScale, layer.logicalHeight * bufferScale)
+                val frames = createFrames(shm, role.logicalWidth * bufferScale, role.logicalHeight * bufferScale)
                     .getOrElse { return Err(it) }
                 frames.forEach { frame -> unwind += frame::close }
 
@@ -429,7 +405,7 @@ internal class KortexSurface private constructor(
                 unwind += cursorTheme::close
                 val cursorSurface = WlCursorSurface.create(display).getOrElse { return Err(it) }
                 unwind += cursorSurface::close
-                // Pending state only, like the layer surface above; committed with the first WlCursorSurface.show.
+                // Pending state only, like the role above; committed with the first WlCursorSurface.show.
                 cursorSurface.setBufferScale(bufferScale)
 
                 // Bound per surface, and never cached: each surface releases the seat it owns when it closes.
@@ -442,11 +418,11 @@ internal class KortexSurface private constructor(
                 }
                 val surface = KortexSurface(
                     display = display,
-                    layer = layer,
+                    role = role,
                     shm = shm,
                     bufferScale = bufferScale,
                     frames = frames,
-                    clock = FrameClock(layer.surface),
+                    clock = FrameClock(role.surface),
                     loop = loopQueue ?: LoopQueue(display::wake),
                     cursorTheme = cursorTheme,
                     cursorSurface = cursorSurface,
