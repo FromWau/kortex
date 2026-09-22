@@ -174,7 +174,7 @@ internal class KortexSurface private constructor(
         return seat.attachKeyboard(scene.composition, scene::textInput, onInputSerial, onKeyboardFocus)
     }
 
-    /** Takes or gives back the keyboard to match what [role] asks for; the loop thread only, where it changed it. */
+    /** Takes or gives back the keyboard to match what [role] asks for. The loop thread only, once that changes. */
     internal fun followKeyboard() {
         when {
             !role.wantsKeyboard -> {
