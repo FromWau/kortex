@@ -138,7 +138,7 @@ class WindowTest {
         val title = mutableStateOf(TITLE)
         val watch = Watch()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            Window(title = title.value, appId = APP_ID, width = WIDTH, height = HEIGHT, state = watch.state) {
+            Window(title = title.value, appId = APP_ID, width = WIDTH, height = HEIGHT) {
                 val held = remember { watch.compositions.incrementAndGet() }
                 LaunchedEffect(Unit) {
                     watch.effects.incrementAndGet()
@@ -177,10 +177,9 @@ class WindowTest {
         val effects = AtomicInteger()
         val held = AtomicInteger()
         val ticks = AtomicInteger()
-        val state = WindowState()
     }
 
-    /** Something for the window to draw, since a window with nothing on it is never mapped. */
+    /** A grey fill, so the window that maps has something of its own in it. */
     @Composable
     private fun Grey() {
         Box(Modifier.fillMaxSize().background(Color.Gray))
