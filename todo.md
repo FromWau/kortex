@@ -63,7 +63,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
 Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short;
 under Keyboard and clipboard, the character a Ctrl+key types when no layout has an ASCII one on that key, the
-clipboard that content inside a `Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest`
+clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest`
 proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG, and drag and
 drop; under Housekeeping, the protocol errors libwayland prints to stderr, the Compose error `KortexSceneTest`
 prints, the Compose warning `KeyRepeatTest` prints, and a closed surface's `wl_pointer`, which no test sees
@@ -267,20 +267,14 @@ outlive it.
       anchor and place itself with margins, which also lets it `Overlap`. (`PresetTest`, `SurfacePresetTest`)
 - [x] `AppMenu(width, height)`, over `SurfaceConfig.appMenu`: an osd that also takes keyboard focus on demand, for
       a floating panel whose content dismisses it with `close()`. (`PresetTest`, `SurfacePresetTest`)
-- [x] `ContextMenu(monitor, at, menuSize)`, over `SurfaceConfig.contextMenu(at, menuSize, outputSize)`: places a menu so
-      its top-left corner sits at `at`, flipping to whichever corner keeps it inside its monitor, independently per
-      axis. `outputSize` is the monitor's logical size, its geometry's width and height over its scale, read as the
-      instance is built, so a host passes none. A monitor whose `OutputTransform` is a quarter turn, `Rotated90`,
-      `Rotated270`, `Flipped90` or `Flipped270`, has the two swapped, since `wl_output.mode` is the output's unturned
-      size; an `Unrecognized` transform counts as unturned. The flip is a pure function of its three inputs, so it
-      needs no compositor to test. A menu wider or taller than its monitor still flips on that axis: the anchored
-      corner sits at `at` and the excess runs off the opposite edge, so the answer stays one consistent corner rather
-      than a special case. It carries `ExclusiveZone.Overlap`, which is what makes `at` and `outputSize` the monitor's
-      coordinates: a yielding menu is anchored and margined inside whatever the surfaces that reserve space leave over,
-      so a bar's zone displaces it by that bar's thickness. A corner anchor is two perpendicular edges, so `Overlap`
-      has edges to extend to and the explicit size survives: the restriction that forces `osd` onto `Yield` does not
-      reach here. (`MenuAnchorTest` for the flip, the logical size and a turned monitor, `PresetTest` for the
-      coordinate space and the flip on the live monitor, `SurfacePresetTest`)
+- [x] `ContextMenu(at, menuSize)`, over `Popup`: opens a menu of `menuSize` whose top-left corner sits at `at`
+      inside the surface whose content called it, a bar's or a window's alike, and stacked above it. The compositor
+      places it against the anchor rectangle the popup's positioner carries, so `at` is measured from the parent
+      rather than from the monitor, and a menu near the screen's right or bottom edge opens the other way on that
+      axis instead, each decided on its own. Called outside a surface's content it fails the application, saying
+      where a menu belongs. `SurfaceConfig.contextMenu(at, menuSize, outputSize)`, the layer-shell placement it was
+      built on before, is still here and still covered, but nothing calls it any more.
+      (`PopupTest`; `MenuAnchorTest` and `SurfacePresetTest` for the layer-shell placement)
 - [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
       anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
       `ext-session-lock-v1`. (`PresetTest`, `SurfacePresetTest`)
@@ -293,9 +287,9 @@ outlive it.
 - [ ] **A fractionally scaled monitor measures short.** `OutputGeometry`'s width and height over its
       `scale` are the monitor's logical size only at a whole-number scale. `wl_output.scale` is an
       integer, and Hyprland rounds a fractional scale up, so at 1.5 the monitor measures a quarter short.
-      `ContextMenu` measures its monitor that way (`OutputGeometry.logicalSize`, private to `Presets.kt`), so
-      it can flip early and open away from its point; its KDoc says so. Open: a true logical size, which needs
-      a protocol kortex does not bind yet, such as `zxdg_output_v1`'s `logical_size`.
+      Nothing in kortex divides that way any more, and `OutputGeometry`'s own KDoc says what the division is
+      worth. Open: a true logical size, which needs a protocol kortex does not bind yet, such as
+      `zxdg_output_v1`'s `logical_size`.
 - [x] **A size that rounds below 0 is rejected before it reaches the compositor.** `Dp.toLogicalPx` rounds
       without clamping, and `set_size`'s `uint` arguments would carry a negative size as one above four
       billion, so `requirePlaceableSize` (`LayerShell.kt`) fails a width or height below 0 as
@@ -346,14 +340,11 @@ monitor `rememberMonitors()` lists, 56 dp thick with `OnDemand` keyboard for its
 the thickness its own call asks for, so one button takes the bar to 96 dp and back. The click count and the typed
 text sit behind `remember` in that content, so both stand through the resize, and a readout beside them is the size
 the compositor gave the bar. A right click on the bar's own background, not on its buttons or its text field, shows
-a `ContextMenu` from the bar's content, on the bar's monitor and just below the bar at the click's x; a second right
+a `ContextMenu` from the bar's content, just below the bar at the click's x; a second right
 click moves it, and picking an item closes it through `close()`. A bar whose content crashes has the crash appended
 to the crash log, and a bar that ends, however it ended, has an `Osd` in its place saying so, until a click on it
-brings the bar back. The menu assumes the bar's own top-left is the monitor's top-left, true only when nothing else
-also reserves space on the monitor's Top edge: `zwlr_layer_shell_v1` reports a surface's size but never its
-position, so a bar sharing the Top edge with another exclusive-zone surface has no way to learn how far down it was
-actually pushed. Measured against a desktop that runs one: the bar sat at y=62 and its menu opened at y=56, its own
-height, which is where the bar would begin if nothing else reserved that edge.
+brings the bar back. The menu is an `xdg_popup` parented to the bar, so its point is measured from the bar itself,
+and the bar never has to learn where on the monitor the compositor put it.
 
 ## Polish
 
@@ -467,7 +458,7 @@ height, which is where the bar would begin if nothing else reserved that edge.
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
       clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
       of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
-      content. Content outside a `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers
+      content. Content outside a Compose `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers
       UTF-8 under exactly `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting
       the serial of the latest key, keyboard enter or button, and reads the text out of the entry it is handed
       off the loop thread. `setClipEntry(null)` clears the selection under the same serial, whichever client
@@ -516,7 +507,9 @@ height, which is where the bar would begin if nothing else reserved that edge.
       `stateFromKeymap` and the mapping returning a typed `Result`, with `xkb_state_new` returning NULL failing
       fast through `check`, and what kortex does then: keep the last good keymap, drop keys, or tell the host
       through a `KortexError`.
-- [ ] **Content inside a `Popup` or `Dialog` copies and pastes through AWT's clipboard.** Each runs in a
+- [ ] **Content inside a Compose `Popup` or `Dialog` copies and pastes through AWT's clipboard.** kortex's own
+      `Popup` is a Wayland surface with a scene of its own, so content in one is under kortex's clipboard; this is
+      about Compose's two, which a caller can still reach for. Each runs in a
       scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
       inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
       ui sources, `Popup.skiko.kt:489` and `:495`, and `Dialog.skiko.kt:222` and `:240`, put their content in

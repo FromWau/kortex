@@ -254,20 +254,15 @@ public fun AppMenu(
 }
 
 /**
- * A menu of size [menuSize], opened at [at] on its monitor, on the topmost layer above every window. It opens
- * down and to the right of [at], unless it would then run past the monitor's right or bottom edge: it opens to the
- * left of [at] instead, or upwards from it, each direction decided on its own. It takes no keyboard focus.
+ * A menu of size [menuSize], opened at [at] over the surface this call's content is on, and stacked above it. It
+ * opens down and to the right of [at], unless it would then run past the screen's right or bottom edge: it opens
+ * to the left of [at] instead, or upwards from it, each direction decided on its own. It takes no keyboard focus.
  *
- * On a rotated monitor, the right and bottom edges are those of the monitor as it is turned.
- *
- * At a fractional scale, kortex measures the monitor short, since the compositor reports the scale as a whole number:
- * Hyprland reports 1.5 as 2, which makes the monitor a quarter smaller than it is. The menu then opens to the left or
- * upwards near an edge it would have cleared, and a menu that opens to the left or upwards sits away from [at], and
- * can run past the monitor's edge. One that opens down and to the right still opens at [at].
+ * Call it in a surface's content, never in [kortexApplication]'s own: the menu belongs to the surface it opens
+ * over, and both a bar and a window can hold one.
  *
  * ```kotlin
  * ContextMenu(
- *     monitor = monitor,
  *     at = at,
  *     menuSize = IntSize(160, 120),
  * ) {
@@ -278,39 +273,28 @@ public fun AppMenu(
  * }
  * ```
  *
- * It is a [LayerSurface] with a menu's placement fixed; every other setting is this call's own.
+ * It is a [Popup] with a menu's size given as one value; every other setting is this call's own.
  *
- * @param monitor the monitor the menu opens on, one [rememberMonitors] lists.
- * @param at where the menu opens, in logical pixels from [monitor]'s top-left corner, however much of the monitor
- *   other surfaces reserve.
- * @param menuSize the menu's size in logical pixels, each at least 1. A width or height of 0 or below leaves the
- *   menu unplaced, and its status ends with `Err`.
- * @param namespace what the compositor calls the menu, e.g. in `hyprctl layers`, exactly as written.
- * @param state where to read what the menu is doing, as [LayerSurface]'s `state` describes.
+ * @param at where the menu opens, in logical pixels from the top-left corner of the surface this call's content
+ *   is on.
+ * @param menuSize the menu's size in logical pixels, each at least 1.
+ * @param state where to read what the menu is doing, as [Popup]'s `state` describes.
  * @param content what is drawn on the menu, with the menu itself as `this`.
+ * @throws IllegalStateException when called outside a surface's content.
+ * @throws IllegalArgumentException when either side of [menuSize] is less than one pixel.
  */
 @Composable
 public fun ContextMenu(
-    monitor: Monitor,
     at: IntOffset,
     menuSize: IntSize,
-    namespace: String = "kortex",
     state: SurfaceState = rememberSurfaceState(),
     content: @Composable SurfaceScope.() -> Unit,
 ) {
-    LayerSurface(
-        monitor = monitor,
-        config = SurfaceConfig
-            .contextMenu(at = at, menuSize = menuSize, outputSize = monitor.geometry.logicalSize)
-            .copy(namespace = namespace),
+    Popup(
+        at = at,
+        width = menuSize.width.dp,
+        height = menuSize.height.dp,
         state = state,
         content = content,
     )
 }
-
-// A mode is the output's unturned size, so a quarter turn swaps its width and height on screen.
-private val OutputGeometry.logicalSize: IntSize
-    get() = when {
-        transform.isQuarterTurn -> IntSize(height / scale, width / scale)
-        else -> IntSize(width / scale, height / scale)
-    }

@@ -153,8 +153,6 @@ private fun DemoBar(
                                     // This scope's Density is the very buffer scale the offset was produced
                                     // at, so it converts exactly into the logical space ContextMenu wants.
                                     val x = (event.changes.first().position.x / density).roundToInt()
-                                    // Bar-local is monitor-local only while nothing else reserves the Top
-                                    // edge; a second bar above this one displaces the menu by its height.
                                     menu = Menu.OpenAt(IntOffset(x, bar.size.height))
                                 }
                             }
@@ -197,7 +195,6 @@ private fun DemoBar(
         when (val open = menu) {
             Menu.Closed -> Unit
             is Menu.OpenAt -> BarMenu(
-                monitor = screen,
                 at = open.at,
                 crashLog = crashLog,
                 onClosed = { menu = Menu.Closed },
@@ -213,10 +210,9 @@ private sealed interface Menu {
     data class OpenAt(val at: IntOffset) : Menu
 }
 
-/** The bar's context menu, opened at [at] on [monitor]; picking an item closes it, and [onClosed] follows. */
+/** The bar's context menu, opened at [at] on the bar; picking an item closes it, and [onClosed] follows. */
 @Composable
 private fun BarMenu(
-    monitor: Monitor,
     at: IntOffset,
     crashLog: Path,
     onClosed: () -> Unit,
@@ -229,10 +225,8 @@ private fun BarMenu(
         }
 
         else -> ContextMenu(
-            monitor = monitor,
             at = at,
             menuSize = IntSize(width = 160, height = 120),
-            namespace = "kortex-menu",
             state = menu,
         ) {
             MaterialTheme(colorScheme = darkColorScheme()) {

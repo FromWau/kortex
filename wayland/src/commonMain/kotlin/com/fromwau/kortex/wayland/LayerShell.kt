@@ -48,9 +48,7 @@ internal object LayerShellProtocol {
             WlMessage("set_exclusive_zone", "i", listOf(MemorySegment.NULL)),
             WlMessage("set_margin", "iiii", List(4) { MemorySegment.NULL }),
             WlMessage("set_keyboard_interactivity", "u", listOf(MemorySegment.NULL)),
-            // xdg_popup, which kortex never creates; libwayland reads a message's types only when that
-            // message is marshalled, so NULL here is never dereferenced.
-            WlMessage("get_popup", "o", listOf(MemorySegment.NULL)),
+            WlMessage("get_popup", "o", listOf(XdgShellProtocol.xdgPopupInterface)),
             WlMessage("ack_configure", "u", listOf(MemorySegment.NULL)),
             WlMessage("destroy", ""),
             WlMessage("set_layer", "2u", listOf(MemorySegment.NULL)),
@@ -91,6 +89,7 @@ internal object LayerShellProtocol {
     const val SET_EXCLUSIVE_ZONE = 2
     const val SET_MARGIN = 3
     const val SET_KEYBOARD_INTERACTIVITY = 4
+    const val GET_POPUP = 5
     const val ACK_CONFIGURE = 6
     const val LAYER_SURFACE_DESTROY = 7
     const val SET_LAYER = 8
@@ -121,6 +120,9 @@ internal class LayerShellSurface(
     private var disposed = false
 
     override val wantsKeyboard: Boolean get() = config.keyboard != KeyboardInteractivity.None
+
+    /** A layer surface takes a popup the client made without one, which is how a bar shows a menu. */
+    override val popupParent: PopupParent get() = PopupParent.Layer(layerSurface)
 
     override val logicalWidth: Int get() = state.width
     override val logicalHeight: Int get() = state.height

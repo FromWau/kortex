@@ -250,12 +250,26 @@ internal object LibWayland {
         version: Int,
         requests: List<WlMessage>,
         events: List<WlMessage> = emptyList(),
+    ): MemorySegment = buildInterface(name, version, { requests }, events)
+
+    /**
+     * Builds a `wl_interface` one of whose own requests takes another object of that same interface.
+     *
+     * Such a table has no value to point at until the interface exists, so [requests] is handed the interface
+     * being built and the tables are filled once it returns. Otherwise as [buildInterface].
+     */
+    fun buildInterface(
+        name: String,
+        version: Int,
+        requests: (self: MemorySegment) -> List<WlMessage>,
+        events: List<WlMessage> = emptyList(),
     ): MemorySegment {
         val iface = arena.allocate(INTERFACE)
+        val messages = requests(iface)
         iface.set(ADDRESS, NAME_OFFSET, arena.allocateFrom(name))
         iface.set(JAVA_INT, VERSION_OFFSET, version)
-        iface.set(JAVA_INT, METHOD_COUNT_OFFSET, requests.size)
-        iface.set(ADDRESS, METHODS_OFFSET, messageTable(requests))
+        iface.set(JAVA_INT, METHOD_COUNT_OFFSET, messages.size)
+        iface.set(ADDRESS, METHODS_OFFSET, messageTable(messages))
         iface.set(JAVA_INT, EVENT_COUNT_OFFSET, events.size)
         iface.set(ADDRESS, EVENTS_OFFSET, messageTable(events))
         return iface

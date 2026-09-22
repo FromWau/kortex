@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.IntOffset
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -28,16 +29,67 @@ private const val WL_ARRAY_SIZE_OFFSET = 0L
 private const val WL_ARRAY_DATA_OFFSET = 16L
 private const val WL_ARRAY_BYTES = 24L
 
+/** Gives back the `xdg_wm_base` a surface bound for itself; every xdg role here binds one of its own. */
+private fun destroyWmBase(wmBase: MemorySegment) {
+    LibWayland.marshal(wmBase, XdgShellProtocol.WM_BASE_DESTROY)
+    LibWayland.proxyDestroy(wmBase)
+}
+
+// Shared by both xdg roles in this file, which draw on a wl_surface and wait for a configure alike.
+private const val WL_COMPOSITOR_CREATE_SURFACE = 0
+private const val WL_SURFACE_DESTROY = 0
+private const val WL_SURFACE_ATTACH = 1
+private const val WL_SURFACE_COMMIT = 6
+private const val WL_SURFACE_SET_BUFFER_SCALE = 8
+private const val WL_SURFACE_DAMAGE_BUFFER = 9
+
+private const val CONFIGURE_TIMEOUT_MILLIS = 4_000L
+private const val DISPATCH_SLICE_MILLIS = 50L
+private const val NANOS_PER_MILLI = 1_000_000L
+
 /** The `xdg_shell` tables, from `wayland-scanner private-code xdg-shell.xml`. */
 internal object XdgShellProtocol {
+    // These two come first because a table resolves its `types` entries in declaration order, and both
+    // xdg_surface and xdg_wm_base name them.
+    val xdgPositionerInterface: MemorySegment = LibWayland.buildInterface(
+        name = "xdg_positioner",
+        version = WlVersion.XDG_SHELL,
+        requests = listOf(
+            WlMessage("destroy", ""),
+            WlMessage("set_size", "ii", List(2) { MemorySegment.NULL }),
+            WlMessage("set_anchor_rect", "iiii", List(4) { MemorySegment.NULL }),
+            WlMessage("set_anchor", "u", listOf(MemorySegment.NULL)),
+            WlMessage("set_gravity", "u", listOf(MemorySegment.NULL)),
+            WlMessage("set_constraint_adjustment", "u", listOf(MemorySegment.NULL)),
+            WlMessage("set_offset", "ii", List(2) { MemorySegment.NULL }),
+            WlMessage("set_reactive", "3"),
+            WlMessage("set_parent_size", "3ii", List(2) { MemorySegment.NULL }),
+            WlMessage("set_parent_configure", "3u", listOf(MemorySegment.NULL)),
+        ),
+    )
+
+    val xdgPopupInterface: MemorySegment = LibWayland.buildInterface(
+        name = "xdg_popup",
+        version = WlVersion.XDG_SHELL,
+        requests = listOf(
+            WlMessage("destroy", ""),
+            WlMessage("grab", "ou", listOf(LibWayland.seatInterface, MemorySegment.NULL)),
+            WlMessage("reposition", "3ou", listOf(xdgPositionerInterface, MemorySegment.NULL)),
+        ),
+        events = listOf(
+            WlMessage("configure", "iiii", List(4) { MemorySegment.NULL }),
+            WlMessage("popup_done", ""),
+            WlMessage("repositioned", "3u", listOf(MemorySegment.NULL)),
+        ),
+    )
+
     val xdgToplevelInterface: MemorySegment = LibWayland.buildInterface(
         name = "xdg_toplevel",
         version = WlVersion.XDG_SHELL,
         requests = listOf(
             WlMessage("destroy", ""),
-            // No event here declares an `o`/`n` argument, and no request with a NULL one is marshalled.
-            // Filling one in later needs xdgPositionerInterface/xdgPopupInterface: tables resolve in declaration
-            // order, so those must move above xdgSurfaceInterface and xdgWmBaseInterface.
+            // set_parent's one type is xdg_toplevel itself, and no request with a NULL `types` entry here is
+            // marshalled; libwayland reads a message's types only when that message is marshalled.
             WlMessage("set_parent", "?o", listOf(MemorySegment.NULL)),
             WlMessage("set_title", "s", listOf(MemorySegment.NULL)),
             WlMessage("set_app_id", "s", listOf(MemorySegment.NULL)),
@@ -60,17 +112,19 @@ internal object XdgShellProtocol {
         ),
     )
 
+    // get_popup's parent is another xdg_surface, which only the interface being built can name.
     val xdgSurfaceInterface: MemorySegment = LibWayland.buildInterface(
         name = "xdg_surface",
         version = WlVersion.XDG_SHELL,
-        requests = listOf(
-            WlMessage("destroy", ""),
-            WlMessage("get_toplevel", "n", listOf(xdgToplevelInterface)),
-            // xdg_popup and xdg_positioner, which nothing here creates.
-            WlMessage("get_popup", "n?oo", List(3) { MemorySegment.NULL }),
-            WlMessage("set_window_geometry", "iiii", List(4) { MemorySegment.NULL }),
-            WlMessage("ack_configure", "u", listOf(MemorySegment.NULL)),
-        ),
+        requests = { self ->
+            listOf(
+                WlMessage("destroy", ""),
+                WlMessage("get_toplevel", "n", listOf(xdgToplevelInterface)),
+                WlMessage("get_popup", "n?oo", listOf(xdgPopupInterface, self, xdgPositionerInterface)),
+                WlMessage("set_window_geometry", "iiii", List(4) { MemorySegment.NULL }),
+                WlMessage("ack_configure", "u", listOf(MemorySegment.NULL)),
+            )
+        },
         events = listOf(
             WlMessage("configure", "u", listOf(MemorySegment.NULL)),
         ),
@@ -81,8 +135,7 @@ internal object XdgShellProtocol {
         version = WlVersion.XDG_SHELL,
         requests = listOf(
             WlMessage("destroy", ""),
-            // xdg_positioner, which nothing here creates.
-            WlMessage("create_positioner", "n", listOf(MemorySegment.NULL)),
+            WlMessage("create_positioner", "n", listOf(xdgPositionerInterface)),
             WlMessage("get_xdg_surface", "no", listOf(xdgSurfaceInterface, LibWayland.surfaceInterface)),
             WlMessage("pong", "u", listOf(MemorySegment.NULL)),
         ),
@@ -92,16 +145,27 @@ internal object XdgShellProtocol {
     )
 
     const val WM_BASE_DESTROY = 0
+    const val CREATE_POSITIONER = 1
     const val GET_XDG_SURFACE = 2
     const val PONG = 3
 
     const val XDG_SURFACE_DESTROY = 0
     const val GET_TOPLEVEL = 1
+    const val GET_POPUP = 2
     const val ACK_CONFIGURE = 4
 
     const val TOPLEVEL_DESTROY = 0
     const val SET_TITLE = 2
     const val SET_APP_ID = 3
+
+    const val POSITIONER_DESTROY = 0
+    const val SET_POSITIONER_SIZE = 1
+    const val SET_ANCHOR_RECT = 2
+    const val SET_ANCHOR = 3
+    const val SET_GRAVITY = 4
+    const val SET_CONSTRAINT_ADJUSTMENT = 5
+
+    const val POPUP_DESTROY = 0
 }
 
 /** The `xdg_decoration` tables, from `wayland-scanner private-code xdg-decoration-unstable-v1.xml`. */
@@ -439,6 +503,8 @@ internal class XdgToplevelSurface private constructor(
     /** A window takes the keyboard whenever the compositor gives it focus. */
     override val wantsKeyboard: Boolean get() = true
 
+    override val popupParent: PopupParent get() = PopupParent.Xdg(xdgSurface)
+
     override val logicalWidth: Int get() = toplevelListener.width
     override val logicalHeight: Int get() = toplevelListener.height
     override val closed: Boolean get() = toplevelListener.closed
@@ -624,28 +690,12 @@ internal class XdgToplevelSurface private constructor(
             return Ok(result)
         }
 
-        private fun destroyWmBase(wmBase: MemorySegment) {
-            LibWayland.marshal(wmBase, XdgShellProtocol.WM_BASE_DESTROY)
-            LibWayland.proxyDestroy(wmBase)
-        }
-
         private val TILED = setOf(
             XdgToplevelState.TiledLeft,
             XdgToplevelState.TiledRight,
             XdgToplevelState.TiledTop,
             XdgToplevelState.TiledBottom,
         )
-
-        private const val WL_COMPOSITOR_CREATE_SURFACE = 0
-        private const val WL_SURFACE_DESTROY = 0
-        private const val WL_SURFACE_ATTACH = 1
-        private const val WL_SURFACE_COMMIT = 6
-        private const val WL_SURFACE_SET_BUFFER_SCALE = 8
-        private const val WL_SURFACE_DAMAGE_BUFFER = 9
-
-        private const val CONFIGURE_TIMEOUT_MILLIS = 4_000L
-        private const val DISPATCH_SLICE_MILLIS = 50L
-        private const val NANOS_PER_MILLI = 1_000_000L
     }
 }
 
@@ -702,4 +752,362 @@ internal fun KortexSurface.applyWindow(
 private fun SurfaceRole.asToplevel(): XdgToplevelSurface {
     check(this is XdgToplevelSurface) { "a window request reached a surface built on another role" }
     return this
+}
+
+/**
+ * Tracks what `xdg_popup` reports: where the compositor put the popup and how big it made it, and the
+ * compositor dismissing it.
+ *
+ * [width] and [height] start at the size the positioner asked for, which is what a compositor answers with
+ * unless it has to shrink the popup to keep it on screen.
+ */
+internal class XdgPopupListener(width: Int, height: Int) {
+    @Volatile var x: Int = 0
+        private set
+
+    @Volatile var y: Int = 0
+        private set
+
+    @Volatile var width: Int = width
+        private set
+
+    @Volatile var height: Int = height
+        private set
+
+    @Volatile var closed: Boolean = false
+
+    @Volatile private var configured: Boolean = false
+    @Volatile private var resized: Boolean = false
+
+    fun onConfigure(
+        data: MemorySegment,
+        proxy: MemorySegment,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+    ) {
+        // Nothing but a configure moves or resizes a popup, so one carrying the size it already has is no
+        // resize at all.
+        if (configured && (width != this.width || height != this.height)) resized = true
+        this.x = x
+        this.y = y
+        this.width = width
+        this.height = height
+        configured = true
+    }
+
+    fun onPopupDone(data: MemorySegment, proxy: MemorySegment) {
+        closed = true
+    }
+
+    fun onRepositioned(data: MemorySegment, proxy: MemorySegment, token: Int) = Unit
+
+    fun consumeResize(): Boolean {
+        if (!resized) return false
+        resized = false
+        return true
+    }
+
+    /** [arena] is the owning surface's, which closes it once the `xdg_popup` proxy is destroyed. */
+    fun install(arena: Arena, popup: MemorySegment) {
+        val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, CONFIGURE, LibWayland.upcall(arena, this, "onConfigure", CONFIGURE_DESCRIPTOR))
+        listener.setAtIndex(ADDRESS, POPUP_DONE, LibWayland.upcall(arena, this, "onPopupDone", POPUP_DONE_DESCRIPTOR))
+        listener.setAtIndex(
+            ADDRESS, REPOSITIONED,
+            LibWayland.upcall(arena, this, "onRepositioned", REPOSITIONED_DESCRIPTOR),
+        )
+        check(LibWayland.proxyAddListener(popup, listener, MemorySegment.NULL) == 0) {
+            "wl_proxy_add_listener rejected the xdg_popup listener"
+        }
+    }
+
+    private companion object {
+        // xdg_popup v7 declares exactly these three events; every slot must be filled, because libwayland
+        // indexes the struct and calls straight through it.
+        const val EVENT_COUNT = 3L
+        const val CONFIGURE = 0L
+        const val POPUP_DONE = 1L
+        const val REPOSITIONED = 2L
+
+        val CONFIGURE_DESCRIPTOR =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT)
+        val POPUP_DONE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)
+        val REPOSITIONED_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+    }
+}
+
+/**
+ * An `xdg_popup`: a short-lived surface the compositor places against an anchor rectangle inside its parent.
+ *
+ * Its parent and everything its positioner carries are fixed as it is created, because the compositor copies
+ * the positioner's rules there and then. As with every xdg role, the client commits once with no buffer and
+ * the compositor answers with `xdg_surface.configure`; attaching before that serial is acknowledged is a
+ * protocol error and a disconnect.
+ */
+internal class XdgPopupSurface private constructor(
+    private val display: WaylandDisplay,
+    override val surface: MemorySegment,
+    private val xdgSurface: MemorySegment,
+    private val popup: MemorySegment,
+    private val wmBase: MemorySegment,
+    private val compositor: MemorySegment,
+    private val wmBaseListener: XdgWmBaseListener,
+    private val surfaceListener: WlSurfaceListener,
+    private val xdgSurfaceListener: XdgSurfaceListener,
+    private val popupListener: XdgPopupListener,
+    // Holds the stubs of all four listeners above, since one close() gives back every proxy they hang off.
+    private val arena: Arena,
+) : SurfaceRole {
+
+    // Paired with closed, which says the surface must be torn down rather than that it has been.
+    private var disposed = false
+
+    /** A popup takes no keyboard: kortex asks for none of the explicit grab that would give it one. */
+    override val wantsKeyboard: Boolean get() = false
+
+    /** A popup of a popup is how menus nest, and the protocol parents one to the other's `xdg_surface`. */
+    override val popupParent: PopupParent get() = PopupParent.Xdg(xdgSurface)
+
+    override val logicalWidth: Int get() = popupListener.width
+    override val logicalHeight: Int get() = popupListener.height
+    override val closed: Boolean get() = popupListener.closed
+
+    override val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
+
+    /** Where the compositor put the popup, in logical pixels from its parent's top-left; a test reads it. */
+    val placedAt: IntOffset get() = IntOffset(popupListener.x, popupListener.y)
+
+    /**
+     * Dispatches until `xdg_surface.configure` has arrived and been acknowledged, and gives up if the
+     * compositor dismisses the popup first.
+     *
+     * @return `Ok` once configured; else the connection's error when it died before a configure came, else
+     *   [KortexError.SurfaceNotConfigured], which is also what a popup the compositor never took a parent for
+     *   ends with.
+     */
+    override fun waitForConfigure(): EmptyResult<KortexError> {
+        display.roundtrip()
+        val deadline = System.nanoTime() + CONFIGURE_TIMEOUT_MILLIS * NANOS_PER_MILLI
+        // Dispatched in slices rather than blocking: a compositor that answers nothing at all must still
+        // leave this call, and the whole build behind it, with an error rather than a hang.
+        while (!xdgSurfaceListener.configured && !closed && System.nanoTime() < deadline) {
+            // A negative return means the connection is already gone: dispatching again would return
+            // immediately without sleeping, so this loop would burn the rest of the budget spinning.
+            if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
+        }
+        if (xdgSurfaceListener.configured) return Ok(Unit)
+        // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
+        return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
+    }
+
+    override fun consumeResize(): Boolean = popupListener.consumeResize()
+
+    override fun markClosed() {
+        popupListener.closed = true
+    }
+
+    override fun attach(buffer: ShmBuffer) {
+        LibWayland.marshal(
+            surface, WL_SURFACE_ATTACH,
+            args = listOf(WlArg.Ptr(buffer.buffer), WlArg.Num(0), WlArg.Num(0)),
+        )
+        LibWayland.marshal(
+            surface, WL_SURFACE_DAMAGE_BUFFER,
+            args = listOf(WlArg.Num(0), WlArg.Num(0), WlArg.Num(buffer.width), WlArg.Num(buffer.height)),
+        )
+    }
+
+    override fun setBufferScale(scale: Int) {
+        LibWayland.marshal(surface, WL_SURFACE_SET_BUFFER_SCALE, args = listOf(WlArg.Num(scale)))
+    }
+
+    override fun commit() {
+        LibWayland.marshal(surface, WL_SURFACE_COMMIT)
+        display.flush()
+    }
+
+    override fun close() {
+        if (disposed) return
+        disposed = true
+        // Innermost first: an xdg_surface destroyed before its role object, or a shell destroyed before an
+        // xdg_surface it handed out, is a protocol error.
+        LibWayland.marshal(popup, XdgShellProtocol.POPUP_DESTROY)
+        LibWayland.proxyDestroy(popup)
+        LibWayland.marshal(xdgSurface, XdgShellProtocol.XDG_SURFACE_DESTROY)
+        LibWayland.proxyDestroy(xdgSurface)
+        LibWayland.marshal(surface, WL_SURFACE_DESTROY)
+        LibWayland.proxyDestroy(surface)
+        // Bound per surface like everything else here, so it goes with it rather than at disconnect.
+        destroyWmBase(wmBase)
+        // After every destroy, never before: closing the arena frees the code their stubs are.
+        arena.close()
+        releaseCompositor(compositor)
+        display.flush()
+    }
+
+    companion object {
+        /**
+         * Creates a popup of [width] by [height] logical pixels whose top-left corner sits at [at] inside
+         * [parent], and commits it with no buffer, which is what the compositor answers with the first
+         * configure.
+         *
+         * @return what binding `wl_compositor` or `xdg_wm_base` failed with, leaving nothing behind.
+         */
+        fun create(
+            display: WaylandDisplay,
+            parent: PopupParent,
+            at: IntOffset,
+            width: Int,
+            height: Int,
+        ): Result<XdgPopupSurface, KortexError> {
+            val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
+                .getOrElse { return Err(it) }
+            val wmBase = display
+                .require("xdg_wm_base", XdgShellProtocol.xdgWmBaseInterface, WlVersion.XDG_SHELL)
+                .getOrElse {
+                    releaseCompositor(compositor)
+                    return Err(it)
+                }
+
+            // Closed by the XdgPopupSurface this all ends up in, which is the one owner of every proxy.
+            val arena = Arena.ofShared()
+            // Before any dispatch, since the compositor may ping as soon as the bind reaches it.
+            val wmBaseListener = XdgWmBaseListener(display, wmBase)
+            wmBaseListener.install(arena)
+
+            val surface = LibWayland.marshal(
+                compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
+                LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),
+            )
+            // Before the commit below: the compositor answers it with preferred_buffer_scale and the rest of
+            // the surface's initial state.
+            val surfaceListener = WlSurfaceListener()
+            surfaceListener.install(arena, surface)
+
+            val xdgSurface = LibWayland.marshal(
+                wmBase, XdgShellProtocol.GET_XDG_SURFACE, XdgShellProtocol.xdgSurfaceInterface,
+                LibWayland.proxyGetVersion(wmBase),
+                listOf(WlArg.Ptr(MemorySegment.NULL), WlArg.Ptr(surface)),
+            )
+            val xdgSurfaceListener = XdgSurfaceListener(xdgSurface)
+            xdgSurfaceListener.install(arena)
+
+            val positioner = createPositioner(wmBase, at, width, height)
+            val popup = LibWayland.marshal(
+                xdgSurface, XdgShellProtocol.GET_POPUP, XdgShellProtocol.xdgPopupInterface,
+                LibWayland.proxyGetVersion(xdgSurface),
+                listOf(
+                    WlArg.Ptr(MemorySegment.NULL),
+                    WlArg.Ptr(parent.xdgSurfaceOrNull),
+                    WlArg.Ptr(positioner),
+                ),
+            )
+            // The compositor copied the rules as get_popup carried the positioner, so it is done with.
+            LibWayland.marshal(positioner, XdgShellProtocol.POSITIONER_DESTROY)
+            LibWayland.proxyDestroy(positioner)
+
+            val popupListener = XdgPopupListener(width, height)
+            popupListener.install(arena, popup)
+
+            // Before the commit below, which is the point by which the protocol requires a popup to have a
+            // parent, and which is what draws the first configure out.
+            if (parent is PopupParent.Layer) {
+                LibWayland.marshal(
+                    parent.layerSurface, LayerShellProtocol.GET_POPUP, args = listOf(WlArg.Ptr(popup)),
+                )
+            }
+
+            val result = XdgPopupSurface(
+                display, surface, xdgSurface, popup, wmBase, compositor, wmBaseListener,
+                surfaceListener, xdgSurfaceListener, popupListener, arena,
+            )
+            result.commit()
+            return Ok(result)
+        }
+
+        /** The parent `get_popup` takes directly, and NULL for one a layer surface adopts afterwards. */
+        private val PopupParent.xdgSurfaceOrNull: MemorySegment
+            get() = when (this) {
+                is PopupParent.Xdg -> xdgSurface
+                is PopupParent.Layer -> MemorySegment.NULL
+            }
+
+        /**
+         * A positioner asking for a [width] by [height] popup whose top-left corner sits at [at] in its
+         * parent, opening down and to the right and flipping to the other side of [at] on whichever axis
+         * would otherwise run off the screen.
+         */
+        private fun createPositioner(
+            wmBase: MemorySegment,
+            at: IntOffset,
+            width: Int,
+            height: Int,
+        ): MemorySegment {
+            val positioner = LibWayland.marshal(
+                wmBase, XdgShellProtocol.CREATE_POSITIONER, XdgShellProtocol.xdgPositionerInterface,
+                LibWayland.proxyGetVersion(wmBase), listOf(WlArg.Ptr(MemorySegment.NULL)),
+            )
+            LibWayland.marshal(
+                positioner, XdgShellProtocol.SET_POSITIONER_SIZE,
+                args = listOf(WlArg.Num(width), WlArg.Num(height)),
+            )
+            LibWayland.marshal(
+                positioner, XdgShellProtocol.SET_ANCHOR_RECT,
+                args = listOf(WlArg.Num(at.x), WlArg.Num(at.y), WlArg.Num(ANCHOR_SPAN), WlArg.Num(ANCHOR_SPAN)),
+            )
+            LibWayland.marshal(positioner, XdgShellProtocol.SET_ANCHOR, args = listOf(WlArg.Num(ANCHOR_TOP_LEFT)))
+            LibWayland.marshal(
+                positioner, XdgShellProtocol.SET_GRAVITY, args = listOf(WlArg.Num(GRAVITY_BOTTOM_RIGHT)),
+            )
+            LibWayland.marshal(
+                positioner, XdgShellProtocol.SET_CONSTRAINT_ADJUSTMENT, args = listOf(WlArg.Num(FLIP_BOTH_AXES)),
+            )
+            return positioner
+        }
+
+        /** `set_anchor_rect` rejects an empty rectangle, so the point asked for is a rectangle one pixel wide. */
+        private const val ANCHOR_SPAN = 1
+
+        /** `xdg_positioner.anchor`'s `top_left`: the popup hangs off the anchor rectangle's top-left corner. */
+        private const val ANCHOR_TOP_LEFT = 5
+
+        /** `xdg_positioner.gravity`'s `bottom_right`: the popup opens down and to the right of that corner. */
+        private const val GRAVITY_BOTTOM_RIGHT = 8
+
+        /** `xdg_positioner.constraint_adjustment`'s `flip_x | flip_y`, each axis decided on its own. */
+        private const val FLIP_BOTH_AXES = 4 or 8
+    }
+}
+
+/**
+ * Builds a surface on an xdg popup of [settings], parented to [parent].
+ *
+ * @return what [XdgPopupSurface.create] could not bind for, or what the engine around it failed on, with
+ *   nothing of either left behind.
+ */
+internal fun KortexSurface.Companion.createOnPopup(
+    display: WaylandDisplay,
+    settings: PopupSettings,
+    parent: PopupParent,
+    // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
+    loopQueue: LoopQueue? = null,
+    // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
+    onInputSerial: (Int) -> Unit = {},
+    // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
+    onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
+): Result<KortexSurface, KortexError> = KortexSurface.create(
+    display = display,
+    loopQueue = loopQueue,
+    onInputSerial = onInputSerial,
+    onKeyboardFocus = onKeyboardFocus,
+) {
+    XdgPopupSurface.create(
+        display,
+        parent = parent,
+        at = settings.at,
+        width = settings.width.toLogicalPx(),
+        height = settings.height.toLogicalPx(),
+    )
 }

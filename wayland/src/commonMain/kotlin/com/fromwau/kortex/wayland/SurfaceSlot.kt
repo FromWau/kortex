@@ -54,6 +54,9 @@ internal class SurfaceSlot(
     /** Whether the surface whose content this call is in has gone. */
     val parentGone: Boolean get() = parent != null && parent.scene !== parentScene
 
+    /** What the surface whose content this call is in is built on, which a popup here is parented to. */
+    val parentRole: SurfaceRole? get() = parent?.surface?.role
+
     // The settings its call asks for while in composition, and null once it has left. Loop thread only.
     var wanted: SurfaceSettings? = null
 

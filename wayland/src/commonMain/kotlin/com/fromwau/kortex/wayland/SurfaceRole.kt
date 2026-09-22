@@ -3,10 +3,22 @@ package com.fromwau.kortex.wayland
 import com.fromwau.kern.result.EmptyResult
 import java.lang.foreign.MemorySegment
 
+/** How a surface parents a popup opened from its content: the two ways the protocol offers. */
+internal sealed interface PopupParent {
+    /** An `xdg_surface`, which `xdg_surface.get_popup` takes as the popup is created. */
+    data class Xdg(val xdgSurface: MemorySegment) : PopupParent
+
+    /** A `zwlr_layer_surface_v1`, which adopts a popup created without a parent through its own `get_popup`. */
+    data class Layer(val layerSurface: MemorySegment) : PopupParent
+}
+
 /** What the surface engine needs of whatever protocol object a surface is built on. */
 internal interface SurfaceRole : AutoCloseable {
     /** The `wl_surface` the engine draws into and paces its frames off. */
     val surface: MemorySegment
+
+    /** What a popup shown from this surface's content is parented to. */
+    val popupParent: PopupParent
 
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns `Ok`. */
     val logicalWidth: Int

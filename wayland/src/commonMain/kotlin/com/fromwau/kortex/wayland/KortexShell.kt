@@ -47,8 +47,9 @@ private sealed interface OutputChoice {
 private val SurfaceSettings.placedOn: Monitor?
     get() = when (this) {
         is LayerSettings -> monitor
-        // xdg-shell names no output: a window goes wherever the compositor's own rules put it.
-        is WindowSettings -> null
+        // xdg-shell names no output: a window goes wherever the compositor's own rules put it, and a popup
+        // goes wherever its parent is.
+        is WindowSettings, is PopupSettings -> null
     }
 
 /** What the compositor calls a surface these settings place, and the name a crash on it is reported under. */
@@ -56,6 +57,8 @@ private val SurfaceSettings.reportedAs: String
     get() = when (this) {
         is LayerSettings -> config.namespace
         is WindowSettings -> title
+        // A popup carries no name of its own anywhere in the protocol, so this is the only one there is.
+        is PopupSettings -> "popup"
     }
 
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
@@ -308,6 +311,8 @@ internal class KortexShell private constructor(
                 check(placedWith is WindowSettings) { "a window's surface was placed with settings of another kind" }
                 surface.applyWindow(placedWith, settings)
             }
+
+            is PopupSettings -> error("a popup that changed anything reaches a rebuild, never a live surface")
         }
         applied
             .onSuccess { slot.placedWith = settings }
@@ -386,6 +391,18 @@ internal class KortexShell private constructor(
             is WindowSettings -> KortexSurface.createOnToplevel(
                 display,
                 settings,
+                loopQueue = loopQueue,
+                onInputSerial = clipboard::recordInputSerial,
+                onKeyboardFocus = clipboard::recordKeyboardFocus,
+            )
+
+            is PopupSettings -> KortexSurface.createOnPopup(
+                display,
+                settings,
+                // The call is inside its parent's content, and a parent whose surface has gone takes this
+                // call with it before any pass could place one here.
+                parent = checkNotNull(slot.parentRole) { "a popup was placed with no surface to parent it" }
+                    .popupParent,
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,

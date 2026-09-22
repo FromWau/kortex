@@ -2,8 +2,6 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -211,88 +209,6 @@ class PresetTest {
     }
 
     @Test
-    fun `a ContextMenu sits at the point it was given on its monitor, across a panel's reserved space`() {
-        val content: @Composable KortexApplicationScope.() -> Unit = {
-            val monitors by rememberMonitors()
-            val monitor = monitors.first()
-            // A reservation of the test's own, so the point is shown to be the monitor's, not the usable area's.
-            Panel(
-                monitor = monitor,
-                edge = Edge.Left,
-                thickness = MENU_PANEL_THICKNESS.dp,
-                namespace = MENU_PANEL_NAMESPACE,
-            ) {}
-            ContextMenu(
-                monitor = monitor,
-                at = IntOffset(MENU_X, MENU_Y),
-                menuSize = MENU_SIZE,
-                namespace = MENU_NAMESPACE,
-            ) {}
-        }
-
-        onApplication(content) { shell ->
-            val before = Hyprctl.monitor(shell.monitors.value.first().name)
-            awaitPlaced(shell, count = 2)
-            assertReservesMore(shell, before, Edge.Left, MENU_PANEL_THICKNESS)
-
-            val geometry = assertNotNull(Screen.awaitGeometry(MENU_NAMESPACE), "hyprctl never listed $MENU_NAMESPACE")
-            assertEquals(Layer.Overlay, geometry.layer, "the menu did not land above every other layer")
-            assertEquals(before.x + MENU_X, geometry.x, "the menu is not at the x it was given, on its monitor")
-            assertEquals(before.y + MENU_Y, geometry.y, "the menu is not at the y it was given, on its monitor")
-            assertEquals(MENU_SIZE.width, geometry.logicalWidth, "the menu is not its own width")
-            assertEquals(MENU_SIZE.height, geometry.logicalHeight, "the menu is not its own height")
-        }
-    }
-
-    @Test
-    fun `a ContextMenu near its monitor's bottom-right corner opens up and to the left of its point`() {
-        val screen = Hyprctl.monitors().first()
-        val at = IntOffset(screen.logicalWidth - FLIP_INSET, screen.logicalHeight - FLIP_INSET)
-        val content: @Composable KortexApplicationScope.() -> Unit = {
-            val monitors by rememberMonitors()
-            ContextMenu(
-                monitor = monitors.first { it.name == screen.name },
-                at = at,
-                menuSize = MENU_SIZE,
-                namespace = MENU_NAMESPACE,
-            ) {}
-        }
-
-        onApplication(content) { shell ->
-            awaitPlaced(shell)
-
-            val geometry = assertNotNull(Screen.awaitGeometry(MENU_NAMESPACE), "hyprctl never listed $MENU_NAMESPACE")
-            assertEquals(
-                screen.x + at.x - MENU_SIZE.width,
-                geometry.x,
-                "the menu did not open to the left of its point, near its monitor's right edge",
-            )
-            assertEquals(
-                screen.y + at.y - MENU_SIZE.height,
-                geometry.y,
-                "the menu did not open upwards from its point, near its monitor's bottom edge",
-            )
-        }
-    }
-
-    @Test
-    fun `a ContextMenu asks for a SurfaceConfig contextMenu's settings, with every value it was given`() {
-        withUnboundMonitors(MONITOR_NAME, mode = MONITOR_MODE) { (monitor) ->
-            val at = IntOffset(MENU_X, MENU_Y)
-            val settings = settingsAskedBy {
-                ContextMenu(monitor = monitor, at = at, menuSize = MENU_SIZE, namespace = MENU_NAMESPACE) {}
-            }
-
-            assertSame(monitor, settings.monitor, "the menu was not put on the monitor it was given")
-            assertEquals(
-                SurfaceConfig.contextMenu(at, MENU_SIZE, MONITOR_MODE).copy(namespace = MENU_NAMESPACE),
-                settings.config,
-                "the menu did not ask for a contextMenu's settings with the values it was given",
-            )
-        }
-    }
-
-    @Test
     fun `a Dock asks for a SurfaceConfig dock's settings, with every value it was given`() {
         withUnboundMonitors(MONITOR_NAME) { (monitor) ->
             val settings = settingsAskedBy {
@@ -374,15 +290,10 @@ class PresetTest {
         const val PANEL_NAMESPACE = "kortex-preset-shown-panel"
         const val BACKGROUND_NAMESPACE = "kortex-preset-shown-background"
         const val OSD_NAMESPACE = "kortex-preset-shown-osd"
-        const val MENU_NAMESPACE = "kortex-preset-shown-context-menu"
-        const val MENU_PANEL_NAMESPACE = "kortex-preset-shown-context-menu-panel"
         const val DOCK_NAMESPACE = "kortex-preset-asked-dock"
         const val APP_MENU_NAMESPACE = "kortex-preset-asked-app-menu"
         const val LOCK_NAMESPACE = "kortex-preset-asked-lock"
         const val MONITOR_NAME = "PRESET-1"
-
-        // An unbound monitor's mode at scale 1, so its logical size too.
-        val MONITOR_MODE = IntSize(1920, 1080)
 
         // What Bar promises when left at its defaults.
         const val DEFAULT_BAR_THICKNESS = 32
@@ -394,15 +305,6 @@ class PresetTest {
         const val LENGTH = 307
         const val OSD_WIDTH = 239
         const val OSD_HEIGHT = 43
-        const val MENU_PANEL_THICKNESS = 37
-        val MENU_SIZE = IntSize(173, 131)
         val MARGINS = Margins(top = 3.dp, right = 5.dp, bottom = 7.dp, left = 11.dp)
-
-        // Far enough from every edge that the menu keeps its top-left corner at the point and no axis flips.
-        const val MENU_X = 601
-        const val MENU_Y = 397
-
-        // Close enough to the monitor's right and bottom edges that MENU_SIZE overflows both.
-        const val FLIP_INSET = 19
     }
 }
