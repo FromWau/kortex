@@ -34,8 +34,10 @@ internal interface SurfaceRole : AutoCloseable {
     fun waitForConfigure(): EmptyResult<KortexError>
 
     /**
-     * True once since a configure whose size may differ from the one the surface is drawn at, and only once; the
-     * caller compares the two before it resizes.
+     * True once since the last configure, and only once; the caller compares the sizes before it resizes.
+     *
+     * A role whose size only a configure can change may report a configure that changed nothing as no resize. A
+     * role whose size a call can also change must report every configure, or the two sizes never reconcile.
      */
     fun consumeResize(): Boolean
 

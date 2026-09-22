@@ -115,7 +115,7 @@ internal object Hyprctl {
         .flatMap { it.levels.values.flatten() }
         .map { it.namespace }
 
-    /** Runs a dispatcher. Name the window it acts on by address: the active one is whatever the user is in. */
+    /** Runs a dispatcher. Always name the window by address: the default target is whatever the user is in. */
     fun dispatch(vararg args: String) {
         val result = run("dispatch", *args)
         check(result.trim().equals("ok", ignoreCase = true)) {
