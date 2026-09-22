@@ -490,3 +490,52 @@ internal class XdgToplevelSurface private constructor(
         private const val NANOS_PER_MILLI = 1_000_000L
     }
 }
+
+/**
+ * Builds a surface on an xdg toplevel of [settings].
+ *
+ * @return what [XdgToplevelSurface.create] could not bind for, or what the engine around it failed on, with
+ *   nothing of either left behind.
+ */
+internal fun KortexSurface.Companion.createOnToplevel(
+    display: WaylandDisplay,
+    settings: WindowSettings,
+    // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
+    loopQueue: LoopQueue? = null,
+    // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
+    onInputSerial: (Int) -> Unit = {},
+    // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
+    onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
+): Result<KortexSurface, KortexError> = KortexSurface.create(
+    display = display,
+    loopQueue = loopQueue,
+    onInputSerial = onInputSerial,
+    onKeyboardFocus = onKeyboardFocus,
+) {
+    XdgToplevelSurface.create(
+        display,
+        title = settings.title,
+        appId = settings.appId,
+        width = settings.width.toLogicalPx(),
+        height = settings.height.toLogicalPx(),
+    )
+}
+
+/**
+ * Applies [new] to a live surface built on an xdg toplevel: what the compositor shows for the window and what a
+ * window rule matches it by, both of which take effect on their own rather than at the next commit.
+ *
+ * The size [new] asks for is not sent: xdg-shell has no request for it, and the compositor owns a window's size
+ * from the moment it places it.
+ */
+internal fun KortexSurface.applyWindow(new: WindowSettings) {
+    val toplevel = role.asToplevel()
+    toplevel.setTitle(new.title)
+    toplevel.setAppId(new.appId)
+}
+
+/** Only the factory above places a surface [WindowSettings] reaches, and it builds every one on a toplevel. */
+private fun SurfaceRole.asToplevel(): XdgToplevelSurface {
+    check(this is XdgToplevelSurface) { "a window request reached a surface built on another role" }
+    return this
+}

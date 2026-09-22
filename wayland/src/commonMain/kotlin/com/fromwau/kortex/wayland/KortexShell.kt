@@ -47,12 +47,15 @@ private sealed interface OutputChoice {
 private val SurfaceSettings.placedOn: Monitor?
     get() = when (this) {
         is LayerSettings -> monitor
+        // xdg-shell names no output: a window goes wherever the compositor's own rules put it.
+        is WindowSettings -> null
     }
 
 /** What the compositor calls a surface these settings place, and the name a crash on it is reported under. */
 private val SurfaceSettings.reportedAs: String
     get() = when (this) {
         is LayerSettings -> config.namespace
+        is WindowSettings -> title
     }
 
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
@@ -296,8 +299,13 @@ internal class KortexShell private constructor(
         if (surface == null || placedWith == null || settings.rebuildsOver(placedWith)) {
             return rebuild(slot, settings)
         }
-        val applied = when (settings) {
+        val applied: EmptyResult<KortexError> = when (settings) {
             is LayerSettings -> surface.applyConfig(settings.config)
+            is WindowSettings -> {
+                surface.applyWindow(settings)
+                // A title and an app id are sent, not negotiated, so a window takes every change it is given.
+                Ok(Unit)
+            }
         }
         applied
             .onSuccess { slot.placedWith = settings }
@@ -353,7 +361,10 @@ internal class KortexShell private constructor(
             .onError { reason -> end(slot, Err(reason)) }
     }
 
-    /** Builds a Wayland side for [settings] on [output] and draws [scene] on it, closing it again if it cannot. */
+    /**
+     * Builds a Wayland side for [settings], on [output] where its role takes one, and draws [scene] on it,
+     * closing it again if it cannot.
+     */
     private fun build(
         slot: SurfaceSlot,
         settings: SurfaceSettings,
@@ -365,6 +376,14 @@ internal class KortexShell private constructor(
                 display,
                 settings.config,
                 output = output,
+                loopQueue = loopQueue,
+                onInputSerial = clipboard::recordInputSerial,
+                onKeyboardFocus = clipboard::recordKeyboardFocus,
+            )
+
+            is WindowSettings -> KortexSurface.createOnToplevel(
+                display,
+                settings,
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,

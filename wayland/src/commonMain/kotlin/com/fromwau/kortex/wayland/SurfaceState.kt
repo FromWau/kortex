@@ -67,16 +67,11 @@ public sealed interface SurfaceStatus {
  * another surface's content ends that surface with [KortexError.SurfaceCrashed] and leaves the application running.
  */
 public class SurfaceState {
-    // Both are written on the one thread the application runs on, by its loop and by the effects of a composition
-    // on it; the status below is read wherever a caller composes.
-    internal var progress: SurfaceProgress by mutableStateOf(SurfaceProgress.Placing)
-
-    // The call publishing here, which is how a second call taking this state while the first holds it is caught.
-    internal var boundTo: SurfaceSlot? = null
+    internal val published: PublishedProgress = PublishedProgress()
 
     /** What the surface is doing now. */
     public val status: SurfaceStatus
-        get() = when (val current = progress) {
+        get() = when (val current = published.progress) {
             SurfaceProgress.Placing -> SurfaceStatus.Placing
             // Read from the scene rather than copied out of it, so the size here is the size content is drawn at.
             is SurfaceProgress.OnScreen -> SurfaceStatus.OnScreen(current.scene.logicalSize)
@@ -92,7 +87,20 @@ public class SurfaceState {
 @Composable
 public fun rememberSurfaceState(): SurfaceState = remember { SurfaceState() }
 
-/** Where a [SurfaceState] reads its status from. */
+/**
+ * What one surface call publishes about its surface, and which call is publishing it: where a [SurfaceState] and a
+ * [WindowState] each read their own status from.
+ */
+internal class PublishedProgress {
+    // Written on the one thread the application runs on, by its loop and by the effects of a composition on it;
+    // the status each state makes of it is read wherever a caller composes.
+    var progress: SurfaceProgress by mutableStateOf(SurfaceProgress.Placing)
+
+    // The call publishing here, which is how a second call taking this state while the first holds it is caught.
+    var boundTo: SurfaceSlot? = null
+}
+
+/** Where a [PublishedProgress] holds what a status is made of. */
 internal sealed interface SurfaceProgress {
     data object Placing : SurfaceProgress
 

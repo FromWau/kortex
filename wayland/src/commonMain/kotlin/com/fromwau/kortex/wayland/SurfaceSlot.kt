@@ -1,9 +1,13 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.Err
@@ -22,13 +26,13 @@ internal sealed interface OwnEnding {
  * What the shell holds for one surface call: the newest content and state that call composed with, what it asks
  * for, the scene it runs and the surface drawn on it, and the ending its content asked for.
  *
- * @param state where its call reads what its surface is doing; a later composition can hand it another.
+ * @param state where its call publishes what its surface is doing; a later composition can hand it another.
  * @param parent the slot of the surface whose content this call is in; null for a call in the application's own
  *   content.
  */
 internal class SurfaceSlot(
     val content: State<@Composable SurfaceScope.() -> Unit>,
-    private var state: SurfaceState,
+    private var state: PublishedProgress,
     private val wake: () -> Unit,
     private val parent: SurfaceSlot?,
 ) {
@@ -101,7 +105,7 @@ internal class SurfaceSlot(
      *
      * Two calls holding a surface each cannot share one state, and that is API misuse.
      */
-    fun bindTo(state: SurfaceState) {
+    fun bindTo(state: PublishedProgress) {
         val bound = state.boundTo
         check(bound == null || bound === this || !bound.live) { SURFACE_STATE_SHARED }
         // The state this call leaves is free for another: nothing of this one reaches it again.
@@ -128,6 +132,35 @@ internal class SurfaceSlot(
     }
 }
 
+/**
+ * The route every surface call places through: one slot for as long as the call composes, asking the shell on each
+ * composition for the surface [settings] describes, publishing what that surface does to [published], and asking for
+ * it to go once the call leaves composition.
+ */
+@Composable
+internal fun SurfaceCall(
+    settings: SurfaceSettings,
+    published: PublishedProgress,
+    content: @Composable SurfaceScope.() -> Unit,
+) {
+    val shell = LocalKortexShell.current
+    val newestContent = rememberUpdatedState(content)
+    val parent = LocalSurfaceSlot.current
+    val slot = remember {
+        SurfaceSlot(
+            content = newestContent,
+            state = published,
+            wake = shell::wake,
+            parent = parent,
+        )
+    }
+    SideEffect {
+        slot.bindTo(published)
+        shell.queueUpdate(slot, settings)
+    }
+    DisposableEffect(Unit) { onDispose { shell.queueRemove(slot) } }
+}
+
 /** What a surface call fails with when it is handed a state another call is still publishing to; a test reads it. */
 internal const val SURFACE_STATE_SHARED =
-    "a SurfaceState belongs to one surface call at a time: give this call a state of its own"
+    "a state belongs to one surface call at a time: give this call a state of its own"

@@ -1,10 +1,6 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fromwau.kortex.compose.KortexSurfaceHandle
@@ -108,7 +104,7 @@ public fun LayerSurface(
  */
 public interface SurfaceScope : KortexSurfaceHandle
 
-/** Every setting but [monitor] from [config]: the route every surface call places through. */
+/** Every setting but [monitor] from [config]: what a layer-shell surface call asks for. */
 @Composable
 internal fun LayerSurface(
     monitor: Monitor?,
@@ -116,23 +112,11 @@ internal fun LayerSurface(
     state: SurfaceState,
     content: @Composable SurfaceScope.() -> Unit,
 ) {
-    val shell = LocalKortexShell.current
-    val newestContent = rememberUpdatedState(content)
-    val parent = LocalSurfaceSlot.current
-    val slot = remember {
-        SurfaceSlot(
-            content = newestContent,
-            state = state,
-            wake = shell::wake,
-            parent = parent,
-        )
-    }
-    val settings = LayerSettings(monitor = monitor, config = config)
-    SideEffect {
-        slot.bindTo(state)
-        shell.queueUpdate(slot, settings)
-    }
-    DisposableEffect(Unit) { onDispose { shell.queueRemove(slot) } }
+    SurfaceCall(
+        settings = LayerSettings(monitor = monitor, config = config),
+        published = state.published,
+        content = content,
+    )
 }
 
 /** What a surface call asks for: a surface placed with other settings is changed to these. */

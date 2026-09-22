@@ -48,6 +48,8 @@ internal data class HyprClient(
     val title: String,
     /** What Hyprland calls a window's class, which for a Wayland window is its `xdg_toplevel` app id. */
     @SerialName("class") val appId: String,
+    /** What the compositor calls this window, which is another one as soon as it is made again. */
+    val address: String,
     val floating: Boolean,
 )
 
