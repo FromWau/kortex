@@ -71,12 +71,7 @@ public class SurfaceState {
 
     /** What the surface is doing now. */
     public val status: SurfaceStatus
-        get() = when (val current = published.progress) {
-            SurfaceProgress.Placing -> SurfaceStatus.Placing
-            // Read from the scene rather than copied out of it, so the size here is the size content is drawn at.
-            is SurfaceProgress.OnScreen -> SurfaceStatus.OnScreen(current.scene.logicalSize)
-            is SurfaceProgress.Ended -> SurfaceStatus.Ended(current.result)
-        }
+        get() = published.statusOf(SurfaceStatus.Placing, SurfaceStatus::OnScreen, SurfaceStatus::Ended)
 }
 
 /**
@@ -98,6 +93,18 @@ internal class PublishedProgress {
 
     // The call publishing here, which is how a second call taking this state while the first holds it is caught.
     var boundTo: SurfaceSlot? = null
+}
+
+/** What a state reports, made of what its call published: [placing], [onScreen] with its size, or [ended]. */
+internal fun <T> PublishedProgress.statusOf(
+    placing: T,
+    onScreen: (IntSize) -> T,
+    ended: (Result<SurfaceEnd, KortexError>) -> T,
+): T = when (val current = progress) {
+    SurfaceProgress.Placing -> placing
+    // Read from the scene rather than copied out of it, so the size here is the size content is drawn at.
+    is SurfaceProgress.OnScreen -> onScreen(current.scene.logicalSize)
+    is SurfaceProgress.Ended -> ended(current.result)
 }
 
 /** Where a [PublishedProgress] holds what a status is made of. */

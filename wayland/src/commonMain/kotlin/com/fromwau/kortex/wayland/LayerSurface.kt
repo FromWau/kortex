@@ -119,16 +119,6 @@ internal fun LayerSurface(
     )
 }
 
-/** What a surface call asks for: a surface placed with other settings is changed to these. */
-internal sealed class SurfaceSettings {
-    /** Whether a surface placed with [placed] has to be made again rather than changed. */
-    fun rebuildsOver(placed: SurfaceSettings): Boolean =
-        placed::class != this::class || rebuildsOverSameKind(placed)
-
-    /** Whether [placed], always of this same kind, differs in something a live surface cannot be given. */
-    protected abstract fun rebuildsOverSameKind(placed: SurfaceSettings): Boolean
-}
-
 /** What a [LayerSurface] call asks for. */
 internal data class LayerSettings(
     val monitor: Monitor?,

@@ -278,7 +278,8 @@ internal class KortexSurface private constructor(
         return resizeTo(logicalWidth, logicalHeight)
     }
 
-    private fun resizeTo(newLogicalWidth: Int, newLogicalHeight: Int): EmptyResult<KortexError> {
+    /** Draws content at [newLogicalWidth] by [newLogicalHeight], until a configure gives it another size. */
+    internal fun resizeTo(newLogicalWidth: Int, newLogicalHeight: Int): EmptyResult<KortexError> {
         val bufferWidth = newLogicalWidth * bufferScale
         val bufferHeight = newLogicalHeight * bufferScale
         val newFrames = createFrames(shm, bufferWidth, bufferHeight).getOrElse { return Err(it) }

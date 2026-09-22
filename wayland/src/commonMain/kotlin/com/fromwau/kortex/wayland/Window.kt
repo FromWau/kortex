@@ -32,8 +32,8 @@ import com.fromwau.kern.result.Result
  * after, ending nothing. State [content] keeps behind `remember` stands through those changes, and lasts until the
  * window ends.
  *
- * A changed [width] or [height] does not resize a window that is already on screen: its size is the compositor's
- * from the moment it places it, and [state] is where to read what that size is.
+ * A changed [width] or [height] draws content at the new size. A floating window keeps it; a tiled one goes back
+ * to the size the compositor has room for. [state] reports the size the window is drawn at, whichever it is.
  *
  * Once the window has ended, in any of the ways [WindowStatus.Ended] lists, the call shows nothing until you take it
  * out of composition and put it back, which places a window again and takes [state] with it.
@@ -43,7 +43,7 @@ import com.fromwau.kern.result.Result
  * @param appId what the compositor matches the window by, which is how a window rule finds it. Write it as the
  *   application's desktop entry is named, e.g. `com.example.notes`.
  * @param width how wide content is drawn until the compositor gives the window a size of its own, which a
- *   compositor that tiles does as it places it. It is not a request: a window cannot ask for a size.
+ *   compositor that tiles does as it places it.
  * @param height how tall content is drawn, on the same terms as [width].
  * @param state where to read what the window is doing: [WindowStatus.Placing] until it reaches the screen,
  *   [WindowStatus.OnScreen] with the size it is drawn at, and [WindowStatus.Ended] with how it ended, once and for
@@ -77,8 +77,8 @@ public sealed interface WindowStatus {
     /**
      * The window is on screen, drawing its content.
      *
-     * @property size the size the compositor gave the window, in the logical pixels content lays out in, which is
-     *   smaller than its size in physical pixels by the scale of the monitor it is on.
+     * @property size the size content is drawn at, in the logical pixels it lays out in, which is smaller than
+     *   the size in physical pixels by the scale of the monitor it is on.
      */
     public data class OnScreen(public val size: IntSize) : WindowStatus
 
@@ -131,12 +131,7 @@ public class WindowState {
 
     /** What the window is doing now. */
     public val status: WindowStatus
-        get() = when (val current = published.progress) {
-            SurfaceProgress.Placing -> WindowStatus.Placing
-            // Read from the scene rather than copied out of it, so the size here is the size content is drawn at.
-            is SurfaceProgress.OnScreen -> WindowStatus.OnScreen(current.scene.logicalSize)
-            is SurfaceProgress.Ended -> WindowStatus.Ended(current.result)
-        }
+        get() = published.statusOf(WindowStatus.Placing, WindowStatus::OnScreen, WindowStatus::Ended)
 }
 
 /**

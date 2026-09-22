@@ -522,16 +522,21 @@ internal fun KortexSurface.Companion.createOnToplevel(
 }
 
 /**
- * Applies [new] to a live surface built on an xdg toplevel: what the compositor shows for the window and what a
- * window rule matches it by, both of which take effect on their own rather than at the next commit.
+ * Applies [new] to a live surface built on an xdg toplevel, sending only what differs from [placed]: a changed
+ * title or app id takes effect on its own rather than at the next commit, and a changed size draws content at
+ * that size until the compositor configures one of its own.
  *
- * The size [new] asks for is not sent: xdg-shell has no request for it, and the compositor owns a window's size
- * from the moment it places it.
+ * @return what the buffers for a changed size failed to be allocated with, leaving the surface at its old size.
  */
-internal fun KortexSurface.applyWindow(new: WindowSettings) {
+internal fun KortexSurface.applyWindow(
+    placed: WindowSettings,
+    new: WindowSettings,
+): EmptyResult<KortexError> {
     val toplevel = role.asToplevel()
-    toplevel.setTitle(new.title)
-    toplevel.setAppId(new.appId)
+    if (new.title != placed.title) toplevel.setTitle(new.title)
+    if (new.appId != placed.appId) toplevel.setAppId(new.appId)
+    if (new.width == placed.width && new.height == placed.height) return Ok(Unit)
+    return resizeTo(new.width.toLogicalPx(), new.height.toLogicalPx())
 }
 
 /** Only the factory above places a surface [WindowSettings] reaches, and it builds every one on a toplevel. */

@@ -301,11 +301,8 @@ internal class KortexShell private constructor(
         }
         val applied: EmptyResult<KortexError> = when (settings) {
             is LayerSettings -> surface.applyConfig(settings.config)
-            is WindowSettings -> {
-                surface.applyWindow(settings)
-                // A title and an app id are sent, not negotiated, so a window takes every change it is given.
-                Ok(Unit)
-            }
+            // Of the same kind, or rebuildsOver would have sent these settings to a rebuild.
+            is WindowSettings -> surface.applyWindow(placedWith as WindowSettings, settings)
         }
         applied
             .onSuccess { slot.placedWith = settings }
@@ -313,9 +310,9 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Puts the Wayland objects [settings] asks for around the scene [slot] already runs: `get_layer_surface` fixes a
-     * layer surface's monitor and namespace, so a call that changes either gets a new layer surface, while its
-     * content keeps its state, its running effects and the size it reads.
+     * Puts the Wayland objects [settings] asks for around the scene [slot] already runs, for a change the surface
+     * it holds cannot be given: that surface goes and another takes its place, while the content on it keeps its
+     * state, its running effects and the size it reads.
      */
     private fun rebuild(
         slot: SurfaceSlot,
