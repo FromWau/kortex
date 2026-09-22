@@ -32,8 +32,9 @@ import com.fromwau.kern.result.Result
  * after, ending nothing. State [content] keeps behind `remember` stands through those changes, and lasts until the
  * window ends.
  *
- * A changed [width] or [height] draws content at the new size. A floating window keeps it; a tiled one goes back
- * to the size the compositor has room for. [state] reports the size the window is drawn at, whichever it is.
+ * A changed [width] or [height] draws content at the new size, and the window keeps it until the compositor next
+ * sizes the window, which a compositor that tiles does whenever the layout around it changes. [state] reports the
+ * size the window is drawn at, whichever it is.
  *
  * Once the window has ended, in any of the ways [WindowStatus.Ended] lists, the call shows nothing until you take it
  * out of composition and put it back, which places a window again and takes [state] with it.
@@ -42,8 +43,8 @@ import com.fromwau.kern.result.Result
  *   switcher, exactly as written.
  * @param appId what the compositor matches the window by, which is how a window rule finds it. Write it as the
  *   application's desktop entry is named, e.g. `com.example.notes`.
- * @param width how wide content is drawn until the compositor gives the window a size of its own, which a
- *   compositor that tiles does as it places it.
+ * @param width how wide content is drawn, at first and again each time this changes, until the compositor next
+ *   gives the window a size of its own, which a compositor that tiles does as it places it.
  * @param height how tall content is drawn, on the same terms as [width].
  * @param state where to read what the window is doing: [WindowStatus.Placing] until it reaches the screen,
  *   [WindowStatus.OnScreen] with the size it is drawn at, and [WindowStatus.Ended] with how it ended, once and for
@@ -52,6 +53,7 @@ import com.fromwau.kern.result.Result
  * @param content what is drawn in the window. It reaches the window itself as `this`, the clipboard as
  *   [LocalKortexClipboard], and the same window through `LocalKortexSurface.current` in a composable further down.
  * @throws IllegalStateException when called outside [kortexApplication].
+ * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel.
  */
 @Composable
 public fun Window(
@@ -62,6 +64,9 @@ public fun Window(
     state: WindowState = rememberWindowState(),
     content: @Composable SurfaceScope.() -> Unit,
 ) {
+    require(width.toLogicalPx() > 0 && height.toLogicalPx() > 0) {
+        "a window is drawn at a size of at least one pixel on each axis, not $width by $height"
+    }
     SurfaceCall(
         settings = WindowSettings(title = title, appId = appId, width = width, height = height),
         published = state.published,

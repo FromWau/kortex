@@ -171,6 +171,49 @@ class WindowTest {
         }
     }
 
+    @Test
+    fun `a changed width draws content at it until the compositor's next configure takes the window back`() {
+        val width = mutableStateOf(WIDTH)
+        val state = WindowState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Window(title = TITLE, appId = APP_ID, width = width.value, height = HEIGHT, state = state) { Grey() }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val window = awaitWindow(shell, TITLE)
+
+            // Unfocused here, so the focus below draws out a configure at the size the window already has.
+            Hyprctl.dispatch("movetoworkspacesilent", "$ASIDE,address:${window.address}")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { listedWindow()?.workspace?.name == ASIDE },
+                "the window never left the workspace the user is looking at",
+            )
+            // The move's own configure lands after the workspace change; everything below is about the next one.
+            shell.pumpOrFail(SETTLE_MILLIS)
+
+            val configured = assertIs<WindowStatus.OnScreen>(
+                state.status,
+                "the window moved workspaces and its state reports ${state.status}",
+            ).size
+            assertNotEquals(NARROW_SIZE, configured, "the compositor gave the window the size this test asks for")
+
+            width.value = NARROW_WIDTH
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.status == WindowStatus.OnScreen(NARROW_SIZE) },
+                "the changed width never reached the window, which reports ${state.status}",
+            )
+
+            Hyprctl.dispatch("focuswindow", "address:${window.address}")
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.status == WindowStatus.OnScreen(configured) },
+                "the window kept the size its call asked for: ${state.status}, not $configured",
+            )
+        }
+    }
+
     /** What the window's content publishes: how often it was composed, what it holds, and that its effect runs. */
     private class Watch {
         val compositions = AtomicInteger()
@@ -202,13 +245,21 @@ class WindowTest {
         const val SECOND_TITLE = "kortex window renamed"
         const val APP_ID = "kortex-window-test"
 
+        /** A workspace of the window's own, which the user is not looking at and which goes when it does. */
+        const val ASIDE = "special:kortex-window-test"
+
         val WIDTH = 640.dp
         val HEIGHT = 480.dp
+        val NARROW_WIDTH = 320.dp
 
         /** What the call asks for, which a compositor that tiles replaces with the size it has room for. */
         val ASKED_SIZE = IntSize(WIDTH.toLogicalPx(), HEIGHT.toLogicalPx())
 
+        /** What the call asks for once its width has changed, which is what content is drawn at until a configure. */
+        val NARROW_SIZE = IntSize(NARROW_WIDTH.toLogicalPx(), HEIGHT.toLogicalPx())
+
         const val PUMP_MILLIS = 4_000L
+        const val SETTLE_MILLIS = 1_000L
         const val TICK_MILLIS = 20L
         const val TICKS = 3
     }

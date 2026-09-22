@@ -287,8 +287,8 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Changes a surface its call still holds: what the live surface can take is sent to it, and a changed monitor or
-     * namespace gets new Wayland objects. Settings it cannot take end it, as a first placement that fails does.
+     * Changes a surface its call still holds: what the live surface can take is sent to it, and what it was built
+     * around gets new Wayland objects. Settings it cannot take end it, as a first placement that fails does.
      */
     private fun change(
         slot: SurfaceSlot,
@@ -301,8 +301,11 @@ internal class KortexShell private constructor(
         }
         val applied: EmptyResult<KortexError> = when (settings) {
             is LayerSettings -> surface.applyConfig(settings.config)
-            // Of the same kind, or rebuildsOver would have sent these settings to a rebuild.
-            is WindowSettings -> surface.applyWindow(placedWith as WindowSettings, settings)
+            is WindowSettings -> {
+                // Of the same kind, or rebuildsOver would have sent these settings to a rebuild.
+                check(placedWith is WindowSettings) { "a window's surface was placed with settings of another kind" }
+                surface.applyWindow(placedWith, settings)
+            }
         }
         applied
             .onSuccess { slot.placedWith = settings }

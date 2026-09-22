@@ -225,7 +225,9 @@ internal class XdgToplevelListener(width: Int, height: Int) {
     ) {
         val newWidth = if (width == CLIENT_CHOOSES) this.width else width
         val newHeight = if (height == CLIENT_CHOOSES) this.height else height
-        if (configured && (newWidth != this.width || newHeight != this.height)) resized = true
+        // A call can change a window's size too, which no configure knows about, so only the surface can say
+        // whether it is already the size this one carries.
+        if (configured) resized = true
         this.width = newWidth
         this.height = newHeight
         this.states = statesIn(states)
@@ -526,7 +528,8 @@ internal fun KortexSurface.Companion.createOnToplevel(
  * title or app id takes effect on its own rather than at the next commit, and a changed size draws content at
  * that size until the compositor configures one of its own.
  *
- * @return what the buffers for a changed size failed to be allocated with, leaving the surface at its old size.
+ * @return `Ok` once every change has reached the window, or why a changed size could not be drawn, which leaves a
+ *   changed title and app id in place and the window at the size it had.
  */
 internal fun KortexSurface.applyWindow(
     placed: WindowSettings,

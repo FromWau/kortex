@@ -51,7 +51,12 @@ internal data class HyprClient(
     /** What the compositor calls this window, which is another one as soon as it is made again. */
     val address: String,
     val floating: Boolean,
+    val workspace: HyprWorkspaceRef,
 )
+
+/** The workspace a window of `hyprctl clients -j` is on. */
+@Serializable
+internal data class HyprWorkspaceRef(val name: String)
 
 /** One surface entry nested under a monitor's `levels` in `hyprctl layers -j`. */
 @Serializable
@@ -109,6 +114,14 @@ internal object Hyprctl {
         .values
         .flatMap { it.levels.values.flatten() }
         .map { it.namespace }
+
+    /** Runs a dispatcher. Name the window it acts on by address: the active one is whatever the user is in. */
+    fun dispatch(vararg args: String) {
+        val result = run("dispatch", *args)
+        check(result.trim().equals("ok", ignoreCase = true)) {
+            "hyprctl dispatch ${args.joinToString(" ")} failed: $result"
+        }
+    }
 
     fun run(vararg args: String): String {
         val process = ProcessBuilder("hyprctl", *args).redirectErrorStream(true).start()

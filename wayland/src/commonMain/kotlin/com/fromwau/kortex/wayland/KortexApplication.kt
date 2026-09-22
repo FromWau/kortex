@@ -94,7 +94,7 @@ internal val LocalSurfaceSlot: ProvidableCompositionLocal<SurfaceSlot?> = static
 
 /** The shell a surface call queues its slot with, provided around the application's content. */
 internal val LocalKortexShell: ProvidableCompositionLocal<KortexShell> = staticCompositionLocalOf {
-    error("this must be called inside kortexApplication { }")
+    error("a kortex composable must be called inside kortexApplication { }")
 }
 
 /**

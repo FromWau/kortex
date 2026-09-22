@@ -33,7 +33,10 @@ internal interface SurfaceRole : AutoCloseable {
      */
     fun waitForConfigure(): EmptyResult<KortexError>
 
-    /** True once after a configure changed the size, and only once; a configure at the same size reports nothing. */
+    /**
+     * True once since a configure whose size may differ from the one the surface is drawn at, and only once; the
+     * caller compares the two before it resizes.
+     */
     fun consumeResize(): Boolean
 
     /** Double-buffered like every pending surface state: takes effect only at the next [commit]. */
