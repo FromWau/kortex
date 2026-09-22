@@ -74,6 +74,9 @@ internal class SurfaceSlot(
     // one thread the application runs on.
     private var progress: SurfaceProgress = SurfaceProgress.Placing
 
+    // What its window last reported about itself, given to every state this call binds, on the same threads.
+    private var windowStates: WindowStates = WindowStates()
+
     /** Whether this call still holds its surface; one that has left composition or ended publishes nothing more. */
     val live: Boolean get() = wanted != null && !reported
 
@@ -123,6 +126,7 @@ internal class SurfaceSlot(
         state.boundTo = this
         this.state = state
         publish(progress)
+        publish(windowStates)
     }
 
     /** Publishes that its surface is on screen, drawing [scene] at whatever size the compositor gives it. */
@@ -135,10 +139,29 @@ internal class SurfaceSlot(
         publish(SurfaceProgress.Ended(ending))
     }
 
+    /** Publishes what the window this call holds reports about itself; a call holding anything else has none. */
+    fun followWindow() {
+        val toplevel = surface?.role as? XdgToplevelSurface ?: return
+        publish(
+            WindowStates(
+                closeRequested = toplevel.closeRequested,
+                maximized = toplevel.maximized,
+                fullscreen = toplevel.fullscreen,
+                tiled = toplevel.tiled,
+                activated = toplevel.activated,
+            ),
+        )
+    }
+
     private fun publish(next: SurfaceProgress) {
         progress = next
         // Only while this call still holds the state: a call that takes it over owns what it shows from then on.
         if (state.boundTo === this) state.progress = next
+    }
+
+    private fun publish(next: WindowStates) {
+        windowStates = next
+        if (state.boundTo === this) state.windowStates = next
     }
 }
 

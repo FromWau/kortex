@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -214,6 +215,97 @@ class WindowTest {
         }
     }
 
+    @Test
+    fun `a close request reaches the window's state and leaves the window on screen`() {
+        val state = WindowState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Window(title = TITLE, appId = APP_ID, width = WIDTH, height = HEIGHT, state = state) { Grey() }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val window = awaitWindow(shell, TITLE)
+
+            Hyprctl.dispatch("closewindow", "address:${window.address}")
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
+                "the compositor asked the window to close and its state never said so",
+            )
+
+            shell.pumpOrFail(SETTLE_MILLIS)
+
+            assertIs<WindowStatus.OnScreen>(state.status, "the close request ended the window: ${state.status}")
+            assertEquals(
+                window.address, listedWindow()?.address,
+                "hyprctl no longer lists the window the compositor asked to close",
+            )
+        }
+    }
+
+    @Test
+    fun `a window the caller stops composing after a close request ends with its call leaving composition`() {
+        val showing = mutableStateOf(true)
+        val state = WindowState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            if (showing.value) {
+                Window(title = TITLE, appId = APP_ID, width = WIDTH, height = HEIGHT, state = state) { Grey() }
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val window = awaitWindow(shell, TITLE)
+
+            Hyprctl.dispatch("closewindow", "address:${window.address}")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
+                "the compositor asked the window to close and its state never said so",
+            )
+
+            showing.value = false
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.status is WindowStatus.Ended },
+                "the call left composition after a close request and its window never ended",
+            )
+            assertEquals(
+                WindowStatus.Ended(Ok(SurfaceEnd.LeftComposition)), state.status,
+                "the window the caller took down on the compositor's request ended some other way",
+            )
+        }
+    }
+
+    @Test
+    fun `fullscreen follows the compositor giving the window the whole screen and taking it back`() {
+        val state = WindowState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Window(title = TITLE, appId = APP_ID, width = WIDTH, height = HEIGHT, state = state) { Grey() }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val window = awaitWindow(shell, TITLE)
+            assertFalse(state.fullscreen, "the window reports the whole screen before anything gave it one")
+
+            // The dispatcher acts on whatever window holds focus, so the address goes in through the focus.
+            Hyprctl.dispatch("focuswindow", "address:${window.address}")
+            Hyprctl.dispatch("fullscreen", FULL_SCREEN)
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.fullscreen },
+                "the compositor gave the window the whole screen and its state never said so",
+            )
+
+            Hyprctl.dispatch("fullscreen", FULL_SCREEN)
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { !state.fullscreen },
+                "the window still reports the whole screen after the compositor took it back",
+            )
+        }
+    }
+
     /** What the window's content publishes: how often it was composed, what it holds, and that its effect runs. */
     private class Watch {
         val compositions = AtomicInteger()
@@ -247,6 +339,12 @@ class WindowTest {
 
         /** A workspace of the window's own, which the user is not looking at and which goes when it does. */
         const val ASIDE = "special:kortex-window-test"
+
+        /**
+         * What Hyprland's `fullscreen` dispatcher calls the whole screen; `1` is its own kind of maximize, which
+         * reaches no window state, since every toplevel it maps is told it is maximized and never told otherwise.
+         */
+        const val FULL_SCREEN = "0"
 
         val WIDTH = 640.dp
         val HEIGHT = 480.dp

@@ -49,6 +49,14 @@ internal object WlVersion {
      */
     const val XDG_SHELL = 7
 
+    /**
+     * zxdg_decoration_manager_v1 and the zxdg_toplevel_decoration_v1 it hands out, which share its version.
+     *
+     * The one event, `configure`, exists from v1; v2 only drops v1's rule that no buffer may be attached before
+     * that event arrives.
+     */
+    const val XDG_DECORATION = 2
+
     /** wl_pointer and wl_keyboard inherit it, so their listeners grow with it. */
     const val SEAT = 11
 

@@ -104,6 +104,123 @@ internal object XdgShellProtocol {
     const val SET_APP_ID = 3
 }
 
+/** The `xdg_decoration` tables, from `wayland-scanner private-code xdg-decoration-unstable-v1.xml`. */
+internal object XdgDecorationProtocol {
+    val toplevelDecorationInterface: MemorySegment = LibWayland.buildInterface(
+        name = "zxdg_toplevel_decoration_v1",
+        version = WlVersion.XDG_DECORATION,
+        requests = listOf(
+            WlMessage("destroy", ""),
+            WlMessage("set_mode", "u", listOf(MemorySegment.NULL)),
+            WlMessage("unset_mode", ""),
+        ),
+        events = listOf(
+            WlMessage("configure", "u", listOf(MemorySegment.NULL)),
+        ),
+    )
+
+    val decorationManagerInterface: MemorySegment = LibWayland.buildInterface(
+        name = "zxdg_decoration_manager_v1",
+        version = WlVersion.XDG_DECORATION,
+        requests = listOf(
+            WlMessage("destroy", ""),
+            WlMessage(
+                "get_toplevel_decoration", "no",
+                listOf(toplevelDecorationInterface, XdgShellProtocol.xdgToplevelInterface),
+            ),
+        ),
+    )
+
+    const val MANAGER_DESTROY = 0
+    const val GET_TOPLEVEL_DECORATION = 1
+
+    const val DECORATION_DESTROY = 0
+    const val SET_MODE = 1
+}
+
+/** One value of `zxdg_toplevel_decoration_v1.mode`: which side draws a window's decoration. */
+internal enum class XdgDecorationMode(val wireValue: Int) {
+    ClientSide(1),
+    ServerSide(2),
+    ;
+
+    companion object {
+        /** @return the mode [wireValue] names, or null for one this protocol version does not declare. */
+        fun fromOrNull(wireValue: Int): XdgDecorationMode? = entries.firstOrNull { it.wireValue == wireValue }
+    }
+}
+
+/** Reads `zxdg_toplevel_decoration_v1.configure`, the compositor's answer to what the client asked for. */
+internal class XdgDecorationListener {
+    @Volatile var mode: XdgDecorationMode? = null
+        private set
+
+    fun onConfigure(data: MemorySegment, proxy: MemorySegment, mode: Int) {
+        this.mode = XdgDecorationMode.fromOrNull(mode)
+    }
+
+    /** [arena] is the owning surface's, which closes it once the decoration proxy is destroyed. */
+    fun install(arena: Arena, decoration: MemorySegment) {
+        val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
+        listener.setAtIndex(ADDRESS, CONFIGURE, LibWayland.upcall(arena, this, "onConfigure", CONFIGURE_DESCRIPTOR))
+        check(LibWayland.proxyAddListener(decoration, listener, MemorySegment.NULL) == 0) {
+            "wl_proxy_add_listener rejected the zxdg_toplevel_decoration_v1 listener"
+        }
+    }
+
+    private companion object {
+        const val EVENT_COUNT = 1L
+        const val CONFIGURE = 0L
+
+        val CONFIGURE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
+    }
+}
+
+/**
+ * One window's `zxdg_toplevel_decoration_v1`, and the manager it came off.
+ *
+ * Creating it asks the compositor to draw the window's decoration; [mode] is what it answers.
+ */
+private class XdgDecoration private constructor(
+    private val manager: MemorySegment,
+    private val decoration: MemorySegment,
+    private val listener: XdgDecorationListener,
+) {
+    /** Which side the compositor settled on, and null until it has answered. */
+    val mode: XdgDecorationMode? get() = listener.mode
+
+    /** Called before the toplevel this decorates is destroyed; the other order is a protocol error. */
+    fun close() {
+        LibWayland.marshal(decoration, XdgDecorationProtocol.DECORATION_DESTROY)
+        LibWayland.proxyDestroy(decoration)
+        // Bound per window like the shell is, and giving it back never touches a decoration it handed out.
+        LibWayland.marshal(manager, XdgDecorationProtocol.MANAGER_DESTROY)
+        LibWayland.proxyDestroy(manager)
+    }
+
+    companion object {
+        /** Asks [manager] for [toplevel]'s decoration and for the compositor to draw it. */
+        fun create(
+            arena: Arena,
+            manager: MemorySegment,
+            toplevel: MemorySegment,
+        ): XdgDecoration {
+            val decoration = LibWayland.marshal(
+                manager, XdgDecorationProtocol.GET_TOPLEVEL_DECORATION,
+                XdgDecorationProtocol.toplevelDecorationInterface, LibWayland.proxyGetVersion(manager),
+                listOf(WlArg.Ptr(MemorySegment.NULL), WlArg.Ptr(toplevel)),
+            )
+            val listener = XdgDecorationListener()
+            listener.install(arena, decoration)
+            LibWayland.marshal(
+                decoration, XdgDecorationProtocol.SET_MODE,
+                args = listOf(WlArg.Num(XdgDecorationMode.ServerSide.wireValue)),
+            )
+            return XdgDecoration(manager, decoration, listener)
+        }
+    }
+}
+
 /**
  * Answers `xdg_wm_base.ping`, which the compositor sends to check the client is still responsive.
  *
@@ -211,6 +328,10 @@ internal class XdgToplevelListener(width: Int, height: Int) {
     @Volatile var states: Set<XdgToplevelState> = emptySet()
         private set
 
+    /** The compositor has asked for the window to close; whether it does is the client's to decide. */
+    @Volatile var closeRequested: Boolean = false
+        private set
+
     @Volatile var closed: Boolean = false
 
     @Volatile private var configured: Boolean = false
@@ -235,7 +356,7 @@ internal class XdgToplevelListener(width: Int, height: Int) {
     }
 
     fun onClose(data: MemorySegment, proxy: MemorySegment) {
-        closed = true
+        closeRequested = true
     }
 
     fun onConfigureBounds(data: MemorySegment, proxy: MemorySegment, width: Int, height: Int) = Unit
@@ -302,7 +423,8 @@ internal class XdgToplevelSurface private constructor(
     private val surfaceListener: WlSurfaceListener,
     private val xdgSurfaceListener: XdgSurfaceListener,
     private val toplevelListener: XdgToplevelListener,
-    // Holds the stubs of all four listeners above, since one close() gives back every proxy they hang off.
+    private val decoration: XdgDecoration,
+    // Holds the stubs of all five listeners above, since one close() gives back every proxy they hang off.
     private val arena: Arena,
 ) : SurfaceRole {
 
@@ -324,6 +446,9 @@ internal class XdgToplevelSurface private constructor(
     val tiled: Boolean get() = toplevelListener.states.any { it in TILED }
     val activated: Boolean get() = XdgToplevelState.Activated in toplevelListener.states
 
+    /** The compositor has asked for this window to close, which by itself ends nothing. */
+    val closeRequested: Boolean get() = toplevelListener.closeRequested
+
     /** What the compositor shows for this window wherever it names it, such as a task bar. */
     fun setTitle(title: String) = sendString(XdgShellProtocol.SET_TITLE, title)
 
@@ -332,10 +457,11 @@ internal class XdgToplevelSurface private constructor(
 
     /**
      * Dispatches until `xdg_surface.configure` has arrived and been acknowledged, and gives up if the compositor
-     * closes the window first.
+     * closes the window first, then settles which side draws the decoration.
      *
-     * @return `Ok` once configured; else the connection's error when it died before a configure came, else
-     *   [KortexError.SurfaceNotConfigured].
+     * @return `Ok` once configured and decorated by the compositor; else the connection's error when it died
+     *   before a configure came, else [KortexError.SurfaceNotConfigured], else
+     *   [KortexError.ClientSideDecorationRequired].
      */
     override fun waitForConfigure(): EmptyResult<KortexError> {
         display.roundtrip()
@@ -347,9 +473,14 @@ internal class XdgToplevelSurface private constructor(
             // immediately without sleeping, so this loop would burn the rest of the budget spinning.
             if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
         }
-        if (xdgSurfaceListener.configured) return Ok(Unit)
-        // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-        return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
+        if (!xdgSurfaceListener.configured) {
+            // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
+            return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
+        }
+        // Silence counts as client side, which is what the decoration protocol says an unanswered ask means.
+        // Hyprland 0.56.2 answers server side to every ask, so this is read rather than run on this desktop.
+        if (decoration.mode != XdgDecorationMode.ServerSide) return Err(KortexError.ClientSideDecorationRequired)
+        return Ok(Unit)
     }
 
     override fun consumeResize(): Boolean = toplevelListener.consumeResize()
@@ -381,8 +512,9 @@ internal class XdgToplevelSurface private constructor(
     override fun close() {
         if (disposed) return
         disposed = true
-        // Innermost first: an xdg_surface destroyed before its role object, or a shell destroyed before an
-        // xdg_surface it handed out, is a protocol error.
+        // Innermost first: a decoration destroyed after the toplevel it decorates, an xdg_surface destroyed
+        // before its role object, or a shell destroyed before an xdg_surface it handed out, is a protocol error.
+        decoration.close()
         LibWayland.marshal(toplevel, XdgShellProtocol.TOPLEVEL_DESTROY)
         LibWayland.proxyDestroy(toplevel)
         LibWayland.marshal(xdgSurface, XdgShellProtocol.XDG_SURFACE_DESTROY)
@@ -390,8 +522,7 @@ internal class XdgToplevelSurface private constructor(
         LibWayland.marshal(surface, WL_SURFACE_DESTROY)
         LibWayland.proxyDestroy(surface)
         // Bound per surface like everything else here, so it goes with it rather than at disconnect.
-        LibWayland.marshal(wmBase, XdgShellProtocol.WM_BASE_DESTROY)
-        LibWayland.proxyDestroy(wmBase)
+        destroyWmBase(wmBase)
         // After every destroy, never before: closing the arena frees the code their stubs are.
         arena.close()
         releaseCompositor(compositor)
@@ -413,7 +544,8 @@ internal class XdgToplevelSurface private constructor(
          * Creates a window of [title] and [appId], [width] by [height] logical pixels, and commits it with no
          * buffer, which is what the compositor answers with the first configure.
          *
-         * @return what binding `wl_compositor` or `xdg_wm_base` failed with, leaving nothing behind.
+         * @return what binding `wl_compositor`, `xdg_wm_base` or `zxdg_decoration_manager_v1` failed with,
+         *   leaving nothing behind.
          */
         fun create(
             display: WaylandDisplay,
@@ -427,6 +559,18 @@ internal class XdgToplevelSurface private constructor(
             val wmBase = display
                 .require("xdg_wm_base", XdgShellProtocol.xdgWmBaseInterface, WlVersion.XDG_SHELL)
                 .getOrElse {
+                    releaseCompositor(compositor)
+                    return Err(it)
+                }
+            // Bound before any object is created, so the one step here that can fail has nothing to unwind.
+            val decorationManager = display
+                .require(
+                    "zxdg_decoration_manager_v1",
+                    XdgDecorationProtocol.decorationManagerInterface,
+                    WlVersion.XDG_DECORATION,
+                )
+                .getOrElse {
+                    destroyWmBase(wmBase)
                     releaseCompositor(compositor)
                     return Err(it)
                 }
@@ -461,9 +605,11 @@ internal class XdgToplevelSurface private constructor(
             val toplevelListener = XdgToplevelListener(width, height)
             toplevelListener.install(arena, toplevel)
 
+            val decoration = XdgDecoration.create(arena, decorationManager, toplevel)
+
             val result = XdgToplevelSurface(
                 display, surface, xdgSurface, toplevel, wmBase, compositor, wmBaseListener,
-                surfaceListener, xdgSurfaceListener, toplevelListener, arena,
+                surfaceListener, xdgSurfaceListener, toplevelListener, decoration, arena,
             )
             result.setTitle(title)
             result.setAppId(appId)
@@ -471,6 +617,11 @@ internal class XdgToplevelSurface private constructor(
             // has been acknowledged.
             result.commit()
             return Ok(result)
+        }
+
+        private fun destroyWmBase(wmBase: MemorySegment) {
+            LibWayland.marshal(wmBase, XdgShellProtocol.WM_BASE_DESTROY)
+            LibWayland.proxyDestroy(wmBase)
         }
 
         private val TILED = setOf(

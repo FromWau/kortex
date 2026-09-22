@@ -36,6 +36,10 @@ import com.fromwau.kern.result.Result
  * sizes the window, which a compositor that tiles does whenever the layout around it changes. [state] reports the
  * size the window is drawn at, whichever it is.
  *
+ * The compositor can ask for the window to close, which sets [WindowState.closeRequested] and does nothing else.
+ * Take the call out of composition to close it, leave it in to refuse, and take as long as you like to ask the
+ * user first.
+ *
  * Once the window has ended, in any of the ways [WindowStatus.Ended] lists, the call shows nothing until you take it
  * out of composition and put it back, which places a window again and takes [state] with it.
  *
@@ -93,17 +97,19 @@ public sealed interface WindowStatus {
      *
      * @property result how it ended. `Ok` carries a [SurfaceEnd]: `close()`, the compositor, or the call leaving
      *   composition. `Err` carries what ended it instead: [KortexError.SurfaceCrashed] when your content threw;
-     *   [KortexError.MissingGlobal] when the compositor puts no application windows on screen at all;
-     *   [KortexError.MissingSeatDevice], [KortexError.SurfaceNotConfigured] or [KortexError.ShmAllocationFailed]
-     *   when the compositor would not give the window what it needs to draw; and the same error [kortexApplication]
-     *   returns when the connection to the compositor failed.
+     *   [KortexError.MissingGlobal] when the compositor puts no application windows on screen at all, or decorates
+     *   none of them; [KortexError.ClientSideDecorationRequired] when it leaves this window's title bar and resize
+     *   handles to the application, which kortex does not draw; [KortexError.MissingSeatDevice],
+     *   [KortexError.SurfaceNotConfigured] or [KortexError.ShmAllocationFailed] when the compositor would not give
+     *   the window what it needs to draw; and the same error [kortexApplication] returns when the connection to the
+     *   compositor failed.
      */
     public data class Ended(public val result: Result<SurfaceEnd, KortexError>) : WindowStatus
 }
 
 /**
- * What one window call's window is doing, as state: whatever reads [status] while it composes is recomposed each
- * time the window's status changes.
+ * What one window call's window is doing, as state: whatever reads one of these while it composes is recomposed
+ * each time that one changes.
  *
  * ```kotlin
  * val notes = rememberWindowState()
@@ -137,6 +143,21 @@ public class WindowState {
     /** What the window is doing now. */
     public val status: WindowStatus
         get() = published.statusOf(WindowStatus.Placing, WindowStatus::OnScreen, WindowStatus::Ended)
+
+    /** The compositor has asked for this window to close. Nothing happens until the caller acts on it. */
+    public val closeRequested: Boolean get() = published.windowStates.closeRequested
+
+    /** The window fills the screen except for whatever the compositor keeps reserved, such as a panel. */
+    public val maximized: Boolean get() = published.windowStates.maximized
+
+    /** The window has the whole screen, with nothing else over it. */
+    public val fullscreen: Boolean get() = published.windowStates.fullscreen
+
+    /** The window shares at least one edge with the layout around it, so it cannot choose its own size. */
+    public val tiled: Boolean get() = published.windowStates.tiled
+
+    /** The window is the one the user is working in, and is where their typing goes. */
+    public val activated: Boolean get() = published.windowStates.activated
 }
 
 /**

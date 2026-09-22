@@ -24,6 +24,9 @@ public sealed interface KortexError : IError {
     /** The compositor never sent `configure` for a layer surface within the wait budget. */
     public data object SurfaceNotConfigured : KortexError
 
+    /** The compositor draws no decoration for this window, and kortex draws none of its own. */
+    public data object ClientSideDecorationRequired : KortexError
+
     /** The connection died for a reason outside the protocol; [errno] is the C error number. */
     public data class ConnectionError(public val errno: Int) : KortexError
 

@@ -195,6 +195,8 @@ internal class KortexShell private constructor(
     private fun serviceSurfaces(): EmptyResult<KortexError> {
         // First: content running here posts to the surface queues each tick drains.
         loopQueue.runPass()
+        // Right after the dispatch that delivered them, so no frame passes on a window state gone stale.
+        placed.forEach(SurfaceSlot::followWindow)
         // After the pass, which runs the snapshot pump that asks the application for a frame.
         application.frame()
         // A shown surface that fails its tick ends by itself, with that error; the run goes on.

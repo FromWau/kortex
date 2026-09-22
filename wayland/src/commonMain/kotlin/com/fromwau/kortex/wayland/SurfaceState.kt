@@ -91,9 +91,21 @@ internal class PublishedProgress {
     // the status each state makes of it is read wherever a caller composes.
     var progress: SurfaceProgress by mutableStateOf(SurfaceProgress.Placing)
 
+    // Written and read as progress is; a call holding anything but a window never writes it.
+    var windowStates: WindowStates by mutableStateOf(WindowStates())
+
     // The call publishing here, which is how a second call taking this state while the first holds it is caught.
     var boundTo: SurfaceSlot? = null
 }
+
+/** What a window reports about itself beside its size, which only a [WindowState] reads. */
+internal data class WindowStates(
+    val closeRequested: Boolean = false,
+    val maximized: Boolean = false,
+    val fullscreen: Boolean = false,
+    val tiled: Boolean = false,
+    val activated: Boolean = false,
+)
 
 /** What a state reports, made of what its call published: [placing], [onScreen] with its size, or [ended]. */
 internal fun <T> PublishedProgress.statusOf(
