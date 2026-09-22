@@ -277,6 +277,40 @@ class WindowTest {
     }
 
     @Test
+    fun `a declined close request goes back down and the compositor's next one is seen`() {
+        val state = WindowState()
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Window(title = TITLE, appId = APP_ID, width = WIDTH, height = HEIGHT, state = state) { Grey() }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val window = awaitWindow(shell, TITLE)
+
+            Hyprctl.dispatch("closewindow", "address:${window.address}")
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
+                "the compositor asked the window to close and its state never said so",
+            )
+
+            state.declineClose()
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { !state.closeRequested },
+                "the window the caller kept still reports the close it refused",
+            )
+
+            Hyprctl.dispatch("closewindow", "address:${window.address}")
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
+                "the compositor asked a second time and the window it kept never said so",
+            )
+            assertIs<WindowStatus.OnScreen>(state.status, "the window the caller kept ended: ${state.status}")
+        }
+    }
+
+    @Test
     fun `fullscreen follows the compositor giving the window the whole screen and taking it back`() {
         val state = WindowState()
         val content: @Composable KortexApplicationScope.() -> Unit = {

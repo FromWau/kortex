@@ -38,7 +38,7 @@ import com.fromwau.kern.result.Result
  *
  * The compositor can ask for the window to close, which sets [WindowState.closeRequested] and does nothing else.
  * Take the call out of composition to close it, leave it in to refuse, and take as long as you like to ask the
- * user first.
+ * user first. Say a refusal with [WindowState.declineClose], so the next ask is seen as one.
  *
  * Once the window has ended, in any of the ways [WindowStatus.Ended] lists, the call shows nothing until you take it
  * out of composition and put it back, which places a window again and takes [state] with it.
@@ -144,8 +144,35 @@ public class WindowState {
     public val status: WindowStatus
         get() = published.statusOf(WindowStatus.Placing, WindowStatus::OnScreen, WindowStatus::Ended)
 
-    /** The compositor has asked for this window to close. Nothing happens until the caller acts on it. */
+    /**
+     * The compositor has asked for this window to close. Nothing happens until the caller acts on it: take the
+     * window's call out of composition to close it, or call [declineClose] to keep it.
+     */
     public val closeRequested: Boolean get() = published.windowStates.closeRequested
+
+    /**
+     * Refuses the close the compositor asked for and keeps the window: [closeRequested] reads false again shortly
+     * after, and the next time the compositor asks is an ask of its own.
+     *
+     * Call it where the user chooses to keep the window, such as a prompt over unsaved changes they turned down.
+     * Nothing else about the window changes: it stays on screen, its content keeps running and keeps what it
+     * holds, and its [status] stands. Call it from wherever you read the answer, on any thread. Calling it when
+     * nothing has been asked for, or once the window has ended, does nothing.
+     *
+     * ```kotlin
+     * val state = rememberWindowState()
+     *
+     * if (state.closeRequested) {
+     *     ConfirmQuit(
+     *         onKeep = { state.declineClose() },
+     *         onQuit = { showWindow = false },
+     *     )
+     * }
+     * ```
+     */
+    public fun declineClose() {
+        published.boundTo?.declineClose()
+    }
 
     /**
      * The window fills the screen except for whatever the compositor keeps reserved, such as a panel. Read it

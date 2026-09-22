@@ -94,7 +94,9 @@ internal class PublishedProgress {
     // Written and read as progress is; a call holding anything but a window never writes it.
     var windowStates: WindowStates by mutableStateOf(WindowStates())
 
-    // The call publishing here, which is how a second call taking this state while the first holds it is caught.
+    // The call publishing here, which is how a second call taking this state while the first holds it is caught,
+    // and how an ask made on a state reaches its call from whichever thread made it.
+    @Volatile
     var boundTo: SurfaceSlot? = null
 }
 

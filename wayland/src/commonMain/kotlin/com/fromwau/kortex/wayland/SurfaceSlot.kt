@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /** What a surface call asks for: a surface placed with other settings is changed to these. */
@@ -82,6 +83,8 @@ internal class SurfaceSlot(
 
     private val requested = AtomicReference<Result<SurfaceEnd, KortexError>?>(null)
 
+    private val closeDeclined = AtomicBoolean(false)
+
     /** What content sees as its own `this`, and as `LocalKortexSurface`, for as long as its call composes. */
     val scope: SurfaceScope = object : SurfaceScope {
         // From the scene, which outlives a rebuild: the size holds until the surface that takes over is configured.
@@ -93,6 +96,15 @@ internal class SurfaceSlot(
     /** Asks for [ending], from any thread; the shell acts on it in its next pass. The first ask decides. */
     fun requestEnd(ending: Result<SurfaceEnd, KortexError>) {
         if (requested.compareAndSet(null, ending)) wake()
+    }
+
+    /**
+     * Asks for the compositor's close request to be taken back, from any thread; the shell acts on it in its next
+     * pass, and a call holding anything but a window has none to take back.
+     */
+    fun declineClose() {
+        closeDeclined.set(true)
+        wake()
     }
 
     /**
@@ -142,6 +154,8 @@ internal class SurfaceSlot(
     /** Publishes what the window this call holds reports about itself; a call holding anything else has none. */
     fun followWindow() {
         val toplevel = surface?.role as? XdgToplevelSurface ?: return
+        // Taken back here, where the window is read: a decline acted on anywhere else is republished away below.
+        if (closeDeclined.getAndSet(false)) toplevel.declineClose()
         publish(
             WindowStates(
                 closeRequested = toplevel.closeRequested,

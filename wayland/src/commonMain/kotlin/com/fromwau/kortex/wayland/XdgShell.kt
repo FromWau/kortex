@@ -359,6 +359,11 @@ internal class XdgToplevelListener(width: Int, height: Int) {
         closeRequested = true
     }
 
+    /** Takes back the ask the last `close` made, so the next one the compositor sends stands as its own. */
+    fun declineClose() {
+        closeRequested = false
+    }
+
     fun onConfigureBounds(data: MemorySegment, proxy: MemorySegment, width: Int, height: Int) = Unit
 
     fun onWmCapabilities(data: MemorySegment, proxy: MemorySegment, capabilities: MemorySegment) = Unit
@@ -448,6 +453,9 @@ internal class XdgToplevelSurface private constructor(
 
     /** The compositor has asked for this window to close, which by itself ends nothing. */
     val closeRequested: Boolean get() = toplevelListener.closeRequested
+
+    /** Takes back that ask, so the compositor asking again is an ask of its own. The loop thread only. */
+    fun declineClose() = toplevelListener.declineClose()
 
     /** What the compositor shows for this window wherever it names it, such as a task bar. */
     fun setTitle(title: String) = sendString(XdgShellProtocol.SET_TITLE, title)
