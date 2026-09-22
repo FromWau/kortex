@@ -150,10 +150,10 @@ class XdgToplevelTest {
     }
 
     /** The mapped window Hyprland lists under this test's app id, or null while it lists none. */
-    private fun mappedWindow(): HyprClient? = Hyprctl.clients().firstOrNull { it.appId == APP_ID }
+    private fun mappedWindow(): HyprWindow? = Hyprctl.windows().firstOrNull { it.appId == APP_ID }
 
     /** [mappedWindow] once the compositor has mapped it, or null if it never does within the budget. */
-    private fun awaitMappedWindow(): HyprClient? {
+    private fun awaitMappedWindow(): HyprWindow? {
         LoopThread.waitUntil(SETTLE_WITHIN_MILLIS) { mappedWindow() != null }
         return mappedWindow()
     }

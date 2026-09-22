@@ -1,5 +1,7 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import kotlin.math.roundToInt
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -43,20 +45,56 @@ private const val RIGHT = 2
 private const val BOTTOM = 3
 
 /** One window of `hyprctl clients -j`, which lists only windows the compositor has mapped. */
-@Serializable
-internal data class HyprClient(
-    val title: String,
-    /** What Hyprland calls a window's class, which for a Wayland window is its `xdg_toplevel` app id. */
-    @SerialName("class") val appId: String,
+internal data class HyprWindow(
     /** What the compositor calls this window, which is another one as soon as it is made again. */
     val address: String,
+    val title: String,
+    /** What Hyprland calls a window's class, which for a Wayland window is its `xdg_toplevel` app id. */
+    val appId: String,
+    /** The size the compositor settled on, which is the size the window's last `configure` carried. */
+    val size: IntSize,
+    val at: IntOffset,
     val floating: Boolean,
-    val workspace: HyprWorkspaceRef,
+    val fullscreen: Boolean,
+    val pinned: Boolean,
+    val workspace: String,
+)
+
+/** One entry of `hyprctl clients -j`, in the shape Hyprland writes it. */
+@Serializable
+private data class ClientEntry(
+    val address: String,
+    val title: String,
+    @SerialName("class") val appId: String,
+    val at: List<Int>,
+    val size: List<Int>,
+    val floating: Boolean,
+    val pinned: Boolean,
+    val fullscreen: Int,
+    val workspace: WorkspaceEntry,
 )
 
 /** The workspace a window of `hyprctl clients -j` is on. */
 @Serializable
-internal data class HyprWorkspaceRef(val name: String)
+private data class WorkspaceEntry(val name: String)
+
+private fun ClientEntry.toWindow(): HyprWindow = HyprWindow(
+    address = address,
+    title = title,
+    appId = appId,
+    size = IntSize(size[X], size[Y]),
+    at = IntOffset(at[X], at[Y]),
+    floating = floating,
+    // hyprctl reports which of the compositor's fullscreen modes a window is in, not whether it is in one.
+    fullscreen = fullscreen != WINDOWED,
+    pinned = pinned,
+    workspace = workspace.name,
+)
+
+// hyprctl writes a window's position and its size each as a two-element array.
+private const val X = 0
+private const val Y = 1
+private const val WINDOWED = 0
 
 /** One surface entry nested under a monitor's `levels` in `hyprctl layers -j`. */
 @Serializable
@@ -78,6 +116,9 @@ internal data class MonitorLayers(val levels: Map<String, List<LayerEntry>>)
  * Drives the compositor from a test.
  *
  * `hyprctl output create/remove headless` is the only way to add or remove a real `wl_output` here.
+ *
+ * This desktop's Hyprland reads a Lua configuration, so `hyprctl dispatch` runs `hl.dispatch(...)` over what it
+ * is given rather than the keyword form: a dispatcher written the keyword way is a Lua syntax error.
  */
 internal object Hyprctl {
     /** Creates a headless output, returning the name Hyprland assigned it. */
@@ -104,7 +145,12 @@ internal object Hyprctl {
         checkNotNull(monitors().firstOrNull { it.name == name }) { "hyprctl lost monitor $name" }
 
     /** Every window the compositor has mapped, in the order Hyprland lists them. */
-    fun clients(): List<HyprClient> = JSON.decodeFromString(run("clients", "-j"))
+    fun windows(): List<HyprWindow> = JSON
+        .decodeFromString<List<ClientEntry>>(run("clients", "-j"))
+        .map { it.toWindow() }
+
+    /** The one window the compositor lists under [title], or null while it lists none. */
+    fun window(title: String): HyprWindow? = windows().firstOrNull { it.title == title }
 
     /** Every monitor's layer-shell surfaces, keyed by monitor name. */
     fun layers(): Map<String, MonitorLayers> = JSON.decodeFromString(run("layers", "-j"))
@@ -115,12 +161,18 @@ internal object Hyprctl {
         .flatMap { it.levels.values.flatten() }
         .map { it.namespace }
 
-    /** Runs a dispatcher. Always name the window by address: the default target is whatever the user is in. */
-    fun dispatch(vararg args: String) {
-        val result = run("dispatch", *args)
-        check(result.trim().equals("ok", ignoreCase = true)) {
-            "hyprctl dispatch ${args.joinToString(" ")} failed: $result"
-        }
+    /**
+     * Runs one of the compositor's window dispatchers against the window at [address], never the active window,
+     * which during a test run is whatever the user is working in.
+     *
+     * [dispatcher] names it as the compositor's own configuration language does, such as `window.float`, and
+     * [fields] carry its other arguments, such as `direction = "left"`.
+     */
+    fun dispatch(dispatcher: String, vararg fields: String, address: String) {
+        val arguments = (listOf("window = \"address:$address\"") + fields).joinToString(", ")
+        val request = "hl.dsp.$dispatcher{ $arguments }"
+        val result = run("dispatch", request)
+        check(result.trim().equals("ok", ignoreCase = true)) { "hyprctl dispatch $request failed: $result" }
     }
 
     fun run(vararg args: String): String {

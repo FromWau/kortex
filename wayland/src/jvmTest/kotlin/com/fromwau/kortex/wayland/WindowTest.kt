@@ -185,9 +185,9 @@ class WindowTest {
             val window = awaitWindow(shell, TITLE)
 
             // Unfocused here, so the focus below draws out a configure at the size the window already has.
-            Hyprctl.dispatch("movetoworkspacesilent", "$ASIDE,address:${window.address}")
+            Hyprctl.dispatch("window.move", "workspace = \"$ASIDE\"", "follow = false", address = window.address)
             assertTrue(
-                shell.pumpOrFail(PUMP_MILLIS) { listedWindow()?.workspace?.name == ASIDE },
+                shell.pumpOrFail(PUMP_MILLIS) { listedWindow()?.workspace == ASIDE },
                 "the window never left the workspace the user is looking at",
             )
             // The move's own configure lands after the workspace change; everything below is about the next one.
@@ -206,7 +206,7 @@ class WindowTest {
                 "the changed width never reached the window, which reports ${state.status}",
             )
 
-            Hyprctl.dispatch("focuswindow", "address:${window.address}")
+            Hyprctl.dispatch("focus", address = window.address)
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { state.status == WindowStatus.OnScreen(configured) },
@@ -226,7 +226,7 @@ class WindowTest {
             awaitPlaced(shell)
             val window = awaitWindow(shell, TITLE)
 
-            Hyprctl.dispatch("closewindow", "address:${window.address}")
+            Hyprctl.dispatch("window.close", address = window.address)
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
@@ -257,7 +257,7 @@ class WindowTest {
             awaitPlaced(shell)
             val window = awaitWindow(shell, TITLE)
 
-            Hyprctl.dispatch("closewindow", "address:${window.address}")
+            Hyprctl.dispatch("window.close", address = window.address)
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
                 "the compositor asked the window to close and its state never said so",
@@ -287,7 +287,7 @@ class WindowTest {
             awaitPlaced(shell)
             val window = awaitWindow(shell, TITLE)
 
-            Hyprctl.dispatch("closewindow", "address:${window.address}")
+            Hyprctl.dispatch("window.close", address = window.address)
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
                 "the compositor asked the window to close and its state never said so",
@@ -300,7 +300,7 @@ class WindowTest {
                 "the window the caller kept still reports the close it refused",
             )
 
-            Hyprctl.dispatch("closewindow", "address:${window.address}")
+            Hyprctl.dispatch("window.close", address = window.address)
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { state.closeRequested },
@@ -322,16 +322,14 @@ class WindowTest {
             val window = awaitWindow(shell, TITLE)
             assertFalse(state.fullscreen, "the window reports the whole screen before anything gave it one")
 
-            // The dispatcher acts on whatever window holds focus, so the address goes in through the focus.
-            Hyprctl.dispatch("focuswindow", "address:${window.address}")
-            Hyprctl.dispatch("fullscreen", FULL_SCREEN)
+            Hyprctl.dispatch("window.fullscreen", address = window.address)
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { state.fullscreen },
                 "the compositor gave the window the whole screen and its state never said so",
             )
 
-            Hyprctl.dispatch("fullscreen", FULL_SCREEN)
+            Hyprctl.dispatch("window.fullscreen", address = window.address)
 
             assertTrue(
                 shell.pumpOrFail(PUMP_MILLIS) { !state.fullscreen },
@@ -355,10 +353,10 @@ class WindowTest {
     }
 
     /** The window hyprctl lists under this test's app id, or null while it lists none. */
-    private fun listedWindow(): HyprClient? = Hyprctl.clients().firstOrNull { it.appId == APP_ID }
+    private fun listedWindow(): HyprWindow? = Hyprctl.windows().firstOrNull { it.appId == APP_ID }
 
     /** The window once hyprctl lists it under [title], driving [shell] until it does. */
-    private fun awaitWindow(shell: KortexShell, title: String): HyprClient {
+    private fun awaitWindow(shell: KortexShell, title: String): HyprWindow {
         assertTrue(
             shell.pumpOrFail(PUMP_MILLIS) { listedWindow()?.title == title },
             "hyprctl clients never listed a window titled \"$title\"",
@@ -373,12 +371,6 @@ class WindowTest {
 
         /** A workspace of the window's own, which the user is not looking at and which goes when it does. */
         const val ASIDE = "special:kortex-window-test"
-
-        /**
-         * What Hyprland's `fullscreen` dispatcher calls the whole screen; `1` is its own kind of maximize, which
-         * reaches no window state, since every toplevel it maps is told it is maximized and never told otherwise.
-         */
-        const val FULL_SCREEN = "0"
 
         val WIDTH = 640.dp
         val HEIGHT = 480.dp
