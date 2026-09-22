@@ -33,7 +33,7 @@ class SurfacePresetTest {
             val config = SurfaceConfig.panel(edge = Edge.Top, thickness = PANEL_THICKNESS.dp)
                 .copy(namespace = PANEL_NAMESPACE)
 
-            val panel = KortexSurface.create(wayland, config, output = output.proxy)
+            val panel = KortexSurface.createOnLayer(wayland, config, output = output.proxy)
                 .getOrElse { error -> fail("panel creation failed: $error") }
 
             panel.use {
@@ -71,7 +71,7 @@ class SurfacePresetTest {
                 .copy(namespace = DOCK_NAMESPACE)
             assertEquals(KeyboardInteractivity.OnDemand, config.keyboard, "dock did not ask for keyboard on demand")
 
-            val dock = KortexSurface.create(wayland, config, output = output.proxy)
+            val dock = KortexSurface.createOnLayer(wayland, config, output = output.proxy)
                 .getOrElse { error -> fail("dock creation failed: $error") }
 
             dock.use {
@@ -103,7 +103,7 @@ class SurfacePresetTest {
             val output = bindFirstOutput(wayland)
             val config = SurfaceConfig.desktopBackground().copy(namespace = BACKGROUND_NAMESPACE)
 
-            val background = KortexSurface.create(wayland, config, output = output.proxy)
+            val background = KortexSurface.createOnLayer(wayland, config, output = output.proxy)
                 .getOrElse { error -> fail("background creation failed: $error") }
 
             background.use {
@@ -142,7 +142,7 @@ class SurfacePresetTest {
                 "lockScreen did not ask for exclusive keyboard focus",
             )
 
-            val lock = KortexSurface.create(wayland, config, output = output.proxy)
+            val lock = KortexSurface.createOnLayer(wayland, config, output = output.proxy)
                 .getOrElse { error -> fail("lockScreen creation failed: $error") }
 
             lock.use {
@@ -174,7 +174,7 @@ class SurfacePresetTest {
             val before = Hyprctl.monitor(output.geometry.name)
             val config = SurfaceConfig.osd(OSD_WIDTH.dp, OSD_HEIGHT.dp).copy(namespace = OSD_NAMESPACE)
 
-            val osd = KortexSurface.create(wayland, config, output = output.proxy)
+            val osd = KortexSurface.createOnLayer(wayland, config, output = output.proxy)
                 .getOrElse { error -> fail("osd creation failed: $error") }
 
             osd.use {
@@ -204,7 +204,7 @@ class SurfacePresetTest {
                 KeyboardInteractivity.OnDemand, config.keyboard, "appMenu did not ask for keyboard on demand",
             )
 
-            val appMenu = KortexSurface.create(wayland, config, output = output.proxy)
+            val appMenu = KortexSurface.createOnLayer(wayland, config, output = output.proxy)
                 .getOrElse { error -> fail("appMenu creation failed: $error") }
 
             appMenu.use {
@@ -229,7 +229,7 @@ class SurfacePresetTest {
             // surrounding desktop happens to reserve.
             val panelConfig = SurfaceConfig.panel(edge = Edge.Left, thickness = MENU_PANEL_THICKNESS.dp)
                 .copy(namespace = MENU_PANEL_NAMESPACE)
-            val panel = KortexSurface.create(wayland, panelConfig, output = output.proxy)
+            val panel = KortexSurface.createOnLayer(wayland, panelConfig, output = output.proxy)
                 .getOrElse { error -> fail("panel creation failed: $error") }
 
             panel.use {
@@ -244,7 +244,7 @@ class SurfacePresetTest {
                 val config = SurfaceConfig.contextMenu(IntOffset(MENU_X, MENU_Y), menuSize, outputSize)
                     .copy(namespace = MENU_NAMESPACE)
 
-                val menu = KortexSurface.create(wayland, config, output = output.proxy)
+                val menu = KortexSurface.createOnLayer(wayland, config, output = output.proxy)
                     .getOrElse { error -> fail("contextMenu creation failed: $error") }
 
                 menu.use {

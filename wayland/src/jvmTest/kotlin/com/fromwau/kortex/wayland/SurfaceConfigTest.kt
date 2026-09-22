@@ -31,7 +31,7 @@ class SurfaceConfigTest {
                 height = DOCK_HEIGHT.dp,
                 exclusiveZone = ExclusiveZone.Reserve(DOCK_HEIGHT.dp),
             )
-            val dock = KortexSurface.create(wayland, config, output = monitor.proxy)
+            val dock = KortexSurface.createOnLayer(wayland, config, output = monitor.proxy)
                 .getOrElse { error -> fail("dock creation failed: $error") }
 
             dock.use {
@@ -86,7 +86,7 @@ class SurfaceConfigTest {
                     height = 0.dp,
                     exclusiveZone = ExclusiveZone.Overlap,
                 )
-                val background = KortexSurface.create(wayland, config, output = monitor.proxy)
+                val background = KortexSurface.createOnLayer(wayland, config, output = monitor.proxy)
                     .getOrElse { error -> fail("background creation failed: $error") }
 
                 background.use {

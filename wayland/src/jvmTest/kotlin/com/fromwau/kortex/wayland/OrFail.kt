@@ -65,7 +65,7 @@ internal fun bareSurface(
     val loop = LoopQueue(display::wake)
     val scene = SurfaceScene(config.namespace, loop, platform, onCrash = {})
     val surface = KortexSurface
-        .create(display, config, output = output, loopQueue = loop)
+        .createOnLayer(display, config, output = output, loopQueue = loop)
         .getOrElse { error -> fail("the surface was not created: $error") }
     surface.attach(scene).getOrElse { error ->
         surface.close()
@@ -104,7 +104,8 @@ internal fun settingsAskedBy(content: @Composable KortexApplicationScope.() -> U
         assertEquals(1, queued.size, "the content asked for ${queued.size} surfaces, not one")
         asked = queued.first()
     }
-    return assertIs<LayerSettings>(asked, "the content asked for no layer surface")
+    val kind = asked?.let { it::class.simpleName } ?: "nothing"
+    return assertIs<LayerSettings>(asked, "the content asked for $kind, not a layer surface")
 }
 
 /** Pumps [shell] until [shell] has placed [count] surfaces; the test fails if it never does. */

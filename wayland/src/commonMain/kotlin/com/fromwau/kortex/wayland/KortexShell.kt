@@ -44,13 +44,13 @@ private sealed interface OutputChoice {
 }
 
 /** Which monitor a surface these settings place goes on; null leaves the choice to the compositor. */
-private val SurfaceSettings.monitor: Monitor?
+private val SurfaceSettings.placedOn: Monitor?
     get() = when (this) {
         is LayerSettings -> monitor
     }
 
 /** What the compositor calls a surface these settings place, and the name a crash on it is reported under. */
-private val SurfaceSettings.namespace: String
+private val SurfaceSettings.reportedAs: String
     get() = when (this) {
         is LayerSettings -> config.namespace
     }
@@ -227,7 +227,7 @@ internal class KortexShell private constructor(
         listMonitors()
         // A monitor's surfaces end with it, whether or not the compositor closes them, and before its output goes.
         placed
-            .filter { it.placedWith?.monitor?.output === output }
+            .filter { it.placedWith?.placedOn?.output === output }
             .forEach { slot ->
                 when (val own = slot.ownEnding()) {
                     is OwnEnding.Ended -> end(slot, own.ending)
@@ -314,7 +314,7 @@ internal class KortexShell private constructor(
         settings: SurfaceSettings,
     ) {
         val scene = slot.scene ?: return place(slot, settings)
-        val output = when (val on = outputFor(settings.monitor)) {
+        val output = when (val on = outputFor(settings.placedOn)) {
             is OutputChoice.Bound -> on.proxy
             OutputChoice.CompositorChooses -> MemorySegment.NULL
             OutputChoice.Unplugged -> return end(slot, Ok(SurfaceEnd.MonitorUnplugged))
@@ -338,13 +338,13 @@ internal class KortexShell private constructor(
         // Only taking a surface down frees the scene under it, and that closes it: another here would be dropped
         // with its recomposer and its queued work still running.
         check(slot.scene == null) { "a surface call draws one scene at a time" }
-        val output = when (val on = outputFor(settings.monitor)) {
+        val output = when (val on = outputFor(settings.placedOn)) {
             is OutputChoice.Bound -> on.proxy
             OutputChoice.CompositorChooses -> MemorySegment.NULL
             OutputChoice.Unplugged -> return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
         }
         // Only a wake on a crash: the next pass reads the scene's first failure, which this one may not be.
-        val scene = SurfaceScene(settings.namespace, loopQueue, platform, onCrash = { wake() })
+        val scene = SurfaceScene(settings.reportedAs, loopQueue, platform, onCrash = { wake() })
         slot.scene = scene
         build(slot, settings, scene, output)
             // After the attach, so the first composition already reads the size the surface was configured at.
@@ -361,7 +361,7 @@ internal class KortexShell private constructor(
         output: MemorySegment,
     ): EmptyResult<KortexError> {
         val built = when (settings) {
-            is LayerSettings -> KortexSurface.create(
+            is LayerSettings -> KortexSurface.createOnLayer(
                 display,
                 settings.config,
                 output = output,
@@ -373,7 +373,7 @@ internal class KortexShell private constructor(
         return built.flatMap { surface ->
             slot.surface = surface
             // Only now that a surface carries the name: a crash before this one names the surface it was on.
-            scene.namespace = settings.namespace
+            scene.namespace = settings.reportedAs
             surface.attach(scene).onError {
                 slot.surface = null
                 surface.close()

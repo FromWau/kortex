@@ -136,22 +136,25 @@ internal fun LayerSurface(
 }
 
 /** What a surface call asks for: a surface placed with other settings is changed to these. */
-internal sealed interface SurfaceSettings {
+internal sealed class SurfaceSettings {
     /** Whether a surface placed with [placed] has to be made again rather than changed. */
-    fun rebuildsOver(placed: SurfaceSettings): Boolean
+    fun rebuildsOver(placed: SurfaceSettings): Boolean =
+        placed::class != this::class || rebuildsOverSameKind(placed)
+
+    /** Whether [placed], always of this same kind, differs in something a live surface cannot be given. */
+    protected abstract fun rebuildsOverSameKind(placed: SurfaceSettings): Boolean
 }
 
 /** What a [LayerSurface] call asks for. */
 internal data class LayerSettings(
     val monitor: Monitor?,
     val config: SurfaceConfig,
-) : SurfaceSettings {
-    /**
-     * `get_layer_surface` fixes the monitor and the namespace for the life of a layer surface, and no surface
-     * built on another role can be turned into a layer surface at all.
-     */
-    override fun rebuildsOver(placed: SurfaceSettings): Boolean =
-        placed !is LayerSettings || monitor != placed.monitor || config.namespace != placed.config.namespace
+) : SurfaceSettings() {
+    /** `get_layer_surface` fixes the monitor and the namespace for the life of a layer surface. */
+    override fun rebuildsOverSameKind(placed: SurfaceSettings): Boolean {
+        placed as LayerSettings
+        return monitor != placed.monitor || config.namespace != placed.config.namespace
+    }
 }
 
 /** How a surface ended cleanly: what [SurfaceStatus.Ended] carries inside `Ok`. */

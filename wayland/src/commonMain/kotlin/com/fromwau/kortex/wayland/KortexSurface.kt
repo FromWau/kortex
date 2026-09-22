@@ -25,7 +25,7 @@ import org.jetbrains.skia.Surface
  */
 internal class KortexSurface private constructor(
     private val display: WaylandDisplay,
-    /** What this surface is built on; a caller that knows the role sends it what only that role takes. */
+    /** What this surface is built on; the loop thread only, another thread uses [requestClose] or [invalidate]. */
     internal val role: SurfaceRole,
     private val shm: Shm,
     private var bufferScale: Int,
@@ -174,7 +174,7 @@ internal class KortexSurface private constructor(
         return seat.attachKeyboard(scene.composition, scene::textInput, onInputSerial, onKeyboardFocus)
     }
 
-    /** Takes or gives back the keyboard to match what [role] asks for, for a caller that has just changed it. */
+    /** Takes or gives back the keyboard to match what [role] asks for; the loop thread only, where it changed it. */
     internal fun followKeyboard() {
         when {
             !role.wantsKeyboard -> {

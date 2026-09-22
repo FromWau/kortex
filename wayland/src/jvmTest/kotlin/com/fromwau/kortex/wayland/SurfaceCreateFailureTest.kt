@@ -33,7 +33,7 @@ class SurfaceCreateFailureTest {
 
             val memfdsBefore = openMemfds()
             val recomposersBefore = Recomposer.runningRecomposers.value
-            val failed = KortexSurface.create(wayland, CONFIG)
+            val failed = KortexSurface.createOnLayer(wayland, CONFIG)
             // libwayland holds a duplicate of each descriptor it sends until the next flush, which is no leak.
             wayland.roundtrip()
 
@@ -47,7 +47,7 @@ class SurfaceCreateFailureTest {
             assertEquals(Ok(Unit), wayland.requireAlive(), "giving back a failed create's pieces cost the connection")
 
             wayland.addGlobal(seat)
-            val surface = KortexSurface.create(wayland, CONFIG)
+            val surface = KortexSurface.createOnLayer(wayland, CONFIG)
                 .getOrElse { error -> fail("a create on the connection a failed one used did not succeed: $error") }
             // Checked before close() and outside use {}: a create that had unwound anyway must fail here,
             // since closing its pieces twice could close a descriptor number something else now holds.

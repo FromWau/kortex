@@ -129,6 +129,9 @@ internal class LayerShellSurface(
     override val preferredBufferScale: Int get() = surfaceListener.preferredBufferScale
 
     /**
+     * Dispatches until `zwlr_layer_surface_v1.configure` arrives, and gives up if the compositor closes the
+     * surface first.
+     *
      * @return `Ok` once configured; else the connection's error when it died before a configure came, else
      *   [KortexError.SurfaceNotConfigured].
      */
@@ -419,7 +422,7 @@ internal class ConfigureState(private val layerSurface: MemorySegment) {
  * @return what [LayerShellSurface.create] refused [config] for, or what the engine around it failed on, with
  *   nothing of either left behind.
  */
-internal fun KortexSurface.Companion.create(
+internal fun KortexSurface.Companion.createOnLayer(
     display: WaylandDisplay,
     config: SurfaceConfig,
     // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
