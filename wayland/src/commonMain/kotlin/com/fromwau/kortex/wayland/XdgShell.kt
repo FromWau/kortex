@@ -13,6 +13,21 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
 
+/** The `xdg_toplevel.state` values a `wl_array` of `uint32_t` holds; a value kortex does not know is dropped. */
+private fun statesIn(array: MemorySegment): Set<XdgToplevelState> {
+    val header = array.reinterpret(WL_ARRAY_BYTES)
+    val bytes = header.get(JAVA_LONG, WL_ARRAY_SIZE_OFFSET)
+    val data = header.get(ADDRESS, WL_ARRAY_DATA_OFFSET).reinterpret(bytes)
+    return (0 until bytes / Int.SIZE_BYTES).mapNotNullTo(mutableSetOf()) { index ->
+        XdgToplevelState.fromOrNull(data.getAtIndex(JAVA_INT, index))
+    }
+}
+
+// struct wl_array { size_t size; size_t alloc; void *data; }, which an upcall hands over with no extent.
+private const val WL_ARRAY_SIZE_OFFSET = 0L
+private const val WL_ARRAY_DATA_OFFSET = 16L
+private const val WL_ARRAY_BYTES = 24L
+
 /** The `xdg_shell` tables, from `wayland-scanner private-code xdg-shell.xml`. */
 internal object XdgShellProtocol {
     val xdgToplevelInterface: MemorySegment = LibWayland.buildInterface(
@@ -470,18 +485,3 @@ internal class XdgToplevelSurface private constructor(
         private const val NANOS_PER_MILLI = 1_000_000L
     }
 }
-
-/** The `xdg_toplevel.state` values a `wl_array` of `uint32_t` holds; a value kortex does not know is dropped. */
-private fun statesIn(array: MemorySegment): Set<XdgToplevelState> {
-    val header = array.reinterpret(WL_ARRAY_BYTES)
-    val bytes = header.get(JAVA_LONG, WL_ARRAY_SIZE_OFFSET)
-    val data = header.get(ADDRESS, WL_ARRAY_DATA_OFFSET).reinterpret(bytes)
-    return (0 until bytes / Int.SIZE_BYTES).mapNotNullTo(mutableSetOf()) { index ->
-        XdgToplevelState.fromOrNull(data.getAtIndex(JAVA_INT, index))
-    }
-}
-
-// struct wl_array { size_t size; size_t alloc; void *data; }, which an upcall hands over with no extent.
-private const val WL_ARRAY_SIZE_OFFSET = 0L
-private const val WL_ARRAY_DATA_OFFSET = 16L
-private const val WL_ARRAY_BYTES = 24L
