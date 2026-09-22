@@ -12,7 +12,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -35,6 +34,7 @@ class XdgToplevelTest {
                     .getOrElse { error -> fail("the compositor never configured the toplevel: $error") }
                 assertFalse(toplevel.closed, "the compositor closed the toplevel")
 
+                assertTrue(toplevel.tiled, "the toplevel's first configure carried no tiled state")
                 assertTrue(toplevel.logicalWidth > 0, "the configure left the toplevel without a width")
                 assertTrue(toplevel.logicalHeight > 0, "the configure left the toplevel without a height")
             }
@@ -42,7 +42,7 @@ class XdgToplevelTest {
     }
 
     @Test
-    fun `a toplevel draws nothing until its configure is acknowledged`() {
+    fun `a toplevel maps only once kortex's configure handshake completes`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use {
@@ -51,7 +51,10 @@ class XdgToplevelTest {
                 // The toplevel has committed once with no buffer and acknowledged nothing, which is the one
                 // moment at which the compositor cannot map it however long it waits.
                 beforeConfigure = {
-                    assertNull(mappedWindow(), "the compositor mapped a window that acknowledged no configure")
+                    assertFalse(
+                        LoopThread.waitUntil(SETTLE_WITHIN_MILLIS) { mappedWindow() != null },
+                        "the compositor mapped a window that acknowledged no configure",
+                    )
                 },
             ) { _, surface ->
                 assertTrue(surface.renders > 0, "the acknowledged toplevel never had a buffer attached")
@@ -134,7 +137,10 @@ class XdgToplevelTest {
         try {
             surface.attach(scene).getOrElse { error -> fail("the scene was not attached to the window: $error") }
             scene.setContent { Box(Modifier.fillMaxSize().background(Color.Gray)) }
-            surface.pumpOrFail(SETTLE_WITHIN_MILLIS) { surface.renders > 0 }
+            assertTrue(
+                surface.pumpOrFail(SETTLE_WITHIN_MILLIS) { surface.renders > 0 },
+                "the window never drew within the settle budget",
+            )
             block(toplevel, surface)
         } finally {
             // Before the scene: the seat the surface owns keeps delivering into a composition about to go.

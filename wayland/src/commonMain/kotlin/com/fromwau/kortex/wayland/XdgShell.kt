@@ -35,8 +35,9 @@ internal object XdgShellProtocol {
         version = WlVersion.XDG_SHELL,
         requests = listOf(
             WlMessage("destroy", ""),
-            // Every object argument from here on belongs to a request nothing here sends; libwayland reads a
-            // message's types only when that message is marshalled, so NULL is never dereferenced.
+            // No event here declares an `o`/`n` argument, and no request with a NULL one is marshalled.
+            // Filling one in later needs xdgPositionerInterface/xdgPopupInterface: tables resolve in declaration
+            // order, so those must move above xdgSurfaceInterface and xdgWmBaseInterface.
             WlMessage("set_parent", "?o", listOf(MemorySegment.NULL)),
             WlMessage("set_title", "s", listOf(MemorySegment.NULL)),
             WlMessage("set_app_id", "s", listOf(MemorySegment.NULL)),
@@ -295,6 +296,7 @@ internal class XdgToplevelSurface private constructor(
     private val toplevel: MemorySegment,
     private val wmBase: MemorySegment,
     private val compositor: MemorySegment,
+    private val wmBaseListener: XdgWmBaseListener,
     private val surfaceListener: WlSurfaceListener,
     private val xdgSurfaceListener: XdgSurfaceListener,
     private val toplevelListener: XdgToplevelListener,
@@ -339,7 +341,9 @@ internal class XdgToplevelSurface private constructor(
         // Dispatched in slices rather than blocking: a compositor that answers nothing at all must still
         // leave this call, and the whole build behind it, with an error rather than a hang.
         while (!xdgSurfaceListener.configured && !closed && System.nanoTime() < deadline) {
-            display.dispatch(DISPATCH_SLICE_MILLIS)
+            // A negative return means the connection is already gone: dispatching again would return
+            // immediately without sleeping, so this loop would burn the rest of the budget spinning.
+            if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
         }
         if (xdgSurfaceListener.configured) return Ok(Unit)
         // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
@@ -428,7 +432,8 @@ internal class XdgToplevelSurface private constructor(
             // Closed by the XdgToplevelSurface this all ends up in, which is the one owner of every proxy.
             val arena = Arena.ofShared()
             // Before any dispatch, since the compositor may ping as soon as the bind reaches it.
-            XdgWmBaseListener(display, wmBase).install(arena)
+            val wmBaseListener = XdgWmBaseListener(display, wmBase)
+            wmBaseListener.install(arena)
 
             val surface = LibWayland.marshal(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
@@ -455,7 +460,7 @@ internal class XdgToplevelSurface private constructor(
             toplevelListener.install(arena, toplevel)
 
             val result = XdgToplevelSurface(
-                display, surface, xdgSurface, toplevel, wmBase, compositor,
+                display, surface, xdgSurface, toplevel, wmBase, compositor, wmBaseListener,
                 surfaceListener, xdgSurfaceListener, toplevelListener, arena,
             )
             result.setTitle(title)
