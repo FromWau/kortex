@@ -11,16 +11,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asComposeCanvas
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
-import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.Surface
 import java.lang.foreign.MemorySegment
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -117,33 +113,20 @@ class CtrlKeyTest {
             override fun onTextInputStarted(session: KortexTextInput) = open.set(session)
             override fun onTextInputStopped() = open.set(null)
         }
-        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "kortex-ctrl-test").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
-        val surface = Surface.makeRasterN32Premul(SIDE, SIDE)
 
-        dispatcher.use {
-            KortexScene(
-                size = IntSize(SIDE, SIDE),
-                density = Density(1f),
-                layoutDirection = LayoutDirection.Ltr,
-                frameContext = dispatcher,
-                onInvalidate = {},
-                platform = platform,
-            ).use { scene ->
-                scene.setContent {
-                    val requester = remember { FocusRequester() }
-                    RecordingTextField(Modifier.focusRequester(requester), typed)
-                    LaunchedEffect(Unit) { requester.requestFocus() }
-                }
-                // A few frames so the LaunchedEffect runs and focus settles.
-                repeat(FOCUS_FRAMES) { frame ->
-                    scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
-                    Thread.sleep(FRAME_MILLIS)
-                }
-
-                block(Typist(KeyboardInput(scene, textInput = { open.get() }), scene, surface, typed))
+        onScene(IntSize(SIDE, SIDE), platform = platform) { scene, surface ->
+            scene.setContent {
+                val requester = remember { FocusRequester() }
+                RecordingTextField(Modifier.focusRequester(requester), typed)
+                LaunchedEffect(Unit) { requester.requestFocus() }
             }
+            // A few frames so the LaunchedEffect runs and focus settles.
+            repeat(FOCUS_FRAMES) { frame ->
+                scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
+                Thread.sleep(FRAME_MILLIS)
+            }
+
+            block(Typist(KeyboardInput(scene, textInput = { open.get() }), scene, surface, typed))
         }
     }
 

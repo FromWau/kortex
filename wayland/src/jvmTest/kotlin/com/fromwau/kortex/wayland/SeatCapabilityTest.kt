@@ -1,12 +1,7 @@
 package com.fromwau.kortex.wayland
 
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.compose.KortexScene
-import kotlinx.coroutines.asCoroutineDispatcher
-import java.util.concurrent.Executors
 import kotlin.test.Test
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -38,29 +33,15 @@ class SeatCapabilityTest {
 
         display.use { wayland ->
             val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
-            val scene = scene()
-            scene.use {
-                if (!seat.hasPointer) assertNull(seat.attachPointer(it, scale = 1f))
-                if (!seat.hasKeyboard) assertNull(seat.attachKeyboard(it))
+            // No surface behind the scene: this test only exercises which devices the seat announces.
+            onScene(IntSize(SIDE, SIDE)) { scene, _ ->
+                if (!seat.hasPointer) assertNull(seat.attachPointer(scene, scale = 1f))
+                if (!seat.hasKeyboard) assertNull(seat.attachKeyboard(scene))
                 // Whatever this machine announces, the guard has to agree with it.
-                assertTrue((seat.attachPointer(it, 1f) != null) == seat.hasPointer)
-                assertTrue((seat.attachKeyboard(it) != null) == seat.hasKeyboard)
+                assertTrue((seat.attachPointer(scene, 1f) != null) == seat.hasPointer)
+                assertTrue((seat.attachKeyboard(scene) != null) == seat.hasKeyboard)
             }
         }
-    }
-
-    /** No surface behind it: this test only exercises which devices the seat announces. */
-    private fun scene(): KortexScene {
-        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "kortex-seat-test").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
-        return KortexScene(
-            size = IntSize(SIDE, SIDE),
-            density = Density(1f),
-            layoutDirection = LayoutDirection.Ltr,
-            frameContext = dispatcher,
-            onInvalidate = {},
-        )
     }
 
     private companion object {

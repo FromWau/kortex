@@ -8,16 +8,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexScene
-import kotlinx.coroutines.asCoroutineDispatcher
 import java.lang.foreign.MemorySegment
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -195,18 +191,7 @@ class ProtocolVersionTest {
 
     /** No surface behind it: the seat leg only needs somewhere for its devices to deliver into. */
     private fun withScene(block: (KortexScene) -> Unit) {
-        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "kortex-version-test").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
-        dispatcher.use {
-            KortexScene(
-                size = IntSize(SIDE, SIDE),
-                density = Density(1f),
-                layoutDirection = LayoutDirection.Ltr,
-                frameContext = dispatcher,
-                onInvalidate = {},
-            ).use(block)
-        }
+        onScene(IntSize(SIDE, SIDE)) { scene, _ -> block(scene) }
     }
 
     /** One global kortex binds, with the version it asks for. */
