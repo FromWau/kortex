@@ -32,7 +32,7 @@ internal class KeyboardInput(
     var keyboardProxy: MemorySegment = MemorySegment.NULL
         private set
 
-    /** Whether a keymap has arrived; until it does there is no way to interpret a keycode. */
+    /** Whether a keymap kortex can use is in effect; until one is, there is no way to interpret a keycode. */
     val hasKeymap: Boolean get() = state != null
     private var shift = false
     private var ctrl = false
@@ -57,11 +57,13 @@ internal class KeyboardInput(
         try {
             if (format != XKB_V1_FORMAT) return
             // The compositor hands over a read-only fd; map it, compile it, and let the mapping go.
-            val text = LibC.mmapPrivateRead(fd, size.toLong())
-            // A keymap may be re-sent at any time, and the state compiled from the last one is ours.
-            state?.let(Xkb::releaseState)
-            state = Xkb.stateFromKeymap(text)
+            val text = LibC.mmapPrivateRead(fd, size.toLong()).getOrElse { return }
+            val compiled = Xkb.stateFromKeymap(text)
             LibC.munmap(text, size.toLong())
+            // A keymap may be re-sent at any time, and one kortex cannot use costs the one in effect nothing.
+            val next = compiled.getOrElse { return }
+            state?.let(Xkb::releaseState)
+            state = next
         } finally {
             LibC.close(fd)
         }

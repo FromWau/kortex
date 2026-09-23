@@ -1,10 +1,11 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.input.key.Key
+import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
+import kotlin.test.fail
 
 /**
  * Names keys under keymaps `xkbcli` compiles, each with one of its layouts locked, so layouts the compositor's
@@ -92,8 +93,9 @@ class LatinFallbackTest {
         val group = layouts.split(",").indexOf(active)
         require(group >= 0) { "$active is not one of $layouts" }
         val keymap = Xkbcli.compileKeymap(layouts)
-        val state = Arena.ofConfined().use { arena -> Xkb.stateFromKeymap(arena.allocateFrom(keymap)) }
-        assertNotNull(state, "xkb could not compile the $layouts keymap")
+        val state = Arena.ofConfined()
+            .use { arena -> Xkb.stateFromKeymap(arena.allocateFrom(keymap)) }
+            .getOrElse { error -> fail("xkb could not compile the $layouts keymap: $error") }
         try {
             Xkb.updateMask(state, 0, 0, 0, group)
             return read(state)

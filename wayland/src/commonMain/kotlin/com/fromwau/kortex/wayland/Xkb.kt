@@ -1,6 +1,9 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.input.key.Key
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.Linker
@@ -59,17 +62,23 @@ internal object Xkb {
 
     private val context: MemorySegment by lazy { contextNew.invoke(0) as MemorySegment }
 
-    /** Compiles a keymap the compositor sent as text, returning a state to query. */
-    fun stateFromKeymap(keymapText: MemorySegment): XkbState? {
+    /**
+     * Compiles a keymap the compositor sent as text.
+     *
+     * @return a state to query, or why this keymap could not be used.
+     */
+    fun stateFromKeymap(keymapText: MemorySegment): Result<XkbState, KortexError> {
         val keymap = keymapNewFromString.invoke(
             context, keymapText, KEYMAP_FORMAT_TEXT_V1, NO_FLAGS,
         ) as MemorySegment
-        if (keymap.equals(MemorySegment.NULL)) return null
+        if (keymap.equals(MemorySegment.NULL)) return Err(KortexError.UnusableKeymap)
         val state = stateNew.invoke(keymap) as MemorySegment
         val compiled = if (state.equals(MemorySegment.NULL)) null else CompiledState(state, keyNamesFrom(keymap))
         // xkb_state_new takes its own reference on the keymap, so this one is the caller's to drop.
         keymapUnref.invoke(keymap)
-        return compiled
+        // xkb makes a state from any keymap it compiled, so none means kortex handed it something impossible.
+        check(compiled != null) { "xkb_state_new found no state in a compiled keymap" }
+        return Ok(compiled)
     }
 
     /** Drops the reference `xkb_state_new` took on the keymap, freeing it too. */

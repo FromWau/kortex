@@ -60,12 +60,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: fourteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
 popup's grab, which it never takes; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an
 ASCII one on that key, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
-leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, and a drag out that never starts,
-which tells the content that asked nothing; under Housekeeping, the protocol errors libwayland prints to stderr, the
+leaves `KeyboardDeliveryTest` proving only a value-based field, and a drag out that never starts, which tells the
+content that asked nothing; under Housekeeping, the protocol errors libwayland prints to stderr, the
 Compose error `KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, a closed surface's `wl_pointer`,
 which no test sees outlive it, and a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
 
@@ -506,15 +506,14 @@ and the bar never has to learn where on the monitor the compositor put it.
       so typing, the named and modified keys, Page Down and a throwing key handler are proven for a
       value-based field only. `ClipboardFocusTest` proves a state-based field's Ctrl+C and Ctrl+V instead,
       through a real shell whose one loop thread the harness problem does not reach.
-- [ ] **A keymap xkb rejects reads as no keymap.** `Xkb.stateFromKeymap` answers it with null, so
-      `KeyboardInput` cannot tell a keymap that has not arrived yet from one xkb rejected, and drops every key
-      either way. A rejected re-send also discards the last good keymap (`KeyboardInput.kt:62-63`). The keymap
-      comes from outside kortex, so its rejection is an expected failure. A keymap that cannot be mapped fares
-      worse: `LibC.mmapPrivateRead` (`Shm.kt:96`) fails through `check`, and `onKeymap` calls it
-      (`KeyboardInput.kt:60`) inside a libwayland callback that catches nothing, which ends the JVM. Open:
-      `stateFromKeymap` and the mapping returning a typed `Result`, with `xkb_state_new` returning NULL failing
-      fast through `check`, and what kortex does then: keep the last good keymap, drop keys, or tell the host
-      through a `KortexError`.
+- [x] **A keymap kortex cannot use costs the keymap in effect nothing.** `Xkb.stateFromKeymap` and
+      `LibC.mmapPrivateRead` both answer a keymap they cannot take with `KortexError.UnusableKeymap`, so
+      `onKeymap` keeps the keymap it last compiled and the keys named under it, and a keymap no mapping can
+      honour is refused inside the libwayland callback that catches nothing rather than ending the JVM. Until a
+      keymap kortex can use arrives there is nothing to interpret a keycode with, so keys are dropped. A
+      compiled keymap `xkb_state_new` answers with no state stays a `check`: that one is xkb handed something
+      impossible, not a compositor's doing. The refusal reaches no host, since a compositor that sends an
+      unusable keymap is a broken compositor and kortex has no channel for one. (`KeymapFailureTest`)
 - [ ] **Content inside a Compose `Popup` or `Dialog` copies and pastes through AWT's clipboard.** kortex's own
       `Popup` and `Dialog` are Wayland surfaces with scenes of their own, so content in either is under kortex's
       clipboard; this is about Compose's two, which a caller can still reach for. Each runs in a

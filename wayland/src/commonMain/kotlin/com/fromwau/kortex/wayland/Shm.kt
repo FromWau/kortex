@@ -92,11 +92,11 @@ internal object LibC {
         return Ok(address.reinterpret(length))
     }
 
-    /** Read-only private mapping, for data the compositor owns such as the keymap. */
-    fun mmapPrivateRead(fd: Int, length: Long): MemorySegment {
+    /** Read-only private mapping of the keymap the compositor owns, at the length it announced. */
+    fun mmapPrivateRead(fd: Int, length: Long): Result<MemorySegment, KortexError> {
         val address = mmap.invoke(MemorySegment.NULL, length, PROT_READ, MAP_PRIVATE, fd, 0L) as MemorySegment
-        check(address.address() != MAP_FAILED) { "mmap of the keymap failed" }
-        return address.reinterpret(length)
+        if (address.address() == MAP_FAILED) return Err(KortexError.UnusableKeymap)
+        return Ok(address.reinterpret(length))
     }
 
     fun munmap(address: MemorySegment, length: Long) {
