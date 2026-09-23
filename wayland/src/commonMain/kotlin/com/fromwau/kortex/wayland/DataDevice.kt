@@ -50,6 +50,9 @@ internal class DataDevice private constructor(
     // The drag over one of this client's surfaces, from the compositor's enter until its leave or its drop.
     private var drag: Drag? = null
 
+    // What this client's own drag offers, kept so the next drag or the release can give it back.
+    private var dragged: DataSource? = null
+
     fun onDataOffer(data: MemorySegment, device: MemorySegment, offer: MemorySegment) {
         introduced[offer.address()] = DataOffer().also { it.install(offer) }
     }
@@ -158,6 +161,28 @@ internal class DataDevice private constructor(
         )
     }
 
+    /**
+     * `wl_data_device.start_drag`: drags what [source] offers out of [origin], one of this client's own surfaces.
+     * [serial] is the input event the compositor checks the request against.
+     *
+     * No icon surface is sent, so the compositor shows a drag cursor of its own rather than an image of what is
+     * being dragged.
+     */
+    fun startDrag(source: DataSource, origin: MemorySegment, serial: Int) {
+        // Before the request, not after: the compositor ends a drag as its source goes, this new one included.
+        dragged?.destroy()
+        dragged = source
+        LibWayland.marshal(
+            proxy, WL_DATA_DEVICE_START_DRAG,
+            args = listOf(
+                WlArg.Ptr(source.proxy),
+                WlArg.Ptr(origin),
+                WlArg.Ptr(MemorySegment.NULL),
+                WlArg.Num(serial),
+            ),
+        )
+    }
+
     /** Gives the device back, then every offer it introduced; nothing here may be used afterwards. */
     fun release() {
         LibWayland.marshalIfSince(proxy, WL_DATA_DEVICE_RELEASE, WL_DATA_DEVICE_RELEASE_SINCE)
@@ -166,6 +191,8 @@ internal class DataDevice private constructor(
         arena.close()
         selection?.destroy()
         selection = null
+        dragged?.destroy()
+        dragged = null
         drag?.let(::endDrag)
         introduced.values.forEach(DataOffer::destroy)
         introduced.clear()
@@ -276,12 +303,10 @@ internal class DataDevice private constructor(
         private const val IMAGE_JOIN_TIMEOUT_MILLIS = TRANSFER_TIMEOUT_MILLIS + IMAGE_JOIN_SLACK_MILLIS
 
         private const val WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE = 1
+        private const val WL_DATA_DEVICE_START_DRAG = 0
         private const val WL_DATA_DEVICE_SET_SELECTION = 1
         private const val WL_DATA_DEVICE_RELEASE = 2
         private const val WL_DATA_DEVICE_RELEASE_SINCE = 2
-
-        // wl_data_device_manager.dnd_action; copy is the only one kortex asks for or answers to.
-        private const val DND_ACTION_COPY = 1
 
         // wl_data_device v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
@@ -504,7 +529,23 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
         }
     }
 
+    /** `wl_data_source.set_actions`: kortex drags as a copy and asks for nothing else. */
+    private fun offerAsCopy() {
+        LibWayland.marshalIfSince(
+            proxy, WL_DATA_SOURCE_SET_ACTIONS, WL_DATA_SOURCE_SET_ACTIONS_SINCE,
+            args = listOf(WlArg.Num(DND_ACTION_COPY)),
+        )
+    }
+
     companion object {
+        /**
+         * Creates a source for [clip] that a drag offers, declaring copy as the one action it supports.
+         *
+         * Declared rather than left empty: a source that names neither move nor copy is dragged as a move.
+         */
+        fun createForDrag(manager: MemorySegment, clip: Clip): DataSource =
+            create(manager, clip).also { it.offerAsCopy() }
+
         /** Creates a source for [clip] and offers it under every type [clip] holds. */
         fun create(manager: MemorySegment, clip: Clip): DataSource {
             val proxy = LibWayland.marshal(
@@ -527,6 +568,8 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
         private const val WL_DATA_DEVICE_MANAGER_CREATE_DATA_SOURCE = 0
         private const val WL_DATA_SOURCE_OFFER = 0
         private const val WL_DATA_SOURCE_DESTROY = 1
+        private const val WL_DATA_SOURCE_SET_ACTIONS = 2
+        private const val WL_DATA_SOURCE_SET_ACTIONS_SINCE = 3
 
         // wl_data_source v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
@@ -546,6 +589,9 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
         private val ACTION_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
     }
 }
+
+// wl_data_device_manager.dnd_action; copy is the only one kortex offers, asks for or answers to.
+private const val DND_ACTION_COPY = 1
 
 /** Where a drag over one of this client's surfaces goes: the content drawn on it, at the scale it is drawn at. */
 internal class DragDestination(val scene: KortexScene, private val scale: Float) {

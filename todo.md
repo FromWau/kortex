@@ -60,11 +60,11 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
 popup's grab, which it never takes; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an
 ASCII one on that key, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
-leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, and drag and drop; under
+leaves `KeyboardDeliveryTest` proving only a value-based field, and a keymap xkb rejects; under
 Housekeeping, the protocol errors libwayland prints to stderr, the Compose error
 `KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, a closed surface's `wl_pointer`, which no test
 sees outlive it, and a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
@@ -542,14 +542,19 @@ and the bar never has to learn where on the monitor the compositor put it.
       compositor is asked for anything. Compose's own clipboard still carries text alone, because its image
       entry is AWT's image type inside a `Transferable`, and reading one starts the toolkit
       (`ComposeClipboard.kt`). (`ClipboardTest`)
-- [ ] **Drag and drop.** A drag from another application reaches content: `wl_data_device`'s `enter`, `motion`,
+- [x] **Drag and drop.** A drag from another application reaches content: `wl_data_device`'s `enter`, `motion`,
       `leave` and `drop` drive the scene's own drop targets (`DataDevice.kt`, `KortexScene.kt`), against the
       surface the drag names and at the scale that surface draws at. The drop hands content a `KortexDragOffer`
       carrying the text and the PNG or JPEG image the drag was offered under, drained off the loop thread before
-      content is told of the drop, so no surface waits on the application that let go. `copy` is the only action
-      kortex asks for, but the compositor settles which action a drop is whatever kortex asks for, so content
-      taking one cannot assume the source treated it as a copy. Still open: kortex never calls `start_drag`, so
-      nothing can be dragged out of a surface. (`DragAndDropTest`)
+      content is told of the drop, so no surface waits on the application that let go. Content drags out through
+      Compose's own `Modifier.dragAndDropSource`, handing it a `KortexDragSource` as the transferable: the scene's
+      `PlatformContext` answers Compose's request for a transfer, and the text or image it carries becomes a
+      `wl_data_source` offering the types a copy of the same thing offers, encoded off the loop thread.
+      `wl_data_device.start_drag` quotes the input serial the clipboard already keeps, and a drag with none fails
+      as `ClipboardError.NoInputSerial` with nothing sent. `copy` is the only action kortex declares on a source
+      or asks for on an offer; since the compositor picks a drop's action from the source's own mask, a drag out
+      of kortex is a copy, while a drag into it is whatever its source declared, so content taking one cannot
+      assume the source treated it as a copy. (`DragAndDropTest`, `KortexSceneTest`)
 
 ## Housekeeping
 

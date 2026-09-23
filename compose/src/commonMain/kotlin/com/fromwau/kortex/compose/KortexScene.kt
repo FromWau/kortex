@@ -8,8 +8,11 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTransferAction
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -21,6 +24,8 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.platform.FrameRecomposer
 import androidx.compose.ui.platform.PlatformContext
+import androidx.compose.ui.platform.PlatformDragAndDropManager
+import androidx.compose.ui.platform.PlatformDragAndDropSource
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
@@ -311,6 +316,8 @@ private class KortexPlatformContext(
     private val platform: KortexPlatform,
     override val windowInfo: WindowInfo,
 ) : PlatformContext by PlatformContext.Empty() {
+    override val dragAndDropManager: PlatformDragAndDropManager = KortexDragAndDropManager(platform::startDrag)
+
     override fun setPointerIcon(pointerIcon: PointerIcon) = platform.setCursor(pointerIcon.toKortexCursor())
 
     override suspend fun startInputMethod(request: PlatformTextInputMethodRequest): Nothing {
@@ -320,6 +327,31 @@ private class KortexPlatformContext(
         } finally {
             platform.onTextInputStopped()
         }
+    }
+}
+
+/** Hands content's own request to drag something out to [startDrag], and refuses a payload kortex cannot carry. */
+@OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
+private class KortexDragAndDropManager(
+    private val startDrag: (KortexDragSource) -> Boolean,
+) : PlatformDragAndDropManager {
+    // Without this Compose waits for a drag the desktop starts on its own, which no Wayland compositor does.
+    override val isRequestDragAndDropTransferRequired: Boolean get() = true
+
+    override fun requestDragAndDropTransfer(source: PlatformDragAndDropSource, offset: Offset) {
+        var started = false
+        val transfers = object : PlatformDragAndDropSource.StartTransferScope {
+            override fun startDragAndDropTransfer(
+                transferData: DragAndDropTransferData,
+                decorationSize: Size,
+                drawDragDecoration: DrawScope.() -> Unit,
+            ): Boolean {
+                // Any other transferable wraps an AWT one, which nothing here can read without starting the toolkit.
+                started = (transferData.transferable as? KortexDragSource)?.let(startDrag) == true
+                return started
+            }
+        }
+        with(source) { transfers.startDragAndDropTransfer(offset) { started } }
     }
 }
 

@@ -12,6 +12,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexCursor
+import com.fromwau.kortex.compose.KortexDragSource
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexSurfaceHandle
@@ -71,6 +72,13 @@ internal class SurfaceScene(
         override fun onTextInputStopped() {
             openTextInput.set(null)
             platform.onTextInputStopped()
+        }
+
+        // One drag, so the surface drawing this scene carries it where there is one, and the host otherwise.
+        override fun startDrag(dragged: KortexDragSource): Boolean {
+            val surface = surface ?: return platform.startDrag(dragged)
+            surface.startDrag(dragged)
+            return true
         }
     }
 

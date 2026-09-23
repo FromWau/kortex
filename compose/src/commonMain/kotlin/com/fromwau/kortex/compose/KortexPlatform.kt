@@ -1,6 +1,8 @@
 package com.fromwau.kortex.compose
 
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draganddrop.DragAndDropTransferable
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.text.input.BackspaceCommand
 import androidx.compose.ui.text.input.CommitTextCommand
@@ -58,6 +60,33 @@ public class KortexTextInput internal constructor(
 }
 
 /**
+ * What content drags out of a scene: hand one to Compose's `DragAndDropTransferData` as its transferable, and
+ * whatever the drag is dropped on, in your application or another, is offered what it holds.
+ *
+ * ```kotlin
+ * @OptIn(ExperimentalComposeUiApi::class)
+ * fun Modifier.draggingLink(link: String): Modifier = dragAndDropSource {
+ *     DragAndDropTransferData(KortexDragSource.Text(link), listOf(DragAndDropTransferAction.Copy))
+ * }
+ * ```
+ *
+ * A drag is a copy whichever actions you list, so a drop never takes away what you dragged, and the drag
+ * decoration you draw is not used: the desktop shows a drag cursor of its own.
+ *
+ * A drag that cannot be asked for does not start, and you are not told: an image encoding to more than 64 MiB,
+ * a scene with nothing behind it to drag from, or a desktop that has sent your application no key, click or
+ * keyboard focus to quote yet.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+public sealed interface KortexDragSource : DragAndDropTransferable {
+    /** A text, offered under every text type a paste can ask for. */
+    public class Text(public val text: String) : KortexDragSource
+
+    /** An image, offered as both a PNG and a JPEG. */
+    public class Image(public val image: ImageBitmap) : KortexDragSource
+}
+
+/**
  * The capabilities you supply that a windowless scene cannot answer for itself.
  *
  * Every member has a default, so override only what you can actually do; [None] answers nothing.
@@ -71,6 +100,14 @@ public interface KortexPlatform {
 
     /** Called when the text field loses focus and the session is over. */
     public fun onTextInputStopped(): Unit = Unit
+
+    /**
+     * Called when content asks to drag [dragged] out, e.g. through `Modifier.dragAndDropSource`.
+     *
+     * @return whether the drag was taken on. Answer false, as the default does, when nothing you host can carry
+     *   a drag to the desktop.
+     */
+    public fun startDrag(dragged: KortexDragSource): Boolean = false
 
     public companion object {
         public val None: KortexPlatform = object : KortexPlatform {}

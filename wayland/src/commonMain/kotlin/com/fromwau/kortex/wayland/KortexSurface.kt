@@ -10,7 +10,11 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexCursor
+import com.fromwau.kortex.compose.KortexDragSource
+import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
@@ -39,6 +43,8 @@ internal class KortexSurface private constructor(
     private val onInputSerial: (Int) -> Unit,
     // Told as this surface's keyboard gains and loses focus, which gates reading another client's text.
     private val onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit,
+    // Handed what content drags out of this surface, and the wl_surface it is dragged from.
+    private val onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit,
 ) : AutoCloseable {
 
     // Filled through post() from any thread and drained only on the loop thread, which is the one thread
@@ -157,6 +163,20 @@ internal class KortexSurface private constructor(
     /** Shows [cursor] on this surface's pointer, from whichever thread content asked for it. */
     internal fun setCursor(cursor: KortexCursor) {
         post { pointerInput?.setCursor(cursor) }
+    }
+
+    /**
+     * Drags [dragged] out of this surface, from whichever thread content asked to.
+     *
+     * A payload the drag cannot carry, an image past the cap say, drops the drag silently: content has no channel
+     * back by the time it would be known, and the desktop shows nothing either way.
+     */
+    internal fun startDrag(dragged: KortexDragSource) {
+        // Off the loop thread: encoding an image on it would stall every surface for as long as it runs.
+        Dispatchers.Default.asExecutor().execute {
+            val clip = dragged.asClip().getOrElse { return@execute }
+            post { onStartDrag(clip, role.surface) }
+        }
     }
 
     /** Marks the surface closed, as the compositor closing it would; what content's own handle asks for. */
@@ -386,6 +406,8 @@ internal class KortexSurface private constructor(
             onInputSerial: (Int) -> Unit = {},
             // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
+            // Handed what content drags out of the surface, and the wl_surface it is dragged from.
+            onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
             // Makes what the surface is built on, which the surface owns from the moment it is handed over.
             buildRole: () -> Result<SurfaceRole, KortexError>,
         ): Result<KortexSurface, KortexError> {
@@ -437,6 +459,7 @@ internal class KortexSurface private constructor(
                     seat = seat,
                     onInputSerial = onInputSerial,
                     onKeyboardFocus = onKeyboardFocus,
+                    onStartDrag = onStartDrag,
                 )
                 // From here the surface's own close() is the one owner of every piece above.
                 handedOver = true

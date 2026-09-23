@@ -9,6 +9,7 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
+import com.fromwau.kortex.compose.KortexDragSource
 import java.io.ByteArrayOutputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -87,6 +88,21 @@ internal class WaylandClipboard private constructor(
      */
     fun recordDragDestinations(find: (surface: Long) -> DragDestination?) {
         bound?.device?.dragDestinations = find
+    }
+
+    /**
+     * Drags [clip] out of [origin], one of the shell's own surfaces, offering it as a copy and nothing else.
+     *
+     * @return `Ok` once the compositor has been asked, [ClipboardError.NoInputSerial] where no input has reached
+     *   the shell for the drag to quote, or [ClipboardError.NoClipboard] on a compositor that offers none.
+     */
+    fun startDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> {
+        checkOpen()
+        val bound = bound ?: return Err(ClipboardError.NoClipboard)
+        val serial = inputSerial ?: return Err(ClipboardError.NoInputSerial)
+        bound.device.startDrag(DataSource.createForDrag(bound.manager, clip), origin, serial)
+        display.flush()
+        return Ok(Unit)
     }
 
     /** Offers [text] under every [TextMime]. */
@@ -290,6 +306,15 @@ internal sealed interface Clip {
             }
         }
     }
+}
+
+/**
+ * What a drag of this offers. Blocking where it holds an image, which is encoded here as a copy's is, so never
+ * called on the loop thread.
+ */
+internal fun KortexDragSource.asClip(): Result<Clip, ClipboardError> = when (this) {
+    is KortexDragSource.Text -> Ok(Clip.Text(text))
+    is KortexDragSource.Image -> Clip.Image.of(image)
 }
 
 /** [image] as [type] carries it, or [ClipboardError.TooLarge] where that is more than [MAX_IMAGE_BYTES]. */

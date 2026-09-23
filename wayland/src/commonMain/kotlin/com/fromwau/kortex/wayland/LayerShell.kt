@@ -440,11 +440,14 @@ internal fun KortexSurface.Companion.createOnLayer(
     onInputSerial: (Int) -> Unit = {},
     // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
+    // Handed what content drags out of the surface, and the wl_surface it is dragged from.
+    onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
     loopQueue = loopQueue,
     onInputSerial = onInputSerial,
     onKeyboardFocus = onKeyboardFocus,
+    onStartDrag = onStartDrag,
 ) { LayerShellSurface.create(display, config, output) }
 
 /**

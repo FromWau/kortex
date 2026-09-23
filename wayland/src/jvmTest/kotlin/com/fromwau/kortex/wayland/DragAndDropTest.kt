@@ -8,14 +8,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeCanvas
+import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.KortexDragSource
 import com.fromwau.kortex.compose.KortexScene
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -29,8 +37,12 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Covers what a drag does to the drop targets in a scene's content, by driving [KortexScene]'s own enter, motion,
- * leave and drop through a real composition, and where the scale a surface draws at puts a drag on that scene.
+ * Covers both directions of a drag: what one arriving does to the drop targets in a scene's content, by driving
+ * [KortexScene]'s own enter, motion, leave and drop through a real composition, where the scale a surface draws at
+ * puts a drag on that scene, and what a drag out of content offers.
+ *
+ * No test here starts a drag on the desktop: the one that connects binds a clipboard that has been handed no input
+ * serial, which is what every drag out quotes, so it fails before a source is made.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class DragAndDropTest {
@@ -103,6 +115,58 @@ class DragAndDropTest {
             // 512 in wl_fixed is 2 surface-local px, which a surface drawn at 2x lays its scene out at 4.
             assertEquals(Offset(4f, 8f), DragDestination(scene, scale = 2f).scenePosition(512, 1024))
             assertEquals(Offset(2f, 4f), DragDestination(scene, scale = 1f).scenePosition(512, 1024))
+        }
+    }
+
+    @Test
+    fun `a text dragged out is offered under every text type, and an image as PNG and JPEG`() {
+        assertEquals(
+            DRAG_OUT_TEXT_TYPES, offeredTypesOf(KortexDragSource.Text(DRAGGED_TEXT)),
+            "the types a dragged text is offered under",
+        )
+        assertEquals(
+            DRAG_OUT_IMAGE_TYPES, offeredTypesOf(KortexDragSource.Image(opaqueImage())),
+            "the types a dragged image is offered under",
+        )
+    }
+
+    @Test
+    fun `a drag with no input to quote fails as NoInputSerial and asks the compositor for nothing`() {
+        withUnfocusedClipboard { clipboard ->
+            assertEquals(
+                Err(ClipboardError.NoInputSerial),
+                clipboard.startDrag(Clip.Text(DRAGGED_TEXT), origin = NULL),
+                "a drag with no input serial must fail before a source is made or start_drag sent",
+            )
+        }
+    }
+
+    /** What a drag of [dragged] offers, failing the test rather than returning why it could not be. */
+    private fun offeredTypesOf(dragged: KortexDragSource): List<String> =
+        dragged.asClip()
+            .getOrElse { failure -> fail("a drag had nothing to offer: $failure") }
+            .offeredTypes
+            .map(Mime::wireName)
+
+    /** A small opaque image, as content dragging a picture out holds one. */
+    private fun opaqueImage(): ImageBitmap {
+        val info = ImageInfo.makeN32(IMAGE_SIDE, IMAGE_SIDE, ColorAlphaType.OPAQUE)
+        val bitmap = Bitmap()
+        assertTrue(
+            bitmap.installPixels(info, ByteArray(info.computeMinByteSize()), info.minRowBytes),
+            "the bitmap did not take its pixels",
+        )
+        return bitmap.asComposeImageBitmap()
+    }
+
+    /** A clipboard on a connection with no surface, so nothing ever hands it an input serial to quote. */
+    private fun withUnfocusedClipboard(block: (WaylandClipboard) -> Unit) {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        display.use { wayland ->
+            // Unconfined runs the clipboard's loop work right here, on the thread that owns this connection.
+            val clipboard = WaylandClipboard.bind(wayland, Dispatchers.Unconfined)
+                .getOrElse { error -> fail("binding the clipboard failed: $error") }
+            clipboard.use(block)
         }
     }
 
@@ -185,6 +249,11 @@ class DragAndDropTest {
 
         val TEXT_TYPES = listOf("text/plain;charset=utf-8", "text/plain")
         const val DRAGGED_TEXT = "dragged"
+
+        val DRAG_OUT_TEXT_TYPES =
+            listOf("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT")
+        val DRAG_OUT_IMAGE_TYPES = listOf("image/png", "image/jpeg")
+        const val IMAGE_SIDE = 8
 
         const val STARTED = "started"
         const val ENTERED = "entered"

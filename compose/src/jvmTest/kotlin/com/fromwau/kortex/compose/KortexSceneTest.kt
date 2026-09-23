@@ -3,6 +3,7 @@ package com.fromwau.kortex.compose
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,7 +16,10 @@ import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropTransferAction
+import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -51,6 +55,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -449,6 +454,64 @@ class KortexSceneTest {
         assertEquals(listOf(DRAW_FAILURE, CLEANUP_FAILURE), reported.map { it.cause.message })
     }
 
+    @Test
+    @OptIn(ExperimentalComposeUiApi::class)
+    fun `dragging content out hands the host what content offered`() {
+        val carried = AtomicReference<KortexDragSource?>(null)
+        val asked = CountDownLatch(1)
+        val host = object : KortexPlatform {
+            override fun startDrag(dragged: KortexDragSource): Boolean {
+                carried.set(dragged)
+                asked.countDown()
+                return true
+            }
+        }
+
+        withScene(platform = host) { scene, surface ->
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .dragAndDropSource(drawDragDecoration = {}) {
+                            DragAndDropTransferData(
+                                KortexDragSource.Text(DRAGGED_TEXT),
+                                listOf(DragAndDropTransferAction.Copy),
+                            )
+                        },
+                )
+            }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+            assertTrue(dragUntilAsked(scene, asked), "dragging content never asked the host to carry it")
+        }
+
+        val dragged = assertIs<KortexDragSource.Text>(carried.get(), "the host was handed no text to drag")
+        assertEquals(DRAGGED_TEXT, dragged.text, "the host was handed other text than content offered")
+    }
+
+    /**
+     * Presses and drags across [scene] until [asked] counts down, giving up after [DRAG_WAIT_MILLIS].
+     *
+     * Repeated because the gesture that starts a drag runs on the scene's own dispatcher: a press sent before it
+     * is waiting for one reaches nothing.
+     */
+    private fun dragUntilAsked(scene: KortexScene, asked: CountDownLatch): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(DRAG_WAIT_MILLIS)
+        var time = 0L
+        while (System.nanoTime() < deadline) {
+            scene.sendPointerEvent(PointerEventType.Press, DRAG_FROM, timeMillis = time,
+                buttons = PointerButtons(isPrimaryPressed = true), button = PointerButton.Primary)
+            if (asked.await(FRAME_MILLIS, TimeUnit.MILLISECONDS)) return true
+            scene.sendPointerEvent(PointerEventType.Move, DRAG_TO, timeMillis = time + 1,
+                buttons = PointerButtons(isPrimaryPressed = true))
+            if (asked.await(FRAME_MILLIS, TimeUnit.MILLISECONDS)) return true
+            scene.sendPointerEvent(PointerEventType.Release, DRAG_TO, timeMillis = time + 2,
+                buttons = PointerButtons(), button = PointerButton.Primary)
+            time += 3
+        }
+        return false
+    }
+
     private fun KortexScene.click(position: Offset, from: Long) {
         sendPointerEvent(PointerEventType.Press, position, timeMillis = from,
             buttons = PointerButtons(isPrimaryPressed = true), button = PointerButton.Primary)
@@ -536,6 +599,13 @@ class KortexSceneTest {
         const val FRAME_MILLIS = 60L
         const val EFFECT_DELAY_MILLIS = 50L
         const val FAILURE_WAIT_MILLIS = 5_000L
+        const val DRAG_WAIT_MILLIS = 5_000L
+        const val DRAGGED_TEXT = "dragged"
+
+        // Far enough apart for the drag to pass the 18dp of touch slop a gesture starts after, and both inside
+        // the scene, so neither leaves the content being dragged.
+        val DRAG_FROM = Offset(8f, 8f)
+        val DRAG_TO = Offset(8f, 56f)
 
         const val DRAW_FAILURE = "content threw while drawing"
         const val RECOMPOSE_FAILURE = "content threw while recomposing"

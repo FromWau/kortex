@@ -133,6 +133,12 @@ internal class KortexShell private constructor(
     private fun dragDestinationOn(surface: Long): DragDestination? =
         shownSurfaces.firstOrNull { it.surfaceAddress == surface }?.dragDestination
 
+    // A drag the clipboard cannot start does not start: content asked for it from a call that has already
+    // returned, so there is nothing left to hand the failure to.
+    private fun startDragFrom(clip: Clip, origin: MemorySegment) {
+        clipboard.startDrag(clip, origin)
+    }
+
     /**
      * Runs the application until `exitApplication()` is called, returning `Ok`. Ends early with
      * [KortexError.ApplicationCrashed] once the application's own code throws, and with the connection's error once
@@ -393,6 +399,7 @@ internal class KortexShell private constructor(
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
+                onStartDrag = ::startDragFrom,
             )
 
             is ToplevelSettings -> KortexSurface.createOnToplevel(
@@ -407,6 +414,7 @@ internal class KortexShell private constructor(
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
+                onStartDrag = ::startDragFrom,
             )
 
             is PopupSettings -> KortexSurface.createOnPopup(
@@ -419,6 +427,7 @@ internal class KortexShell private constructor(
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
+                onStartDrag = ::startDragFrom,
             )
         }
         return built.flatMap { surface ->
