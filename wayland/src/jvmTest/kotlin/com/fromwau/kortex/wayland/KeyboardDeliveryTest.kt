@@ -320,7 +320,7 @@ class KeyboardDeliveryTest {
     private fun firstKeyDown(press: (Typist) -> Unit): KeyEvent =
         assertNotNull(keyDownsFrom(press).firstOrNull(), "no key reached the composition")
 
-    /** Polls [condition] until it holds or [AWAIT_MILLIS] pass: a paste finishes on the scene's own thread. */
+    /** Polls [condition] until it holds or [AWAIT_MILLIS] pass: a clipboard shortcut finishes in a coroutine. */
     private fun awaitUntil(condition: () -> Boolean): Boolean {
         val deadline = System.nanoTime() + AWAIT_MILLIS * NANOS_PER_MILLI
         while (!condition()) {
