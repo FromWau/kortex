@@ -1,18 +1,33 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ImageBitmap
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.flatMap
+import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.map
+import com.fromwau.kortex.compose.KortexScene
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
 
 /**
- * The clipboard's `wl_data_device`: follows which offer is the selection, and gives back every other offer the
- * compositor introduces.
+ * The clipboard's `wl_data_device`: follows which offer is the selection, gives back every other offer the
+ * compositor introduces, and carries a drag over one of this client's surfaces to the content drawn there.
  */
-internal class DataDevice private constructor(private val proxy: MemorySegment) {
+internal class DataDevice private constructor(
+    private val proxy: MemorySegment,
+    private val display: WaylandDisplay,
+    // Where a drop's transfers are handed back once they have drained off this thread.
+    private val loop: CoroutineDispatcher,
+) {
     private val arena: Arena = Arena.ofShared()
 
     // Introduced by data_offer and not yet named by a selection, by proxy address.
@@ -27,11 +42,16 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
     var selectionHasText: Boolean = false
         private set
 
+    /** Where a drag over each `wl_surface` this client owns goes; the loop thread alone calls it. */
+    var dragDestinations: (surface: Long) -> DragDestination? = { null }
+
+    // The drag over one of this client's surfaces, from the compositor's enter until its leave or its drop.
+    private var drag: Drag? = null
+
     fun onDataOffer(data: MemorySegment, device: MemorySegment, offer: MemorySegment) {
         introduced[offer.address()] = DataOffer().also { it.install(offer) }
     }
 
-    // kortex takes no drops, so the offer a drag brings is given back as soon as the drag names it.
     fun onEnter(
         data: MemorySegment,
         device: MemorySegment,
@@ -41,14 +61,52 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
         y: Int,
         offer: MemorySegment,
     ) {
-        introduced.remove(offer.address())?.destroy()
+        // The compositor leaves one drag before entering with the next, but a drop's transfers can still be
+        // draining when that next one arrives, and its offer and its hover would be left behind.
+        drag?.let(::leaveDrag)
+        // NULL is in no map, so a drag the compositor names no offer for brings nothing to take.
+        val brought = introduced.remove(offer.address()) ?: return
+        val destination = dragDestinations(surface.address())
+        val types = brought.offeredTypes
+        if (destination == null || types.isEmpty()) return decline(brought, serial)
+        val arrival = Drag(brought, destination, types, destination.scenePosition(x, y))
+        // Content that has already failed takes nothing more, this drag included.
+        val taken = destination.scene.sendDragEnter(arrival.position, arrival.announced).getOrElse { false }
+        if (!taken) return decline(brought, serial)
+        brought.accept(serial, types.first())
+        brought.setActions(DND_ACTION_COPY, DND_ACTION_COPY)
+        display.flush()
+        drag = arrival
     }
 
-    fun onLeave(data: MemorySegment, device: MemorySegment) = Unit
+    fun onLeave(data: MemorySegment, device: MemorySegment) {
+        // A drop is followed by a leave of its own, and ends with its transfers rather than here.
+        drag?.takeUnless { it.dropping }?.let(::leaveDrag)
+    }
 
-    fun onMotion(data: MemorySegment, device: MemorySegment, time: Int, x: Int, y: Int) = Unit
+    fun onMotion(data: MemorySegment, device: MemorySegment, time: Int, x: Int, y: Int) {
+        val moving = drag?.takeUnless { it.dropping } ?: return
+        moving.position = moving.destination.scenePosition(x, y)
+        moving.destination.scene.sendDragMove(moving.position, moving.announced)
+    }
 
-    fun onDrop(data: MemorySegment, device: MemorySegment) = Unit
+    fun onDrop(data: MemorySegment, device: MemorySegment) {
+        val dropped = drag?.takeUnless { it.dropping } ?: return
+        dropped.dropping = true
+        // Opened here because only this thread may ask for them, and drained off it because a source writing
+        // slowly would hold every surface up for as long as it took.
+        val text = dropped.textType?.let(dropped.offer::openTransfer)
+        val image = dropped.imageType?.let(dropped.offer::openTransfer)
+        display.flush()
+        Dispatchers.IO.asExecutor().execute {
+            val carried = KortexDragOffer(
+                carried = dropped.types,
+                text = drain(text, MAX_TEXT_BYTES, ClipboardError.NoText).map(ByteArray::decodeToString),
+                image = drain(image, MAX_IMAGE_BYTES, ClipboardError.NoImage).flatMap(::decodeImage),
+            )
+            loop.asExecutor().execute { completeDrop(dropped, carried) }
+        }
+    }
 
     fun onSelection(data: MemorySegment, device: MemorySegment, offer: MemorySegment) {
         // NULL is in no map, so a cleared selection names nothing.
@@ -80,8 +138,39 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
         arena.close()
         selection?.destroy()
         selection = null
+        drag?.let(::endDrag)
         introduced.values.forEach(DataOffer::destroy)
         introduced.clear()
+    }
+
+    // Takes nothing from [offer] and gives it back, which leaves the drag's source cancelled.
+    private fun decline(offer: DataOffer, serial: Int) {
+        offer.accept(serial, type = null)
+        display.flush()
+        offer.destroy()
+    }
+
+    // Back on the loop thread, with everything [dropped] carried in hand.
+    private fun completeDrop(dropped: Drag, carried: KortexDragOffer) {
+        // The device can have been given back, or another drag begun, while the transfers drained.
+        if (drag !== dropped) return
+        dropped.destination.scene.sendDrop(dropped.position, carried)
+        dropped.offer.finish()
+        display.flush()
+        endDrag(dropped)
+    }
+
+    // Tells content the drag is over with nothing dropped, and gives its offer back.
+    private fun leaveDrag(leaving: Drag) {
+        leaving.destination.scene.sendDragLeave(leaving.position, leaving.announced)
+        endDrag(leaving)
+    }
+
+    // The offer alone, for a shell whose scenes have already closed. Never from inside one of the offer's own
+    // events, whose stubs its destroy frees.
+    private fun endDrag(ending: Drag) {
+        drag = null
+        ending.offer.destroy()
     }
 
     private fun install() {
@@ -103,20 +192,63 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
         }
     }
 
+    /** One drag over one of this client's surfaces, from the compositor's enter until its leave or its drop. */
+    private class Drag(
+        val offer: DataOffer,
+        val destination: DragDestination,
+        /** Every type the drag is offered under that kortex can carry, in the order a read prefers them. */
+        val types: List<Mime>,
+        /** Where content last saw the drag: `wl_data_device.drop` carries no position of its own. */
+        var position: Offset,
+    ) {
+        /** What content reads the drag through until it is dropped, which is its types and nothing else yet. */
+        val announced = KortexDragOffer(types)
+
+        /** The one text type a drop reads, out of [types]; null where the drag offers no text. */
+        val textType: TextMime? = types.filterIsInstance<TextMime>().firstOrNull()
+
+        /** The one image type a drop reads, out of [types]; null where the drag offers no image. */
+        val imageType: ImageMime? = types.filterIsInstance<ImageMime>().firstOrNull()
+
+        /** Set as the drop's transfers open, since the compositor follows a drop with a leave of its own. */
+        var dropping = false
+    }
+
     companion object {
         /** Takes [seat]'s data device from [manager], listening before the compositor can send it anything. */
-        fun create(manager: MemorySegment, seat: Seat): DataDevice {
+        fun create(display: WaylandDisplay, loop: CoroutineDispatcher, manager: MemorySegment, seat: Seat): DataDevice {
             val proxy = LibWayland.marshal(
                 manager, WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE, LibWayland.dataDeviceInterface,
                 LibWayland.proxyGetVersion(manager), listOf(WlArg.Ptr(MemorySegment.NULL), WlArg.Ptr(seat.proxy)),
             )
-            return DataDevice(proxy).also { it.install() }
+            return DataDevice(proxy, display, loop).also { it.install() }
+        }
+
+        /**
+         * Reads [transfer] to its end, keeping at most [maxBytes], and closes it.
+         *
+         * @return what arrived, or [absent] where the drag offered nothing of that kind to open a transfer on.
+         */
+        private fun drain(
+            transfer: Result<Int, ClipboardError>?,
+            maxBytes: Long,
+            absent: ClipboardError,
+        ): Result<ByteArray, ClipboardError> {
+            val readFd = (transfer ?: return Err(absent)).getOrElse { return Err(it) }
+            return try {
+                readPipeToEnd(readFd, TRANSFER_TIMEOUT_MILLIS, maxBytes)
+            } finally {
+                LibC.close(readFd)
+            }
         }
 
         private const val WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE = 1
         private const val WL_DATA_DEVICE_SET_SELECTION = 1
         private const val WL_DATA_DEVICE_RELEASE = 2
         private const val WL_DATA_DEVICE_RELEASE_SINCE = 2
+
+        // wl_data_device_manager.dnd_action; copy is the only one kortex asks for or answers to.
+        private const val DND_ACTION_COPY = 1
 
         // wl_data_device v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
@@ -147,11 +279,18 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     private var proxy: MemorySegment = MemorySegment.NULL
     private val offered = mutableSetOf<Mime>()
 
+    // A finish before the compositor has settled on an action is a protocol error, and a source older than
+    // wl_data_device_manager v3 makes it settle on none.
+    private var actionSelected = false
+
     /** The type a text paste asks for: the first [TextMime] this offer lists, or null when it lists none. */
     val preferredText: TextMime? get() = TextMime.entries.firstOrNull { it in offered }
 
     /** The type an image paste asks for: the first [ImageMime] this offer lists, or null when it lists none. */
     val preferredImage: ImageMime? get() = ImageMime.entries.firstOrNull { it in offered }
+
+    /** Every type this offer lists that kortex can carry, in the order a read prefers them. */
+    val offeredTypes: List<Mime> get() = Mime.all.filter { it in offered }
 
     fun onOffer(data: MemorySegment, offer: MemorySegment, mimeType: MemorySegment) {
         // The char* arrives with zero length because C says nothing about its extent.
@@ -160,7 +299,9 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
 
     fun onSourceActions(data: MemorySegment, offer: MemorySegment, sourceActions: Int) = Unit
 
-    fun onAction(data: MemorySegment, offer: MemorySegment, dndAction: Int) = Unit
+    fun onAction(data: MemorySegment, offer: MemorySegment, dndAction: Int) {
+        actionSelected = dndAction != DND_ACTION_NONE
+    }
 
     /** `wl_data_offer.receive`: asks the offer's source to write itself into [fd], as [type]. */
     fun receive(type: Mime, fd: Int) {
@@ -171,6 +312,44 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
                 args = listOf(WlArg.Ptr(request.allocateFrom(type.wireName)), WlArg.Num(fd)),
             )
         }
+    }
+
+    /**
+     * Opens a pipe this offer's source writes [type] into.
+     *
+     * @return the read end, which the caller closes, or [ClipboardError.PipeFailed] where no pipe could be made.
+     */
+    fun openTransfer(type: Mime): Result<Int, ClipboardError> {
+        val pipe = LibC.pipe().getOrElse { return Err(ClipboardError.PipeFailed) }
+        receive(type, pipe.writeFd)
+        // The connection's flush sends libwayland's own duplicate; this end left open would hold the read open too.
+        LibC.close(pipe.writeFd)
+        return Ok(pipe.readFd)
+    }
+
+    /**
+     * `wl_data_offer.accept`: tells the drag's source that this client takes [type], or takes nothing where it is
+     * null, which cancels the source.
+     */
+    fun accept(serial: Int, type: Mime?) {
+        Arena.ofConfined().use { request ->
+            val name = type?.let { request.allocateFrom(it.wireName) } ?: MemorySegment.NULL
+            LibWayland.marshal(proxy, WL_DATA_OFFER_ACCEPT, args = listOf(WlArg.Num(serial), WlArg.Ptr(name)))
+        }
+    }
+
+    /** `wl_data_offer.set_actions`: the drag actions this client supports, and the one it would rather have. */
+    fun setActions(actions: Int, preferred: Int) {
+        LibWayland.marshalIfSince(
+            proxy, WL_DATA_OFFER_SET_ACTIONS, WL_DATA_OFFER_SET_ACTIONS_SINCE,
+            args = listOf(WlArg.Num(actions), WlArg.Num(preferred)),
+        )
+    }
+
+    /** `wl_data_offer.finish`: tells the drag's source its drop is done, where the compositor chose an action. */
+    fun finish() {
+        if (!actionSelected) return
+        LibWayland.marshalIfSince(proxy, WL_DATA_OFFER_FINISH, WL_DATA_OFFER_FINISH_SINCE)
     }
 
     fun install(offer: MemorySegment) {
@@ -196,8 +375,16 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     }
 
     private companion object {
+        const val WL_DATA_OFFER_ACCEPT = 0
         const val WL_DATA_OFFER_RECEIVE = 1
         const val WL_DATA_OFFER_DESTROY = 2
+        const val WL_DATA_OFFER_FINISH = 3
+        const val WL_DATA_OFFER_FINISH_SINCE = 3
+        const val WL_DATA_OFFER_SET_ACTIONS = 4
+        const val WL_DATA_OFFER_SET_ACTIONS_SINCE = 3
+
+        // wl_data_device_manager.dnd_action: the compositor settled on nothing.
+        const val DND_ACTION_NONE = 0
 
         // wl_data_offer v4 declares exactly these three events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
@@ -325,4 +512,59 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
         private val DND_FINISHED_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)
         private val ACTION_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
     }
+}
+
+/** Where a drag over one of this client's surfaces goes: the content drawn on it, at the scale it is drawn at. */
+internal class DragDestination(val scene: KortexScene, private val scale: Float) {
+    /** A surface-local `wl_fixed_t` position as the pixels [scene] is laid out in. */
+    fun scenePosition(x: Int, y: Int): Offset =
+        Offset(PointerInput.fixedToFloat(x) * scale, PointerInput.fixedToFloat(y) * scale)
+}
+
+/**
+ * What a drag from another application is carrying, handed to your content as a drag and drop event's native
+ * event.
+ *
+ * ```kotlin
+ * Modifier.dragAndDropTarget(
+ *     shouldStartDragAndDrop = { start -> (start.nativeEvent as? KortexDragOffer)?.types?.isNotEmpty() == true },
+ *     target = object : DragAndDropTarget {
+ *         override fun onDrop(event: DragAndDropEvent): Boolean =
+ *             (event.nativeEvent as KortexDragOffer).readText() is Ok
+ *     },
+ * )
+ * ```
+ *
+ * [readText] and [readImage] answer from memory and never block: everything the drag carries has arrived before
+ * your content is told of the drop. Until the user lets go there is nothing to read, because the application
+ * dragging sends what it holds only then; [types] says what is coming.
+ */
+public class KortexDragOffer internal constructor(
+    private val carried: List<Mime>,
+    private val text: Result<String, ClipboardError> = Err(ClipboardError.NoText),
+    private val image: Result<ImageBitmap, ClipboardError> = Err(ClipboardError.NoImage),
+) {
+    /**
+     * The types this drag is offered under that kortex can hand you, most preferred first, such as
+     * `text/plain;charset=utf-8` or `image/png`. A type kortex carries nothing of, a list of files say, is not
+     * here, and a drag offering only those never reaches your content at all.
+     */
+    public val types: List<String> get() = carried.map(Mime::wireName)
+
+    /**
+     * The text this drag carries.
+     *
+     * @return the text, or why there is none: [ClipboardError.NoText] where the drag offers no text or has not
+     *   been dropped yet, [ClipboardError.PipeFailed], [ClipboardError.ReadTimedOut] or [ClipboardError.TooLarge].
+     */
+    public fun readText(): Result<String, ClipboardError> = text
+
+    /**
+     * The image this drag carries.
+     *
+     * @return the image, or why there is none: [ClipboardError.NoImage] where the drag offers no image in a
+     *   format kortex decodes or has not been dropped yet, [ClipboardError.PipeFailed],
+     *   [ClipboardError.ReadTimedOut] or [ClipboardError.TooLarge].
+     */
+    public fun readImage(): Result<ImageBitmap, ClipboardError> = image
 }

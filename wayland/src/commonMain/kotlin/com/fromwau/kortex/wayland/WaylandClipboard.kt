@@ -81,6 +81,14 @@ internal class WaylandClipboard private constructor(
         this.source = source
     }
 
+    /**
+     * Keeps [find], which answers where a drag over one of the shell's surfaces goes. The data device is the
+     * clipboard's, and every drag arrives on it whichever surface it is over.
+     */
+    fun recordDragDestinations(find: (surface: Long) -> DragDestination?) {
+        bound?.device?.dragDestinations = find
+    }
+
     /** Offers [text] under every [TextMime]. */
     override suspend fun setText(text: String): EmptyResult<ClipboardError> {
         checkOpen()
@@ -194,7 +202,8 @@ internal class WaylandClipboard private constructor(
                 releaseManager(manager)
                 return Err(failure)
             }
-            return Ok(WaylandClipboard(display, loop, BoundDevice(manager, seat, DataDevice.create(manager, seat))))
+            val device = DataDevice.create(display, loop, manager, seat)
+            return Ok(WaylandClipboard(display, loop, BoundDevice(manager, seat, device)))
         }
 
         private fun releaseManager(manager: MemorySegment) {
@@ -216,8 +225,8 @@ internal sealed interface Mime {
     val wireName: String
 
     companion object {
-        // Every type a copy of this client's offers and a paste of it asks for.
-        private val all: List<Mime> = TextMime.entries + ImageMime.entries
+        /** Every type a copy of this client's offers and a paste or a drop of it asks for, most preferred first. */
+        val all: List<Mime> = TextMime.entries + ImageMime.entries
 
         /** The entry named [wireName], or null for a type this client neither offers nor asks for. */
         fun fromWireNameOrNull(wireName: String): Mime? = all.firstOrNull { it.wireName == wireName }

@@ -4,7 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTransferAction
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.input.key.Key
@@ -43,7 +46,7 @@ import kotlinx.coroutines.awaitCancellation
  * @param onFailure called with every failure content causes, the first and any after it, cleanup on close
  *   included, on whichever thread content failed.
  */
-@OptIn(InternalComposeUiApi::class)
+@OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
 public class KortexScene(
     size: IntSize,
     density: Density,
@@ -194,6 +197,53 @@ public class KortexScene(
     public fun cancelPointerInput(): EmptyResult<ContentFailure> =
         runContent(ContentFailure::PointerInput) { scene.cancelPointerInput() }
 
+    /**
+     * Offers content a drag that has arrived over it, which it may take or refuse.
+     *
+     * @param position where the drag is, in logical pixels relative to the content; convert physical pixels
+     *   yourself, as the scene is never told the output scale.
+     * @param payload what the drag carries, which content reads as the drag event's native event.
+     * @return whether content took the drag. Send nothing further of a drag content refused, and end it with
+     *   neither [sendDragLeave] nor [sendDrop].
+     */
+    public fun sendDragEnter(position: Offset, payload: Any?): Result<Boolean, ContentFailure> =
+        runContent(ContentFailure::PointerInput) {
+            val event = dragEvent(position, payload)
+            val taken = dragTarget.acceptDragAndDropTransfer(event)
+            if (taken) {
+                dragTarget.onStarted(event)
+                dragTarget.onEntered(event)
+                // Only a move carries a drag onto the content under it, so the arrival is delivered as one too.
+                dragTarget.onMoved(event)
+            }
+            taken
+        }
+
+    /** Moves a drag content took to [position], carrying the same [payload] its arrival did. */
+    public fun sendDragMove(position: Offset, payload: Any?): EmptyResult<ContentFailure> =
+        runContent(ContentFailure::PointerInput) { dragTarget.onMoved(dragEvent(position, payload)) }
+
+    /** Ends a drag content took without dropping it, leaving content nothing. */
+    public fun sendDragLeave(position: Offset, payload: Any?): EmptyResult<ContentFailure> =
+        runContent(ContentFailure::PointerInput) {
+            val event = dragEvent(position, payload)
+            dragTarget.onExited(event)
+            dragTarget.onEnded(event)
+        }
+
+    /**
+     * Drops on content a drag it took, at [position] and carrying [payload], and ends the drag.
+     *
+     * @return whether content took what was dropped.
+     */
+    public fun sendDrop(position: Offset, payload: Any?): Result<Boolean, ContentFailure> =
+        runContent(ContentFailure::PointerInput) {
+            val event = dragEvent(position, payload)
+            val dropped = dragTarget.onDrop(event)
+            dragTarget.onEnded(event)
+            dropped
+        }
+
     /** Disposes the composition, even a failed one; content's own cleanup failing becomes [failure]. */
     override fun close() {
         // Scene first: it holds the recomposer, whose coroutine scope would otherwise outlive it.
@@ -204,6 +254,15 @@ public class KortexScene(
         }
         recomposer.close()
     }
+
+    private val dragTarget get() = scene.rootDragAndDropNode
+
+    // A drag delivered here is always a copy: it takes nothing away from where it came from.
+    private fun dragEvent(position: Offset, payload: Any?) = DragAndDropEvent(
+        action = DragAndDropTransferAction.Copy,
+        nativeEvent = payload,
+        positionInRootImpl = position,
+    )
 
     // A throw from content, out of [call] or out of a coroutine it runs, becomes the scene's failure.
     private inline fun <T> runContent(

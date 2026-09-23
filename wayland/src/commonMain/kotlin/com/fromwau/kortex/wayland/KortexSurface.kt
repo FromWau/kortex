@@ -101,6 +101,13 @@ internal class KortexSurface private constructor(
     /** What the content drawn here threw, once it has; null once the scene it threw in has been detached. */
     internal val crash: KortexError.SurfaceCrashed? get() = scene?.crash
 
+    /** The `wl_surface` behind this one, which the compositor names in every event it sends about it. */
+    internal val surfaceAddress: Long get() = role.surface.address()
+
+    /** Where a drag over this surface goes: the content drawn here, at the scale it is drawn at. */
+    internal val dragDestination: DragDestination?
+        get() = scene?.let { DragDestination(it.composition, bufferScale.toFloat()) }
+
     /** When this surface next needs a loop pass that no Wayland event will announce; null while nothing does. */
     internal val nextDeadlineNanos: Long? get() = keyboardInput?.nextRepeatDueNanos
 

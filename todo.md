@@ -542,11 +542,13 @@ and the bar never has to learn where on the monitor the compositor put it.
       compositor is asked for anything. Compose's own clipboard still carries text alone, because its image
       entry is AWT's image type inside a `Transferable`, and reading one starts the toolkit
       (`ComposeClipboard.kt`). (`ClipboardTest`)
-- [ ] **Drag and drop.** The data device serves the selection only. A drag's offer is given back as soon as
-      `enter` names it, `motion`, `leave` and `drop` do nothing (`DataDevice.kt`), and kortex never calls
-      `start_drag`, so nothing can be dropped onto a surface and nothing dragged out of one. Wanted: text and
-      the PNG and JPEG images above, both ways. Open: how a drop reaches content and how content starts a
-      drag, and which of the protocol's actions, copy, move or ask, kortex takes.
+- [ ] **Drag and drop.** A drag from another application reaches content: `wl_data_device`'s `enter`, `motion`,
+      `leave` and `drop` drive the scene's own drop targets (`DataDevice.kt`, `KortexScene.kt`), against the
+      surface the drag names and at the scale that surface draws at. The drop hands content a `KortexDragOffer`
+      carrying the text and the PNG or JPEG image the drag was offered under, drained off the loop thread before
+      content is told of the drop, so no surface waits on the application that let go. `copy` is the only action
+      kortex asks for. Still open: kortex never calls `start_drag`, so nothing can be dragged out of a surface.
+      (`DragAndDropTest`)
 
 ## Housekeeping
 

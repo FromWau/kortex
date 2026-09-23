@@ -126,7 +126,12 @@ internal class KortexShell private constructor(
     init {
         display.onGlobalAdded = { global -> if (global.interfaceName == WL_OUTPUT) pendingAdds += global }
         display.onGlobalRemoved = { global -> if (global.interfaceName == WL_OUTPUT) pendingRemoves += global.name }
+        clipboard.recordDragDestinations(::dragDestinationOn)
     }
+
+    // A drag names the wl_surface it is over, and one data device serves every surface this shell shows.
+    private fun dragDestinationOn(surface: Long): DragDestination? =
+        shownSurfaces.firstOrNull { it.surfaceAddress == surface }?.dragDestination
 
     /**
      * Runs the application until `exitApplication()` is called, returning `Ok`. Ends early with
