@@ -11,24 +11,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.asComposeImageBitmap
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexDragSource
 import com.fromwau.kortex.compose.KortexScene
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ImageInfo
-import org.jetbrains.skia.Surface
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -216,34 +211,22 @@ class DragAndDropTest {
                 return true
             }
         }
-        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "kortex-drag-test").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
-        val surface = Surface.makeRasterN32Premul(SIDE, SIDE)
-        dispatcher.use {
-            KortexScene(
-                size = IntSize(SIDE, SIDE),
-                density = Density(1f),
-                layoutDirection = LayoutDirection.Ltr,
-                frameContext = dispatcher,
-                onInvalidate = {},
-            ).use { scene ->
-                scene.setContent {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .dragAndDropTarget(
-                                shouldStartDragAndDrop = { start ->
-                                    (start.nativeEvent as? KortexDragOffer)?.types.orEmpty().isNotEmpty()
-                                },
-                                target = target,
-                            ),
-                    )
-                }
-                // A drop is routed by where it is, which needs the target laid out and its bounds known.
-                scene.render(surface.canvas.asComposeCanvas(), 0L)
-                block(scene)
+        onScene(IntSize(SIDE, SIDE)) { scene, surface ->
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .dragAndDropTarget(
+                            shouldStartDragAndDrop = { start ->
+                                (start.nativeEvent as? KortexDragOffer)?.types.orEmpty().isNotEmpty()
+                            },
+                            target = target,
+                        ),
+                )
             }
+            // A drop is routed by where it is, which needs the target laid out and its bounds known.
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+            block(scene)
         }
     }
 

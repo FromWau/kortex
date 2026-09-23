@@ -11,15 +11,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asComposeCanvas
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
 import java.lang.foreign.MemorySegment
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.test.Test
@@ -28,7 +25,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
-import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.Surface
 
 /**
@@ -206,37 +202,31 @@ class KeyRepeatTest {
      */
     private fun withShellKeyboards(block: (shell: KortexShell, first: KeyboardInput, second: KeyboardInput) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
-        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "kortex-repeat-test").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
-        val scene = KortexScene(IntSize(SIDE, SIDE), Density(1f), frameContext = dispatcher, onInvalidate = {})
-        try {
-            val seat = Seat.bind(display).getOrElse { error -> fail("seat bind failed: $error") }
-            try {
-                val content: @Composable KortexApplicationScope.() -> Unit = {
-                    TestSurface(FIRST_NAMESPACE)
-                    TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT)
-                }
-                val shell = KortexShell.createApplicationOrFail(display, content)
-                shell.useOrFail {
-                    awaitPlaced(shell, count = 2)
-                    val (first, second) = shell.shownSurfaces.map { surface ->
-                        assertNotNull(seat.attachKeyboard(scene), "the seat announced no keyboard")
-                            .also { surface.keyboardInput = it }
+        display.use {
+            onScene(IntSize(SIDE, SIDE)) { scene, _ ->
+                val seat = Seat.bind(display).getOrElse { error -> fail("seat bind failed: $error") }
+                try {
+                    val content: @Composable KortexApplicationScope.() -> Unit = {
+                        TestSurface(FIRST_NAMESPACE)
+                        TestSurface(SECOND_NAMESPACE, anchor = BOTTOM_LEFT)
                     }
-                    // The compositor sends each new keyboard its keymap, without which no key is understood.
-                    display.roundtrip()
-                    assertTrue(first.hasKeymap && second.hasKeymap, "the compositor never delivered a keymap")
-                    block(shell, first, second)
+                    val shell = KortexShell.createApplicationOrFail(display, content)
+                    shell.useOrFail {
+                        awaitPlaced(shell, count = 2)
+                        val (first, second) = shell.shownSurfaces.map { surface ->
+                            assertNotNull(seat.attachKeyboard(scene), "the seat announced no keyboard")
+                                .also { surface.keyboardInput = it }
+                        }
+                        // The compositor sends each new keyboard its keymap, without which no key is understood.
+                        display.roundtrip()
+                        assertTrue(first.hasKeymap && second.hasKeymap, "the compositor never delivered a keymap")
+                        block(shell, first, second)
+                    }
+                } finally {
+                    // After the shell, whose close released the keyboards taken from this seat.
+                    seat.release()
                 }
-            } finally {
-                // After the shell, whose close released the keyboards taken from this seat.
-                seat.release()
             }
-        } finally {
-            scene.close()
-            dispatcher.close()
-            display.close()
         }
     }
 
@@ -266,49 +256,35 @@ class KeyRepeatTest {
         }
 
         display.use { wayland ->
-            val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-                Thread(runnable, "kortex-repeat-test").apply { isDaemon = true }
-            }.asCoroutineDispatcher()
-            val surface = Surface.makeRasterN32Premul(SIDE, SIDE)
-
-            dispatcher.use {
-                KortexScene(
-                    size = IntSize(SIDE, SIDE),
-                    density = Density(1f),
-                    layoutDirection = LayoutDirection.Ltr,
-                    frameContext = dispatcher,
-                    onInvalidate = {},
-                    platform = platform,
-                ).use { scene ->
-                    scene.setContent {
-                        val requester = remember { FocusRequester() }
-                        // The field has to be driven by Compose state, not by the AtomicReference: an
-                        // unobservable value never recomposes, so every edit is applied to a stale one.
-                        var text by remember { mutableStateOf("") }
-                        BasicTextField(
-                            value = text,
-                            onValueChange = { text = it; typed.set(it) },
-                            modifier = Modifier.focusRequester(requester),
-                        )
-                        LaunchedEffect(Unit) { requester.requestFocus() }
-                    }
-                    // A few frames so the LaunchedEffect runs and focus settles.
-                    repeat(FOCUS_FRAMES) {
-                        render(scene, surface)
-                        Thread.sleep(FRAME_MILLIS)
-                    }
-
-                    val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
-                    val keyboard = assertNotNull(
-                        seat.attachKeyboard(scene, textInput = { open.get() }),
-                        "the seat announced no keyboard",
+            onScene(IntSize(SIDE, SIDE), platform = platform) { scene, surface ->
+                scene.setContent {
+                    val requester = remember { FocusRequester() }
+                    // The field has to be driven by Compose state, not by the AtomicReference: an
+                    // unobservable value never recomposes, so every edit is applied to a stale one.
+                    var text by remember { mutableStateOf("") }
+                    BasicTextField(
+                        value = text,
+                        onValueChange = { text = it; typed.set(it) },
+                        modifier = Modifier.focusRequester(requester),
                     )
-                    // The compositor sends the keymap as soon as the keyboard exists.
-                    wayland.roundtrip()
-                    assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
-
-                    block(keyboard, scene, surface, typed)
+                    LaunchedEffect(Unit) { requester.requestFocus() }
                 }
+                // A few frames so the LaunchedEffect runs and focus settles.
+                repeat(FOCUS_FRAMES) {
+                    render(scene, surface)
+                    Thread.sleep(FRAME_MILLIS)
+                }
+
+                val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
+                val keyboard = assertNotNull(
+                    seat.attachKeyboard(scene, textInput = { open.get() }),
+                    "the seat announced no keyboard",
+                )
+                // The compositor sends the keymap as soon as the keyboard exists.
+                wayland.roundtrip()
+                assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
+
+                block(keyboard, scene, surface, typed)
             }
         }
     }

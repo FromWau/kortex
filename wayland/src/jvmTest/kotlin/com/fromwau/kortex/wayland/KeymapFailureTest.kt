@@ -15,16 +15,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.compose.KortexScene
-import kotlinx.coroutines.asCoroutineDispatcher
-import org.jetbrains.skia.Surface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -80,41 +74,29 @@ class KeymapFailureTest {
     /** Runs [block] against a keyboard with no seat behind it, delivering into a focused composition. */
     private fun withKeyboard(block: (Keyboard) -> Unit) {
         val received = CopyOnWriteArrayList<KeyEvent>()
-        val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "kortex-keymap-test").apply { isDaemon = true }
-        }.asCoroutineDispatcher()
-        val surface = Surface.makeRasterN32Premul(SIDE, SIDE)
 
-        dispatcher.use {
-            KortexScene(
-                size = IntSize(SIDE, SIDE),
-                density = Density(1f),
-                layoutDirection = LayoutDirection.Ltr,
-                frameContext = dispatcher,
-                onInvalidate = {},
-            ).use { scene ->
-                scene.setContent {
-                    val requester = remember { FocusRequester() }
-                    Box(
-                        Modifier
-                            .focusRequester(requester)
-                            .onKeyEvent { event ->
-                                received.add(event)
-                                true
-                            }
-                            .focusable()
-                            .fillMaxSize(),
-                    )
-                    LaunchedEffect(Unit) { requester.requestFocus() }
-                }
-                // A few frames so the LaunchedEffect runs and focus settles.
-                repeat(FOCUS_FRAMES) { frame ->
-                    scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
-                    Thread.sleep(FRAME_MILLIS)
-                }
-
-                block(Keyboard(KeyboardInput(scene), received))
+        onScene(IntSize(SIDE, SIDE)) { scene, surface ->
+            scene.setContent {
+                val requester = remember { FocusRequester() }
+                Box(
+                    Modifier
+                        .focusRequester(requester)
+                        .onKeyEvent { event ->
+                            received.add(event)
+                            true
+                        }
+                        .focusable()
+                        .fillMaxSize(),
+                )
+                LaunchedEffect(Unit) { requester.requestFocus() }
             }
+            // A few frames so the LaunchedEffect runs and focus settles.
+            repeat(FOCUS_FRAMES) { frame ->
+                scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
+                Thread.sleep(FRAME_MILLIS)
+            }
+
+            block(Keyboard(KeyboardInput(scene), received))
         }
     }
 

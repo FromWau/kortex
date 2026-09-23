@@ -4,6 +4,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,9 +24,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
@@ -33,12 +32,9 @@ import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
-import kotlinx.coroutines.asCoroutineDispatcher
 import org.jetbrains.skia.Surface
 import java.lang.foreign.MemorySegment
-import java.lang.foreign.ValueLayout.JAVA_BYTE
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -62,6 +58,17 @@ class KeyboardDeliveryTest {
             typist.tap(KEY_I)
 
             assertEquals("hi", typed.get(), "keys did not reach the text field")
+        }
+    }
+
+    @Test
+    fun `typing on a wayland keyboard reaches a state-based text field`() {
+        val field = TextFieldState()
+        withKeyboard(content = { focus -> BasicTextField(state = field, modifier = focus) }) { typist ->
+            typist.tap(KEY_H)
+            typist.tap(KEY_I)
+
+            assertEquals("hi", field.text.toString(), "keys did not reach the state-based text field")
         }
     }
 
@@ -122,7 +129,7 @@ class KeyboardDeliveryTest {
     fun `under a Cyrillic layout letters type Cyrillic, and Ctrl+A selects them so the next letter replaces them`() {
         val typed = AtomicReference("")
         withKeyboard(content = { focus -> RecordingTextField(focus, typed) }) { typist ->
-            typist.switchKeymap(Xkbcli.compileKeymap(US_RU), lockedGroup = RU)
+            typist.switchKeymap(US_RU, lockedGroup = RU)
             typist.tap(KEY_H)
             typist.tap(KEY_I)
             assertEquals(RU_H_I, typed.get(), "H and I under ru did not type their Cyrillic letters")
@@ -141,7 +148,7 @@ class KeyboardDeliveryTest {
         withKeyboard(
             content = { focus -> ProvideClipboard(clipboard) { RecordingTextField(focus, typed) } },
         ) { typist ->
-            typist.switchKeymap(Xkbcli.compileKeymap(US_RU), lockedGroup = RU)
+            typist.switchKeymap(US_RU, lockedGroup = RU)
             typist.tap(KEY_H)
             typist.tap(KEY_I)
             typist.holding(CTRL_MASK) { typist.tap(KEY_A) }
@@ -343,42 +350,28 @@ class KeyboardDeliveryTest {
         }
 
         display.use { wayland ->
-            val dispatcher = Executors.newSingleThreadExecutor { runnable ->
-                Thread(runnable, "kortex-key-test").apply { isDaemon = true }
-            }.asCoroutineDispatcher()
-            val surface = Surface.makeRasterN32Premul(SIDE, SIDE)
-
-            dispatcher.use {
-                KortexScene(
-                    size = IntSize(SIDE, SIDE),
-                    density = Density(1f),
-                    layoutDirection = LayoutDirection.Ltr,
-                    frameContext = dispatcher,
-                    onInvalidate = {},
-                    platform = platform,
-                ).use { scene ->
-                    scene.setContent {
-                        val requester = remember { FocusRequester() }
-                        content(Modifier.focusRequester(requester))
-                        LaunchedEffect(Unit) { requester.requestFocus() }
-                    }
-                    // A few frames so the LaunchedEffect runs and focus settles.
-                    repeat(FOCUS_FRAMES) { frame ->
-                        scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
-                        Thread.sleep(FRAME_MILLIS)
-                    }
-
-                    val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
-                    val keyboard = assertNotNull(
-                        seat.attachKeyboard(scene, textInput = { open.get() }),
-                        "the seat announced no keyboard",
-                    )
-                    // The compositor sends the keymap as soon as the keyboard exists.
-                    wayland.roundtrip()
-                    assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
-
-                    block(Typist(keyboard, scene, surface))
+            onScene(IntSize(SIDE, SIDE), platform = platform) { scene, surface ->
+                scene.setContent {
+                    val requester = remember { FocusRequester() }
+                    content(Modifier.focusRequester(requester))
+                    LaunchedEffect(Unit) { requester.requestFocus() }
                 }
+                // A few frames so the LaunchedEffect runs and focus settles.
+                repeat(FOCUS_FRAMES) { frame ->
+                    scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
+                    Thread.sleep(FRAME_MILLIS)
+                }
+
+                val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
+                val keyboard = assertNotNull(
+                    seat.attachKeyboard(scene, textInput = { open.get() }),
+                    "the seat announced no keyboard",
+                )
+                // The compositor sends the keymap as soon as the keyboard exists.
+                wayland.roundtrip()
+                assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
+
+                block(Typist(keyboard, scene, surface))
             }
         }
     }
@@ -411,22 +404,11 @@ class KeyboardDeliveryTest {
         }
 
         /**
-         * Hands the keyboard [keymap] on a memfd, as a compositor sends one, and keeps its layout [lockedGroup]
-         * locked through every key and modifier after it.
+         * Hands the keyboard the keymap for [layouts], as a compositor sends one, and keeps its layout
+         * [lockedGroup] locked through every key and modifier after it.
          */
-        fun switchKeymap(keymap: String, lockedGroup: Int) {
-            val bytes = keymap.encodeToByteArray()
-            // A compositor's size counts the NUL xkb reads the text up to, which a fresh memfd already holds.
-            val size = bytes.size + 1
-            val fd = LibC.memfdCreate("kortex-test-keymap").getOrElse { error -> fail("memfd_create failed: $error") }
-            LibC.ftruncate(fd, size.toLong()).getOrElse { error -> fail("sizing the keymap memfd failed: $error") }
-            val mapping = LibC
-                .mmapShared(fd, size.toLong())
-                .getOrElse { error -> fail("mapping the keymap memfd failed: $error") }
-            MemorySegment.copy(bytes, 0, mapping, JAVA_BYTE, 0, bytes.size)
-            LibC.munmap(mapping, size.toLong())
-            // onKeymap closes the fd, as it closes the compositor's.
-            keyboard.onKeymap(NULL, NULL, XKB_V1_FORMAT, fd, size)
+        fun switchKeymap(layouts: String, lockedGroup: Int) {
+            compiledKeymap(layouts)(keyboard)
             assertTrue(keyboard.hasKeymap, "the keyboard could not compile the keymap it was handed")
             group = lockedGroup
             keyboard.onModifiers(NULL, NULL, ++serial, 0, 0, 0, group)
@@ -445,9 +427,6 @@ class KeyboardDeliveryTest {
         const val PRESSED = 1
         const val RELEASED = 0
         const val KEY_FAILURE = "a key handler threw"
-
-        // wl_keyboard.keymap_format.xkb_v1
-        const val XKB_V1_FORMAT = 1
 
         // ru is the second of US_RU's layouts, so wl_keyboard.modifiers locks it as group 1.
         const val US_RU = "us,ru"
