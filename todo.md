@@ -60,12 +60,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
-popup's grab, which it never takes; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an
-ASCII one on that key, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
-leaves `KeyboardDeliveryTest` proving only a value-based field, and a drag out that never starts, which tells the
-content that asked nothing; under Housekeeping, the protocol errors libwayland prints to stderr, the
+popup's grab, which it never takes; under Keyboard and clipboard, the clipboard that content inside a Compose
+`Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field,
+and a drag out that never starts, which tells the content that asked nothing; under Housekeeping, the protocol
+errors libwayland prints to stderr, the
 Compose error `KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, a closed surface's `wl_pointer`,
 which no test sees outlive it, and a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
 
@@ -454,15 +454,13 @@ and the bar never has to learn where on the monitor the compositor put it.
       own keys: German `ü` stays `Key.Unknown` rather than borrowing US `[`, and AZERTY's `Key.A` is the key
       QWERTY calls Q. With no Latin layout configured, nothing changes. (`LatinFallbackTest`,
       `KeyboardDeliveryTest`)
-- [ ] **A Ctrl+key types its character into a text field when no configured layout has an ASCII one on that
-      key.** With Ctrl held, libxkbcommon 1.13.2 turns a key's character into a control code only when some
-      configured layout has an ASCII character on that key, and then from that one: under `us,ru` with `ru`
-      active, Ctrl+Q reports 0x11, and under `us,de` with `de` active, Ctrl+ü reports 0x1B, Ctrl+[, both below
-      space and dropped (`KeyboardInput.kt:119`). Otherwise it reports the character itself: under `ru` alone,
-      Ctrl+Q reports `й` (U+0439), and under `de` alone, Ctrl+ü reports `ü` (U+00FC). `KeyboardInput.deliverKey`
-      commits either, as it commits any printable character of a key the composition did not consume
-      (`KeyboardInput.kt:137`). Measured against libxkbcommon directly; no test covers it yet. Open: committing
-      nothing while Ctrl is held, say, checked against AltGr under the xkb options in use.
+- [x] **Ctrl commits nothing into a text field, whatever the active layout puts on the key.** libxkbcommon
+      1.13.2 turns a key's character into a control code only where some configured layout has an ASCII one on
+      that key, and then from that one: under `us,ru` with `ru` active, the key `us` calls `;` reports `;`,
+      and under `ru` alone it reports `ж` (U+0436). `KeyboardInput` commits neither. A printable character
+      reaches the open text-input session only with Ctrl up, or with the key at level 3 (`Xkb.atLevelThree`),
+      which is AltGr's and which xkb reaches with Ctrl held too, so a layout that needs Ctrl+Alt for AltGr
+      keeps typing. (`CtrlKeyTest`, `KeyboardDeliveryTest`)
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
       clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
       of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's

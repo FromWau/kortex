@@ -45,6 +45,8 @@ internal object Xkb {
         downcall("xkb_state_key_get_utf32", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
     private val keyGetLayout =
         downcall("xkb_state_key_get_layout", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
+    private val keyGetLevel =
+        downcall("xkb_state_key_get_level", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT))
     private val keymapKeyGetSymsByLevel = downcall(
         "xkb_keymap_key_get_syms_by_level",
         FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS),
@@ -112,6 +114,15 @@ internal object Xkb {
     /** The character this key produces right now, or 0 for keys that produce none. */
     fun codePoint(state: XkbState, waylandKey: Int): Int =
         keyGetUtf32.invoke(state.compiled.pointer, waylandKey + EVDEV_OFFSET) as Int
+
+    /** Whether this key sits at level 3 under the modifiers in effect, the level AltGr reaches. */
+    fun atLevelThree(state: XkbState, waylandKey: Int): Boolean {
+        val compiled = state.compiled
+        val keycode = waylandKey + EVDEV_OFFSET
+        val layout = keyGetLayout.invoke(compiled.pointer, keycode) as Int
+        if (layout == LAYOUT_INVALID) return false
+        return keyGetLevel.invoke(compiled.pointer, keycode, layout) as Int == LEVEL_THREE
+    }
 
     /** Whether the layout marks this key as one that repeats while held; modifiers and locks do not. */
     fun keyRepeats(state: XkbState, waylandKey: Int): Boolean {
@@ -202,6 +213,9 @@ internal object Xkb {
     private const val KEYMAP_FORMAT_TEXT_V1 = 1
     private const val NO_FLAGS = 0
     private const val BASE_LEVEL = 0
+
+    // xkb numbers a key's levels from zero, so AltGr's third one is 2.
+    private const val LEVEL_THREE = 2
 
     // Wayland keycodes are offset by 8 from the evdev codes xkb expects.
     private const val EVDEV_OFFSET = 8

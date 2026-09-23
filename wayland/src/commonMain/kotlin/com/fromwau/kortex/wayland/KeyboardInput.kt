@@ -136,9 +136,14 @@ internal class KeyboardInput(
         when {
             composeKey == Key.Backspace -> session.backspace()
             composeKey == Key.Delete -> session.delete()
-            codePoint >= FIRST_PRINTABLE -> session.commit(String(Character.toChars(codePoint)))
+            codePoint >= FIRST_PRINTABLE && typesText(state, key) ->
+                session.commit(String(Character.toChars(codePoint)))
         }
     }
+
+    // Ctrl makes a key a shortcut, but xkb turns its character into a control code only where some configured
+    // layout has an ASCII one on that key. Level 3 is AltGr's, and reaches its character with Ctrl held too.
+    private fun typesText(state: XkbState, key: Int): Boolean = !ctrl || Xkb.atLevelThree(state, key)
 
     fun onModifiers(
         data: MemorySegment, proxy: MemorySegment, serial: Int,
