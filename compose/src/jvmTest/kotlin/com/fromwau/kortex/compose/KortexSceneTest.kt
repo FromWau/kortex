@@ -339,11 +339,14 @@ class KortexSceneTest {
             scene.setContent { if (broken.value) error(RECOMPOSE_FAILURE) }
             scene.render(surface.canvas.asComposeCanvas(), 0L)
 
-            broken.value = true
-            val failure = awaitFailure(scene) { scene.render(surface.canvas.asComposeCanvas(), System.nanoTime()) }
+            // Compose prints its own report of the recomposition this test throws in, kept off the results.
+            capturingStderr {
+                broken.value = true
+                val failure = awaitFailure(scene) { scene.render(surface.canvas.asComposeCanvas(), System.nanoTime()) }
 
-            assertIs<ContentFailure.Composition>(failure, "a throwing recomposition must fail the composition")
-            assertEquals(RECOMPOSE_FAILURE, failure.cause.message)
+                assertIs<ContentFailure.Composition>(failure, "a throwing recomposition must fail the composition")
+                assertEquals(RECOMPOSE_FAILURE, failure.cause.message)
+            }
         }
     }
 

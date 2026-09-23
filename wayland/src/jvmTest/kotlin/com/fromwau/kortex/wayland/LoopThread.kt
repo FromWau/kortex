@@ -166,7 +166,12 @@ internal const val SNAPSHOT_PUMP_WARNING = "GlobalSnapshotManager: concurrent re
 /** Runs [block] with `System.out` captured, and returns what was printed there meanwhile. */
 internal fun capturingStdout(block: () -> Unit): String = capturing({ System.out }, System::setOut, block)
 
-/** Runs [block] with `System.err` captured, and returns what was printed there meanwhile. */
+/**
+ * Runs [block] with `System.err` captured, and returns what was printed there meanwhile.
+ *
+ * `:compose`'s tests keep a copy of this in their own `CapturingStderr.kt`, because `:wayland` depends on
+ * `:compose` and a test helper cannot travel back the other way.
+ */
 internal fun capturingStderr(block: () -> Unit): String = capturing({ System.err }, System::setErr, block)
 
 private inline fun capturing(
