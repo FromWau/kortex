@@ -1,7 +1,6 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.ImageBitmap
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
@@ -14,6 +13,7 @@ import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
+import java.util.concurrent.CompletableFuture
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
@@ -95,16 +95,28 @@ internal class DataDevice private constructor(
         dropped.dropping = true
         // Opened here because only this thread may ask for them, and drained off it because a source writing
         // slowly would hold every surface up for as long as it took.
-        val text = dropped.textType?.let(dropped.offer::openTransfer)
-        val image = dropped.imageType?.let(dropped.offer::openTransfer)
+        val textPipe = dropped.textType?.let(dropped.offer::openTransfer)
+        val imagePipe = dropped.imageType?.let(dropped.offer::openTransfer)
         display.flush()
-        Dispatchers.IO.asExecutor().execute {
-            val carried = KortexDragOffer(
-                carried = dropped.types,
-                text = drain(text, MAX_TEXT_BYTES, ClipboardError.NoText).map(ByteArray::decodeToString),
-                image = drain(image, MAX_IMAGE_BYTES, ClipboardError.NoImage).flatMap(::decodeImage),
+        val io = Dispatchers.IO.asExecutor()
+        io.execute {
+            // A task each: a source writing the image first blocks on its full pipe until something reads it, so
+            // a text drained ahead of it would spend its whole bound waiting for bytes that cannot come yet.
+            val image = CompletableFuture.supplyAsync(
+                { drain(imagePipe, MAX_IMAGE_BYTES, ClipboardError.NoImage).flatMap(::decodeImage) },
+                io,
             )
-            loop.asExecutor().execute { completeDrop(dropped, carried) }
+            var carried = dropped.announced
+            try {
+                carried = KortexDragOffer(
+                    carried = dropped.types,
+                    text = drain(textPipe, MAX_TEXT_BYTES, ClipboardError.NoText).map(ByteArray::decodeToString),
+                    image = image.join(),
+                )
+            } finally {
+                // However a drain ended: left unposted, the drag would hover for good and its offer never be freed.
+                loop.asExecutor().execute { completeDrop(dropped, carried) }
+            }
         }
     }
 
@@ -517,54 +529,5 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
 /** Where a drag over one of this client's surfaces goes: the content drawn on it, at the scale it is drawn at. */
 internal class DragDestination(val scene: KortexScene, private val scale: Float) {
     /** A surface-local `wl_fixed_t` position as the pixels [scene] is laid out in. */
-    fun scenePosition(x: Int, y: Int): Offset =
-        Offset(PointerInput.fixedToFloat(x) * scale, PointerInput.fixedToFloat(y) * scale)
-}
-
-/**
- * What a drag from another application is carrying, handed to your content as a drag and drop event's native
- * event.
- *
- * ```kotlin
- * Modifier.dragAndDropTarget(
- *     shouldStartDragAndDrop = { start -> (start.nativeEvent as? KortexDragOffer)?.types?.isNotEmpty() == true },
- *     target = object : DragAndDropTarget {
- *         override fun onDrop(event: DragAndDropEvent): Boolean =
- *             (event.nativeEvent as KortexDragOffer).readText() is Ok
- *     },
- * )
- * ```
- *
- * [readText] and [readImage] answer from memory and never block: everything the drag carries has arrived before
- * your content is told of the drop. Until the user lets go there is nothing to read, because the application
- * dragging sends what it holds only then; [types] says what is coming.
- */
-public class KortexDragOffer internal constructor(
-    private val carried: List<Mime>,
-    private val text: Result<String, ClipboardError> = Err(ClipboardError.NoText),
-    private val image: Result<ImageBitmap, ClipboardError> = Err(ClipboardError.NoImage),
-) {
-    /**
-     * The types this drag is offered under that kortex can hand you, most preferred first, such as
-     * `text/plain;charset=utf-8` or `image/png`. A type kortex carries nothing of, a list of files say, is not
-     * here, and a drag offering only those never reaches your content at all.
-     */
-    public val types: List<String> get() = carried.map(Mime::wireName)
-
-    /**
-     * The text this drag carries.
-     *
-     * @return the text, or why there is none: [ClipboardError.NoText] where the drag offers no text or has not
-     *   been dropped yet, [ClipboardError.PipeFailed], [ClipboardError.ReadTimedOut] or [ClipboardError.TooLarge].
-     */
-    public fun readText(): Result<String, ClipboardError> = text
-
-    /**
-     * The image this drag carries.
-     *
-     * @return the image, or why there is none: [ClipboardError.NoImage] where the drag offers no image in a
-     *   format kortex decodes or has not been dropped yet, [ClipboardError.PipeFailed],
-     *   [ClipboardError.ReadTimedOut] or [ClipboardError.TooLarge].
-     */
-    public fun readImage(): Result<ImageBitmap, ClipboardError> = image
+    fun scenePosition(x: Int, y: Int): Offset = PointerInput.scenePixels(x, y, scale)
 }

@@ -49,7 +49,7 @@ internal class PointerInput(
     fun onEnter(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment, x: Int, y: Int) {
         // wl_pointer.set_cursor is only valid against the serial of the most recent enter.
         enterSerial = serial
-        position = toScenePixels(x, y)
+        position = scenePixels(x, y, scale)
         scene.sendPointerEvent(PointerEventType.Enter, position, timeMillis = 0L, buttons = buttons)
     }
 
@@ -60,7 +60,7 @@ internal class PointerInput(
     }
 
     fun onMotion(data: MemorySegment, proxy: MemorySegment, time: Int, x: Int, y: Int) {
-        position = toScenePixels(x, y)
+        position = scenePixels(x, y, scale)
         scene.sendPointerEvent(PointerEventType.Move, position, timeMillis = time.toUInt().toLong(), buttons = buttons)
     }
 
@@ -102,8 +102,6 @@ internal class PointerInput(
     fun onAxisRelativeDirection(data: MemorySegment, proxy: MemorySegment, axis: Int, direction: Int) = Unit
 
     fun onWarp(data: MemorySegment, proxy: MemorySegment, x: Int, y: Int) = Unit
-
-    private fun toScenePixels(x: Int, y: Int) = Offset(fixedToFloat(x) * scale, fixedToFloat(y) * scale)
 
     private fun buttonsWith(button: PointerButton, pressed: Boolean) = PointerButtons(
         isPrimaryPressed = if (button == PointerButton.Primary) pressed else buttons.isPrimaryPressed,
@@ -185,6 +183,10 @@ internal class PointerInput(
     companion object {
         /** wl_fixed_t is signed 24.8 fixed point. */
         fun fixedToFloat(value: Int): Float = value / FIXED_ONE
+
+        /** A surface-local `wl_fixed_t` position as the buffer pixels a scene drawn at [scale] is laid out in. */
+        fun scenePixels(x: Int, y: Int, scale: Float): Offset =
+            Offset(fixedToFloat(x) * scale, fixedToFloat(y) * scale)
 
         private const val FIXED_ONE = 256f
         private const val BUTTON_PRESSED = 1

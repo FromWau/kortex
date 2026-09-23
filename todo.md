@@ -547,8 +547,9 @@ and the bar never has to learn where on the monitor the compositor put it.
       surface the drag names and at the scale that surface draws at. The drop hands content a `KortexDragOffer`
       carrying the text and the PNG or JPEG image the drag was offered under, drained off the loop thread before
       content is told of the drop, so no surface waits on the application that let go. `copy` is the only action
-      kortex asks for. Still open: kortex never calls `start_drag`, so nothing can be dragged out of a surface.
-      (`DragAndDropTest`)
+      kortex asks for, but the compositor settles which action a drop is whatever kortex asks for, so content
+      taking one cannot assume the source treated it as a copy. Still open: kortex never calls `start_drag`, so
+      nothing can be dragged out of a surface. (`DragAndDropTest`)
 
 ## Housekeeping
 

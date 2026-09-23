@@ -29,8 +29,8 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * Drives a drag through a real composition exactly as the compositor's enter, motion, leave and drop do, so
- * the seam between `wl_data_device` and Compose's drop targets is covered without a human dragging anything.
+ * Covers what a drag does to the drop targets in a scene's content, by driving [KortexScene]'s own enter, motion,
+ * leave and drop through a real composition, and where the scale a surface draws at puts a drag on that scene.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class DragAndDropTest {
@@ -95,6 +95,15 @@ class DragAndDropTest {
             listOf(STARTED, ENTERED, MOVED, MOVED, EXITED, ENDED), seen.toList(),
             "a drag that left without dropping did not end at the drop target, or dropped on it anyway",
         )
+    }
+
+    @Test
+    fun `a drag reaches the scene in buffer pixels, not the surface-local ones the compositor sent`() {
+        withDropTarget { scene ->
+            // 512 in wl_fixed is 2 surface-local px, which a surface drawn at 2x lays its scene out at 4.
+            assertEquals(Offset(4f, 8f), DragDestination(scene, scale = 2f).scenePosition(512, 1024))
+            assertEquals(Offset(2f, 4f), DragDestination(scene, scale = 1f).scenePosition(512, 1024))
+        }
     }
 
     /** What the compositor introduces: an offer listing the wire names [advertised], carrying [text]. */
