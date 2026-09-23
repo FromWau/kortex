@@ -75,6 +75,18 @@ internal object WlVersion {
 }
 
 /**
+ * The handler libwayland calls with every client-side log line, which keeps none of them.
+ *
+ * Each line restates a protocol error [WaylandDisplay.requireAlive] already carries typed, and libwayland's own
+ * handler would write it to whatever stderr the host is running on. What `wl_abort` says before it aborts goes
+ * the same way: libwayland hands that to this one handler too.
+ */
+internal object WaylandLog {
+    /** `wl_log_func_t`: a printf format and its arguments' `va_list`, which only `vsnprintf` could read. */
+    fun onLog(format: MemorySegment, args: MemorySegment) = Unit
+}
+
+/**
  * The exported surface of libwayland-client.
  *
  * Its 169 request wrappers are `static inline`, so nothing exports them; every request here is the
@@ -116,6 +128,11 @@ internal object LibWayland {
     private val proxyDestroy = downcall("wl_proxy_destroy", FunctionDescriptor.ofVoid(ADDRESS))
     private val proxyAddListener =
         downcall("wl_proxy_add_listener", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS))
+    private val logSetHandlerClient = downcall("wl_log_set_handler_client", FunctionDescriptor.ofVoid(ADDRESS))
+
+    init {
+        logSetHandlerClient.invoke(upcall(arena, WaylandLog, "onLog", FunctionDescriptor.ofVoid(ADDRESS, ADDRESS)))
+    }
 
     val registryInterface: MemorySegment = symbol("wl_registry_interface")
     val compositorInterface: MemorySegment = symbol("wl_compositor_interface")
