@@ -93,7 +93,8 @@ internal object XdgShellProtocol {
                 WlMessage("set_parent", "?o", listOf(self)),
                 WlMessage("set_title", "s", listOf(MemorySegment.NULL)),
                 WlMessage("set_app_id", "s", listOf(MemorySegment.NULL)),
-                // The next four carry no real object type either, safe only because no opcode is declared for any.
+                // show_window_menu, move, resize and set_fullscreen carry no real object type either,
+                // safe only because no opcode is declared for any of them.
                 WlMessage("show_window_menu", "ouii", List(4) { MemorySegment.NULL }),
                 WlMessage("move", "ou", List(2) { MemorySegment.NULL }),
                 WlMessage("resize", "ouu", List(3) { MemorySegment.NULL }),

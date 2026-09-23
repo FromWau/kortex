@@ -688,7 +688,7 @@ and the bar never has to learn where on the monitor the compositor put it.
 - [ ] **A dialog on a pinned parent could segfault Hyprland.** `Dialog` sends `xdg_toplevel.set_parent` naming
       the window's toplevel as the dialog's own toplevel is created, ahead of the buffer-less commit that maps
       it, so the dialog has no window of its own yet when the request lands. Hyprland 0.56.2's `set_parent`
-      handler (`XDGShell.cpp:326-328`) dereferences `m_self->m_window` with no null check when the named
+      handler (`XDGShell.cpp:329-330`) dereferences `m_self->m_window` with no null check when the named
       parent is pinned. Open: nothing reaches it today, since no test pins a window and then shows a dialog
       on it.
 
