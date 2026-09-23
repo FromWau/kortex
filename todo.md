@@ -60,7 +60,7 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+Next: fourteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
 starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
 popup's grab, which it never takes; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an
 ASCII one on that key, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
@@ -569,6 +569,14 @@ and the bar never has to learn where on the monitor the compositor put it.
       transfer's data from the request until `wl_data_source.dnd_finished` or `cancelled` says how the drag ended,
       so every drag out needs a session object of its own. A callback on `KortexPlatform` beside `startDrag` is
       the cheaper shape, but it tells the host rather than the content that asked.
+- [ ] **A drag's own failure does not stop the content that failed.** `KortexScene.runContent` refuses every later
+      call once `firstFailure` is set, and only `record` sets it, from inside the scene. `KortexSurface.startDrag`
+      catches an encoding that threw and hands it to `SurfaceScene.contentFailed`, which sets the crash the shell
+      reads but never reaches `record`, so the composition keeps rendering and taking input until the next loop
+      pass tears the surface down. The teardown is right and bounded to that one pass; what is wrong is that one
+      of the two failure routes into a scene skips the gate the other sets. Open: whether `contentFailed` should
+      be the single door, which means `KortexScene` publishing a way in, or whether the drag path should reach
+      `record` by another route.
 
 ## Housekeeping
 
