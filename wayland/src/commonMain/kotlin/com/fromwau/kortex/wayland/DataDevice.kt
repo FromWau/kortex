@@ -102,8 +102,8 @@ internal class DataDevice private constructor(
         display.flush()
         val io = Dispatchers.IO.asExecutor()
         io.execute {
-            // What content is told if a drain throws instead of resolving to a Result: the types stay honest, but a
-            // technical failure must not read as though the drag offered nothing of that kind.
+            // What content is told if the try below throws before it reassigns carried: the types stay honest, but
+            // a technical failure must not read as though the drag offered nothing of that kind.
             var carried = KortexDragOffer(
                 carried = dropped.types,
                 text = Err(ClipboardError.PipeFailed),
