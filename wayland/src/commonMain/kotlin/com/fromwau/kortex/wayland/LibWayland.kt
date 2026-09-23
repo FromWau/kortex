@@ -75,15 +75,28 @@ internal object WlVersion {
 }
 
 /**
- * The handler libwayland calls with every client-side log line, which keeps none of them.
+ * The one handler libwayland calls for every client-side log line and for whatever `wl_abort` prints.
  *
- * Each line restates a protocol error [WaylandDisplay.requireAlive] already carries typed, and libwayland's own
- * handler would write it to whatever stderr the host is running on. What `wl_abort` says before it aborts goes
- * the same way: libwayland hands that to this one handler too.
+ * It drops the protocol error [WaylandDisplay.requireAlive] already hands the host typed, and writes every
+ * other line where libwayland would have written it: the process's own stderr.
  */
 internal object WaylandLog {
-    /** `wl_log_func_t`: a printf format and its arguments' `va_list`, which only `vsnprintf` could read. */
-    fun onLog(format: MemorySegment, args: MemorySegment) = Unit
+    /** `wl_log_func_t`: a printf format, and a `va_list` that on this ABI arrives as a pointer `vsnprintf` reads. */
+    fun onLog(format: MemorySegment, args: MemorySegment) {
+        if (format.reinterpret(Long.MAX_VALUE).getString(0) in DROPPED) return
+        Arena.ofConfined().use { call ->
+            val line = call.allocate(LINE_BYTES)
+            val wanted = LibC.vsnprintf(line, format, args)
+            if (wanted <= 0) return
+            LibC.write(STDERR_FD, line.asSlice(0L, minOf(wanted.toLong(), LINE_BYTES - 1L)))
+        }
+    }
+
+    // display_handle_error's two formats, verbatim from libwayland 1.26.0's wayland-client.c.
+    private val DROPPED = setOf("%s#%u: error %d: %s\n", "[destroyed object]: error %d: %s\n")
+
+    private const val STDERR_FD = 2
+    private const val LINE_BYTES = 1024L
 }
 
 /**

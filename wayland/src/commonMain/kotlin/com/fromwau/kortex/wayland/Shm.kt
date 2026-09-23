@@ -50,6 +50,8 @@ internal object LibC {
     )
     private val read = downcall("read", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
     private val write = downcall("write", FunctionDescriptor.of(JAVA_LONG, JAVA_INT, ADDRESS, JAVA_LONG))
+    private val vsnprintf =
+        downcall("vsnprintf", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, ADDRESS, ADDRESS))
     private val poll = downcall(
         "poll",
         FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG, JAVA_INT),
@@ -134,6 +136,14 @@ internal object LibC {
 
     /** @return how many bytes of [buffer] were written, negative on failure. */
     fun write(fd: Int, buffer: MemorySegment): Long = write.invoke(fd, buffer, buffer.byteSize()) as Long
+
+    /**
+     * Formats [format] and [args] into [buffer], NUL terminated and truncated to fit.
+     *
+     * @return the length the whole text would have had, which is past [buffer] when it was truncated.
+     */
+    fun vsnprintf(buffer: MemorySegment, format: MemorySegment, args: MemorySegment): Int =
+        vsnprintf.invoke(buffer, buffer.byteSize(), format, args) as Int
 
     /**
      * `poll(2)` until one of [fds] is ready or [deadlineNanos] passes; null waits indefinitely.
