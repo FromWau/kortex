@@ -88,10 +88,14 @@ internal object WaylandLog {
             val line = call.allocate(LINE_BYTES)
             val wanted = LibC.vsnprintf(line, format, args)
             if (wanted <= 0) return
+            // The write blocks if nothing is draining fd 2, and is meant to: libwayland calls this from
+            // wl_abort too, where the line is the last thing the process says and must land before abort().
             LibC.write(STDERR_FD, line.asSlice(0L, minOf(wanted.toLong(), LINE_BYTES - 1L)))
         }
     }
 
+    // Reading args needs vsnprintf because a va_list is passed as a pointer here, which is System V's
+    // rule and not every ABI's.
     // display_handle_error's two formats, verbatim from libwayland 1.26.0's wayland-client.c.
     private val DROPPED = setOf("%s#%u: error %d: %s\n", "[destroyed object]: error %d: %s\n")
 
