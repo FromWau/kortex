@@ -92,8 +92,13 @@ public sealed interface OutputTransform {
  *
  * Every wl_output event is double-buffered: the compositor may re-send any of them independently, and
  * the set is only coherent once `done` arrives. Events accumulate into pending fields here and
- * [geometry] is replaced atomically on `done`, so a reader never observes half an update. At version 3 a
- * `zxdg_output_v1`'s own details arrive under the same `done`, so [xdgOutput] is read there too.
+ * [geometry] is replaced atomically on `done`. At version 3 a `zxdg_output_v1`'s own details arrive under
+ * the same `done`, so [xdgOutput] is read there too.
+ *
+ * A monitor that is reconfigured while it is on screen can publish one geometry carrying a fresh mode and
+ * scale beside a logical size the compositor has not yet resent, because Hyprland schedules the second
+ * `done` for a later turn of its loop. The next `done` corrects it. Nothing observes it at startup or on a
+ * hotplug, where no monitor is published until the round trip has already returned the final values.
  */
 internal class OutputListener {
     private val arena: Arena = Arena.ofShared()
