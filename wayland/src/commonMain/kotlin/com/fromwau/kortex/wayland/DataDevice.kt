@@ -14,6 +14,8 @@ import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asExecutor
@@ -100,18 +102,32 @@ internal class DataDevice private constructor(
         display.flush()
         val io = Dispatchers.IO.asExecutor()
         io.execute {
-            // A task each: a source writing the image first blocks on its full pipe until something reads it, so
-            // a text drained ahead of it would spend its whole bound waiting for bytes that cannot come yet.
-            val image = CompletableFuture.supplyAsync(
-                { drain(imagePipe, MAX_IMAGE_BYTES, ClipboardError.NoImage).flatMap(::decodeImage) },
-                io,
+            // What content is told if a drain throws instead of resolving to a Result: the types stay honest, but a
+            // technical failure must not read as though the drag offered nothing of that kind.
+            var carried = KortexDragOffer(
+                carried = dropped.types,
+                text = Err(ClipboardError.PipeFailed),
+                image = Err(ClipboardError.PipeFailed),
             )
-            var carried = dropped.announced
             try {
+                // A task each: a source writing the image first blocks on its full pipe until something reads it, so
+                // a text drained ahead of it would spend its whole bound waiting for bytes that cannot come yet.
+                // Submitted inside the try so a rejection still reaches the finally below, rather than stranding
+                // the drag with dropping left true.
+                val image = CompletableFuture.supplyAsync(
+                    { drain(imagePipe, MAX_IMAGE_BYTES, ClipboardError.NoImage).flatMap(::decodeImage) },
+                    io,
+                )
                 carried = KortexDragOffer(
                     carried = dropped.types,
                     text = drain(textPipe, MAX_TEXT_BYTES, ClipboardError.NoText).map(ByteArray::decodeToString),
-                    image = image.join(),
+                    // readPipeToEnd's own deadline starts only once the pool schedules this task; joined with a
+                    // bound of its own so scheduling delay alone cannot hang the drop.
+                    image = try {
+                        image.get(IMAGE_JOIN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+                    } catch (_: TimeoutException) {
+                        Err(ClipboardError.ReadTimedOut)
+                    },
                 )
             } finally {
                 // However a drain ended: left unposted, the drag would hover for good and its offer never be freed.
@@ -253,6 +269,11 @@ internal class DataDevice private constructor(
                 LibC.close(readFd)
             }
         }
+
+        // Slack over the image drain's own TRANSFER_TIMEOUT_MILLIS, for the wait to be scheduled on Dispatchers.IO
+        // that deadline does not cover.
+        private const val IMAGE_JOIN_SLACK_MILLIS = 1_000L
+        private const val IMAGE_JOIN_TIMEOUT_MILLIS = TRANSFER_TIMEOUT_MILLIS + IMAGE_JOIN_SLACK_MILLIS
 
         private const val WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE = 1
         private const val WL_DATA_DEVICE_SET_SELECTION = 1
