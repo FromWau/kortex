@@ -141,9 +141,9 @@ internal class KeyboardInput(
         }
     }
 
-    // Ctrl makes a key a shortcut, but xkb turns its character into a control code only where some configured
-    // layout has an ASCII one on that key. Level 3 is AltGr's, and reaches its character with Ctrl held too.
-    private fun typesText(state: XkbState, key: Int): Boolean = !ctrl || Xkb.atLevelThree(state, key)
+    // Ctrl makes a key a shortcut, but xkb still hands back a printable character where no configured layout
+    // has an ASCII one on that key. Only a character the key's own AltGr level carries was really typed.
+    private fun typesText(state: XkbState, key: Int): Boolean = !ctrl || Xkb.typesAltGrCharacter(state, key)
 
     fun onModifiers(
         data: MemorySegment, proxy: MemorySegment, serial: Int,

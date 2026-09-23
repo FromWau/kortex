@@ -43,6 +43,7 @@ internal object Xkb {
     private val stateNew = downcall("xkb_state_new", FunctionDescriptor.of(ADDRESS, ADDRESS))
     private val keyGetUtf32 =
         downcall("xkb_state_key_get_utf32", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
+    private val keysymToUtf32 = downcall("xkb_keysym_to_utf32", FunctionDescriptor.of(JAVA_INT, JAVA_INT))
     private val keyGetLayout =
         downcall("xkb_state_key_get_layout", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT))
     private val keyGetLevel =
@@ -105,8 +106,8 @@ internal object Xkb {
         if (layout == LAYOUT_INVALID) return Key.Unknown
         // Borrowed, not owned: xkb_state_get_keymap takes no reference and the state outlives the call.
         val keymap = stateGetKeymap.invoke(compiled.pointer) as MemorySegment
-        val keysym = baseKeysymOrNull(keymap, keycode, compiled.keyNamesFrom[layout])
-            ?: baseKeysymOrNull(keymap, keycode, layout)
+        val keysym = oneKeysymOrNull(keymap, keycode, compiled.keyNamesFrom[layout], BASE_LEVEL)
+            ?: oneKeysymOrNull(keymap, keycode, layout, BASE_LEVEL)
             ?: return Key.Unknown
         return composeKey(keysym)
     }
@@ -115,13 +116,25 @@ internal object Xkb {
     fun codePoint(state: XkbState, waylandKey: Int): Int =
         keyGetUtf32.invoke(state.compiled.pointer, waylandKey + EVDEV_OFFSET) as Int
 
-    /** Whether this key sits at level 3 under the modifiers in effect, the level AltGr reaches. */
-    fun atLevelThree(state: XkbState, waylandKey: Int): Boolean {
+    /** Whether the character this key produces right now is the one its own AltGr level carries on it. */
+    fun typesAltGrCharacter(state: XkbState, waylandKey: Int): Boolean {
         val compiled = state.compiled
         val keycode = waylandKey + EVDEV_OFFSET
         val layout = keyGetLayout.invoke(compiled.pointer, keycode) as Int
         if (layout == LAYOUT_INVALID) return false
-        return keyGetLevel.invoke(compiled.pointer, keycode, layout) as Int == LEVEL_THREE
+        if (keyGetLevel.invoke(compiled.pointer, keycode, layout) as Int != LEVEL_THREE) return false
+        // With Ctrl held xkb hands back an ASCII character another configured layout has on the key, at this
+        // level as at any other, so the level alone does not say the character came from it.
+        val own = levelThreeCharacter(compiled, keycode, layout)
+        return own != NO_CHARACTER && own == codePoint(state, waylandKey)
+    }
+
+    /** The character AltGr's level carries on this key under [layout], or [NO_CHARACTER] where it carries none. */
+    private fun levelThreeCharacter(compiled: CompiledState, keycode: Int, layout: Int): Int {
+        // Borrowed, not owned: xkb_state_get_keymap takes no reference and the state outlives the call.
+        val keymap = stateGetKeymap.invoke(compiled.pointer) as MemorySegment
+        val keysym = oneKeysymOrNull(keymap, keycode, layout, LEVEL_THREE) ?: return NO_CHARACTER
+        return keysymToUtf32.invoke(keysym) as Int
     }
 
     /** Whether the layout marks this key as one that repeats while held; modifiers and locks do not. */
@@ -140,20 +153,20 @@ internal object Xkb {
         val keycodes = (keymapMinKeycode.invoke(keymap) as Int)..(keymapMaxKeycode.invoke(keymap) as Int)
         val layouts = 0 until (keymapNumLayouts.invoke(keymap) as Int)
         val latinLayouts = layouts.filter { layout ->
-            keycodes.any { keycode -> baseKeysymOrNull(keymap, keycode, layout) in XK_SMALL_A..XK_SMALL_Z }
+            keycodes.any { keycode -> oneKeysymOrNull(keymap, keycode, layout, BASE_LEVEL) in XK_SMALL_A..XK_SMALL_Z }
         }
         val firstLatin = latinLayouts.firstOrNull() ?: return layouts.toList()
         return layouts.map { layout -> if (layout in latinLayouts) layout else firstLatin }
     }
 
-    /** The one keysym [keycode] has at [layout]'s base level; null unless it has [layout] and exactly one there. */
-    private fun baseKeysymOrNull(keymap: MemorySegment, keycode: Int, layout: Int): Int? {
+    /** The one keysym [keycode] has at [level] of [layout]; null unless it has [layout] and exactly one there. */
+    private fun oneKeysymOrNull(keymap: MemorySegment, keycode: Int, layout: Int, level: Int): Int? {
         // xkb would bring a layout the key lacks back into range, onto a layout the key was not asked about.
         if (layout >= keymapNumLayoutsForKey.invoke(keymap, keycode) as Int) return null
         return Arena.ofConfined().use { call ->
             val symsOut = call.allocate(ADDRESS)
-            val count = keymapKeyGetSymsByLevel.invoke(keymap, keycode, layout, BASE_LEVEL, symsOut) as Int
-            // As xkb_state_key_get_one_sym has it: a key that produces several keysyms has no one name.
+            val count = keymapKeyGetSymsByLevel.invoke(keymap, keycode, layout, level, symsOut) as Int
+            // As xkb_state_key_get_one_sym has it: several keysyms on one level are no single keysym.
             if (count != 1) return@use null
             symsOut
                 .get(ADDRESS, 0)
@@ -213,6 +226,9 @@ internal object Xkb {
     private const val KEYMAP_FORMAT_TEXT_V1 = 1
     private const val NO_FLAGS = 0
     private const val BASE_LEVEL = 0
+
+    // xkb_keysym_to_utf32 and xkb_state_key_get_utf32 both return 0 for a key or keysym that types nothing.
+    private const val NO_CHARACTER = 0
 
     // xkb numbers a key's levels from zero, so AltGr's third one is 2.
     private const val LEVEL_THREE = 2

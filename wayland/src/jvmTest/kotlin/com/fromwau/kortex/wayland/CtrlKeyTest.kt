@@ -52,6 +52,11 @@ class CtrlKeyTest {
     }
 
     @Test
+    fun `Ctrl commits nothing under us alone`() {
+        assertCtrlTypesNothing(layouts = US, activeLayout = FIRST, typedAlone = US_SEMICOLON)
+    }
+
+    @Test
     fun `a key at level 3 types its character with Ctrl held`() {
         withTextField { typist ->
             typist.useKeymap(compiledKeymap(DE), activeLayout = FIRST)
@@ -61,9 +66,19 @@ class CtrlKeyTest {
         }
     }
 
+    @Test
+    fun `Ctrl and AltGr commit nothing where level 3 carries no character of its own`() {
+        assertCtrlAtLevelThreeTypesNothing(key = KEY_SEMICOLON, typedAlone = DE_O_DIAERESIS)
+    }
+
+    @Test
+    fun `Ctrl and AltGr commit nothing where the character is another layout's`() {
+        assertCtrlAtLevelThreeTypesNothing(key = KEY_COMMA, typedAlone = DE_COMMA)
+    }
+
     /**
-     * Types the key `us` calls `;`, which [layouts] puts [typedAlone] and no ASCII character on. It must type
-     * that character on its own, and nothing at all with Ctrl held.
+     * Types the key `us` calls `;`, which types [typedAlone] under [layouts]. It must type that character on
+     * its own, and nothing at all with Ctrl held.
      */
     private fun assertCtrlTypesNothing(layouts: String, activeLayout: Int, typedAlone: String) {
         withTextField { typist ->
@@ -74,6 +89,23 @@ class CtrlKeyTest {
             typist.holding(CTRL_MASK) { typist.tap(KEY_SEMICOLON) }
 
             assertEquals(typedAlone, typist.typed, "Ctrl and that key typed into the text field under $layouts")
+        }
+    }
+
+    /**
+     * Types [key] under `us,de` with `de` active, where Ctrl makes xkb report a character `us` has on the key
+     * in place of the one `de`'s own level 3 carries. It must type [typedAlone] on its own, and nothing at all
+     * with Ctrl and AltGr held.
+     */
+    private fun assertCtrlAtLevelThreeTypesNothing(key: Int, typedAlone: String) {
+        withTextField { typist ->
+            typist.useKeymap(compiledKeymap(US_DE), activeLayout = SECOND)
+            typist.tap(key)
+            assertEquals(typedAlone, typist.typed, "the key did not type its own character under $US_DE")
+
+            typist.holding(CTRL_MASK or LEVEL_THREE_MASK) { typist.tap(key) }
+
+            assertEquals(typedAlone, typist.typed, "Ctrl, AltGr and that key typed into the text field")
         }
     }
 
@@ -181,14 +213,18 @@ class CtrlKeyTest {
         const val US_DE = "us,de"
         const val RU = "ru"
         const val DE = "de"
+        const val US = "us"
 
         // The layout wl_keyboard.modifiers locks as its group, counted as the keymap lists them.
         const val FIRST = 0
         const val SECOND = 1
 
-        // What the key us calls `;` types under ru and under de, and what AltGr and the comma key type under de.
+        // What the key us calls `;` types under each layout, and what the comma key types under de, with
+        // AltGr held and without.
         const val RU_ZHE = "ж"
         const val DE_O_DIAERESIS = "ö"
+        const val US_SEMICOLON = ";"
+        const val DE_COMMA = ","
         const val DE_MIDDLE_DOT = "·"
 
         // Control's and level 3's bits in wl_keyboard.modifiers.

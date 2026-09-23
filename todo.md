@@ -457,10 +457,14 @@ and the bar never has to learn where on the monitor the compositor put it.
 - [x] **Ctrl commits nothing into a text field, whatever the active layout puts on the key.** libxkbcommon
       1.13.2 turns a key's character into a control code only where some configured layout has an ASCII one on
       that key, and then from that one: under `us,ru` with `ru` active, the key `us` calls `;` reports `;`,
-      and under `ru` alone it reports `ж` (U+0436). `KeyboardInput` commits neither. A printable character
-      reaches the open text-input session only with Ctrl up, or with the key at level 3 (`Xkb.atLevelThree`),
-      which is AltGr's and which xkb reaches with Ctrl held too, so a layout that needs Ctrl+Alt for AltGr
-      keeps typing. (`CtrlKeyTest`, `KeyboardDeliveryTest`)
+      and under `ru` alone it reports `ж` (U+0436). `KeyboardInput` commits neither, nor `us`'s own `;`
+      under `us` alone. A printable character reaches the open text-input session only with Ctrl up, or where
+      it is the character the key's own level 3 carries (`Xkb.typesAltGrCharacter`). Level 3 is AltGr's, and
+      Control cannot cancel it: `FOUR_LEVEL`'s modifiers are Shift and LevelThree
+      (`/usr/share/X11/xkb/types/extra:8-17`), so Ctrl and AltGr held together still type AltGr's character.
+      The level alone does not settle it, since the borrowed ASCII arrives there as anywhere: under `us,de`
+      with `de` active, Ctrl+AltGr reports `;` on the `ö` key, whose level 3 is a dead key, and `,` on the
+      comma key, whose level 3 is `·`. (`CtrlKeyTest`)
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
       clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
       of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
