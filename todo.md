@@ -60,13 +60,16 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: eleven entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
-starts in a scene with a text field; under Surface presets, a popup's grab, which it never takes; under Keyboard
-and clipboard, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
-leaves `KeyboardDeliveryTest` proving only a value-based field, and a drag out that never starts, which tells the
-content that asked nothing; under Housekeeping, the protocol errors libwayland prints to stderr, the
-Compose error `KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, a closed surface's `wl_pointer`,
-which no test sees outlive it, and a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
+Next: seven entries are open, and each waits for a decision: under Surface presets, a popup's grab, which it never
+takes, the decoration kortex draws none of, and the requests back to the compositor a window makes none of; under
+Keyboard and clipboard, a drag out that never starts, which tells the content that asked nothing, a drag's own
+failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer; under
+Housekeeping, a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
+
+Not yet run: no test below has been run since `Window`, `Dialog` and `Popup` landed. The suite compiles and
+nothing in it has met a compositor since, so a test named in parentheses here is cover that exists rather than a
+result anyone has seen. That holds for every entry about windows, dialogs and popups, images on the clipboard,
+drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harnesses themselves.
 
 ## Foundations
 
@@ -220,13 +223,15 @@ which no test sees outlive it, and a dialog on a pinned parent, which no test sh
       (`SurfaceTest`, which pins `Closed`, `LeftComposition` and a dying connection's error, and
       `ClosedByCompositor` with `CompositorChoiceTest`; `MonitorTest`, which pins `MonitorUnplugged` on both of
       its paths; and `KortexShellTest` and `MultiSurfaceTest` for a monitor plugged in)
-- [ ] **Compose starts AWT's toolkit in a scene with a text field.** `-Xlog:class+load` shows
-      `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not anything touches the
-      clipboard, and before `ComposeClipboard` loads when something does, so the clipboard does not start it.
-      Compose's `RectManager` schedules its debounced layout-rect callbacks through `postDelayed`, which launches
-      each on Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event
-      queue: the classes loaded just before `XToolkit` are that path's, from `postDelayed` through
-      `SwingDispatcher`, `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's.
+- [x] **Compose starts AWT's toolkit in a scene with a text field, and the clipboard is not what starts it.**
+      `-Xlog:class+load` shows `sun.awt.X11.XToolkit` loading in a scene with a text field whether or not
+      anything touches the clipboard, and before `ComposeClipboard` loads when something does. Compose's
+      `RectManager` schedules its debounced layout-rect callbacks through `postDelayed`, which launches each on
+      Skiko's `MainUIDispatcher` (`Actuals.skiko.kt:30`, `Actuals.desktop.kt:22-23`), Swing's event queue: the
+      classes loaded just before `XToolkit` are that path's, from `postDelayed` through `SwingDispatcher`,
+      `EventQueue` and `Toolkit`. Those callbacks run on AWT's event thread, not the loop's. Keeping the toolkit
+      out of the process means replacing that dispatcher, which is Skiko's rather than kortex's ("Deliberately
+      not doing"). A class-load log is what this rests on; no test reads it.
 - [x] **Nothing of an ended surface's content runs on kortex's loop after it has ended.** A scene's close
       drains the work that content has queued and then closes its `SurfaceWork`, and `LoopQueue` neither takes
       nor runs anything under an owner that has closed, so what that work throws is recorded before its surface's
@@ -313,6 +318,20 @@ which no test sees outlive it, and a dialog on a pinned parent, which no test sh
       than the one surface it asked for, which is the application for a call in its own content and the surface
       holding the call otherwise, where every popup's lands.
       (`LayerGeometryTest`, `SurfaceTest`, `SurfaceSizeGuardTest`)
+- [ ] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
+      A window asks `zxdg_decoration_manager_v1` for server side and reads the answer; a compositor that answers
+      client side, or says nothing, or advertises no decoration manager at all, ends the window with
+      `Err(KortexError.ClientSideDecorationRequired)` rather than putting a window on screen with no title bar to
+      move it by. Hyprland 0.56.2 answers server side to every ask and to `unset_mode`
+      (`XDGDecoration.cpp:19`, `:27`, `:40`), so nothing here can take that branch and it is covered by reading.
+      Open: a title bar, its theme, its buttons and eight resize edges, which is a body of work of its own, for
+      the day a compositor that needs them becomes a target.
+- [ ] **Content reads a window's states and asks the compositor for none of them.** `WindowState` publishes the
+      `maximized`, `fullscreen`, `tiled` and `activated` every `xdg_toplevel.configure` carries, and there is no
+      call to maximize, fullscreen or minimize a window, none to move or resize one, and none to raise it. Every
+      setting a kortex surface has is one its caller states and kortex sends. Open: a request back is a different
+      shape, one the compositor answers when it likes and may refuse, and whether kortex takes that on is
+      undecided.
 
 ## Raising and changing a surface while the host runs
 
@@ -354,10 +373,15 @@ the thickness its own call asks for, so one button takes the bar to 96 dp and ba
 text sit behind `remember` in that content, so both stand through the resize, and a readout beside them is the size
 the compositor gave the bar. A right click on the bar's own background, not on its buttons or its text field, shows
 a `ContextMenu` from the bar's content, just below the bar at the click's x; a second right
-click moves it, and picking an item closes it through `close()`. A bar whose content crashes has the crash appended
-to the crash log, and a bar that ends, however it ended, has an `Osd` in its place saying so, until a click on it
-brings the bar back. The menu is an `xdg_popup` parented to the bar, so its point is measured from the bar itself,
-and the bar never has to learn where on the monitor the compositor put it.
+click moves it, and picking an item closes it through `close()`; nothing else takes it away, a click on another
+window included. Another button opens a `Window` from the bar's content, with a click counter behind `remember`
+and a readout of the size the compositor gave it, and the same button takes it away again. A close the compositor
+asks for, its own title bar's button say, opens a `Dialog` on that window instead of closing it: "keep it" calls
+`declineClose()`, so the next ask is seen as one, and "close it" takes the window's call out of composition. A bar
+whose content crashes has the crash appended to the crash log, and so do the window, the dialog and the menu; a bar
+that ends, however it ended, has an `Osd` in its place saying so, until a click on it brings the bar back. The menu
+is an `xdg_popup` parented to the bar, so its point is measured from the bar itself, and the bar never has to learn
+where on the monitor the compositor put it.
 
 ## Polish
 
@@ -473,8 +497,8 @@ and the bar never has to learn where on the monitor the compositor put it.
 - [x] **Copy and paste in a surface's top-level content go through the Wayland selection, never AWT's
       clipboard.** Each shell binds `wl_data_device_manager` once, asks for v4, takes a `wl_data_device` for a seat
       of its own, and provides Compose's `LocalClipboard` and `LocalClipboardManager` around every surface's
-      content. Content outside a Compose `Popup` or `Dialog` that calls either reaches that one clipboard. A copy offers
-      UTF-8 under exactly `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting
+      content. Content outside a Compose `Popup` or `Dialog` that calls either reaches that one clipboard. A copy
+      offers UTF-8 under exactly `text/plain;charset=utf-8`, `text/plain`, `UTF8_STRING`, `STRING` and `TEXT`, quoting
       the serial of the latest key, keyboard enter or button, and reads the text out of the entry it is handed
       off the loop thread. `setClipEntry(null)` clears the selection under the same serial, whichever client
       made it, and the text this client set stops being its own at once.
@@ -505,14 +529,13 @@ and the bar never has to learn where on the monitor the compositor put it.
       `ComposeClipboardTest` and `InputDeliveryTest`; `KeyboardDeliveryTest` for the value-based field;
       `ClipboardFocusTest`, with the desktop free, for both field kinds, the offered types, a clear's own
       text, focus leaving and focus moving between the shell's surfaces)
-- [ ] **`KeyboardDeliveryTest` proves keyboard delivery for a value-based field only.** Its harness drives a
-      scene's `render` and key delivery from the test thread but hands the scene a separate single-thread
-      executor as its `frameContext`; a real shell's own loop thread does both instead. A
-      `BasicTextField(TextFieldState)` put through it fails as multithreaded access to `SnapshotStateObserver`,
-      from `FocusTargetNode.invalidateFocus` running on that executor while the test thread drives the scene,
-      so typing, the named and modified keys, Page Down and a throwing key handler are proven for a
-      value-based field only. `ClipboardFocusTest` proves a state-based field's Ctrl+C and Ctrl+V instead,
-      through a real shell whose one loop thread the harness problem does not reach.
+- [x] **A test scene runs content on the thread that renders it, so both kinds of text field are testable.**
+      `onScene` (`DrivenScene.kt`) gives every scene a test drives the one thread a shell gives its own, instead
+      of the separate executor that made a `BasicTextField(TextFieldState)` fail as multithreaded access to
+      `SnapshotStateObserver`, so a state-based field has a typing case beside the value-based one.
+      `ClipboardFocusTest`, with the desktop free, covers a state-based field's Ctrl+C and Ctrl+V through a real
+      shell. What the new case is worth, and what the four harnesses now on `onScene` are worth, waits on a run
+      none of them has had. (`KeyboardDeliveryTest`, `KeyRepeatTest`, `DragAndDropTest`, `KeymapFailureTest`)
 - [x] **A keymap kortex cannot use costs the keymap in effect nothing.** `Xkb.stateFromKeymap` answers a
       keymap text xkb rejects with its own `UnusableKeymap`, never `KortexError`, since no public entry point
       of `:wayland` can ever observe it; `LibC.mmapPrivateRead` answers a mapping failure with the generic
@@ -524,9 +547,10 @@ and the bar never has to learn where on the monitor the compositor put it.
       compiled keymap `xkb_state_new` answers with no state stays a `check`: that one is xkb handed something
       impossible, not a compositor's doing. The refusal reaches no host, since a compositor that sends an
       unusable keymap is a broken compositor and kortex has no channel for one. (`KeymapFailureTest`)
-- [ ] **Content inside a Compose `Popup` or `Dialog` copies and pastes through AWT's clipboard.** kortex's own
-      `Popup` and `Dialog` are Wayland surfaces with scenes of their own, so content in either is under kortex's
-      clipboard; this is about Compose's two, which a caller can still reach for. Each runs in a
+- [x] **Content that copies and pastes reaches the desktop's clipboard, inside a Compose `Popup` or `Dialog`
+      too, where Compose's own `LocalClipboard` is AWT's.** kortex's own `Popup` and `Dialog` are Wayland
+      surfaces with scenes of their own, so content in either is under kortex's clipboard; this is about
+      Compose's two, which a caller can still reach for. Each runs in a
       scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
       inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
       ui sources, `Popup.skiko.kt:489` and `:495`, and `Dialog.skiko.kt:222` and `:240`, put their content in
@@ -537,7 +561,9 @@ and the bar never has to learn where on the monitor the compositor put it.
       creates (`RootNodeOwner.skiko.kt:471-472`). No seam short of reflection or copying Compose code reaches
       it: `PlatformContext` carries no clipboard, `LocalComposeSceneContext` is internal, and
       `CanvasLayersComposeScene` takes no `ComposeSceneContext`. `LocalKortexClipboard.current`, which no
-      layer provides again, is still the shell's there. (`ComposeClipboardTest`)
+      layer provides again, is still the shell's there, which is where content inside one of Compose's two
+      copies and pastes, and `KortexClipboard`'s own doc says which of the two clipboards is which.
+      (`ComposeClipboardTest`)
 - [x] **Copy and paste images, as PNG and JPEG.** `KortexClipboard.setImage` and `readImage` carry an
       `ImageBitmap` both ways, beside the text calls, and `ClipboardError.NoImage` says the clipboard holds
       nothing either decodes. An image copy offers `image/png` and `image/jpeg`, encoded as the copy is made
@@ -586,6 +612,11 @@ and the bar never has to learn where on the monitor the compositor put it.
       of the two failure routes into a scene skips the gate the other sets. Open: whether `contentFailed` should
       be the single door, which means `KortexScene` publishing a way in, or whether the drag path should reach
       `record` by another route.
+- [ ] **A drag out of kortex is a copy and nothing else.** `copy` is the one action kortex declares on a
+      `wl_data_source`, and the one it asks for on an offer it takes (`DataDevice.kt`), so content can neither
+      drag something out as a move nor let the user choose. Open: `move` means telling the content that dragged
+      that the drop happened, so it can remove what left, which is the channel the entry above wants; `ask` means
+      answering the compositor mid-drag, once the user has picked an action out of a menu the compositor drives.
 
 ## Housekeeping
 
@@ -697,38 +728,43 @@ and the bar never has to learn where on the monitor the compositor put it.
       (`OutputRescaleTest`, `ProtocolVersionTest`, `VirtualPointerClickTest`, `SurfaceLifetimeTest`,
       `SurfaceTeardownTest`). Each window is now only as long as delivery takes, so the pointer tests
       still want nobody at the mouse, and a fullscreen game has kept their moves off the bar altogether.
-- [ ] **libwayland prints each protocol error to stderr, outside every test's results.** kortex installs no log
-      handler, so libwayland's default, `wl_log_stderr_handler` (1.26's `wayland-util.c`), writes a protocol
-      error to the process's own stderr as the error is read: `wl_registry#2: error 0: global wl_output
-      (2147483647) is unavailable` for each connection `killConnection` (`KillConnection.kt`) ends, in
-      `LayerShellSurfaceTest` and `SurfaceTest`. Gradle's results record only `System.err`, so the line shows on
-      the console and in no test's `system-err`. A host's stderr gets the same line, though the error already
-      comes back typed from `WaylandDisplay.requireAlive`. Open: a handler through `wl_log_set_handler_client`,
-      whose `void (*)(const char *fmt, va_list args)` an upcall can read only by handing the `va_list` to
-      `vsnprintf`, and what it does with the text: drop it, since the typed error carries the same facts, or
-      pass it on somewhere a host can reach.
-- [ ] **`KortexSceneTest` prints a Compose error on every run.** One test's content throws while recomposing,
-      on purpose, and Compose prints its own report of it, "Error was captured in composition." and the
-      `IllegalStateException` it caught, 109 lines of the class's `system-err`. `SurfaceTest` keeps the same report
-      off its output with `capturingStderr` (`LoopThread.kt`), which the `compose` module's tests have no copy
-      of. Open: a helper there, or one test fixture both modules share.
-- [ ] **No test sees a closed surface's `wl_pointer` outlive it.** `KortexSurface.close` releases the
-      surface's `wl_pointer`, then its `wl_seat`. On Hyprland 0.56.2 a released `wl_seat` leaves the list its
-      seat manager sends enters, motion and buttons through (`SeatManager.cpp`'s `SSeatResourceContainer`
-      erases it on the seat's destroy event), so that seat's pointer gets none of them again, whatever became
-      of it. `SurfaceTeardownTest` passes with `pointerInput?.release()` removed from `close`, and with
-      `PointerInput.release` freeing its stubs while the proxy stays alive, the half that crashes a process.
-      Open: a desktop-free test that keeps its `wl_seat` bound while it releases a pointer taken from it and
-      then clicks, where a pointer whose stubs go before its proxy would take the test worker down; or accept
-      it as covered by the order in `release()`.
-- [ ] **`KeyRepeatTest` prints Compose's warning about snapshot registrations on two threads.** Its `a shell's
-      loop deadline is the earliest key repeat due on any of its surfaces` prints `GlobalSnapshotManager:
-      concurrent registrations on multiple threads might lead to races` twice, run alone or with the rest of the
-      class. Its `withShellKeyboards` keeps a `KortexScene` on an executor thread, only so each keyboard has a
-      scene to deliver to, beside a shell whose registrations run on the test thread, and Compose 1.12 prints
-      the warning whenever its registrations have run on more than one thread (`warnIfMultipleThreads` in
-      `GlobalSnapshotManager.skiko.kt`). The shell itself keeps every registration on its loop thread. Open: give
-      that scene an immediate dispatcher, which Compose does not register at all, or the shell's own loop.
+- [x] **libwayland says nothing kortex has already said typed.** `WaylandLog` (`LibWayland.kt`) takes the
+      client-side log handler through `wl_log_set_handler_client` as `LibWayland` is first touched, reads the
+      `va_list` its `void (*)(const char *fmt, va_list args)` carries by handing it to `vsnprintf`, which is the
+      only way to read one on this ABI, and writes the line to fd 2 itself, the file descriptor libwayland's own
+      default writes to and the one `wl_abort`'s last line has to reach. It drops two formats and no others:
+      `display_handle_error`'s, verbatim from libwayland 1.26.0, since `WaylandDisplay.requireAlive` hands the
+      host the same facts typed and a second channel for them buys nothing. So `wl_registry#2: error 0: global
+      wl_output (2147483647) is unavailable`, one per connection `killConnection` (`KillConnection.kt`) ends in
+      `LayerShellSurfaceTest` and `SurfaceTest`, goes no further than the handler. Nothing asserts that: the
+      handler writes past `System.err`, so no test's results can hold the line, and a run's own console is where
+      its absence shows. No console has been read since.
+- [x] **Each module's tests can keep a deliberate throw's report out of their own results.** `capturingStderr`
+      has a copy in each test source set, `compose`'s in `CapturingStderr.kt` and `wayland`'s in `LoopThread.kt`,
+      each naming the other and saying why the second exists: `wayland` depends on `compose`, so a helper in
+      `wayland` cannot flow back, and a shared fixture module for one function that swaps `System.err` costs more
+      than the copy. `KortexSceneTest`'s content that throws while recomposing now runs inside it, so Compose's
+      own "Error was captured in composition." and the 109 lines after it land in the capture instead of the
+      class's `system-err`. Only a run shows the results are clean, and none has been made since.
+      (`KortexSceneTest`, `SurfaceTest`)
+- [x] **A released `wl_pointer` has a test watching it take no further button.** `PointerReleaseOrderTest` binds
+      a `wl_seat` of its own beside a placed surface, takes a pointer from it, clicks the surface once to
+      prove that pointer is being dispatched to at all, gives the pointer back while the seat stays bound, and
+      clicks again: Hyprland 0.56.2 sends motion and buttons to every `wl_pointer` of every seat resource a
+      focused client holds, so a pointer whose stubs went before its proxy would be dispatched through freed
+      code and take the test worker down, where `SurfaceTeardownTest` sees nothing because the surface it
+      closes gives its own seat back in the same breath. `KortexSurface.close` releases the pointer before the
+      seat, and `PointerInput.release` frees its stubs only after the proxy is destroyed. The class needs the
+      desktop to itself, since it clicks with a virtual pointer, and has not been run.
+- [x] **`KeyRepeatTest` keeps one snapshot registration alive at a time, so Compose has no pair to warn about.**
+      Its `withShellKeyboards` kept a `KortexScene` on an executor thread, only so each keyboard had a scene to
+      deliver to, beside a shell whose registrations ran on the test thread, and Compose 1.12 prints
+      `GlobalSnapshotManager: concurrent registrations on multiple threads might lead to races` as one
+      registration starts while another live one sits on a different thread (`warnIfMultipleThreads` in
+      `GlobalSnapshotManager.skiko.kt`). That scene is on `onScene` now, whose `Dispatchers.Unconfined` needs no
+      dispatch, and Compose keeps a registration only for a dispatcher that does; the shell itself always kept
+      every registration on its loop thread. The warning is a `println`, so a class's `system-out` is where its
+      absence shows, and none has been read since. (`KeyRepeatTest`)
 - [ ] **A dialog on a pinned parent could segfault Hyprland.** `Dialog` sends `xdg_toplevel.set_parent` naming
       the window's toplevel as the dialog's own toplevel is created, ahead of the buffer-less commit that maps
       it, so the dialog has no window of its own yet when the request lands. Hyprland 0.56.2's `set_parent`
@@ -744,3 +780,9 @@ and the bar never has to learn where on the monitor the compositor put it.
 - A per-surface density override. The reference takes `density = Density(2f)` and reads
   `GDK_SCALE`/`QT_SCALE_FACTOR`; kortex takes density from each surface's `preferred_buffer_scale`, so an
   override would only zoom content its dp values already size.
+- An image on Compose's own `LocalClipboard`. Its image entry is a `java.awt.Image` inside a `Transferable`, and
+  reading one starts AWT's toolkit; the entry kortex provides there carries text alone. Content that copies or
+  pastes an image calls `LocalKortexClipboard`, which encodes and decodes through skia.
+- Replacing Skiko's `MainUIDispatcher`. It is what runs Compose's debounced layout-rect callbacks on Swing's event
+  queue, which is what starts AWT's toolkit in any scene with a text field; the dispatcher is Skiko's, not
+  kortex's, and swapping it is a fork of somebody else's frame scheduling.
