@@ -56,10 +56,10 @@ class CrashLogTest {
             val headers = log.lineSequence().mapNotNull { CRASH_HEADER.matchEntire(it) }.toList()
 
             assertEquals(2, headers.size, "expected one ISO-8601-headed entry per crash; log:\n$log")
-            assertEquals("bar", headers[0].groups["namespace"]?.value)
+            assertEquals("bar", headers[0].groups["surface"]?.value)
             assertEquals("Composition", headers[0].groups["kind"]?.value)
             assertTrue("first boom" in log)
-            assertEquals("menu", headers[1].groups["namespace"]?.value)
+            assertEquals("menu", headers[1].groups["surface"]?.value)
             assertEquals("KeyInput", headers[1].groups["kind"]?.value)
             assertTrue("second boom" in log)
         } finally {
@@ -97,7 +97,7 @@ class CrashLogTest {
     }
 
     private companion object {
-        // The header crashLogEntry writes for each crash: an ISO-8601 instant, the namespace, then the kind.
-        val CRASH_HEADER = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z (?<namespace>\S+) (?<kind>\w+)""")
+        // The header crashLogEntry writes for each crash: an ISO-8601 instant, the surface name, then the kind.
+        val CRASH_HEADER = Regex("""\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z (?<surface>\S+) (?<kind>\w+)""")
     }
 }

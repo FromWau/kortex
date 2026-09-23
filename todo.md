@@ -60,10 +60,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: six entries are open, and each waits for a decision: under Surface presets, a popup's grab, which it never
+Next: seven entries are open. Six wait for a decision: under Surface presets, a popup's grab, which it never
 takes, the decoration kortex draws none of, and the requests back to the compositor a window makes none of; under
 Keyboard and clipboard, a drag out that never starts, which tells the content that asked nothing, a drag's own
-failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer.
+failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer. The
+seventh is work rather than a decision: under Surface presets, nested popups taken down outermost first, which
+xdg-shell forbids.
 
 Not yet run: no test below has been run since `Window`, `Dialog` and `Popup` landed. The suite compiles and
 nothing in it has met a compositor since, so a test named in parentheses here is cover that exists rather than a
@@ -284,6 +286,15 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       `wl_seat` and the serial of the input that opened the popup, both new in `Popup`'s public signature, and
       taking one gives the popup the user's keyboard for as long as it is up, which would put every popup test
       in a session kept free for it.
+- [ ] **Nested popups are taken down outermost first, which xdg-shell forbids.** `KortexShell.takeDown` closes
+      a slot's surface, and both the reconcile that ends slots and the shell's own close walk `placed` in the
+      order surfaces were placed, a parent before the popups opened from its content. Destroying an outer
+      `xdg_popup` while a popup opened from it is still alive is `xdg_wm_base.not_the_topmost_popup`
+      (`xdg-shell.xml:1285-1286`). Hyprland 0.56.2 checks nothing of the kind, so it is a portability defect
+      rather than a live one, and nothing in the tree nests popups; `XdgPopupSurface.popupParent` parents a
+      popup to a popup on purpose, so the path is real. Open: closing a slot's own popups innermost first
+      before the slot itself, wherever a surface is taken down, as a rebuild already does through
+      `KortexShell.endPopupsUnder`.
 - [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
       anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
       `ext-session-lock-v1`. (`PresetTest`, `SurfacePresetTest`)
@@ -350,8 +361,11 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       reason and the run goes on. A changed `monitor` or `namespace` cannot be sent at all, since
       `get_layer_surface` fixes both, so kortex puts a new layer surface around the same composition: the
       content keeps its state and its running effects, and reads the size it last had until the new configure
-      arrives. Only the namespace half is tested: this desktop has one monitor, so a changed `monitor` is
-      covered by reading rather than by a test, and takes the identical path from `rebuildsOver` on.
+      arrives. A popup open in that content cannot come along, since the protocol fixes a popup's parent as the
+      popup is created, so the rebuild ends every popup under it as `Ok(SurfaceEnd.LeftComposition)`, innermost
+      first and before the old surface is destroyed, while the popup's own call stands. Only the namespace half
+      is tested: this desktop has one monitor, so a changed `monitor` is covered by reading rather than by a
+      test, and takes the identical path from `rebuildsOver` on.
       (`LiveSettingsTest`, `LiveKeyboardTest`, `SurfaceRebuildTest`)
 - [x] **A surface can be aimed at a chosen monitor.** `LayerSurface`'s `monitor` puts a surface on the
       `wl_output` behind a `Monitor` that `rememberMonitors()` lists, whose `name` is `wl_output.name`, the same
@@ -764,6 +778,14 @@ where on the monitor the compositor put it.
       dispatch, and Compose keeps a registration only for a dispatcher that does; the shell itself always kept
       every registration on its loop thread. The warning is a `println`, so a class's `system-out` is where its
       absence shows, and none has been read since. (`KeyRepeatTest`)
+- [x] **A monitor's true logical size and `ContextMenu`'s flip parted company in this spec.**
+      `OutputGeometry.logicalWidth` and `logicalHeight` were given a protocol-reported value so that the flip
+      `SurfaceConfig.contextMenu` computes would be measured against the right screen size, and `ContextMenu`
+      moved onto `Popup` in the same branch, where the compositor's own positioner decides the flip and reads
+      no size from kortex. Nothing is broken: both fields are public API a host reads for its own layout, and
+      `SurfaceConfig.contextMenu` still computes and is still covered. Only the link between the two is gone,
+      and this entry is here so the next reader does not go looking for it.
+      (`OutputGeometryTest`, `MenuAnchorTest`)
 
 ## Deliberately not doing
 

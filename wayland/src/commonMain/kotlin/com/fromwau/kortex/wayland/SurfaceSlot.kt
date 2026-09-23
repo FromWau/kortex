@@ -57,6 +57,12 @@ internal class SurfaceSlot(
     /** What the surface whose content this call is in is built on, which a popup here is parented to. */
     val parentRole: SurfaceRole? get() = parent?.surface?.role
 
+    /** What names the surface whose content this call is in; null for a call in the application's own content. */
+    val parentName: String? get() = parent?.scene?.namespace
+
+    /** Whether this call is in [other]'s content, or in the content of a surface opened from it. */
+    fun under(other: SurfaceSlot): Boolean = generateSequence(parent) { it.parent }.any { it === other }
+
     // The settings its call asks for while in composition, and null once it has left. Loop thread only.
     var wanted: SurfaceSettings? = null
 

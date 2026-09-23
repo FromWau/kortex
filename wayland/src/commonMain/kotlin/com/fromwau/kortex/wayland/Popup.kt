@@ -38,6 +38,10 @@ import androidx.compose.ui.unit.IntOffset
  * application or on the desktop, leaves it open. Dismiss it by taking the call out of composition, from a click on
  * one of its own items, say, or from a click elsewhere in your own content.
  *
+ * A popup belongs to the surface it opened over for as long as it lives, and cannot be moved to another. So it also
+ * ends with `Ok(SurfaceEnd.LeftComposition)` when that surface is moved to another monitor or namespace, while this
+ * call stands: open it again by taking the call out of composition and putting it back.
+ *
  * Once the popup has ended, in any of the ways [SurfaceStatus.Ended] lists, the call shows nothing until you
  * take it out of composition and put it back, which opens a popup again and takes [state] with it.
  *

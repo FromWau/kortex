@@ -55,8 +55,15 @@ public sealed interface KortexError : IError {
     /** Allocating a shared-memory buffer failed at [step]. */
     public data class ShmAllocationFailed(public val step: ShmStep) : KortexError
 
-    /** Content on the surface named [namespace] threw and runs no more; [failure] says what it was doing. */
-    public data class SurfaceCrashed(public val namespace: String, public val failure: ContentFailure) : KortexError
+    /**
+     * Content on one of your surfaces threw and runs no more; [failure] says what it was doing.
+     *
+     * @property surface what names that surface: a [LayerSurface]'s `namespace`, a [Window]'s or a [Dialog]'s
+     *   `title`, and for a [Popup] or a [ContextMenu] the name of the surface it opened over followed by
+     *   `/popup`. Two popups open over the same surface are named alike, so read it as where a crash happened
+     *   rather than as an identity.
+     */
+    public data class SurfaceCrashed(public val surface: String, public val failure: ContentFailure) : KortexError
 
     /**
      * Your application's own code threw: the content of `kortexApplication`, or UI placed directly in it rather than

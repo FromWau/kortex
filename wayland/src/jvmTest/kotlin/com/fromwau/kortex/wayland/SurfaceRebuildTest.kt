@@ -21,9 +21,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.PointerInputModifierNode
 import androidx.compose.ui.platform.InspectorInfo
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexSurfaceHandle
@@ -161,6 +163,57 @@ class SurfaceRebuildTest {
         }
     }
 
+    /**
+     * `xdg_surface.get_popup` and the layer shell's own `get_popup` fix a popup's parent as it is created, so a
+     * popup cannot be moved to the surface a rebuild puts in its parent's place.
+     */
+    @Test
+    fun `a rebuild takes the popup open in its content down with it`() {
+        val asked = Asked()
+        val watch = Watch()
+        val menu = SurfaceState()
+        val showing = mutableStateOf(false)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface(
+                namespace = asked.namespace.value,
+                anchor = asked.anchor.value,
+                width = asked.width.value.dp,
+                height = asked.height.dp,
+                state = watch.state,
+            ) {
+                if (showing.value) Popup(at = MENU_AT, width = MENU_SIDE, height = MENU_SIDE, state = menu) { Grey() }
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+
+            showing.value = true
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { menu.status is SurfaceStatus.OnScreen },
+                "the popup never reached the screen: ${menu.status}",
+            )
+
+            asked.namespace.value = SECOND_NAMESPACE
+
+            awaitNamespace(shell, SECOND_NAMESPACE)
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { menu.hasEnded },
+                "the popup outlived the layer surface it was opened over",
+            )
+            menu.assertEnded(
+                Ok(SurfaceEnd.LeftComposition),
+                "the popup its parent's rebuild took down ended some other way",
+            )
+            assertFalse(watch.state.hasEnded, "the rebuild ended the surface the popup was opened over")
+            assertEquals(
+                1, shell.shownSurfaces.size,
+                "the shell holds more than the rebuilt surface, so a popup of its parent is still placed",
+            )
+        }
+    }
+
     @Test
     fun `a crash after a rebuild names the namespace its content was on`() {
         val namespace = mutableStateOf(FIRST_NAMESPACE)
@@ -188,7 +241,7 @@ class SurfaceRebuildTest {
             )
             val crash = speck.crashOrFail("content that threw after the rebuild did not end with a crash")
             assertEquals(
-                SECOND_NAMESPACE, crash.namespace,
+                SECOND_NAMESPACE, crash.surface,
                 "the crash named a surface the content was no longer on",
             )
             assertEquals(DRAW_FAILURE, crash.failure.cause.message, "the crash did not carry what the draw threw")
@@ -229,7 +282,7 @@ class SurfaceRebuildTest {
             )
             val crash = speck.crashOrFail("the cleanup that threw as the scene went did not end with a crash")
             assertEquals(
-                FIRST_NAMESPACE, crash.namespace,
+                FIRST_NAMESPACE, crash.surface,
                 "the crash named the surface the rebuild asked for and never made",
             )
             assertEquals(CLEANUP_FAILURE, crash.failure.cause.message, "the crash did not carry what cleanup threw")
@@ -276,7 +329,7 @@ class SurfaceRebuildTest {
             )
             val crash = speck.crashOrFail("content that threw as its pointer was given back did not crash")
             assertEquals(
-                FIRST_NAMESPACE, crash.namespace,
+                FIRST_NAMESPACE, crash.surface,
                 "the crash named a surface its content was never on",
             )
             val failure = assertIs<ContentFailure.PointerInput>(
@@ -446,6 +499,10 @@ class SurfaceRebuildTest {
         val PROBE_AT = Offset(1f, 1f)
         const val ENTERED_AT_MILLIS = 1L
         const val PRESSED_AT_MILLIS = 2L
+
+        /** A point inside the speck, and a popup small enough to open beside it wherever it is constrained. */
+        val MENU_AT = IntOffset(1, 1)
+        val MENU_SIDE = 24.dp
 
         const val PUMP_MILLIS = 4_000L
         const val SETTLE_MILLIS = 500L

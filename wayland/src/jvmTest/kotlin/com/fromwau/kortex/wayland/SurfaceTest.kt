@@ -384,7 +384,7 @@ class SurfaceTest {
         onApplication(content) { shell ->
             assertTrue(shell.pumpOrFail(PUMP_MILLIS) { speck.hasEnded }, "the crashed surface ended nothing")
             val crash = speck.crashOrFail("an effect that threw did not end the surface with SurfaceCrashed")
-            assertEquals(NAMESPACE, crash.namespace, "the crash named another surface")
+            assertEquals(NAMESPACE, crash.surface, "the crash named another surface")
             assertIs<ContentFailure.Composition>(crash.failure, "the crash was not the effect's")
             assertEquals(EFFECT_FAILURE, crash.failure.cause.message, "the crash did not carry what the effect threw")
 

@@ -24,8 +24,18 @@ public interface KortexApplicationScope {
 }
 
 /**
- * Runs your application: the surfaces on screen are the ones [content] calls, [LayerSurface] or a preset such as
- * [Bar].
+ * Runs your application: the surfaces on screen are the ones [content] calls, each for as long as its call is in
+ * composition.
+ *
+ * There are four kinds. [LayerSurface], and the presets over it such as [Bar], put a surface of your own where a
+ * desktop puts a panel, a dock or a wallpaper: pinned to a monitor's edges, in a layer above or below the
+ * windows, and able to reserve the space other windows are tiled around. [Window] is an ordinary application
+ * window, which the compositor places, sizes and lists beside every other. [Dialog] is a window the compositor is
+ * told belongs to the window whose content showed it. [Popup], and [ContextMenu] over it, opens a menu, a tooltip
+ * or a popover over the surface whose content called it, stacked above that surface.
+ *
+ * A window, a dialog and a popup can be opened from a surface's content as well as from here, so a bar can show a
+ * menu and a window can show a dialog.
  *
  * ```kotlin
  * fun main() {

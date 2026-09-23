@@ -57,14 +57,13 @@ private val SurfaceSettings.placedOn: Monitor?
         is ToplevelSettings, is PopupSettings -> null
     }
 
-/** What the compositor calls a surface these settings place, and the name a crash on it is reported under. */
-private val SurfaceSettings.reportedAs: String
-    get() = when (this) {
-        is LayerSettings -> config.namespace
-        is ToplevelSettings -> title
-        // A popup carries no name of its own anywhere in the protocol, so this is the only one there is.
-        is PopupSettings -> "popup"
-    }
+/** What names a surface these settings place from [slot], wherever a crash of its content is reported. */
+private fun SurfaceSettings.reportedAs(slot: SurfaceSlot): String = when (this) {
+    is LayerSettings -> config.namespace
+    is ToplevelSettings -> title
+    // Nothing in the protocol names a popup, so it takes the name of the surface it opened over.
+    is PopupSettings -> "${checkNotNull(slot.parentName) { POPUP_WITHOUT_PARENT }}/popup"
+}
 
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
 private class HostClipboard(clipboard: TextClipboard) : KortexClipboard by clipboard
@@ -361,6 +360,9 @@ internal class KortexShell private constructor(
             OutputChoice.Unplugged -> return end(slot, Ok(SurfaceEnd.MonitorUnplugged))
         }
         slot.surface?.let { surface ->
+            // xdg-shell fixes a popup's parent as the popup is created, so none of these can be moved to the
+            // surface taking over, and one left behind would draw into a parent the compositor no longer has.
+            endPopupsUnder(slot)
             slot.surface = null
             surface.detach()
             surface.close()
@@ -385,7 +387,7 @@ internal class KortexShell private constructor(
             OutputChoice.Unplugged -> return report(slot, Ok(SurfaceEnd.MonitorUnplugged))
         }
         // Only a wake on a crash: the next pass reads the scene's first failure, which this one may not be.
-        val scene = SurfaceScene(settings.reportedAs, loopQueue, platform, onCrash = { wake() })
+        val scene = SurfaceScene(settings.reportedAs(slot), loopQueue, platform, onCrash = { wake() })
         slot.scene = scene
         build(slot, settings, scene, output)
             // After the attach, so the first composition already reads the size the surface was configured at.
@@ -446,7 +448,7 @@ internal class KortexShell private constructor(
         return built.flatMap { surface ->
             slot.surface = surface
             // Only now that a surface carries the name: a crash before this one names the surface it was on.
-            scene.namespace = settings.reportedAs
+            scene.namespace = settings.reportedAs(slot)
             surface.attach(scene).onError {
                 slot.surface = null
                 surface.close()
@@ -484,6 +486,14 @@ internal class KortexShell private constructor(
         ) {
             ProvideClipboard(contentClipboard) { slot.content.value(slot.scope) }
         }
+    }
+
+    /** Ends every popup opened from [slot]'s content, and from those popups' own, innermost first. */
+    private fun endPopupsUnder(slot: SurfaceSlot) {
+        placed
+            .filter { it.placedWith is PopupSettings && it.under(slot) }
+            .asReversed()
+            .forEach { popup -> end(popup, endingOnLeave) }
     }
 
     private fun end(

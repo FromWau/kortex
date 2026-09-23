@@ -31,7 +31,7 @@ class ContentFailureTest {
                 "a first frame that throws ended nothing",
             )
             val crash = speck.crashOrFail("a first frame that throws did not end with SurfaceCrashed")
-            assertEquals(NAMESPACE, crash.namespace)
+            assertEquals(NAMESPACE, crash.surface)
             assertIs<ContentFailure.Composition>(crash.failure)
             assertEquals(DRAW_FAILURE, crash.failure.cause.message)
             // A run that ended would fail this pump with an Err; letting it settle proves the crash did not end it.

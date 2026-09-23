@@ -3,7 +3,6 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.fromwau.kortex.compose.KortexSurfaceHandle
 
 /**
  * Keeps a layer-shell surface of your own on screen while this call is in composition, drawing [content] on it. Call
@@ -36,6 +35,10 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
  * reach it in one step, and a changed [monitor] or [namespace] moves the content to a layer surface the compositor
  * sees as a new one, on whichever monitor and under whichever name the call asks for by then. State [content] keeps
  * behind `remember` stands through every one of those changes, and lasts until the surface ends.
+ *
+ * A [Popup] open in that content does not come along: a popup belongs to the surface it opened over for as long as
+ * it lives, so one open across a changed [monitor] or [namespace] ends with `Ok(SurfaceEnd.LeftComposition)`. Show
+ * it again by taking its call out of composition and putting it back.
  *
  * Once the surface has ended, in any of the ways [SurfaceStatus.Ended] lists, the call shows nothing until you take
  * it out of composition and put it back, which places a surface again and takes [state] with it.
@@ -98,12 +101,6 @@ public fun LayerSurface(
     )
 }
 
-/**
- * The surface a piece of content is drawn on, as its own `this`: its `size`, the logical size the compositor last
- * gave it or `IntSize.Zero` once it has ended, and `close()`, which ends it with `Ok(SurfaceEnd.Closed)`.
- */
-public interface SurfaceScope : KortexSurfaceHandle
-
 /** Every setting but [monitor] from [config]: what a layer-shell surface call asks for. */
 @Composable
 internal fun LayerSurface(
@@ -143,8 +140,8 @@ public sealed interface SurfaceEnd {
     public data object MonitorUnplugged : SurfaceEnd
 
     /**
-     * Its call left composition: your content took it out, the surface whose content showed it ended, or
-     * `exitApplication()` ended the application.
+     * Its call left composition: your content took it out, the surface whose content showed it ended or, for a
+     * popup, was moved to another monitor or namespace, or `exitApplication()` ended the application.
      */
     public data object LeftComposition : SurfaceEnd
 }

@@ -280,9 +280,10 @@ public fun AppMenu(
  * @param menuSize the menu's size in logical pixels, each at least 1.
  * @param state where to read what the menu is doing, as [Popup]'s `state` describes.
  * @param content what is drawn on the menu, with the menu itself as `this`.
- * @throws IllegalStateException when called outside a surface's content.
+ * @throws IllegalStateException when called outside a surface's content. Uncatchable here: it ends the
+ *   application as [KortexError.ApplicationCrashed], the same as any other throw from your own content.
  * @throws IllegalArgumentException when either side of [menuSize] is less than one pixel, which ends the surface
- *   this call's content is on, not just this menu.
+ *   this call's content is on, not just this menu, the same as any other throw from your content there.
  */
 @Composable
 public fun ContextMenu(

@@ -40,9 +40,9 @@ object CrashedSurfaceProbe {
 /** Prints the crash [ending] carries, in the two lines the test reads. */
 internal fun printEnding(ending: Result<SurfaceEnd, KortexError>) {
     val crash = ending.errorOrNull() as? KortexError.SurfaceCrashed ?: return
-    System.err.println("$PROBE_MARKER hook crashed=${crash.namespace} cause=${crash.failure.cause.message}")
+    System.err.println("$PROBE_MARKER hook crashed=${crash.surface} cause=${crash.failure.cause.message}")
     System.err.println(
-        "$PROBE_MARKER crashed=${crash.namespace} failure=${crash.failure::class.simpleName} " +
+        "$PROBE_MARKER crashed=${crash.surface} failure=${crash.failure::class.simpleName} " +
             "cause=${crash.failure.cause.message}",
     )
 }

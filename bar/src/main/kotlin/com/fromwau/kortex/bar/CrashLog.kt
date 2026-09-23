@@ -31,7 +31,7 @@ fun crashLogPath(env: Map<String, String>): Path {
     return stateHome.resolve("kortex-bar").resolve("crash.log")
 }
 
-/** Appends [crash]'s time, namespace, failure kind and cause's stack trace to the log file at [path]. */
+/** Appends [crash]'s time, surface name, failure kind and cause's stack trace to the log file at [path]. */
 fun appendCrash(path: Path, crash: KortexError.SurfaceCrashed): EmptyResult<CrashLogWriteFailed> =
     try {
         Files.createDirectories(path.parent)
@@ -47,5 +47,5 @@ private fun crashLogEntry(crash: KortexError.SurfaceCrashed): String {
         is ContentFailure.KeyInput -> "KeyInput"
         is ContentFailure.PointerInput -> "PointerInput"
     }
-    return "${Clock.System.now()} ${crash.namespace} $kind\n${crash.failure.cause.stackTraceToString()}\n"
+    return "${Clock.System.now()} ${crash.surface} $kind\n${crash.failure.cause.stackTraceToString()}\n"
 }

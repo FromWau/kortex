@@ -17,13 +17,14 @@ import com.fromwau.kern.result.Result
  * kortexApplication {
  *     val notes = rememberWindowState()
  *     var showing by remember { mutableStateOf(true) }
+ *     val status = notes.status
  *
  *     if (showing) {
  *         Window(title = "Notes", appId = "com.example.notes", state = notes) {
  *             Button(onClick = { showing = false }) { Text("Close") }
  *         }
  *     }
- *     if (notes.status is WindowStatus.Ended) exitApplication()
+ *     LaunchedEffect(status) { if (status is WindowStatus.Ended) exitApplication() }
  * }
  * ```
  *
