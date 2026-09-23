@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.IntOffset
  * @throws IllegalStateException when called outside a surface's content. Uncatchable here: it ends the
  *   application as [KortexError.ApplicationCrashed], the same as any other throw from your own content.
  * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel, which ends the
- *   application the same way, not just this popup.
+ *   surface this call's content is on, not just this popup, the same as any other throw from your content there.
  */
 @Composable
 public fun Popup(

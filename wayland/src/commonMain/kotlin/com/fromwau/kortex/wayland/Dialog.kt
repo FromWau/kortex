@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
  * a file to pick, a warning to confirm.
  *
  * A compositor uses that to keep the dialog with its window, commonly by floating it over that window and
- * raising the two together, and how far it takes it is its own to decide.
+ * raising the two together; how far it takes that is its own decision.
  *
  * ```kotlin
  * Window(title = "Notes") {
@@ -32,6 +32,9 @@ import androidx.compose.ui.unit.dp
  *
  * A dialog does not lock the window it belongs to: the user can still reach that window, type in it and close
  * it. Stop composing this call to take the dialog away, and stop composing the window's own call to take both.
+ *
+ * A dialog is matched by the app id `kortex`, the one a window whose caller names none carries, so a window
+ * rule written for that app id finds it.
  *
  * The dialog appears shortly after the call enters composition, and goes when the call leaves it. It keeps
  * running and draws the newest [content] throughout, and a changed [title] reaches the dialog on screen shortly
@@ -61,8 +64,9 @@ import androidx.compose.ui.unit.dp
  *   [LocalKortexClipboard], and the same dialog through `LocalKortexSurface.current` in a composable further
  *   down.
  * @throws IllegalStateException when called outside [kortexApplication].
- * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel, which ends the
- *   application rather than just this dialog.
+ * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel, which ends more than
+ *   this dialog: the application when this call is in [kortexApplication]'s own content, and otherwise the
+ *   surface whose content it is in.
  */
 @Composable
 public fun Dialog(

@@ -304,8 +304,9 @@ test sees outlive it.
       preset's negative `length`, leaves the surface unplaced, and its state ends with `Err(NegativeSize)`
       while the run goes on. A `thickness` below one logical pixel is caught as `InvalidExclusiveZone`, because
       `Bar`, `Panel` and `Dock` reserve it. `Window`, `Dialog` and `Popup`, `ContextMenu` included, take a
-      different route: a size below one pixel is a `require`, so it ends the whole application rather than just
-      the one surface, and a popup's ends the surface it opens over.
+      different route: a size below one pixel is a `require`, so it ends the composition the call sits in rather
+      than the one surface it asked for, which is the application for a call in its own content and the surface
+      holding the call otherwise, where every popup's lands.
       (`LayerGeometryTest`, `SurfaceTest`, `SurfaceSizeGuardTest`)
 
 ## Raising and changing a surface while the host runs
