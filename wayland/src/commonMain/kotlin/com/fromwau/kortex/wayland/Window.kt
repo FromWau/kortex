@@ -57,7 +57,9 @@ import com.fromwau.kern.result.Result
  * @param content what is drawn in the window. It reaches the window itself as `this`, the clipboard as
  *   [LocalKortexClipboard], and the same window through `LocalKortexSurface.current` in a composable further down.
  * @throws IllegalStateException when called outside [kortexApplication].
- * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel.
+ * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel, which ends more than
+ *   this window: the application when this call is in [kortexApplication]'s own content, and otherwise the
+ *   surface whose content it is in.
  */
 @Composable
 public fun Window(
@@ -108,8 +110,8 @@ public sealed interface WindowStatus {
 }
 
 /**
- * What one window call's window is doing, as state: whatever reads one of these while it composes is recomposed
- * each time that one changes.
+ * What one window call's window is doing, as state, and what a [Dialog] call's dialog is doing too: whatever
+ * reads one of these while it composes is recomposed each time that one changes.
  *
  * ```kotlin
  * val notes = rememberWindowState()

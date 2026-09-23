@@ -60,14 +60,14 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose starts
+Next: fourteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose starts
 in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
 popup's grab, which it never takes; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an
 ASCII one on that key, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
 leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG
 and JPEG, and drag and drop; under Housekeeping, the protocol errors libwayland prints to stderr, the Compose error
-`KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, and a closed surface's `wl_pointer`, which no
-test sees outlive it.
+`KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, a closed surface's `wl_pointer`, which no test
+sees outlive it, and a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
 
 ## Foundations
 
@@ -685,6 +685,12 @@ and the bar never has to learn where on the monitor the compositor put it.
       the warning whenever its registrations have run on more than one thread (`warnIfMultipleThreads` in
       `GlobalSnapshotManager.skiko.kt`). The shell itself keeps every registration on its loop thread. Open: give
       that scene an immediate dispatcher, which Compose does not register at all, or the shell's own loop.
+- [ ] **A dialog on a pinned parent could segfault Hyprland.** `Dialog` sends `xdg_toplevel.set_parent` naming
+      the window's toplevel as the dialog's own toplevel is created, ahead of the buffer-less commit that maps
+      it, so the dialog has no window of its own yet when the request lands. Hyprland 0.56.2's `set_parent`
+      handler (`XDGShell.cpp:326-328`) dereferences `m_self->m_window` with no null check when the named
+      parent is pinned. Open: nothing reaches it today, since no test pins a window and then shows a dialog
+      on it.
 
 ## Deliberately not doing
 

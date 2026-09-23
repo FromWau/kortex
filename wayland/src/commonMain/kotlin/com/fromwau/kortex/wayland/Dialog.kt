@@ -6,8 +6,8 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Keeps a dialog of your own on screen while this call is in composition, drawing [content] in it: a window of
- * its own, which the compositor is told belongs to the window this call's content is in. A question to answer,
- * a file to pick, a warning to confirm.
+ * its own, which the compositor is told belongs to the window this call's content is in, where that content is
+ * a window's. A question to answer, a file to pick, a warning to confirm.
  *
  * A compositor uses that to keep the dialog with its window, commonly by floating it over that window and
  * raising the two together; how far it takes that is its own decision.
@@ -26,9 +26,10 @@ import androidx.compose.ui.unit.dp
  * }
  * ```
  *
- * Call it anywhere. A compositor takes a dialog as belonging to another window and to nothing else, so one
- * shown from a bar's content, from a popup's, or in [kortexApplication]'s own content belongs to nothing, and
- * is listed and placed like any other window. Everything else about it is the same either way.
+ * Call it in [kortexApplication]'s content, or in a surface's content. A compositor takes a dialog as belonging
+ * to another window and to nothing else, so one shown from a bar's content, from a popup's, or in
+ * [kortexApplication]'s own content belongs to nothing, and is listed and placed like any other window.
+ * Everything else about it is the same either way.
  *
  * A dialog does not lock the window it belongs to: the user can still reach that window, type in it and close
  * it. Stop composing this call to take the dialog away, and stop composing the window's own call to take both.

@@ -397,7 +397,7 @@ internal class KortexShell private constructor(
                 // where that content is on one.
                 parent = when (settings) {
                     is WindowSettings -> MemorySegment.NULL
-                    is DialogSettings -> slot.parentRole?.dialogParent ?: MemorySegment.NULL
+                    is DialogSettings -> (slot.parentRole as? XdgToplevelSurface)?.toplevel ?: MemorySegment.NULL
                 },
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,

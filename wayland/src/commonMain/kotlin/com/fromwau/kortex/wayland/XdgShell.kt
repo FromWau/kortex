@@ -93,6 +93,7 @@ internal object XdgShellProtocol {
                 WlMessage("set_parent", "?o", listOf(self)),
                 WlMessage("set_title", "s", listOf(MemorySegment.NULL)),
                 WlMessage("set_app_id", "s", listOf(MemorySegment.NULL)),
+                // The next four carry no real object type either, safe only because no opcode is declared for any.
                 WlMessage("show_window_menu", "ouii", List(4) { MemorySegment.NULL }),
                 WlMessage("move", "ou", List(2) { MemorySegment.NULL }),
                 WlMessage("resize", "ouu", List(3) { MemorySegment.NULL }),
@@ -487,7 +488,8 @@ internal class XdgToplevelSurface private constructor(
     private val display: WaylandDisplay,
     override val surface: MemorySegment,
     private val xdgSurface: MemorySegment,
-    private val toplevel: MemorySegment,
+    // Exposed, unlike the proxies around it: it's the toplevel a dialog reads to hang off this window.
+    val toplevel: MemorySegment,
     private val wmBase: MemorySegment,
     private val compositor: MemorySegment,
     private val wmBaseListener: XdgWmBaseListener,
@@ -506,9 +508,6 @@ internal class XdgToplevelSurface private constructor(
     override val wantsKeyboard: Boolean get() = true
 
     override val popupParent: PopupParent get() = PopupParent.Xdg(xdgSurface)
-
-    /** A window is the one thing `set_parent` takes, so a dialog shown from its content hangs off it. */
-    override val dialogParent: MemorySegment get() = toplevel
 
     override val logicalWidth: Int get() = toplevelListener.width
     override val logicalHeight: Int get() = toplevelListener.height

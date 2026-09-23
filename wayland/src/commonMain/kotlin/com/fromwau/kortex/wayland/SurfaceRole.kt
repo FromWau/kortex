@@ -20,14 +20,6 @@ internal interface SurfaceRole : AutoCloseable {
     /** What a popup shown from this surface's content is parented to. */
     val popupParent: PopupParent
 
-    /**
-     * The `xdg_toplevel` a dialog shown from this surface's content hangs off.
-     *
-     * `xdg_toplevel.set_parent` takes another toplevel and nothing else, so every role but that one answers
-     * NULL, and a dialog shown from its content stands on its own.
-     */
-    val dialogParent: MemorySegment get() = MemorySegment.NULL
-
     /** The logical (surface-local) size the compositor assigned, available once [waitForConfigure] returns `Ok`. */
     val logicalWidth: Int
     val logicalHeight: Int
