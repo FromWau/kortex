@@ -131,10 +131,10 @@ public sealed interface ClipboardError : IError {
      */
     public data object NoInputSerial : ClipboardError
 
-    /** The text could not be carried over from the application that copied it. */
+    /** What was copied could not be carried over from the application that copied it. */
     public data object PipeFailed : ClipboardError
 
-    /** The application that copied the text did not finish sending it within a second. */
+    /** The application that made the copy did not finish sending it within a second. */
     public data object ReadTimedOut : ClipboardError
 
     /**
