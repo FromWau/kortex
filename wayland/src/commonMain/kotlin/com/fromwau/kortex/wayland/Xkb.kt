@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.input.key.Key
 import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import java.lang.foreign.Arena
@@ -18,6 +19,9 @@ internal sealed interface XkbState
 private class CompiledState(val pointer: MemorySegment, val keyNamesFrom: List<Int>) : XkbState
 
 private val XkbState.compiled: CompiledState get() = when (this) { is CompiledState -> this }
+
+/** xkb rejected a keymap it was given as text; no public entry point carries this out of `:wayland`. */
+internal data object UnusableKeymap : IError
 
 /** libxkbcommon: turns a keycode into Compose's key for it and the character it types under the active layout. */
 internal object Xkb {
@@ -67,11 +71,11 @@ internal object Xkb {
      *
      * @return a state to query, or why this keymap could not be used.
      */
-    fun stateFromKeymap(keymapText: MemorySegment): Result<XkbState, KortexError> {
+    fun stateFromKeymap(keymapText: MemorySegment): Result<XkbState, UnusableKeymap> {
         val keymap = keymapNewFromString.invoke(
             context, keymapText, KEYMAP_FORMAT_TEXT_V1, NO_FLAGS,
         ) as MemorySegment
-        if (keymap.equals(MemorySegment.NULL)) return Err(KortexError.UnusableKeymap)
+        if (keymap.equals(MemorySegment.NULL)) return Err(UnusableKeymap)
         val state = stateNew.invoke(keymap) as MemorySegment
         val compiled = if (state.equals(MemorySegment.NULL)) null else CompiledState(state, keyNamesFrom(keymap))
         // xkb_state_new takes its own reference on the keymap, so this one is the caller's to drop.

@@ -26,8 +26,14 @@ internal fun keymapOf(text: String): (KeyboardInput) -> Unit {
 /** A memfd [size] bytes long holding [bytes], as the fd a compositor sends its keymap on is. */
 private fun keymapFd(bytes: ByteArray, size: Long): Int {
     val fd = LibC.memfdCreate("kortex-test-keymap").getOrElse { error -> fail("memfd_create failed: $error") }
-    LibC.ftruncate(fd, size).getOrElse { error -> fail("sizing the keymap memfd failed: $error") }
-    val mapping = LibC.mmapShared(fd, size).getOrElse { error -> fail("mapping the keymap memfd failed: $error") }
+    LibC.ftruncate(fd, size).getOrElse { error ->
+        LibC.close(fd)
+        fail("sizing the keymap memfd failed: $error")
+    }
+    val mapping = LibC.mmapShared(fd, size).getOrElse { error ->
+        LibC.close(fd)
+        fail("mapping the keymap memfd failed: $error")
+    }
     MemorySegment.copy(bytes, 0, mapping, JAVA_BYTE, 0, bytes.size)
     LibC.munmap(mapping, size)
     return fd

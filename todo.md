@@ -506,11 +506,14 @@ and the bar never has to learn where on the monitor the compositor put it.
       so typing, the named and modified keys, Page Down and a throwing key handler are proven for a
       value-based field only. `ClipboardFocusTest` proves a state-based field's Ctrl+C and Ctrl+V instead,
       through a real shell whose one loop thread the harness problem does not reach.
-- [x] **A keymap kortex cannot use costs the keymap in effect nothing.** `Xkb.stateFromKeymap` and
-      `LibC.mmapPrivateRead` both answer a keymap they cannot take with `KortexError.UnusableKeymap`, so
-      `onKeymap` keeps the keymap it last compiled and the keys named under it, and a keymap no mapping can
-      honour is refused inside the libwayland callback that catches nothing rather than ending the JVM. Until a
-      keymap kortex can use arrives there is nothing to interpret a keycode with, so keys are dropped. A
+- [x] **A keymap kortex cannot use costs the keymap in effect nothing.** `Xkb.stateFromKeymap` answers a
+      keymap text xkb rejects with its own `UnusableKeymap`, never `KortexError`, since no public entry point
+      of `:wayland` can ever observe it; `LibC.mmapPrivateRead` answers a mapping failure with the generic
+      `KortexError.ShmAllocationFailed(ShmStep.Mmap)`, the same case `mmapShared` uses for every other
+      mapping. `onKeymap` keeps the keymap it last compiled and the keys named under it, and a keymap no
+      mapping can honour is refused inside the libwayland callback that catches nothing rather than ending
+      the JVM. Until a keymap kortex can use arrives there is nothing to interpret a keycode with, so keys
+      are dropped. A
       compiled keymap `xkb_state_new` answers with no state stays a `check`: that one is xkb handed something
       impossible, not a compositor's doing. The refusal reaches no host, since a compositor that sends an
       unusable keymap is a broken compositor and kortex has no channel for one. (`KeymapFailureTest`)

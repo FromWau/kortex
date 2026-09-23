@@ -95,7 +95,7 @@ internal object LibC {
     /** Read-only private mapping of the keymap the compositor owns, at the length it announced. */
     fun mmapPrivateRead(fd: Int, length: Long): Result<MemorySegment, KortexError> {
         val address = mmap.invoke(MemorySegment.NULL, length, PROT_READ, MAP_PRIVATE, fd, 0L) as MemorySegment
-        if (address.address() == MAP_FAILED) return Err(KortexError.UnusableKeymap)
+        if (address.address() == MAP_FAILED) return Err(KortexError.ShmAllocationFailed(ShmStep.Mmap))
         return Ok(address.reinterpret(length))
     }
 
