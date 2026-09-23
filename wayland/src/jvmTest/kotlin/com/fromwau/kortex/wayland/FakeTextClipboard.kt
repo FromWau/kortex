@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.graphics.ImageBitmap
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -39,4 +40,10 @@ internal class FakeTextClipboard(
         clears.incrementAndGet()
         return Ok(Unit)
     }
+
+    override suspend fun setImage(image: ImageBitmap): EmptyResult<ClipboardError> =
+        error("nothing this fake stands in for copies an image")
+
+    override suspend fun readImage(): Result<ImageBitmap, ClipboardError> =
+        error("nothing this fake stands in for pastes an image")
 }

@@ -1,5 +1,8 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.toPixelMap
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
@@ -13,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -24,6 +28,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ImageInfo
 
 /**
  * The clipboard's parts that need no keyboard focus. None of these tests sets or reads the desktop's selection, not
@@ -38,6 +45,48 @@ class ClipboardTest {
             assertEquals(
                 PASTE_PREFERENCE[first], preferredTextOf(listed)?.wireName,
                 "an offer listing $listed",
+            )
+        }
+    }
+
+    @Test
+    fun `a selection offered only as text has no image to paste, and one offered only as an image no text`() {
+        withOffer(PASTE_PREFERENCE) { offer ->
+            assertNull(offer.preferredImage, "a selection offered only as text had an image to paste")
+            assertEquals(TextMime.TextPlainUtf8, offer.preferredText, "a text selection had no text to paste")
+        }
+        withOffer(IMAGE_OFFER) { offer ->
+            assertNull(offer.preferredText, "a selection offered only as an image had text to paste")
+            assertEquals(ImageMime.Png, offer.preferredImage, "an image selection had no image to paste")
+        }
+    }
+
+    @Test
+    fun `a copy offers an image as PNG and JPEG, and a text under the five text types`() {
+        assertEquals(IMAGE_OFFER, imageClipOrFail().offeredTypes.map { it.wireName }, "an image copy's offer")
+        assertEquals(PASTE_PREFERENCE, Clip.Text(COPIED).offeredTypes.map { it.wireName }, "a text copy's offer")
+    }
+
+    @Test
+    fun `an image copied to the clipboard carries back the same pixels`() {
+        val copied = contrastingImage()
+        val pasted = decodeImage(imageClipOrFail(copied).png)
+            .getOrElse { error -> fail("the copied image did not decode again: $error") }
+        assertEquals(copied.width, pasted.width, "the image came back a different width")
+        assertEquals(copied.height, pasted.height, "the image came back a different height")
+        assertContentEquals(
+            copied.toPixelMap().buffer, pasted.toPixelMap().buffer,
+            "the image came back with pixels other than the ones copied",
+        )
+    }
+
+    @Test
+    fun `an image past the cap is refused before the selection is touched`() {
+        withUnfocusedClipboard { clipboard ->
+            // A call that reaches the request fails as NoInputSerial here, so TooLarge says nothing was sent.
+            assertEquals(
+                Err(ClipboardError.TooLarge), runBlocking { clipboard.setImage(oversizedImage()) },
+                "an image past the cap was not refused before the selection was set",
             )
         }
     }
@@ -197,7 +246,7 @@ class ClipboardTest {
         try {
             Arena.ofShared().use { arena ->
                 val mimeType = arena.allocateFrom(TextMime.TextPlainUtf8.wireName)
-                DataSource(COPIED, arena).onSend(NULL, NULL, mimeType, pipe.writeFd)
+                DataSource(Clip.Text(COPIED), arena).onSend(NULL, NULL, mimeType, pipe.writeFd)
             }
             // Only a closed fd ends the read before its timeout, so Ok also says the source closed it.
             val read = readPipeToEnd(pipe.readFd, LONG_TIMEOUT_MILLIS).map { it.decodeToString() }
@@ -213,7 +262,7 @@ class ClipboardTest {
     @Test
     fun `a source's text stops being this client's own once the compositor cancels it`() {
         Arena.ofShared().use { arena ->
-            val source = DataSource(COPIED, arena)
+            val source = DataSource(Clip.Text(COPIED), arena)
             assertEquals(COPIED, source.ownedText, "a source nothing has replaced did not hold its own text")
             source.onCancelled(NULL, NULL)
             assertNull(source.ownedText, "a cancelled source still held its text as this client's own")
@@ -353,7 +402,7 @@ class ClipboardTest {
         withUnfocusedClipboard { clipboard ->
             Arena.ofShared().use { arena ->
                 // recordOwnedSource reaches the own-copy state setText would leave, without setText's wire call.
-                clipboard.recordOwnedSource(DataSource(COPIED, arena))
+                clipboard.recordOwnedSource(DataSource(Clip.Text(COPIED), arena))
                 try {
                     block(clipboard)
                 } finally {
@@ -386,10 +435,46 @@ class ClipboardTest {
     }
 
     /** What a paste asks an offer listing [types] for. */
-    private fun preferredTextOf(types: List<String>): TextMime? = Arena.ofShared().use { arena ->
+    private fun preferredTextOf(types: List<String>): TextMime? = withOffer(types) { it.preferredText }
+
+    /** Runs [block] on an offer listing [types], as the compositor introduces one. */
+    private fun <T> withOffer(types: List<String>, block: (DataOffer) -> T): T = Arena.ofShared().use { arena ->
         val offer = DataOffer(arena)
         types.forEach { offer.onOffer(NULL, NULL, arena.allocateFrom(it)) }
-        offer.preferredText
+        block(offer)
+    }
+
+    /** [image] encoded for a copy, failing the test rather than returning why it could not be. */
+    private fun imageClipOrFail(image: ImageBitmap = contrastingImage()): Clip.Image =
+        Clip.Image.of(image).getOrElse { error -> fail("the image did not encode for a copy: $error") }
+
+    /** A small image whose neighbouring pixels are as far apart as colours get, so a lossy encoding shows. */
+    private fun contrastingImage(): ImageBitmap = opaqueImage(SWATCH_SIDE, SWATCH_SIDE) { pixels ->
+        for (pixel in 0 until SWATCH_SIDE * SWATCH_SIDE) {
+            val base = pixel * BYTES_PER_PIXEL
+            val even = (pixel + pixel / SWATCH_SIDE) % 2 == 0
+            pixels[base] = if (even) 0 else FULL_CHANNEL
+            pixels[base + 1] = if (even) FULL_CHANNEL else 0
+            pixels[base + 2] = if (even) 0 else FULL_CHANNEL
+            pixels[base + 3] = FULL_CHANNEL
+        }
+    }
+
+    /** An image whose PNG is past [MAX_IMAGE_BYTES]: noise, which nothing compresses far. */
+    private fun oversizedImage(): ImageBitmap = opaqueImage(OVERSIZED_WIDTH, OVERSIZED_HEIGHT) { pixels ->
+        Random(NOISE_SEED).nextBytes(pixels)
+    }
+
+    /** An opaque image of [width] by [height] whose pixels [fill] writes, as skia stores them. */
+    private fun opaqueImage(width: Int, height: Int, fill: (ByteArray) -> Unit): ImageBitmap {
+        val info = ImageInfo.makeN32(width, height, ColorAlphaType.OPAQUE)
+        val pixels = ByteArray(info.computeMinByteSize())
+        fill(pixels)
+        val bitmap = Bitmap()
+        assertTrue(bitmap.installPixels(info, pixels, info.minRowBytes), "the bitmap did not take its pixels")
+        // Immutable so that encoding shares its pixels instead of copying them, which for a large image is megabytes.
+        bitmap.setImmutable()
+        return bitmap.asComposeImageBitmap()
     }
 
     private fun pipeOrFail(): Pipe = LibC.pipe().getOrElse { error -> fail("creating a pipe failed: $error") }
@@ -433,6 +518,18 @@ class ClipboardTest {
 
         // Spelled out rather than read off TextMime, so reordering its entries fails here.
         val PASTE_PREFERENCE = listOf("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT")
+
+        // Spelled out rather than read off ImageMime, so reordering or dropping an entry fails here.
+        val IMAGE_OFFER = listOf("image/png", "image/jpeg")
+
+        const val SWATCH_SIDE = 8
+        const val BYTES_PER_PIXEL = 4
+        val FULL_CHANNEL = 0xFF.toByte()
+
+        // Noise this big encodes to well past the 64 MiB cap, without a bitmap any larger than that needs.
+        const val OVERSIZED_WIDTH = 4096
+        const val OVERSIZED_HEIGHT = 6144
+        const val NOISE_SEED = 20_260_923
 
         // Many times what a pipe holds, so the read takes it in many chunks.
         const val PIPE_BYTES = 1024 * 1024

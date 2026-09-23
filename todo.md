@@ -60,12 +60,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: fourteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose starts
-in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
+Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
 popup's grab, which it never takes; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an
 ASCII one on that key, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
-leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG
-and JPEG, and drag and drop; under Housekeeping, the protocol errors libwayland prints to stderr, the Compose error
+leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, and drag and drop; under
+Housekeeping, the protocol errors libwayland prints to stderr, the Compose error
 `KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, a closed surface's `wl_pointer`, which no test
 sees outlive it, and a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
 
@@ -529,14 +529,19 @@ and the bar never has to learn where on the monitor the compositor put it.
       it: `PlatformContext` carries no clipboard, `LocalComposeSceneContext` is internal, and
       `CanvasLayersComposeScene` takes no `ComposeSceneContext`. `LocalKortexClipboard.current`, which no
       layer provides again, is still the shell's there. (`ComposeClipboardTest`)
-- [ ] **Copy and paste images, as PNG and JPEG.** The clipboard carries text only. A copy offers the five
-      text types and nothing else, a selection another client offers only as an image reads as
-      `ClipboardError.NoText`, and an image entry handed to `LocalClipboard` leaves the selection as it was
-      (`ComposeClipboard.kt`). Wanted: `image/png` and `image/jpeg`, both ways. Open: the typed call content
-      reads and writes an image through, an `ImageBitmap` or bytes under a named type, and its error for a
-      selection with no image; a size cap of its own, since the 16 MiB cap on a text paste was sized for
-      text; and turning Compose's desktop image entry, a `java.awt.Image` inside a `Transferable`, to and
-      from those bytes without starting AWT's toolkit.
+- [x] **Copy and paste images, as PNG and JPEG.** `KortexClipboard.setImage` and `readImage` carry an
+      `ImageBitmap` both ways, beside the text calls, and `ClipboardError.NoImage` says the clipboard holds
+      nothing either decodes. An image copy offers `image/png` and `image/jpeg`, encoded as the copy is made
+      rather than as each send runs, since a receiver waits on the pipe for as long as a send takes; a paste
+      asks for the first of those two the selection lists, and this client's own copy decodes from memory with
+      focus or without. A text copy still offers the five text types and nothing else. Encoding and decoding
+      go through skia, already in the process behind Compose, so nothing on that path names an AWT type and no
+      toolkit starts. The cap is its own number, 64 MiB against a text's 16 MiB, since a screenshot of a 4K
+      screen is about 33 MiB before anything compresses it; it bounds the transfer, on the way out as on the
+      way in, not the image once decoded, and a copy past it fails as `ClipboardError.TooLarge` before the
+      compositor is asked for anything. Compose's own clipboard still carries text alone, because its image
+      entry is AWT's image type inside a `Transferable`, and reading one starts the toolkit
+      (`ComposeClipboard.kt`). (`ClipboardTest`)
 - [ ] **Drag and drop.** The data device serves the selection only. A drag's offer is given back as soon as
       `enter` names it, `motion`, `leave` and `drop` do nothing (`DataDevice.kt`), and kortex never calls
       `start_drag`, so nothing can be dropped onto a surface and nothing dragged out of one. Wanted: text and

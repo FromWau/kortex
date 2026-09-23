@@ -1,5 +1,8 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -15,12 +18,14 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.EncodedImageFormat
+import org.jetbrains.skia.Image as SkiaImage
 
 /**
- * The shell's clipboard: makes a text the selection or clears it, and reads the selection as text.
+ * The shell's clipboard: makes a text or an image the selection or clears it, and reads the selection as either.
  *
  * Any thread may call it. Its requests run on [loop], which dispatches onto the thread that owns the connection,
- * and a read of another client's text waits for it on [Dispatchers.IO], so a slow source never stalls the loop.
+ * and a read of another client's copy waits for it on [Dispatchers.IO], so a slow source never stalls the loop.
  */
 internal class WaylandClipboard private constructor(
     private val display: WaylandDisplay,
@@ -52,6 +57,8 @@ internal class WaylandClipboard private constructor(
     override val hasText: Boolean
         get() = ownedText != null || (hasKeyboardFocus && bound?.device?.selectionHasText == true)
 
+    private val ownedImage: Clip.Image? get() = source?.ownedImage
+
     /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] or [clear] to quote. */
     fun recordInputSerial(serial: Int) {
         inputSerial = serial
@@ -77,7 +84,7 @@ internal class WaylandClipboard private constructor(
     /** Offers [text] under every [TextMime]. */
     override suspend fun setText(text: String): EmptyResult<ClipboardError> {
         checkOpen()
-        return withContext(loop) { replaceSelection(text) }
+        return withContext(loop) { replaceSelection(Clip.Text(text)) }
     }
 
     override suspend fun clear(): EmptyResult<ClipboardError> {
@@ -89,18 +96,38 @@ internal class WaylandClipboard private constructor(
     override suspend fun readText(): Result<String, ClipboardError> {
         checkOpen()
         ownedText?.let { return Ok(it) }
-        return readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveSelection() }.map { it.decodeToString() }
+        return readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveText() }.map { it.decodeToString() }
     }
+
+    /** Offers [image] under every [ImageMime], encoded before the compositor is asked for anything. */
+    override suspend fun setImage(image: ImageBitmap): EmptyResult<ClipboardError> {
+        checkOpen()
+        // Off the loop thread: encoding a large image on it would stall every surface for as long as it runs.
+        val clip = withContext(Dispatchers.Default) { Clip.Image.of(image) }.getOrElse { return Err(it) }
+        return withContext(loop) { replaceSelection(clip) }
+    }
+
+    /** Answers this client's own copy from memory, and otherwise reads the first [ImageMime] offered. */
+    override suspend fun readImage(): Result<ImageBitmap, ClipboardError> {
+        checkOpen()
+        ownedImage?.let { return decodeOffLoop(it.png) }
+        val received = readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS, MAX_IMAGE_BYTES) { receiveImage() }
+        return decodeOffLoop(received.getOrElse { return Err(it) })
+    }
+
+    // Off the loop thread: decoding a large image on it would stall every surface for as long as it runs.
+    private suspend fun decodeOffLoop(encoded: ByteArray): Result<ImageBitmap, ClipboardError> =
+        withContext(Dispatchers.Default) { decodeImage(encoded) }
 
     // No loop runs once the shell has closed: a caller would wait on one forever, and a late pass reach freed proxies.
     private fun checkOpen() = check(!closed) { "the clipboard's shell has closed" }
 
-    // A null text clears the selection.
-    private fun replaceSelection(text: String?): EmptyResult<ClipboardError> {
+    // A null clip clears the selection.
+    private fun replaceSelection(clip: Clip?): EmptyResult<ClipboardError> {
         checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
         val serial = inputSerial ?: return Err(ClipboardError.NoInputSerial)
-        val offered = text?.let { DataSource.create(bound.manager, it) }
+        val offered = clip?.let { DataSource.create(bound.manager, it) }
         bound.device.setSelection(offered, serial)
         display.flush()
         // After set_selection, not before: destroying the selection's own source would clear the selection meanwhile.
@@ -109,11 +136,18 @@ internal class WaylandClipboard private constructor(
         return Ok(Unit)
     }
 
-    private fun receiveSelection(): Result<Int, ClipboardError> {
+    private fun receiveText(): Result<Int, ClipboardError> =
+        receiveSelection(ClipboardError.NoText, DataOffer::preferredText)
+
+    private fun receiveImage(): Result<Int, ClipboardError> =
+        receiveSelection(ClipboardError.NoImage, DataOffer::preferredImage)
+
+    /** Opens a pipe on the selection under the type [pick] takes, or fails as [absent] where it lists none. */
+    private fun receiveSelection(absent: ClipboardError, pick: (DataOffer) -> Mime?): Result<Int, ClipboardError> {
         checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
         val offer = bound.device.selection?.takeIf { hasKeyboardFocus } ?: return Err(ClipboardError.NoSelection)
-        val type = offer.preferredText ?: return Err(ClipboardError.NoText)
+        val type = pick(offer) ?: return Err(absent)
         val pipe = LibC.pipe().getOrElse { return Err(ClipboardError.PipeFailed) }
         offer.receive(type, pipe.writeFd)
         // The flush sends libwayland's own duplicate; this end left open would hold the read to its timeout.
@@ -175,26 +209,100 @@ internal class WaylandClipboard private constructor(
 }
 
 /**
- * The types a copy offers its text under and a paste asks for, as `wl_data_source.offer` and
- * `wl_data_offer.offer` name them, declared in the order a paste prefers them.
+ * A type a copy offers its content under and a paste asks for, as `wl_data_source.offer` and `wl_data_offer.offer`
+ * name them.
  */
-internal enum class TextMime(val wireName: String) {
+internal sealed interface Mime {
+    val wireName: String
+
+    companion object {
+        // Every type a copy of this client's offers and a paste of it asks for.
+        private val all: List<Mime> = TextMime.entries + ImageMime.entries
+
+        /** The entry named [wireName], or null for a type this client neither offers nor asks for. */
+        fun fromWireNameOrNull(wireName: String): Mime? = all.firstOrNull { it.wireName == wireName }
+    }
+}
+
+/** The text types, in the order a paste prefers them. */
+internal enum class TextMime(override val wireName: String) : Mime {
     TextPlainUtf8("text/plain;charset=utf-8"),
     TextPlain("text/plain"),
     Utf8StringAtom("UTF8_STRING"),
     StringAtom("STRING"),
     TextAtom("TEXT"),
-    ;
+}
 
-    companion object {
-        /** The entry named [wireName], or null for a type that is not text. */
-        fun fromWireNameOrNull(wireName: String): TextMime? = entries.firstOrNull { it.wireName == wireName }
+/** The image types, in the order a paste prefers them, each with the format skia encodes it as. */
+internal enum class ImageMime(override val wireName: String, val format: EncodedImageFormat) : Mime {
+    Png("image/png", EncodedImageFormat.PNG),
+    Jpeg("image/jpeg", EncodedImageFormat.JPEG),
+}
+
+/** What one copy holds: the types it is offered under, and the bytes it sends under each of them. */
+internal sealed interface Clip {
+    /** The types a copy of this offers, in the order a paste prefers them. */
+    val offeredTypes: List<Mime>
+
+    /** What this sends under [type], or null for a type it does not offer. */
+    fun bytesFor(type: Mime): ByteArray?
+
+    /** A text, sent as the same UTF-8 under every [TextMime]. */
+    class Text(val text: String) : Clip {
+        private val utf8 = text.encodeToByteArray()
+
+        override val offeredTypes: List<Mime> = TextMime.entries
+
+        override fun bytesFor(type: Mime): ByteArray? = utf8.takeIf { type is TextMime }
     }
+
+    /**
+     * An image, encoded for every [ImageMime] as the copy is made rather than as each send runs, since a receiver
+     * waits on the pipe for as long as a send takes.
+     */
+    class Image private constructor(private val encoded: Map<ImageMime, ByteArray>) : Clip {
+        /** What a paste of this client's own copy decodes again. */
+        val png: ByteArray get() = encoded.getValue(ImageMime.Png)
+
+        override val offeredTypes: List<Mime> = ImageMime.entries
+
+        override fun bytesFor(type: Mime): ByteArray? = encoded[type]
+
+        companion object {
+            /**
+             * [image] encoded under every [ImageMime], or [ClipboardError.TooLarge] where one of those encodings
+             * is larger than [MAX_IMAGE_BYTES]. Blocking: it encodes on the calling thread.
+             */
+            fun of(image: ImageBitmap): Result<Image, ClipboardError> {
+                val encoded = ImageMime.entries.associateWith { type ->
+                    encodeImage(image, type).getOrElse { return Err(it) }
+                }
+                return Ok(Image(encoded))
+            }
+        }
+    }
+}
+
+/** [image] as [type] carries it, or [ClipboardError.TooLarge] where that is more than [MAX_IMAGE_BYTES]. */
+private fun encodeImage(image: ImageBitmap, type: ImageMime): Result<ByteArray, ClipboardError> {
+    val encoded = SkiaImage.makeFromBitmap(image.asSkiaBitmap()).use { raster ->
+        val data = raster.encodeToData(type.format)
+        checkNotNull(data) { "skia encoded no ${type.wireName} for a ${image.width} by ${image.height} image" }
+            .use { it.bytes }
+    }
+    return if (encoded.size > MAX_IMAGE_BYTES) Err(ClipboardError.TooLarge) else Ok(encoded)
+}
+
+/** [encoded] as an image, or [ClipboardError.NoImage] where it is in no format skia decodes. */
+internal fun decodeImage(encoded: ByteArray): Result<ImageBitmap, ClipboardError> = try {
+    SkiaImage.makeFromEncoded(encoded).use { Ok(it.toComposeImageBitmap()) }
+} catch (_: IllegalArgumentException) {
+    Err(ClipboardError.NoImage)
 }
 
 /**
  * Opens a pipe's read end with [open] on [loop], then reads from it on [Dispatchers.IO] until its writer closes it,
- * [timeoutMillis] passes, or it grows past [MAX_SELECTION_BYTES], and closes it.
+ * [timeoutMillis] passes, or it grows past [maxBytes], and closes it.
  *
  * Not cancellable: a cancelled caller gets its cancellation once this returns, at most [timeoutMillis] after [loop]
  * ran [open].
@@ -202,13 +310,14 @@ internal enum class TextMime(val wireName: String) {
 internal suspend fun readPipeOpenedOn(
     loop: CoroutineDispatcher,
     timeoutMillis: Long,
+    maxBytes: Long = MAX_TEXT_BYTES,
     open: () -> Result<Int, ClipboardError>,
 ): Result<ByteArray, ClipboardError> = withContext(NonCancellable) {
     // Around both hops: a dispatcher-changing hop discards its result, fd and all, on resuming a cancelled caller.
     val readFd = withContext(loop) { open() }.getOrElse { return@withContext Err(it) }
     withContext(Dispatchers.IO) {
         try {
-            readPipeToEnd(readFd, timeoutMillis)
+            readPipeToEnd(readFd, timeoutMillis, maxBytes)
         } finally {
             LibC.close(readFd)
         }
@@ -218,11 +327,15 @@ internal suspend fun readPipeOpenedOn(
 /**
  * Reads [fd] until its writer closes it.
  *
- * @return everything read, [ClipboardError.TooLarge] once more than [MAX_SELECTION_BYTES] has arrived, or
+ * @return everything read, [ClipboardError.TooLarge] once more than [maxBytes] has arrived, or
  *   [ClipboardError.ReadTimedOut] once [timeoutMillis] have passed before the writer closed its end, however much
  *   it was still sending.
  */
-internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, ClipboardError> {
+internal fun readPipeToEnd(
+    fd: Int,
+    timeoutMillis: Long,
+    maxBytes: Long = MAX_TEXT_BYTES,
+): Result<ByteArray, ClipboardError> {
     val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLI
     val read = ByteArrayOutputStream()
     Arena.ofConfined().use { arena ->
@@ -236,7 +349,7 @@ internal fun readPipeToEnd(fd: Int, timeoutMillis: Long): Result<ByteArray, Clip
                 count < 0L -> return Err(ClipboardError.PipeFailed)
                 else -> read.write(chunk.asSlice(0L, count).toArray(JAVA_BYTE))
             }
-            if (read.size() > MAX_SELECTION_BYTES) return Err(ClipboardError.TooLarge)
+            if (read.size() > maxBytes) return Err(ClipboardError.TooLarge)
         }
     }
     return Err(ClipboardError.ReadTimedOut)
@@ -270,8 +383,15 @@ internal fun writePipeAndClose(fd: Int, bytes: ByteArray, timeoutMillis: Long) {
 /** Bounds a transfer: the read gives up this long after it began; the write gives up this long after its last byte. */
 internal const val TRANSFER_TIMEOUT_MILLIS = 1000L
 
-/** The most a read keeps of one selection before giving up as [ClipboardError.TooLarge]. */
-internal const val MAX_SELECTION_BYTES = 16L * 1024 * 1024
+/** The most a read keeps of one text before giving up as [ClipboardError.TooLarge]. */
+internal const val MAX_TEXT_BYTES = 16L * 1024 * 1024
+
+/**
+ * The most an image takes, on the way out as on the way in: its own number, since [MAX_TEXT_BYTES] was sized for
+ * text and a screenshot of a 4K screen is about 33 MiB before anything compresses it. It bounds the transfer, not
+ * the image once decoded.
+ */
+internal const val MAX_IMAGE_BYTES = 64L * 1024 * 1024
 
 private const val NANOS_PER_MILLI = 1_000_000L
 private const val READ_CHUNK_BYTES = 65_536L

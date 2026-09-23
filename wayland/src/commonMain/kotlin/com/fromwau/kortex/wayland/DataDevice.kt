@@ -145,14 +145,17 @@ internal class DataDevice private constructor(private val proxy: MemorySegment) 
  */
 internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     private var proxy: MemorySegment = MemorySegment.NULL
-    private val textTypes = mutableSetOf<TextMime>()
+    private val offered = mutableSetOf<Mime>()
 
-    /** The type a paste asks for: the first [TextMime] this offer lists, or null when it lists none. */
-    val preferredText: TextMime? get() = TextMime.entries.firstOrNull { it in textTypes }
+    /** The type a text paste asks for: the first [TextMime] this offer lists, or null when it lists none. */
+    val preferredText: TextMime? get() = TextMime.entries.firstOrNull { it in offered }
+
+    /** The type an image paste asks for: the first [ImageMime] this offer lists, or null when it lists none. */
+    val preferredImage: ImageMime? get() = ImageMime.entries.firstOrNull { it in offered }
 
     fun onOffer(data: MemorySegment, offer: MemorySegment, mimeType: MemorySegment) {
         // The char* arrives with zero length because C says nothing about its extent.
-        TextMime.fromWireNameOrNull(mimeType.reinterpret(Long.MAX_VALUE).getString(0))?.let(textTypes::add)
+        Mime.fromWireNameOrNull(mimeType.reinterpret(Long.MAX_VALUE).getString(0))?.let(offered::add)
     }
 
     fun onSourceActions(data: MemorySegment, offer: MemorySegment, sourceActions: Int) = Unit
@@ -160,7 +163,7 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     fun onAction(data: MemorySegment, offer: MemorySegment, dndAction: Int) = Unit
 
     /** `wl_data_offer.receive`: asks the offer's source to write itself into [fd], as [type]. */
-    fun receive(type: TextMime, fd: Int) {
+    fun receive(type: Mime, fd: Int) {
         // wl_proxy_marshal copies the string into the message it builds, so it is only borrowed for the call.
         Arena.ofConfined().use { request ->
             LibWayland.marshal(
@@ -210,19 +213,23 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
 }
 
 /**
- * One copy's `wl_data_source`: offers its text under every [TextMime], and sends the same UTF-8 for each.
+ * One copy's `wl_data_source`: offers [clip] under every type [clip] holds, and sends what it holds for each.
  *
  * @param arena holds its listener's stubs; [destroy] closes it.
  */
-internal class DataSource(private val text: String, private val arena: Arena = Arena.ofShared()) {
-    private val bytes = text.encodeToByteArray()
-
+internal class DataSource(private val clip: Clip, private val arena: Arena = Arena.ofShared()) {
     // Set on the loop thread; ownedText reads it from any.
     @Volatile
     private var cancelled = false
 
-    /** Its text until the compositor cancels it, as it does once another selection or a clear replaces it. */
-    val ownedText: String? get() = text.takeUnless { cancelled }
+    // What it holds until the compositor cancels it, as it does once another selection or a clear replaces it.
+    private val ownedClip: Clip? get() = clip.takeUnless { cancelled }
+
+    /** Its text while it holds one and nothing has replaced it as the selection. */
+    val ownedText: String? get() = (ownedClip as? Clip.Text)?.text
+
+    /** Its image while it holds one and nothing has replaced it as the selection. */
+    val ownedImage: Clip.Image? get() = ownedClip as? Clip.Image
 
     var proxy: MemorySegment = MemorySegment.NULL
         private set
@@ -230,6 +237,9 @@ internal class DataSource(private val text: String, private val arena: Arena = A
     fun onTarget(data: MemorySegment, source: MemorySegment, mimeType: MemorySegment) = Unit
 
     fun onSend(data: MemorySegment, source: MemorySegment, mimeType: MemorySegment, fd: Int) {
+        val type = Mime.fromWireNameOrNull(mimeType.reinterpret(Long.MAX_VALUE).getString(0))
+        // A type this copy never offered leaves the receiver an empty transfer, never another type's bytes.
+        val bytes = type?.let(clip::bytesFor) ?: return LibC.close(fd)
         // Off the loop thread: a write into a full pipe waits for the receiver to drain it, stalling every surface.
         Dispatchers.IO.asExecutor().execute { writePipeAndClose(fd, bytes, TRANSFER_TIMEOUT_MILLIS) }
     }
@@ -275,16 +285,16 @@ internal class DataSource(private val text: String, private val arena: Arena = A
     }
 
     companion object {
-        /** Creates a source for [text] and offers it under every [TextMime]. */
-        fun create(manager: MemorySegment, text: String): DataSource {
+        /** Creates a source for [clip] and offers it under every type [clip] holds. */
+        fun create(manager: MemorySegment, clip: Clip): DataSource {
             val proxy = LibWayland.marshal(
                 manager, WL_DATA_DEVICE_MANAGER_CREATE_DATA_SOURCE, LibWayland.dataSourceInterface,
                 LibWayland.proxyGetVersion(manager), listOf(WlArg.Ptr(MemorySegment.NULL)),
             )
-            val source = DataSource(text).also { it.install(proxy) }
+            val source = DataSource(clip).also { it.install(proxy) }
             // wl_proxy_marshal copies each string into the message it builds, so they are only borrowed for the calls.
             Arena.ofConfined().use { request ->
-                TextMime.entries.forEach { type ->
+                clip.offeredTypes.forEach { type ->
                     LibWayland.marshal(
                         proxy, WL_DATA_SOURCE_OFFER,
                         args = listOf(WlArg.Ptr(request.allocateFrom(type.wireName))),

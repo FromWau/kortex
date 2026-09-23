@@ -53,7 +53,13 @@ internal fun ProvideClipboard(clipboard: TextClipboard, content: @Composable () 
     )
 }
 
-/** Compose's clipboard over [clipboard]: text in and out, and nothing at all where [clipboard] fails. */
+/**
+ * Compose's clipboard over [clipboard]: text in and out, and nothing at all where [clipboard] fails.
+ *
+ * Text alone. Compose carries an image in an entry as AWT's own image type, and reading one starts the toolkit
+ * kortex keeps out of the process, so content that copies or pastes an image calls [KortexClipboard.setImage] and
+ * [KortexClipboard.readImage] instead.
+ */
 internal class ComposeClipboard(
     private val clipboard: TextClipboard,
     // Runs a copy made through the AWT clipboard, whose setContents cannot suspend.
@@ -71,7 +77,7 @@ internal class ComposeClipboard(
             clipboard.clear()
             return
         }
-        // An entry with no text, an image say, cannot be offered, so the selection stays as it was.
+        // An entry with no text cannot be offered here, so the selection stays as it was.
         clipEntry.text()?.let { clipboard.setText(it) }
     }
 
