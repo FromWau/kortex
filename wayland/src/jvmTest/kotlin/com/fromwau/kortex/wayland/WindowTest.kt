@@ -373,7 +373,10 @@ class WindowTest {
                 shell.display.requireAlive().errorOrNull(),
                 "the compositor rejected something this dialog sent and took the connection with it",
             )
-            assertIs<SurfaceStatus.OnScreen>(speck.status, "the dialog took the surface it was shown from with it")
+            assertIs<SurfaceStatus.OnScreen>(
+                speck.status,
+                "the dialog took the surface it was shown from with it: ${speck.status}",
+            )
             assertNotNull(Screen.geometry(SPECK_NAMESPACE), "hyprctl no longer lists the surface it was shown from")
         }
     }
