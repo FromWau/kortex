@@ -60,12 +60,13 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: eight entries are open. Seven wait for a decision: under Surface presets, a popup's grab, which it never
+Next: nine entries are open. Seven wait for a decision: under Surface presets, a popup's grab, which it never
 takes, the decoration kortex draws none of, and the requests back to the compositor a window makes none of; under
 Keyboard and clipboard, a drag out that never starts, which tells the content that asked nothing, a drag's own
 failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer; under
-Housekeeping, the layer-shell menu flip nothing calls. The eighth is work rather than a decision: under Surface
-presets, nested popups taken down outermost first, which xdg-shell forbids.
+Housekeeping, the layer-shell menu flip nothing calls. The last two are work rather than a decision, both under
+Surface presets: nested popups taken down outermost first, which xdg-shell forbids, and a layer surface's
+unbounded wait for its first configure.
 
 Not yet run: no test below has been run since `Window`, `Dialog` and `Popup` landed. The suite compiles and
 nothing in it has met a compositor since, so a test named in parentheses here is cover that exists rather than a
@@ -628,6 +629,14 @@ where on the monitor the compositor put it.
       drag something out as a move nor let the user choose. Open: `move` means telling the content that dragged
       that the drop happened, so it can remove what left, which is the channel the entry above wants; `ask` means
       answering the compositor mid-drag, once the user has picked an action out of a menu the compositor drives.
+
+- [ ] **A layer surface can wait for its first configure forever.** `LayerShellSurface.waitForConfigure` spins on
+      a blocking `display.dispatch()`, so a compositor that never answers leaves the call there with nothing to
+      end it. `XdgToplevelSurface` and `XdgPopupSurface` take a sliced dispatch against a four second budget
+      instead, and break out when the dispatch reports a dead connection, which is what makes a test mutation
+      that removes the configure fail rather than hang. The layer role predates that and was left alone while
+      spec C added the other two. Open: give it the same bounded wait, which is the shape `awaitXdgConfigure`
+      already holds.
 
 ## Housekeeping
 
