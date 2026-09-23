@@ -38,6 +38,7 @@ import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.onError
 import com.fromwau.kortex.wayland.Bar
 import com.fromwau.kortex.wayland.ContextMenu
+import com.fromwau.kortex.wayland.Dialog
 import com.fromwau.kortex.wayland.KeyboardInteractivity
 import com.fromwau.kortex.wayland.KortexError
 import com.fromwau.kortex.wayland.Monitor
@@ -45,9 +46,12 @@ import com.fromwau.kortex.wayland.Osd
 import com.fromwau.kortex.wayland.SurfaceEnd
 import com.fromwau.kortex.wayland.SurfaceState
 import com.fromwau.kortex.wayland.SurfaceStatus
+import com.fromwau.kortex.wayland.Window
+import com.fromwau.kortex.wayland.WindowStatus
 import com.fromwau.kortex.wayland.kortexApplication
 import com.fromwau.kortex.wayland.rememberMonitors
 import com.fromwau.kortex.wayland.rememberSurfaceState
+import com.fromwau.kortex.wayland.rememberWindowState
 import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
@@ -107,8 +111,8 @@ private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
 }
 
 /**
- * The bar on [screen]: a click counter, a text field, a button that makes the bar taller and shorter, and a context
- * menu for a right click on its background. A crash goes to [crashLog].
+ * The bar on [screen]: a click counter, a text field, a button that makes the bar taller and shorter, a button that
+ * opens a window, and a context menu for a right click on its background. A crash goes to [crashLog].
  *
  * The count and the typed text are the bar's own content state, so both survive the resize, and the readout beside
  * them is the size the compositor gave the bar.
@@ -133,6 +137,7 @@ private fun DemoBar(
         var clicks by remember { mutableStateOf(0) }
         var text by remember { mutableStateOf("") }
         var menu by remember { mutableStateOf<Menu>(Menu.Closed) }
+        var window by remember { mutableStateOf(false) }
 
         MaterialTheme(colorScheme = darkColorScheme()) {
             Box(
@@ -179,6 +184,10 @@ private fun DemoBar(
                         Text(if (tall) "shrink me" else "grow me")
                     }
 
+                    Button(onClick = { window = !window }) {
+                        Text(if (window) "hide window" else "show window")
+                    }
+
                     Text(
                         text = "typed: $text",
                         color = MaterialTheme.colorScheme.onSurface,
@@ -200,6 +209,8 @@ private fun DemoBar(
                 onClosed = { menu = Menu.Closed },
             )
         }
+
+        if (window) DemoWindow(crashLog = crashLog, onClosed = { window = false })
     }
 }
 
@@ -243,6 +254,110 @@ private fun BarMenu(
                                 .clickable { close() }
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The window the bar opens: a click counter, a readout of the size the compositor gave the window, and a button
+ * that closes it. A crash goes to [crashLog], and [onClosed] follows however the window ends.
+ *
+ * The count is the window's own content state, so it stands through every move, resize and re-tile the compositor
+ * makes. A close the compositor asks for opens [CloseDialog] on the window instead of closing it.
+ */
+@Composable
+private fun DemoWindow(
+    crashLog: Path,
+    onClosed: () -> Unit,
+) {
+    val state = rememberWindowState()
+    when (val status = state.status) {
+        is WindowStatus.Ended -> LaunchedEffect(status) {
+            logIfCrashed(crashLog, status.result)
+            onClosed()
+        }
+
+        else -> Window(title = WINDOW_TITLE, state = state) {
+            val window = this
+            var clicks by remember { mutableStateOf(0) }
+
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(onClick = { clicks++ }) {
+                        Text("clicked $clicks")
+                    }
+
+                    Text(
+                        text = "size: ${window.size.width} by ${window.size.height}",
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    Button(onClick = onClosed) {
+                        Text("close me")
+                    }
+                }
+            }
+
+            if (state.closeRequested) {
+                CloseDialog(
+                    crashLog = crashLog,
+                    onKeep = { state.declineClose() },
+                    onClose = onClosed,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * The dialog the window shows when the compositor asks for that window to close: [onClose] takes the window away,
+ * [onKeep] keeps it and lets the next ask through. A crash goes to [crashLog].
+ */
+@Composable
+private fun CloseDialog(
+    crashLog: Path,
+    onKeep: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val state = rememberWindowState()
+    when (val status = state.status) {
+        is WindowStatus.Ended -> LaunchedEffect(status) {
+            logIfCrashed(crashLog, status.result)
+            onKeep()
+        }
+
+        else -> Dialog(title = DIALOG_TITLE, state = state) {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "The compositor asked for the window to close.",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = onClose) {
+                            Text("close it")
+                        }
+
+                        Button(onClick = onKeep) {
+                            Text("keep it")
+                        }
                     }
                 }
             }
@@ -304,5 +419,8 @@ private fun CrashPopup(
 
 private val THICKNESS = 56.dp
 private val TALL_THICKNESS = 96.dp
+
+private const val WINDOW_TITLE = "kortex demo"
+private const val DIALOG_TITLE = "Close this window?"
 
 private val MENU_ITEMS = listOf("Option 1", "Option 2", "Option 3")
