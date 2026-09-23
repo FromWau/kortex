@@ -339,14 +339,19 @@ class KortexSceneTest {
             scene.setContent { if (broken.value) error(RECOMPOSE_FAILURE) }
             scene.render(surface.canvas.asComposeCanvas(), 0L)
 
+            var failure: ContentFailure? = null
             // Compose prints its own report of the recomposition this test throws in, kept off the results.
-            capturingStderr {
+            val reported = capturingStderr {
                 broken.value = true
-                val failure = awaitFailure(scene) { scene.render(surface.canvas.asComposeCanvas(), System.nanoTime()) }
-
-                assertIs<ContentFailure.Composition>(failure, "a throwing recomposition must fail the composition")
-                assertEquals(RECOMPOSE_FAILURE, failure.cause.message)
+                failure = awaitFailure(scene) { scene.render(surface.canvas.asComposeCanvas(), System.nanoTime()) }
             }
+
+            // Asserted outside the capture, and against it: what Compose printed is why an assertion here reds.
+            val composition = assertIs<ContentFailure.Composition>(
+                failure,
+                "a throwing recomposition must fail the composition; Compose reported: $reported",
+            )
+            assertEquals(RECOMPOSE_FAILURE, composition.cause.message, "Compose reported: $reported")
         }
     }
 
