@@ -419,13 +419,9 @@ internal fun KortexSurface.Companion.createOnLayer(
     config: SurfaceConfig,
     // NULL leaves output selection to the compositor; a bound wl_output targets one directly.
     output: MemorySegment = MemorySegment.NULL,
-    // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
     loopQueue: LoopQueue? = null,
-    // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
     onInputSerial: (Int) -> Unit = {},
-    // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-    // Handed what content drags out of the surface, and the wl_surface it is dragged from.
     onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,

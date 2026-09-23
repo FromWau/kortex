@@ -516,7 +516,7 @@ internal class XdgToplevelSurface private constructor(
     private val xdgSurfaceListener: XdgSurfaceListener,
     private val toplevelListener: XdgToplevelListener,
     private val decoration: XdgDecoration,
-    // Holds the stubs of all five listeners above, since one close() gives back every proxy they hang off.
+    // Holds the stubs of every listener above, since one close() gives back every proxy they hang off.
     private val arena: Arena,
 ) : SurfaceRole {
 
@@ -719,13 +719,9 @@ internal fun KortexSurface.Companion.createOnToplevel(
     display: WaylandDisplay,
     settings: ToplevelSettings,
     parent: MemorySegment,
-    // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
     loopQueue: LoopQueue? = null,
-    // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
     onInputSerial: (Int) -> Unit = {},
-    // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-    // Handed what content drags out of the surface, and the wl_surface it is dragged from.
     onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
@@ -872,7 +868,7 @@ internal class XdgPopupSurface private constructor(
     private val surfaceListener: WlSurfaceListener,
     private val xdgSurfaceListener: XdgSurfaceListener,
     private val popupListener: XdgPopupListener,
-    // Holds the stubs of all four listeners above, since one close() gives back every proxy they hang off.
+    // Holds the stubs of every listener above, since one close() gives back every proxy they hang off.
     private val arena: Arena,
 ) : SurfaceRole {
 
@@ -1081,13 +1077,9 @@ internal fun KortexSurface.Companion.createOnPopup(
     display: WaylandDisplay,
     settings: PopupSettings,
     parent: PopupParent,
-    // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
     loopQueue: LoopQueue? = null,
-    // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
     onInputSerial: (Int) -> Unit = {},
-    // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-    // Handed what content drags out of the surface, and the wl_surface it is dragged from.
     onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
