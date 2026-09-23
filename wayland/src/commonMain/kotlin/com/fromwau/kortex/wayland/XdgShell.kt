@@ -1013,11 +1013,7 @@ internal class XdgPopupSurface private constructor(
 
             // Before the commit below, which is the point by which the protocol requires a popup to have a
             // parent, and which is what draws the first configure out.
-            if (parent is PopupParent.Layer) {
-                LibWayland.marshal(
-                    parent.layerSurface, LayerShellProtocol.GET_POPUP, args = listOf(WlArg.Ptr(popup)),
-                )
-            }
+            if (parent is PopupParent.Layer) parent.surface.adoptPopup(popup)
 
             val result = XdgPopupSurface(
                 display, surface, xdgSurface, popup, wmBase, compositor, wmBaseListener,

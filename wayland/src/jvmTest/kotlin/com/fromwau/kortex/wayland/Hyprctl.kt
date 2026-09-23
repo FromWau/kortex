@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 /** One entry of `hyprctl monitors -j`. */
 @Serializable
 internal data class HyprMonitor(
+    val id: Int,
     val name: String,
     val x: Int,
     val y: Int,
@@ -58,6 +59,8 @@ internal data class HyprWindow(
     val fullscreen: Boolean,
     val pinned: Boolean,
     val workspace: String,
+    /** [HyprMonitor.id] of the monitor this window is on. */
+    val monitor: Int,
 )
 
 /** A way through the layout, in the four words the compositor's own parser reads. */
@@ -84,6 +87,7 @@ private data class ClientEntry(
     val pinned: Boolean,
     val fullscreen: Int,
     val workspace: WorkspaceEntry,
+    val monitor: Int,
 )
 
 /** The workspace a window of `hyprctl clients -j` is on. */
@@ -101,6 +105,7 @@ private fun ClientEntry.toWindow(): HyprWindow = HyprWindow(
     fullscreen = fullscreen != WINDOWED,
     pinned = pinned,
     workspace = workspace.name,
+    monitor = monitor,
 )
 
 // hyprctl writes a window's position and its size each as a two-element array.
@@ -155,6 +160,10 @@ internal object Hyprctl {
 
     fun monitor(name: String): HyprMonitor =
         checkNotNull(monitors().firstOrNull { it.name == name }) { "hyprctl lost monitor $name" }
+
+    /** The monitor [HyprWindow.monitor] or [HyprMonitor.id] names. */
+    fun monitor(id: Int): HyprMonitor =
+        checkNotNull(monitors().firstOrNull { it.id == id }) { "hyprctl lost monitor $id" }
 
     /** Every window the compositor has mapped, in the order Hyprland lists them. */
     fun windows(): List<HyprWindow> = JSON

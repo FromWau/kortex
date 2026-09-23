@@ -122,7 +122,12 @@ internal class LayerShellSurface(
     override val wantsKeyboard: Boolean get() = config.keyboard != KeyboardInteractivity.None
 
     /** A layer surface takes a popup the client made without one, which is how a bar shows a menu. */
-    override val popupParent: PopupParent get() = PopupParent.Layer(layerSurface)
+    override val popupParent: PopupParent get() = PopupParent.Layer(this)
+
+    /** Adopts [popup], a popup the client made with no parent, so it shows over this surface. */
+    fun adoptPopup(popup: MemorySegment) {
+        LibWayland.marshal(layerSurface, LayerShellProtocol.GET_POPUP, args = listOf(WlArg.Ptr(popup)))
+    }
 
     override val logicalWidth: Int get() = state.width
     override val logicalHeight: Int get() = state.height

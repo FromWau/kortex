@@ -52,8 +52,10 @@ import androidx.compose.ui.unit.IntOffset
  * @param content what is drawn in the popup. It reaches the popup itself as `this`, the clipboard as
  *   [LocalKortexClipboard], and the same popup through `LocalKortexSurface.current` in a composable further
  *   down.
- * @throws IllegalStateException when called outside a surface's content.
- * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel.
+ * @throws IllegalStateException when called outside a surface's content. Uncatchable here: it ends the
+ *   application as [KortexError.ApplicationCrashed], the same as any other throw from your own content.
+ * @throws IllegalArgumentException when [width] or [height] rounds to less than one pixel, which ends the
+ *   application the same way, not just this popup.
  */
 @Composable
 public fun Popup(

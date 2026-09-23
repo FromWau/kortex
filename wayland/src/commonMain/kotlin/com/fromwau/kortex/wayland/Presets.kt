@@ -281,7 +281,8 @@ public fun AppMenu(
  * @param state where to read what the menu is doing, as [Popup]'s `state` describes.
  * @param content what is drawn on the menu, with the menu itself as `this`.
  * @throws IllegalStateException when called outside a surface's content.
- * @throws IllegalArgumentException when either side of [menuSize] is less than one pixel.
+ * @throws IllegalArgumentException when either side of [menuSize] is less than one pixel, which ends the
+ *   application rather than just this menu.
  */
 @Composable
 public fun ContextMenu(

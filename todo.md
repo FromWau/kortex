@@ -60,14 +60,14 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
-starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short;
-under Keyboard and clipboard, the character a Ctrl+key types when no layout has an ASCII one on that key, the
-clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest`
-proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG and JPEG, and drag and
-drop; under Housekeeping, the protocol errors libwayland prints to stderr, the Compose error `KortexSceneTest`
-prints, the Compose warning `KeyRepeatTest` prints, and a closed surface's `wl_pointer`, which no test sees
-outlive it.
+Next: thirteen entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose starts
+in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
+popup's grab, which it never takes; under Keyboard and clipboard, the character a Ctrl+key types when no layout has an
+ASCII one on that key, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
+leaves `KeyboardDeliveryTest` proving only a value-based field, a keymap xkb rejects, images on the clipboard as PNG
+and JPEG, and drag and drop; under Housekeeping, the protocol errors libwayland prints to stderr, the Compose error
+`KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, and a closed surface's `wl_pointer`, which no
+test sees outlive it.
 
 ## Foundations
 
@@ -275,6 +275,11 @@ outlive it.
       where a menu belongs. `SurfaceConfig.contextMenu(at, menuSize, outputSize)`, the layer-shell placement it was
       built on before, is still here and still covered, but nothing calls it any more.
       (`PopupTest`; `MenuAnchorTest` and `SurfacePresetTest` for the layer-shell placement)
+- [ ] **A popup takes no grab, so only its call leaving composition dismisses it.** kortex never sends
+      `xdg_popup.grab`, and `Popup`'s KDoc says a click outside it does not close it. Open: a grab needs a
+      `wl_seat` and the serial of the input that opened the popup, both new in `Popup`'s public signature, and
+      taking one gives the popup the user's keyboard for as long as it is up, which would put every popup test
+      in a session kept free for it.
 - [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
       anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
       `ext-session-lock-v1`. (`PresetTest`, `SurfacePresetTest`)
@@ -295,11 +300,12 @@ outlive it.
       billion, so `requirePlaceableSize` (`LayerShell.kt`) fails a width or height below 0 as
       `KortexError.NegativeSize`, with the axis and the rounded size, beside its check that an axis left 0 has
       both of its edges anchored. `LayerShellSurface.create` and `setSize` both run it before any request goes
-      out, so a size a surface changes to is checked as its first one is. A negative `width` or `height`, a
-      preset's negative `length` or a `ContextMenu`'s negative `menuSize` leaves the surface unplaced, and its
-      state ends with `Err(NegativeSize)` while the run goes on. A `thickness` below one logical
-      pixel is caught as `InvalidExclusiveZone`, because `Bar`, `Panel` and `Dock` reserve it.
-      (`LayerGeometryTest`, `SurfaceTest`)
+      out, so a size a surface changes to is checked as its first one is. A negative `width` or `height`, or a
+      preset's negative `length`, leaves the surface unplaced, and its state ends with `Err(NegativeSize)`
+      while the run goes on. A `thickness` below one logical pixel is caught as `InvalidExclusiveZone`, because
+      `Bar`, `Panel` and `Dock` reserve it. `Window` and `Popup`, `ContextMenu` included, take a different
+      route: a size below one pixel is a `require`, so it ends the whole application rather than just the one
+      surface. (`LayerGeometryTest`, `SurfaceTest`)
 
 ## Raising and changing a surface while the host runs
 

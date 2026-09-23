@@ -18,11 +18,10 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  * @property y the output's position in the compositor's global logical space.
  * @property transform how the monitor is turned and mirrored. [width] and [height] are its unturned mode, so on a
  *   monitor turned a quarter they swap on screen.
- * @property width the current mode's width in physical (buffer) pixels. Dividing by [scale] gives the
- *   width in logical pixels, the unit a surface's size is in, but only exactly
- *   at an integer [scale]. kortex binds no `wp_fractional_scale_v1`, so a fractionally scaled output's
- *   logical size cannot be obtained through this type at all: at 1.5, [scale] reads 2 and the division
- *   comes out a quarter short.
+ * @property width the current mode's width in physical (buffer) pixels. Dividing by [scale] gives the width in
+ *   logical pixels, the unit a surface's size is in, but only exactly at an integer [scale]. kortex binds no
+ *   `wp_fractional_scale_v1`, so a fractionally scaled output's logical size cannot be obtained through this type at
+ *   all: at 1.5, [scale] reads 2 and the division comes out a quarter short.
  * @property height the current mode's height in physical (buffer) pixels, like [width].
  * @property scale `wl_output.scale`, an integer that overstates a fractional compositor scale (Hyprland
  *   ceil-rounds it).

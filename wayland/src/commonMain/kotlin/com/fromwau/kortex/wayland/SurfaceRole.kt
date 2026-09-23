@@ -8,8 +8,8 @@ internal sealed interface PopupParent {
     /** An `xdg_surface`, which `xdg_surface.get_popup` takes as the popup is created. */
     data class Xdg(val xdgSurface: MemorySegment) : PopupParent
 
-    /** A `zwlr_layer_surface_v1`, which adopts a popup created without a parent through its own `get_popup`. */
-    data class Layer(val layerSurface: MemorySegment) : PopupParent
+    /** A layer surface, whose [surface] adopts a popup created without a parent through its own `adoptPopup`. */
+    data class Layer(val surface: LayerShellSurface) : PopupParent
 }
 
 /** What the surface engine needs of whatever protocol object a surface is built on. */

@@ -123,6 +123,27 @@ class OutputGeometryTest {
         )
     }
 
+    @Test
+    fun `isQuarterTurn is true for the four transforms that swap a monitor's width and height, false for the rest`() {
+        val expected = mapOf(
+            OutputTransform.Normal to false,
+            OutputTransform.Rotated90 to true,
+            OutputTransform.Rotated180 to false,
+            OutputTransform.Rotated270 to true,
+            OutputTransform.Flipped to false,
+            OutputTransform.Flipped90 to true,
+            OutputTransform.Flipped180 to false,
+            OutputTransform.Flipped270 to true,
+            OutputTransform.Unrecognized(UNLISTED_TRANSFORM_WIRE_VALUE) to false,
+        )
+
+        assertEquals(
+            expected,
+            expected.keys.associateWith { it.isQuarterTurn },
+            "a transform did not report whether it swaps width and height",
+        )
+    }
+
     /**
      * A re-sent scale or mode replaces the published geometry whole, at any time, so content reading it
      * through a surface's own [Monitor.geometry] has to recompose; that needs both the read and the write

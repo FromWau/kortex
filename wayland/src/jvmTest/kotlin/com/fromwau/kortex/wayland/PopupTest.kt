@@ -78,7 +78,7 @@ class PopupTest {
                 "measured from the monitor's own top this point leaves no room either, so nothing here is shown",
             )
             assertTrue(
-                geometry.y + AT.y + MENU_SIZE.height > screen.logicalHeight,
+                geometry.y + AT.y + MENU_SIZE.height > screen.y + screen.logicalHeight,
                 "the bar does not sit near enough the monitor's bottom edge for a popup on it to run past it",
             )
             assertEquals(
@@ -140,14 +140,17 @@ class PopupTest {
                 "hyprctl clients never listed a window of this test's own",
             )
             val placed = assertNotNull(listedWindow(), "the window hyprctl listed was gone again a moment later")
-            val screen = Hyprctl.monitors().first()
+            val screen = Hyprctl.monitor(placed.monitor)
 
             showing.value = true
 
             awaitMenu(shell, menu)
+            // A window's popup is constrained to the monitor's usable area, shrunk by 4px on every edge
+            // (Hyprland 0.56.2, Popup.cpp:381 and XDGShell.cpp:701).
+            val maxX = screen.usableX + screen.usableWidth - POPUP_EDGE_MARGIN
+            val maxY = screen.usableY + screen.usableHeight - POPUP_EDGE_MARGIN
             assertTrue(
-                placed.at.x + AT.x + MENU_SIZE.width <= screen.logicalWidth &&
-                    placed.at.y + AT.y + MENU_SIZE.height <= screen.logicalHeight,
+                placed.at.x + AT.x + MENU_SIZE.width <= maxX && placed.at.y + AT.y + MENU_SIZE.height <= maxY,
                 "the compositor left the window too near an edge for a popup at this point to open unflipped",
             )
             assertEquals(AT, popupRole(shell).placedAt, "the popup did not open at its point inside the window")
@@ -259,6 +262,9 @@ class PopupTest {
 
         /** A popup that flips is mirrored around the far edge of the one-pixel anchor rectangle at its point. */
         const val ANCHOR_SPAN = 1
+
+        /** How far Hyprland shrinks a window popup's constraint box in from the monitor's usable area. */
+        const val POPUP_EDGE_MARGIN = 4
 
         const val PUMP_MILLIS = 6_000L
     }
