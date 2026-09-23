@@ -60,11 +60,10 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: seven entries are open, and each waits for a decision: under Surface presets, a popup's grab, which it never
+Next: six entries are open, and each waits for a decision: under Surface presets, a popup's grab, which it never
 takes, the decoration kortex draws none of, and the requests back to the compositor a window makes none of; under
 Keyboard and clipboard, a drag out that never starts, which tells the content that asked nothing, a drag's own
-failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer; under
-Housekeeping, a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
+failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer.
 
 Not yet run: no test below has been run since `Window`, `Dialog` and `Popup` landed. The suite compiles and
 nothing in it has met a compositor since, so a test named in parentheses here is cover that exists rather than a
@@ -765,12 +764,6 @@ where on the monitor the compositor put it.
       dispatch, and Compose keeps a registration only for a dispatcher that does; the shell itself always kept
       every registration on its loop thread. The warning is a `println`, so a class's `system-out` is where its
       absence shows, and none has been read since. (`KeyRepeatTest`)
-- [ ] **A dialog on a pinned parent could segfault Hyprland.** `Dialog` sends `xdg_toplevel.set_parent` naming
-      the window's toplevel as the dialog's own toplevel is created, ahead of the buffer-less commit that maps
-      it, so the dialog has no window of its own yet when the request lands. Hyprland 0.56.2's `set_parent`
-      handler (`XDGShell.cpp:329-330`) dereferences `m_self->m_window` with no null check when the named
-      parent is pinned. Open: nothing reaches it today, since no test pins a window and then shows a dialog
-      on it.
 
 ## Deliberately not doing
 
