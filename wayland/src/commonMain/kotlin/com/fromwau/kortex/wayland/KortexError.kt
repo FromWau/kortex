@@ -21,7 +21,7 @@ public sealed interface KortexError : IError {
     /** The seat exists but never announced [device] among its capabilities. */
     public data class MissingSeatDevice(public val device: SeatDevice) : KortexError
 
-    /** The compositor never sent `configure` for a layer surface within the wait budget. */
+    /** The compositor never sent `configure` for a surface, a window or a popup within the wait budget. */
     public data object SurfaceNotConfigured : KortexError
 
     /** The compositor draws no decoration for this window, and kortex draws none of its own. */

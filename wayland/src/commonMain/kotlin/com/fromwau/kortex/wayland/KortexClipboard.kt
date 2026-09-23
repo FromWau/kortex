@@ -11,10 +11,12 @@ import com.fromwau.kern.result.Result
  * The desktop's clipboard, as a surface's content reaches it through [LocalKortexClipboard]: put a text or an image on
  * it, clear it, or read what is on it, each call returning a typed result.
  *
- * Compose's `LocalClipboard`, which Compose's own text fields use, reaches the same clipboard, except inside a
- * `Popup` or `Dialog`, where it is AWT's. It carries text alone, and it cannot say why a copy or paste failed: a
- * failed paste gets no entry, and a failed copy does nothing. Call this instead when your content needs to know, or
- * when it copies or pastes an image; it reaches the desktop's clipboard inside a `Popup` or `Dialog` too.
+ * Compose's `LocalClipboard`, which Compose's own text fields use, reaches the same clipboard, except inside
+ * Compose's own `Popup` and `Dialog`, from `androidx.compose.ui.window`, where it is AWT's clipboard rather than
+ * the desktop's. It carries text alone, and it cannot say why a copy or paste failed: a failed paste gets no
+ * entry, and a failed copy does nothing. Call this instead when your content needs to know why, or when it copies
+ * or pastes an image; it reaches the desktop's clipboard wherever a surface's content reads it, inside those two
+ * and inside kortex's own [Window], [Dialog] and [Popup] alike.
  *
  * ```kotlin
  * val clipboard = LocalKortexClipboard.current

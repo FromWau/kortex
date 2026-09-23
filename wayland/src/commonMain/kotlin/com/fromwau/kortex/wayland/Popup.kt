@@ -34,8 +34,9 @@ import androidx.compose.ui.unit.IntOffset
  * [height] opens another popup in its place: the content on it keeps its state and its running effects, and
  * reads the size it last had until the new one is on screen.
  *
- * A popup takes no keyboard focus, so typing goes on reaching whatever had it. Dismiss it by taking the call out
- * of composition, from a click on one of its own items, say, or from a click elsewhere in your own content.
+ * A popup takes no keyboard focus, so typing goes on reaching whatever had it, and a click outside it, on another
+ * application or on the desktop, leaves it open. Dismiss it by taking the call out of composition, from a click on
+ * one of its own items, say, or from a click elsewhere in your own content.
  *
  * Once the popup has ended, in any of the ways [SurfaceStatus.Ended] lists, the call shows nothing until you
  * take it out of composition and put it back, which opens a popup again and takes [state] with it.
