@@ -303,9 +303,10 @@ test sees outlive it.
       out, so a size a surface changes to is checked as its first one is. A negative `width` or `height`, or a
       preset's negative `length`, leaves the surface unplaced, and its state ends with `Err(NegativeSize)`
       while the run goes on. A `thickness` below one logical pixel is caught as `InvalidExclusiveZone`, because
-      `Bar`, `Panel` and `Dock` reserve it. `Window` and `Popup`, `ContextMenu` included, take a different
-      route: a size below one pixel is a `require`, so it ends the whole application rather than just the one
-      surface. (`LayerGeometryTest`, `SurfaceTest`)
+      `Bar`, `Panel` and `Dock` reserve it. `Window`, `Dialog` and `Popup`, `ContextMenu` included, take a
+      different route: a size below one pixel is a `require`, so it ends the whole application rather than just
+      the one surface, and a popup's ends the surface it opens over.
+      (`LayerGeometryTest`, `SurfaceTest`, `SurfaceSizeGuardTest`)
 
 ## Raising and changing a surface while the host runs
 
@@ -514,8 +515,8 @@ and the bar never has to learn where on the monitor the compositor put it.
       fast through `check`, and what kortex does then: keep the last good keymap, drop keys, or tell the host
       through a `KortexError`.
 - [ ] **Content inside a Compose `Popup` or `Dialog` copies and pastes through AWT's clipboard.** kortex's own
-      `Popup` is a Wayland surface with a scene of its own, so content in one is under kortex's clipboard; this is
-      about Compose's two, which a caller can still reach for. Each runs in a
+      `Popup` and `Dialog` are Wayland surfaces with scenes of their own, so content in either is under kortex's
+      clipboard; this is about Compose's two, which a caller can still reach for. Each runs in a
       scene layer whose own `RootNodeOwner` provides `LocalClipboard` and `LocalClipboardManager` again,
       inside kortex's provider: Compose's `AwtPlatformClipboard` and `AwtClipboardManager`. In Compose 1.12's
       ui sources, `Popup.skiko.kt:489` and `:495`, and `Dialog.skiko.kt:222` and `:240`, put their content in

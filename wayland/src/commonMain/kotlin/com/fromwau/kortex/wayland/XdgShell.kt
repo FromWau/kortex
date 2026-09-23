@@ -83,27 +83,28 @@ internal object XdgShellProtocol {
         ),
     )
 
+    // set_parent's parent is another xdg_toplevel, which only the interface being built can name.
     val xdgToplevelInterface: MemorySegment = LibWayland.buildInterface(
         name = "xdg_toplevel",
         version = WlVersion.XDG_SHELL,
-        requests = listOf(
-            WlMessage("destroy", ""),
-            // set_parent's one type is xdg_toplevel itself, and no request with a NULL `types` entry here is
-            // marshalled; libwayland reads a message's types only when that message is marshalled.
-            WlMessage("set_parent", "?o", listOf(MemorySegment.NULL)),
-            WlMessage("set_title", "s", listOf(MemorySegment.NULL)),
-            WlMessage("set_app_id", "s", listOf(MemorySegment.NULL)),
-            WlMessage("show_window_menu", "ouii", List(4) { MemorySegment.NULL }),
-            WlMessage("move", "ou", List(2) { MemorySegment.NULL }),
-            WlMessage("resize", "ouu", List(3) { MemorySegment.NULL }),
-            WlMessage("set_max_size", "ii", List(2) { MemorySegment.NULL }),
-            WlMessage("set_min_size", "ii", List(2) { MemorySegment.NULL }),
-            WlMessage("set_maximized", ""),
-            WlMessage("unset_maximized", ""),
-            WlMessage("set_fullscreen", "?o", listOf(MemorySegment.NULL)),
-            WlMessage("unset_fullscreen", ""),
-            WlMessage("set_minimized", ""),
-        ),
+        requests = { self ->
+            listOf(
+                WlMessage("destroy", ""),
+                WlMessage("set_parent", "?o", listOf(self)),
+                WlMessage("set_title", "s", listOf(MemorySegment.NULL)),
+                WlMessage("set_app_id", "s", listOf(MemorySegment.NULL)),
+                WlMessage("show_window_menu", "ouii", List(4) { MemorySegment.NULL }),
+                WlMessage("move", "ou", List(2) { MemorySegment.NULL }),
+                WlMessage("resize", "ouu", List(3) { MemorySegment.NULL }),
+                WlMessage("set_max_size", "ii", List(2) { MemorySegment.NULL }),
+                WlMessage("set_min_size", "ii", List(2) { MemorySegment.NULL }),
+                WlMessage("set_maximized", ""),
+                WlMessage("unset_maximized", ""),
+                WlMessage("set_fullscreen", "?o", listOf(MemorySegment.NULL)),
+                WlMessage("unset_fullscreen", ""),
+                WlMessage("set_minimized", ""),
+            )
+        },
         events = listOf(
             WlMessage("configure", "iia", List(3) { MemorySegment.NULL }),
             WlMessage("close", ""),
@@ -155,6 +156,7 @@ internal object XdgShellProtocol {
     const val ACK_CONFIGURE = 4
 
     const val TOPLEVEL_DESTROY = 0
+    const val SET_PARENT = 1
     const val SET_TITLE = 2
     const val SET_APP_ID = 3
 
@@ -505,6 +507,9 @@ internal class XdgToplevelSurface private constructor(
 
     override val popupParent: PopupParent get() = PopupParent.Xdg(xdgSurface)
 
+    /** A window is the one thing `set_parent` takes, so a dialog shown from its content hangs off it. */
+    override val dialogParent: MemorySegment get() = toplevel
+
     override val logicalWidth: Int get() = toplevelListener.width
     override val logicalHeight: Int get() = toplevelListener.height
     override val closed: Boolean get() = toplevelListener.closed
@@ -618,6 +623,8 @@ internal class XdgToplevelSurface private constructor(
          * Creates a window of [title] and [appId], [width] by [height] logical pixels, and commits it with no
          * buffer, which is what the compositor answers with the first configure.
          *
+         * @param parent another `xdg_toplevel` this one hangs off, which is what makes it a dialog; left NULL
+         *   the window stands on its own.
          * @return what binding `wl_compositor`, `xdg_wm_base` or `zxdg_decoration_manager_v1` failed with,
          *   leaving nothing behind.
          */
@@ -627,6 +634,7 @@ internal class XdgToplevelSurface private constructor(
             appId: String,
             width: Int,
             height: Int,
+            parent: MemorySegment = MemorySegment.NULL,
         ): Result<XdgToplevelSurface, KortexError> {
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
@@ -676,6 +684,11 @@ internal class XdgToplevelSurface private constructor(
             val toplevelListener = XdgToplevelListener(width, height)
             toplevelListener.install(arena, toplevel)
 
+            // Before the commit that describes the window, since the compositor reads the parent as it places it.
+            if (parent != MemorySegment.NULL) {
+                LibWayland.marshal(toplevel, XdgShellProtocol.SET_PARENT, args = listOf(WlArg.Ptr(parent)))
+            }
+
             val decoration = XdgDecoration.create(arena, decorationManager, toplevel)
 
             val result = XdgToplevelSurface(
@@ -700,14 +713,15 @@ internal class XdgToplevelSurface private constructor(
 }
 
 /**
- * Builds a surface on an xdg toplevel of [settings].
+ * Builds a surface on an xdg toplevel of [settings], hanging off [parent] where that names another toplevel.
  *
  * @return what [XdgToplevelSurface.create] could not bind for, or what the engine around it failed on, with
  *   nothing of either left behind.
  */
 internal fun KortexSurface.Companion.createOnToplevel(
     display: WaylandDisplay,
-    settings: WindowSettings,
+    settings: ToplevelSettings,
+    parent: MemorySegment,
     // A shell passes the queue its own loop drains; absent, the surface builds one and drains it itself.
     loopQueue: LoopQueue? = null,
     // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
@@ -726,6 +740,7 @@ internal fun KortexSurface.Companion.createOnToplevel(
         appId = settings.appId,
         width = settings.width.toLogicalPx(),
         height = settings.height.toLogicalPx(),
+        parent = parent,
     )
 }
 
@@ -737,9 +752,9 @@ internal fun KortexSurface.Companion.createOnToplevel(
  * @return `Ok` once every change has reached the window, or why a changed size could not be drawn, which leaves a
  *   changed title and app id in place and the window at the size it had.
  */
-internal fun KortexSurface.applyWindow(
-    placed: WindowSettings,
-    new: WindowSettings,
+internal fun KortexSurface.applyToplevel(
+    placed: ToplevelSettings,
+    new: ToplevelSettings,
 ): EmptyResult<KortexError> {
     val toplevel = role.asToplevel()
     if (new.title != placed.title) toplevel.setTitle(new.title)
@@ -748,9 +763,9 @@ internal fun KortexSurface.applyWindow(
     return resizeTo(new.width.toLogicalPx(), new.height.toLogicalPx())
 }
 
-/** Only the factory above places a surface [WindowSettings] reaches, and it builds every one on a toplevel. */
+/** Only the factory above places a surface [ToplevelSettings] reaches, and it builds every one on a toplevel. */
 private fun SurfaceRole.asToplevel(): XdgToplevelSurface {
-    check(this is XdgToplevelSurface) { "a window request reached a surface built on another role" }
+    check(this is XdgToplevelSurface) { "a toplevel request reached a surface built on another role" }
     return this
 }
 

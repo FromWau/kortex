@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.errorOrNull
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,13 +14,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
  * Places a real window on the compositor, which takes the user's focus and tiles into the workspace they are
- * looking at. One test parks its window on a special workspace and focuses it there, which pulls that workspace
- * up over the screen and warps the pointer onto the window. So this class runs only in a session kept free for it.
+ * looking at, and real dialogs beside it, which do the same. One test parks its window on a special workspace and
+ * focuses it there, which pulls that workspace up over the screen and warps the pointer onto the window. So this
+ * class runs only in a session kept free for it.
  */
 class WindowTest {
     @Test
@@ -319,8 +322,76 @@ class WindowTest {
         }
     }
 
+    @Test
+    fun `a dialog shown from a window's content hangs off that window, and both stay on screen`() {
+        val window = WindowState()
+        val dialog = WindowState()
+        val showing = mutableStateOf(false)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            Window(title = TITLE, appId = APP_ID, width = WIDTH, height = HEIGHT, state = window) {
+                if (showing.value) Dialog(title = DIALOG_TITLE, state = dialog) { Grey() }
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            val parent = awaitWindow(shell, TITLE)
+            // Hyprland floats a toplevel that names a parent and tiles one that does not
+            // (0.56.2, XWaylandManager.cpp:141 through Window.cpp:2129), which is how a parent shows up here.
+            assertFalse(parent.floating, "the compositor floated a window with no parent, so floating says nothing")
+
+            showing.value = true
+
+            val shown = awaitDialog(shell, dialog)
+            assertTrue(shown.floating, "the compositor tiled the dialog, which is what it does with no parent named")
+            assertNotEquals(parent.address, shown.address, "the dialog and the window it belongs to are one window")
+            assertIs<WindowStatus.OnScreen>(window.status, "the dialog took its window with it: ${window.status}")
+            assertEquals(2, shell.shownSurfaces.size, "the window and its dialog are not both held by the shell")
+        }
+    }
+
+    @Test
+    fun `a dialog shown from a layer surface's content is a window of its own, and that surface stands`() {
+        val speck = SurfaceState()
+        val dialog = WindowState()
+        val showing = mutableStateOf(false)
+        val content: @Composable KortexApplicationScope.() -> Unit = {
+            TestSurface(SPECK_NAMESPACE, state = speck) {
+                if (showing.value) Dialog(title = DIALOG_TITLE, state = dialog) { Grey() }
+            }
+        }
+
+        onApplication(content) { shell ->
+            awaitPlaced(shell)
+            assertNotNull(Screen.awaitGeometry(SPECK_NAMESPACE), "hyprctl never listed $SPECK_NAMESPACE")
+
+            showing.value = true
+
+            val shown = awaitDialog(shell, dialog)
+            assertFalse(shown.floating, "the compositor floated the dialog, which is what it does for a parented one")
+            assertNull(
+                shell.display.requireAlive().errorOrNull(),
+                "the compositor rejected something this dialog sent and took the connection with it",
+            )
+            assertIs<SurfaceStatus.OnScreen>(speck.status, "the dialog took the surface it was shown from with it")
+            assertNotNull(Screen.geometry(SPECK_NAMESPACE), "hyprctl no longer lists the surface it was shown from")
+        }
+    }
+
     /** The window hyprctl lists under this test's app id, or null while it lists none. */
     private fun listedWindow(): HyprWindow? = Hyprctl.windows().firstOrNull { it.appId == APP_ID }
+
+    /** The window hyprctl lists under this test's dialog title, or null while it lists none. */
+    private fun listedDialog(): HyprWindow? = Hyprctl.window(DIALOG_TITLE)
+
+    /** The dialog once its state and hyprctl both report it, driving [shell] until they do. */
+    private fun awaitDialog(shell: KortexShell, state: WindowState): HyprWindow {
+        assertTrue(
+            shell.pumpOrFail(PUMP_MILLIS) { state.status is WindowStatus.OnScreen && listedDialog() != null },
+            "the dialog never reached the screen: ${state.status}",
+        )
+        return assertNotNull(listedDialog(), "the dialog hyprctl listed was gone again a moment later")
+    }
 
     /** The window once hyprctl lists it under [title], driving [shell] until it does. */
     private fun awaitWindow(shell: KortexShell, title: String): HyprWindow {
@@ -335,6 +406,10 @@ class WindowTest {
         const val TITLE = "kortex window"
         const val SECOND_TITLE = "kortex window renamed"
         const val APP_ID = "kortex-window-test"
+
+        /** A dialog carries no app id of its own, so hyprctl tells this one apart by its title. */
+        const val DIALOG_TITLE = "kortex window test dialog"
+        const val SPECK_NAMESPACE = "kortex-window-test-speck"
 
         /**
          * A workspace of the window's own, which goes when the window does. Focusing a window parked here pulls

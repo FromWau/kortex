@@ -46,7 +46,7 @@ import com.fromwau.kern.result.Result
  * @param title what the compositor shows for the window wherever it names it, such as a task bar or a window
  *   switcher, exactly as written.
  * @param appId what the compositor matches the window by, which is how a window rule finds it. Write it as the
- *   application's desktop entry is named, e.g. `com.example.notes`.
+ *   application's desktop entry is named, e.g. `com.example.notes`. Named none, a window is matched as `kortex`.
  * @param width how wide content is drawn, at first and again each time this changes, until the compositor next
  *   gives the window a size of its own, which a compositor that tiles does as it places it.
  * @param height how tall content is drawn, on the same terms as [width].
@@ -62,7 +62,7 @@ import com.fromwau.kern.result.Result
 @Composable
 public fun Window(
     title: String,
-    appId: String = "kortex",
+    appId: String = DEFAULT_APP_ID,
     width: Dp = 640.dp,
     height: Dp = 480.dp,
     state: WindowState = rememberWindowState(),
@@ -202,13 +202,24 @@ public class WindowState {
 @Composable
 public fun rememberWindowState(): WindowState = remember { WindowState() }
 
-/** What a [Window] call asks for. */
-internal data class WindowSettings(
-    val title: String,
-    val appId: String,
-    val width: Dp,
-    val height: Dp,
-) : SurfaceSettings() {
-    /** Nothing a window is placed with is fixed at creation, so a change never needs a new surface. */
+/** The app id a window whose caller named none carries, and the one every dialog carries. */
+internal const val DEFAULT_APP_ID = "kortex"
+
+/** What a call that places an xdg toplevel asks for, which is a [Window] or a [Dialog]. */
+internal sealed class ToplevelSettings : SurfaceSettings() {
+    abstract val title: String
+    abstract val appId: String
+    abstract val width: Dp
+    abstract val height: Dp
+
+    /** Nothing an xdg toplevel is placed with is fixed at creation, so a change never needs a new surface. */
     override fun rebuildsOverSameKind(placed: SurfaceSettings): Boolean = false
 }
+
+/** What a [Window] call asks for. */
+internal data class WindowSettings(
+    override val title: String,
+    override val appId: String,
+    override val width: Dp,
+    override val height: Dp,
+) : ToplevelSettings()

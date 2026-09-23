@@ -49,14 +49,14 @@ private val SurfaceSettings.placedOn: Monitor?
         is LayerSettings -> monitor
         // xdg-shell names no output: a window goes wherever the compositor's own rules put it, and a popup
         // goes wherever its parent is.
-        is WindowSettings, is PopupSettings -> null
+        is ToplevelSettings, is PopupSettings -> null
     }
 
 /** What the compositor calls a surface these settings place, and the name a crash on it is reported under. */
 private val SurfaceSettings.reportedAs: String
     get() = when (this) {
         is LayerSettings -> config.namespace
-        is WindowSettings -> title
+        is ToplevelSettings -> title
         // A popup carries no name of its own anywhere in the protocol, so this is the only one there is.
         is PopupSettings -> "popup"
     }
@@ -306,10 +306,12 @@ internal class KortexShell private constructor(
         }
         val applied: EmptyResult<KortexError> = when (settings) {
             is LayerSettings -> surface.applyConfig(settings.config)
-            is WindowSettings -> {
+            is ToplevelSettings -> {
                 // Of the same kind, or rebuildsOver would have sent these settings to a rebuild.
-                check(placedWith is WindowSettings) { "a window's surface was placed with settings of another kind" }
-                surface.applyWindow(placedWith, settings)
+                check(placedWith is ToplevelSettings) {
+                    "an xdg toplevel's surface was placed with settings of another kind"
+                }
+                surface.applyToplevel(placedWith, settings)
             }
 
             is PopupSettings -> error("a popup that changed anything reaches a rebuild, never a live surface")
@@ -388,9 +390,15 @@ internal class KortexShell private constructor(
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
             )
 
-            is WindowSettings -> KortexSurface.createOnToplevel(
+            is ToplevelSettings -> KortexSurface.createOnToplevel(
                 display,
                 settings,
+                // A window stands on its own, and a dialog hangs off the window whose content showed it,
+                // where that content is on one.
+                parent = when (settings) {
+                    is WindowSettings -> MemorySegment.NULL
+                    is DialogSettings -> slot.parentRole?.dialogParent ?: MemorySegment.NULL
+                },
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
