@@ -336,6 +336,10 @@ private fun CloseDialog(
         }
 
         else -> Dialog(title = DIALOG_TITLE, state = state) {
+            // The compositor asking the dialog itself to close is an answer too: the window stays.
+            val dismissed = state.closeRequested
+            LaunchedEffect(dismissed) { if (dismissed) onKeep() }
+
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Column(
                     modifier = Modifier
