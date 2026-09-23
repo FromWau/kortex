@@ -62,6 +62,14 @@ internal object WlVersion {
 
     const val OUTPUT = 4
 
+    /**
+     * zxdg_output_manager_v1 and the zxdg_output_v1 it hands out, which share its version.
+     *
+     * At v3 the output's own `done`, `name` and `description` are deprecated in favour of `wl_output`'s, and
+     * nothing is kept from them; all three still have listener slots.
+     */
+    const val XDG_OUTPUT = 3
+
     /** wl_data_device, its offers and every wl_data_source inherit it, so their listeners grow with it. */
     const val DATA_DEVICE_MANAGER = 4
 }

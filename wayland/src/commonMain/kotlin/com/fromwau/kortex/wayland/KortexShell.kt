@@ -18,14 +18,19 @@ import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 
-/** A bound `wl_output`: the registry name it was announced under, its proxy, and what it publishes. */
+/**
+ * A bound `wl_output`: the registry name it was announced under, its proxy, what it publishes, and the
+ * `zxdg_output_v1` taken for it, if the compositor offers any.
+ */
 internal class ShellOutput(
     val name: Int,
     val proxy: MemorySegment,
     val listener: OutputListener,
+    private val xdgOutput: XdgOutput?,
 ) {
-    /** Gives the output back. The order is the point: the proxy first, then the stubs it dispatches into. */
+    /** Gives the output back. The order is the point: the proxies first, then the stubs they dispatch into. */
     fun destroy() {
+        xdgOutput?.destroy()
         releaseOutput(proxy)
         listener.close()
     }
@@ -83,6 +88,11 @@ internal class KortexShell private constructor(
     private val hostClipboard: KortexClipboard = HostClipboard(contentClipboard)
 
     private val outputs = mutableMapOf<Int, ShellOutput>()
+
+    // Null on a compositor that describes none of its outputs this way, which leaves each logical size derived.
+    private val xdgOutputManager: MemorySegment? = display.global(XDG_OUTPUT_MANAGER)
+        ?.let { display.bind(it, XdgOutputProtocol.xdgOutputManagerInterface, WlVersion.XDG_OUTPUT) }
+
     private val listedMonitors = mutableStateOf<List<Monitor>>(emptyList())
 
     // Registry callbacks fire mid-dispatch; touching `outputs` or `placed` there would race the loop iterating them.
@@ -231,7 +241,10 @@ internal class KortexShell private constructor(
         // A wl_output proxy with no listener crashes on its first event.
         val listener = OutputListener()
         listener.install(proxy)
-        return ShellOutput(global.name, proxy, listener).also { outputs[global.name] = it }
+        // Before the round trip the caller waits on: the compositor answers this with the output's logical
+        // position and size, and then the very done that publishes them.
+        val logicalOutput = xdgOutputManager?.let { XdgOutput.take(it, proxy, listener.xdgOutput) }
+        return ShellOutput(global.name, proxy, listener, logicalOutput).also { outputs[global.name] = it }
     }
 
     // An output is a monitor from its first done on, which the round trip after each bind waits for.
@@ -533,6 +546,7 @@ internal class KortexShell private constructor(
         placed.toList().forEach(::takeDown)
         outputs.values.forEach(ShellOutput::destroy)
         outputs.clear()
+        xdgOutputManager?.let(::destroyXdgOutputManager)
         // No pass follows a close, so what reached the queue since the last one runs here.
         loopQueue.drain()
         // After the drain, which can still run a request content made of the clipboard.

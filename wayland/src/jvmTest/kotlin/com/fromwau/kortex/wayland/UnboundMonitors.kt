@@ -36,7 +36,7 @@ internal fun <T> withUnboundMonitors(
             listener.onMode(NONE, NONE, flags = MODE_CURRENT, width = mode.width, height = mode.height, refresh = 0)
             listener.onScale(NONE, NONE, factor = scale)
             listener.onDone(NONE, NONE)
-            Monitor(ShellOutput(index, NONE, listener))
+            Monitor(ShellOutput(index, NONE, listener, xdgOutput = null))
         }
         return block(monitors)
     } finally {

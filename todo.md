@@ -60,19 +60,19 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: twelve entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
-starts in a scene with a text field; under Surface presets, a fractionally scaled monitor, which measures short, and a
-popup's grab, which it never takes; under Keyboard and clipboard, the clipboard that content inside a Compose
-`Popup` or `Dialog` reaches, the harness gap that leaves `KeyboardDeliveryTest` proving only a value-based field,
-and a drag out that never starts, which tells the content that asked nothing; under Housekeeping, the protocol
-errors libwayland prints to stderr, the
+Next: eleven entries are open, and each waits for a decision: under Foundations, AWT's toolkit, which Compose
+starts in a scene with a text field; under Surface presets, a popup's grab, which it never takes; under Keyboard
+and clipboard, the clipboard that content inside a Compose `Popup` or `Dialog` reaches, the harness gap that
+leaves `KeyboardDeliveryTest` proving only a value-based field, and a drag out that never starts, which tells the
+content that asked nothing; under Housekeeping, the protocol errors libwayland prints to stderr, the
 Compose error `KortexSceneTest` prints, the Compose warning `KeyRepeatTest` prints, a closed surface's `wl_pointer`,
 which no test sees outlive it, and a dialog on a pinned parent, which no test shows segfaulting Hyprland that way.
 
 ## Foundations
 
-- [x] **Output geometry.** `OutputListener` publishes position, transform, mode size, name, description
-      and scale on `done` (`WlOutput.kt`), reachable through a shown surface's own `monitor.geometry`. The
+- [x] **Output geometry.** `OutputListener` publishes position, transform, mode size, name, description,
+      scale and, from the output's own `zxdg_output_v1`, its logical size on `done` (`WlOutput.kt`),
+      reachable through a shown surface's own `monitor.geometry`. The
       transform is an `OutputTransform`: one of `wl_output.transform`'s eight values, or `Unrecognized` with
       the number the compositor sent, so a value kortex does not know stays typed and nothing throws inside
       the listener. (`OutputGeometryTest`)
@@ -289,12 +289,17 @@ which no test sees outlive it, and a dialog on a pinned parent, which no test sh
       `SurfaceConfig` behind it gives its four fields that decide the shape, `anchor`, `width`, `height` and
       `exclusiveZone`, no default, because each is only sensible in the light of the others, so each preset states
       a whole shape. (`SurfaceTest`, `SurfaceConfigTest`)
-- [ ] **A fractionally scaled monitor measures short.** `OutputGeometry`'s width and height over its
-      `scale` are the monitor's logical size only at a whole-number scale. `wl_output.scale` is an
-      integer, and Hyprland rounds a fractional scale up, so at 1.5 the monitor measures a quarter short.
-      Nothing in kortex divides that way any more, and `OutputGeometry`'s own KDoc says what the division is
-      worth. Open: a true logical size, which needs a protocol kortex does not bind yet, such as
-      `zxdg_output_v1`'s `logical_size`.
+- [x] **A fractionally scaled monitor measures true.** `OutputGeometry` carries `logicalWidth` and
+      `logicalHeight`, taken from `zxdg_output_v1`'s `logical_size`: exact where the mode over the integer
+      `wl_output.scale` is a quarter short at 1.5, and already turned where the mode is not. The shell binds
+      `zxdg_output_manager_v1` at version 3 and takes a `zxdg_output_v1` per output before the round trip that
+      waits for that output's first `done`, so its logical position and size are published under the same
+      `wl_output.done` as the mode and nothing reads half an update. Only `logical_position` and `logical_size`
+      are read: at version 3 the interface's own `done`, `name` and `description` are deprecated in favour of
+      `wl_output`'s, and their listener slots are filled but keep nothing. A compositor that describes no output
+      this way still measures each one by its mode over its scale. This desktop's one monitor is at scale 1,
+      where those two numbers are the same, so a fabricated 1.5 is what separates them.
+      (`OutputGeometryTest`)
 - [x] **A size that rounds below 0 is rejected before it reaches the compositor.** `Dp.toLogicalPx` rounds
       without clamping, and `set_size`'s `uint` arguments would carry a negative size as one above four
       billion, so `requirePlaceableSize` (`LayerShell.kt`) fails a width or height below 0 as

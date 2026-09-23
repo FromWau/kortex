@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.IntSize
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
 import java.lang.foreign.MemorySegment
@@ -10,21 +11,24 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 
 /**
- * An output's identity and placement, as `wl_output` publishes it once per `done`.
+ * An output's identity, placement and size, as the compositor last published them. Every field describes the
+ * same instant.
  *
  * @property name the compositor's short identifier for the output, e.g. what `hyprctl monitors` calls it.
  * @property description a human-readable label for the output.
  * @property x the output's position in the compositor's global logical space.
  * @property y the output's position in the compositor's global logical space.
  * @property transform how the monitor is turned and mirrored. [width] and [height] are its unturned mode, so on a
- *   monitor turned a quarter they swap on screen.
- * @property width the current mode's width in physical (buffer) pixels. Dividing by [scale] gives the width in
- *   logical pixels, the unit a surface's size is in, but only exactly at an integer [scale]. kortex binds no
- *   `wp_fractional_scale_v1`, so a fractionally scaled output's logical size cannot be obtained through this type at
- *   all: at 1.5, [scale] reads 2 and the division comes out a quarter short.
- * @property height the current mode's height in physical (buffer) pixels, like [width].
+ *   monitor turned a quarter they swap on screen; [logicalWidth] and [logicalHeight] are already turned.
+ * @property width the current mode's width in physical (buffer) pixels.
+ * @property height the current mode's height in physical (buffer) pixels.
  * @property scale `wl_output.scale`, an integer that overstates a fractional compositor scale (Hyprland
- *   ceil-rounds it).
+ *   ceil-rounds it). Nothing has to divide a mode by it: [logicalWidth] and [logicalHeight] carry the true scale.
+ * @property logicalWidth the output's width in logical pixels, the unit a surface's size, position and margins
+ *   are in, as the compositor measures its own space: exact at a fractional scale, and already turned. On a
+ *   compositor that describes none of its outputs this way, it falls back to [width] over [scale], which is
+ *   neither turned nor exact below a whole-number scale.
+ * @property logicalHeight the output's height in logical pixels, like [logicalWidth].
  */
 public data class OutputGeometry(
     public val name: String,
@@ -35,6 +39,8 @@ public data class OutputGeometry(
     public val width: Int,
     public val height: Int,
     public val scale: Int,
+    public val logicalWidth: Int,
+    public val logicalHeight: Int,
 )
 
 /**
@@ -86,10 +92,14 @@ public sealed interface OutputTransform {
  *
  * Every wl_output event is double-buffered: the compositor may re-send any of them independently, and
  * the set is only coherent once `done` arrives. Events accumulate into pending fields here and
- * [geometry] is replaced atomically on `done`, so a reader never observes half an update.
+ * [geometry] is replaced atomically on `done`, so a reader never observes half an update. At version 3 a
+ * `zxdg_output_v1`'s own details arrive under the same `done`, so [xdgOutput] is read there too.
  */
 internal class OutputListener {
     private val arena: Arena = Arena.ofShared()
+
+    /** What this output's `zxdg_output_v1` reports, if the shell took one; empty until it does. */
+    val xdgOutput: XdgOutputListener = XdgOutputListener()
 
     // Snapshot state, not a plain field: an output may publish again at any time, and content reading
     // its geometry through a Monitor has to recompose when it does.
@@ -130,15 +140,21 @@ internal class OutputListener {
     }
 
     fun onDone(data: MemorySegment, proxy: MemorySegment) {
+        // No zxdg_output_v1: the mode over the scale, coerced since a throw here would cross native frames.
+        val scale = pendingScale.coerceAtLeast(DEFAULT_SCALE)
+        val logicalSize = xdgOutput.logicalSize ?: IntSize(pendingWidth / scale, pendingHeight / scale)
+        val logicalPosition = xdgOutput.logicalPosition
         geometry = OutputGeometry(
             name = pendingName,
             description = pendingDescription,
-            x = pendingX,
-            y = pendingY,
+            x = logicalPosition?.x ?: pendingX,
+            y = logicalPosition?.y ?: pendingY,
             transform = pendingTransform,
             width = pendingWidth,
             height = pendingHeight,
             scale = pendingScale,
+            logicalWidth = logicalSize.width,
+            logicalHeight = logicalSize.height,
         )
     }
 
