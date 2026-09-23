@@ -198,8 +198,12 @@ class WindowManipulationTest {
     @Test
     fun `tiled and maximized report what the compositor set as it mapped the window, floating included`() {
         onWindow { placed ->
-            assertTrue(placed.state.tiled, "the window the compositor placed into its layout does not report it")
-            assertTrue(placed.state.maximized, "the window the compositor maximized as it mapped does not report it")
+            // The states are pushed at the toplevel's construction but only reach a client on a configure
+            // scheduled for a later turn of the compositor's loop, so the one that maps the window carries none.
+            assertTrue(
+                placed.shell.pumpOrFail(PUMP_MILLIS) { placed.state.tiled && placed.state.maximized },
+                "the window the compositor placed into its layout and maximized reports neither",
+            )
 
             Hyprctl.dispatch("window.float", address = placed.window.address)
             placed.awaitFloating()

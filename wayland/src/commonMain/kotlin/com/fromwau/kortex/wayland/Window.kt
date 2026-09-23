@@ -189,7 +189,8 @@ public class WindowState {
 
     /**
      * The window shares at least one edge with the layout around it, so it cannot choose its own size. Read it
-     * as what the compositor reports, not as a measurement of the window's actual placement.
+     * as what the compositor reports, not as a measurement of the window's actual placement, and note that a
+     * compositor may not have said either way when the window first appears: this reads false until it does.
      */
     public val tiled: Boolean get() = published.windowStates.tiled
 
