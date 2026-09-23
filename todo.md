@@ -60,12 +60,12 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: seven entries are open. Six wait for a decision: under Surface presets, a popup's grab, which it never
+Next: eight entries are open. Seven wait for a decision: under Surface presets, a popup's grab, which it never
 takes, the decoration kortex draws none of, and the requests back to the compositor a window makes none of; under
 Keyboard and clipboard, a drag out that never starts, which tells the content that asked nothing, a drag's own
-failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer. The
-seventh is work rather than a decision: under Surface presets, nested popups taken down outermost first, which
-xdg-shell forbids.
+failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer; under
+Housekeeping, the layer-shell menu flip nothing calls. The eighth is work rather than a decision: under Surface
+presets, nested popups taken down outermost first, which xdg-shell forbids.
 
 Not yet run: no test below has been run since `Window`, `Dialog` and `Popup` landed. The suite compiles and
 nothing in it has met a compositor since, so a test named in parentheses here is cover that exists rather than a
@@ -278,9 +278,7 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       places it against the anchor rectangle the popup's positioner carries, so `at` is measured from the parent
       rather than from the monitor, and a menu near the screen's right or bottom edge opens the other way on that
       axis instead, each decided on its own. Called outside a surface's content it fails the application, saying
-      where a menu belongs. `SurfaceConfig.contextMenu(at, menuSize, outputSize)`, the layer-shell placement it was
-      built on before, is still here and still covered, but nothing calls it any more.
-      (`PopupTest`; `MenuAnchorTest` and `SurfacePresetTest` for the layer-shell placement)
+      where a menu belongs. (`PopupTest`)
 - [ ] **A popup takes no grab, so only its call leaving composition dismisses it.** kortex never sends
       `xdg_popup.grab`, and `Popup`'s KDoc says a click outside it does not close it. Open: a grab needs a
       `wl_seat` and the serial of the input that opened the popup, both new in `Popup`'s public signature, and
@@ -547,8 +545,8 @@ where on the monitor the compositor put it.
       of the separate executor that made a `BasicTextField(TextFieldState)` fail as multithreaded access to
       `SnapshotStateObserver`, so a state-based field has a typing case beside the value-based one.
       `ClipboardFocusTest`, with the desktop free, covers a state-based field's Ctrl+C and Ctrl+V through a real
-      shell. What the new case is worth, and what the four harnesses now on `onScene` are worth, waits on a run
-      none of them has had. (`KeyboardDeliveryTest`, `KeyRepeatTest`, `DragAndDropTest`, `KeymapFailureTest`)
+      shell. What the new case is worth, and what every harness on `onScene` is worth, waits on a run none of
+      them has had. (`KeyboardDeliveryTest`, `KeyRepeatTest`, `DragAndDropTest`, `KeymapFailureTest`)
 - [x] **A keymap kortex cannot use costs the keymap in effect nothing.** `Xkb.stateFromKeymap` answers a
       keymap text xkb rejects with its own `UnusableKeymap`, never `KortexError`, since no public entry point
       of `:wayland` can ever observe it; `LibC.mmapPrivateRead` answers a mapping failure with the generic
@@ -778,14 +776,12 @@ where on the monitor the compositor put it.
       dispatch, and Compose keeps a registration only for a dispatcher that does; the shell itself always kept
       every registration on its loop thread. The warning is a `println`, so a class's `system-out` is where its
       absence shows, and none has been read since. (`KeyRepeatTest`)
-- [x] **A monitor's true logical size and `ContextMenu`'s flip parted company in this spec.**
-      `OutputGeometry.logicalWidth` and `logicalHeight` were given a protocol-reported value so that the flip
-      `SurfaceConfig.contextMenu` computes would be measured against the right screen size, and `ContextMenu`
-      moved onto `Popup` in the same branch, where the compositor's own positioner decides the flip and reads
-      no size from kortex. Nothing is broken: both fields are public API a host reads for its own layout, and
-      `SurfaceConfig.contextMenu` still computes and is still covered. Only the link between the two is gone,
-      and this entry is here so the next reader does not go looking for it.
-      (`OutputGeometryTest`, `MenuAnchorTest`)
+- [ ] **`SurfaceConfig.contextMenu` and `MenuAnchor` have no caller.** `ContextMenu` opens an `xdg_popup`, whose
+      positioner the compositor solves, so nothing in `:wayland`, `:compose` or `:bar` asks for the layer-shell
+      corner flip; `MenuAnchorTest`'s eight cases and one of `SurfacePresetTest`'s are all that reach either.
+      `OutputGeometry.logicalWidth` and `logicalHeight` are unaffected: they are public API a host reads for its
+      own layout, and the flip was only one reader of them. Open: delete the flip, its enum and the nine cases,
+      or give it a caller. (`MenuAnchorTest`, `SurfacePresetTest`)
 
 ## Deliberately not doing
 

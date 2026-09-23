@@ -94,8 +94,6 @@ internal object WaylandLog {
         }
     }
 
-    // Reading args needs vsnprintf because a va_list is passed as a pointer here, which is System V's
-    // rule and not every ABI's.
     // display_handle_error's two formats, verbatim from libwayland 1.26.0's wayland-client.c.
     private val DROPPED = setOf("%s#%u: error %d: %s\n", "[destroyed object]: error %d: %s\n")
 
