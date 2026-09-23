@@ -35,17 +35,35 @@ private fun destroyWmBase(wmBase: MemorySegment) {
     LibWayland.proxyDestroy(wmBase)
 }
 
-// Shared by both xdg roles in this file, which draw on a wl_surface and wait for a configure alike.
-private const val WL_COMPOSITOR_CREATE_SURFACE = 0
-private const val WL_SURFACE_DESTROY = 0
-private const val WL_SURFACE_ATTACH = 1
-private const val WL_SURFACE_COMMIT = 6
-private const val WL_SURFACE_SET_BUFFER_SCALE = 8
-private const val WL_SURFACE_DAMAGE_BUFFER = 9
-
 private const val CONFIGURE_TIMEOUT_MILLIS = 4_000L
 private const val DISPATCH_SLICE_MILLIS = 50L
 private const val NANOS_PER_MILLI = 1_000_000L
+
+/**
+ * Dispatches until [xdgSurfaceListener] has acknowledged a configure, which every xdg role waits for alike.
+ *
+ * @return `Ok` once configured; else the connection's error when it died before a configure came, else
+ *   [KortexError.SurfaceNotConfigured], which is also what a role the compositor gave up on ends with.
+ */
+private fun awaitXdgConfigure(
+    display: WaylandDisplay,
+    xdgSurfaceListener: XdgSurfaceListener,
+    // The role's own closed flag, which the compositor sets by closing the window or dismissing the popup.
+    closed: () -> Boolean,
+): EmptyResult<KortexError> {
+    display.roundtrip()
+    val deadline = System.nanoTime() + CONFIGURE_TIMEOUT_MILLIS * NANOS_PER_MILLI
+    // Dispatched in slices rather than blocking: a compositor that answers nothing at all must still
+    // leave this call, and the whole build behind it, with an error rather than a hang.
+    while (!xdgSurfaceListener.configured && !closed() && System.nanoTime() < deadline) {
+        // A negative return means the connection is already gone: dispatching again would return
+        // immediately without sleeping, so this loop would burn the rest of the budget spinning.
+        if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
+    }
+    if (xdgSurfaceListener.configured) return Ok(Unit)
+    // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
+    return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
+}
 
 /** The `xdg_shell` tables, from `wayland-scanner private-code xdg-shell.xml`. */
 internal object XdgShellProtocol {
@@ -543,19 +561,7 @@ internal class XdgToplevelSurface private constructor(
      *   [KortexError.ClientSideDecorationRequired].
      */
     override fun waitForConfigure(): EmptyResult<KortexError> {
-        display.roundtrip()
-        val deadline = System.nanoTime() + CONFIGURE_TIMEOUT_MILLIS * NANOS_PER_MILLI
-        // Dispatched in slices rather than blocking: a compositor that answers nothing at all must still
-        // leave this call, and the whole build behind it, with an error rather than a hang.
-        while (!xdgSurfaceListener.configured && !closed && System.nanoTime() < deadline) {
-            // A negative return means the connection is already gone: dispatching again would return
-            // immediately without sleeping, so this loop would burn the rest of the budget spinning.
-            if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
-        }
-        if (!xdgSurfaceListener.configured) {
-            // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-            return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
-        }
+        awaitXdgConfigure(display, xdgSurfaceListener) { closed }.getOrElse { return Err(it) }
         // Silence counts as client side, which is what the decoration protocol says an unanswered ask means.
         // Hyprland 0.56.2 answers server side to every ask, so this is read rather than run on this desktop.
         if (decoration.mode != XdgDecorationMode.ServerSide) return Err(KortexError.ClientSideDecorationRequired)
@@ -568,16 +574,7 @@ internal class XdgToplevelSurface private constructor(
         toplevelListener.closed = true
     }
 
-    override fun attach(buffer: ShmBuffer) {
-        LibWayland.marshal(
-            surface, WL_SURFACE_ATTACH,
-            args = listOf(WlArg.Ptr(buffer.buffer), WlArg.Num(0), WlArg.Num(0)),
-        )
-        LibWayland.marshal(
-            surface, WL_SURFACE_DAMAGE_BUFFER,
-            args = listOf(WlArg.Num(0), WlArg.Num(0), WlArg.Num(buffer.width), WlArg.Num(buffer.height)),
-        )
-    }
+    override fun attach(buffer: ShmBuffer) = attachWholeBuffer(surface, buffer)
 
     override fun setBufferScale(scale: Int) {
         LibWayland.marshal(surface, WL_SURFACE_SET_BUFFER_SCALE, args = listOf(WlArg.Num(scale)))
@@ -905,20 +902,8 @@ internal class XdgPopupSurface private constructor(
      *   [KortexError.SurfaceNotConfigured], which is also what a popup the compositor never took a parent for
      *   ends with.
      */
-    override fun waitForConfigure(): EmptyResult<KortexError> {
-        display.roundtrip()
-        val deadline = System.nanoTime() + CONFIGURE_TIMEOUT_MILLIS * NANOS_PER_MILLI
-        // Dispatched in slices rather than blocking: a compositor that answers nothing at all must still
-        // leave this call, and the whole build behind it, with an error rather than a hang.
-        while (!xdgSurfaceListener.configured && !closed && System.nanoTime() < deadline) {
-            // A negative return means the connection is already gone: dispatching again would return
-            // immediately without sleeping, so this loop would burn the rest of the budget spinning.
-            if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
-        }
-        if (xdgSurfaceListener.configured) return Ok(Unit)
-        // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-        return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
-    }
+    override fun waitForConfigure(): EmptyResult<KortexError> =
+        awaitXdgConfigure(display, xdgSurfaceListener) { closed }
 
     override fun consumeResize(): Boolean = popupListener.consumeResize()
 
@@ -926,16 +911,7 @@ internal class XdgPopupSurface private constructor(
         popupListener.closed = true
     }
 
-    override fun attach(buffer: ShmBuffer) {
-        LibWayland.marshal(
-            surface, WL_SURFACE_ATTACH,
-            args = listOf(WlArg.Ptr(buffer.buffer), WlArg.Num(0), WlArg.Num(0)),
-        )
-        LibWayland.marshal(
-            surface, WL_SURFACE_DAMAGE_BUFFER,
-            args = listOf(WlArg.Num(0), WlArg.Num(0), WlArg.Num(buffer.width), WlArg.Num(buffer.height)),
-        )
-    }
+    override fun attach(buffer: ShmBuffer) = attachWholeBuffer(surface, buffer)
 
     override fun setBufferScale(scale: Int) {
         LibWayland.marshal(surface, WL_SURFACE_SET_BUFFER_SCALE, args = listOf(WlArg.Num(scale)))

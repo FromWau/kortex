@@ -254,12 +254,5 @@ internal class WlCursorSurface private constructor(
                 )
                 WlCursorSurface(compositor, surface)
             }
-
-        private const val WL_COMPOSITOR_CREATE_SURFACE = 0
-        private const val WL_SURFACE_DESTROY = 0
-        private const val WL_SURFACE_ATTACH = 1
-        private const val WL_SURFACE_COMMIT = 6
-        private const val WL_SURFACE_SET_BUFFER_SCALE = 8
-        private const val WL_SURFACE_DAMAGE_BUFFER = 9
     }
 }

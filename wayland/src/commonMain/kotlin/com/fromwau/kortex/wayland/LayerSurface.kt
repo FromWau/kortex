@@ -12,6 +12,8 @@ import androidx.compose.ui.unit.dp
  * ```kotlin
  * kortexApplication {
  *     val volume = rememberSurfaceState()
+ *     val status = volume.status
+ *
  *     LayerSurface(
  *         namespace = "volume",
  *         layer = Layer.Overlay,
@@ -25,7 +27,7 @@ import androidx.compose.ui.unit.dp
  *         }
  *         LinearProgressIndicator(progress = { 0.4f })
  *     }
- *     if (volume.status is SurfaceStatus.Ended) exitApplication()
+ *     LaunchedEffect(status) { if (status is SurfaceStatus.Ended) exitApplication() }
  * }
  * ```
  *

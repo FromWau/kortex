@@ -61,7 +61,6 @@ internal class FrameClock(private val surface: MemorySegment) {
     }
 
     private companion object {
-        private const val WL_SURFACE_FRAME = 3
         private const val NANOS_PER_MILLI = 1_000_000L
         private val DONE_DESCRIPTOR = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT)
     }

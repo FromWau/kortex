@@ -160,16 +160,7 @@ internal class LayerShellSurface(
         state.closed = true
     }
 
-    override fun attach(buffer: ShmBuffer) {
-        LibWayland.marshal(
-            surface, WL_SURFACE_ATTACH,
-            args = listOf(WlArg.Ptr(buffer.buffer), WlArg.Num(0), WlArg.Num(0)),
-        )
-        LibWayland.marshal(
-            surface, WL_SURFACE_DAMAGE_BUFFER,
-            args = listOf(WlArg.Num(0), WlArg.Num(0), WlArg.Num(buffer.width), WlArg.Num(buffer.height)),
-        )
-    }
+    override fun attach(buffer: ShmBuffer) = attachWholeBuffer(surface, buffer)
 
     override fun setBufferScale(scale: Int) {
         LibWayland.marshal(surface, WL_SURFACE_SET_BUFFER_SCALE, args = listOf(WlArg.Num(scale)))
@@ -380,12 +371,6 @@ internal class LayerShellSurface(
             }
         }
 
-        private const val WL_COMPOSITOR_CREATE_SURFACE = 0
-        private const val WL_SURFACE_DESTROY = 0
-        private const val WL_SURFACE_ATTACH = 1
-        private const val WL_SURFACE_COMMIT = 6
-        private const val WL_SURFACE_SET_BUFFER_SCALE = 8
-        private const val WL_SURFACE_DAMAGE_BUFFER = 9
         private const val MAX_SPINS = 32
         private const val NO_EXCLUSIVE_EDGE = 0
 
