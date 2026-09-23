@@ -60,13 +60,14 @@ the compositor offers. No legacy paths, no version-conditional branches, no migr
       reaches the wire; `-1` reserves nothing and extends a surface all the way to its anchored edges
       instead of yielding to other surfaces' exclusive zones. (`ExclusiveZoneTest`)
 
-Next: nine entries are open. Seven wait for a decision: under Surface presets, a popup's grab, which it never
+Next: eleven entries are open. Seven wait for a decision: under Surface presets, a popup's grab, which it never
 takes, the decoration kortex draws none of, and the requests back to the compositor a window makes none of; under
 Keyboard and clipboard, a drag out that never starts, which tells the content that asked nothing, a drag's own
 failure, which does not stop the content that failed, and the `move` and `ask` a drag out does not offer; under
 Housekeeping, the layer-shell menu flip nothing calls. The last two are work rather than a decision, both under
 Surface presets: nested popups taken down outermost first, which xdg-shell forbids, and a layer surface's
-unbounded wait for its first configure.
+unbounded wait for its first configure. Two more are work, under Keyboard and clipboard: no test carries a drag
+across the wire, and a bare test surface swallows a drag out.
 
 Not yet run: no test below has been run since `Window`, `Dialog` and `Popup` landed. The suite compiles and
 nothing in it has met a compositor since, so a test named in parentheses here is cover that exists rather than a
@@ -637,6 +638,23 @@ where on the monitor the compositor put it.
       that removes the configure fail rather than hang. The layer role predates that and was left alone while
       spec C added the other two. Open: give it the same bounded wait, which is the shape `awaitXdgConfigure`
       already holds.
+
+- [ ] **No test carries a drag across the wire, and one attempt got most of the way.** `DragAndDropTest` drives
+      the scene directly and never lets a compositor introduce an offer, so `wl_data_device`'s own side has no
+      cover. An attempt placed two layer surfaces through a real shell, one a `dragAndDropSource` and one a
+      `dragAndDropTarget`, and drove a press, a slop-clearing move, eight motions across the screen and a release
+      with a `zwlr_virtual_pointer_v1`. What it established: Compose's gesture fires, `KortexSurface.startDrag`
+      encodes off the loop, and `WaylandClipboard.startDrag` answers `Ok`, so **the request reaches the
+      compositor with a real serial**. What it did not: the destination surface saw no `onStarted`, `onEntered`
+      or `onDrop`, and Hyprland logged nothing about the drag. Untested next step: whether a virtual pointer's
+      motion drives `CSeatManager::setPointerFocus` during an active drag the way a real one does, which is what
+      sets `dndPointerFocus` and therefore picks the destination (`SeatManager.cpp:288-300`,
+      `DataDevice.cpp:666-686`). The attempt is kept at `.superpowers/sdd/run/LiveDragTest.kt.attempt`.
+- [ ] **A bare test surface silently swallows a drag out.** `bareSurface` builds its `KortexSurface` without an
+      `onStartDrag`, which defaults to a no-op (`KortexSurface.kt:418`), so content that asks to drag out of a
+      surface built that way is answered by nothing and the test sees a drag that never happened. Any drag test
+      written on that harness passes vacuously. Open: give `bareSurface` the parameter, or make the default
+      loud enough that a test cannot mistake it for a working path.
 
 ## Housekeeping
 
