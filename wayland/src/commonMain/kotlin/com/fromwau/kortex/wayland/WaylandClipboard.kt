@@ -60,6 +60,9 @@ internal class WaylandClipboard private constructor(
 
     private val ownedImage: Clip.Image? get() = source?.ownedImage
 
+    /** The source of the drag this client is carrying out, and null until one starts and once it has ended. */
+    val dragSource: DataSource? get() = bound?.device?.dragged
+
     /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] or [clear] to quote. */
     fun recordInputSerial(serial: Int) {
         inputSerial = serial
@@ -91,7 +94,8 @@ internal class WaylandClipboard private constructor(
     }
 
     /**
-     * Drags [clip] out of [origin], one of the shell's own surfaces, offering it as a copy and nothing else.
+     * Drags [clip] out of [origin], one of the shell's own surfaces, offering it as a copy and nothing else; the
+     * loop thread alone calls it, since it marshals where it is called rather than hopping as the requests below do.
      *
      * @return `Ok` once the compositor has been asked, [ClipboardError.NoInputSerial] where no input has reached
      *   the shell for the drag to quote, or [ClipboardError.NoClipboard] on a compositor that offers none.
@@ -100,7 +104,9 @@ internal class WaylandClipboard private constructor(
         checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
         val serial = inputSerial ?: return Err(ClipboardError.NoInputSerial)
-        bound.device.startDrag(DataSource.createForDrag(bound.manager, clip), origin, serial)
+        // Named rather than passed inline: set_actions is part of making the source and must precede start_drag.
+        val source = DataSource.createForDrag(bound.manager, clip)
+        bound.device.startDrag(source, origin, serial)
         display.flush()
         return Ok(Unit)
     }

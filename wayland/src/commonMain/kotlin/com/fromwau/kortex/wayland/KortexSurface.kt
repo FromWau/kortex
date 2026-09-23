@@ -9,6 +9,7 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexDragSource
 import java.lang.foreign.MemorySegment
@@ -174,7 +175,14 @@ internal class KortexSurface private constructor(
     internal fun startDrag(dragged: KortexDragSource) {
         // Off the loop thread: encoding an image on it would stall every surface for as long as it runs.
         Dispatchers.Default.asExecutor().execute {
-            val clip = dragged.asClip().getOrElse { return@execute }
+            val encoded = try {
+                dragged.asClip()
+            } catch (cause: Throwable) {
+                // Left here it would reach this dispatcher's uncaught handler alone, and no surface would report it.
+                post { scene?.contentFailed(ContentFailure.PointerInput(cause)) }
+                return@execute
+            }
+            val clip = encoded.getOrElse { return@execute }
             post { onStartDrag(clip, role.surface) }
         }
     }

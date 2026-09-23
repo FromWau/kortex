@@ -80,10 +80,10 @@ public class KortexTextInput internal constructor(
 @OptIn(ExperimentalComposeUiApi::class)
 public sealed interface KortexDragSource : DragAndDropTransferable {
     /** A text, offered under every text type a paste can ask for. */
-    public class Text(public val text: String) : KortexDragSource
+    public data class Text(public val text: String) : KortexDragSource
 
     /** An image, offered as both a PNG and a JPEG. */
-    public class Image(public val image: ImageBitmap) : KortexDragSource
+    public data class Image(public val image: ImageBitmap) : KortexDragSource
 }
 
 /**

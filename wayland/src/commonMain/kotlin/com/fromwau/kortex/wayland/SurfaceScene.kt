@@ -11,6 +11,7 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.onSuccess
+import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexDragSource
 import com.fromwau.kortex.compose.KortexPlatform
@@ -40,7 +41,7 @@ internal class SurfaceScene(
     @Volatile var namespace: String,
     private val loop: LoopQueue,
     platform: KortexPlatform,
-    onCrash: (KortexError.SurfaceCrashed) -> Unit,
+    private val onCrash: (KortexError.SurfaceCrashed) -> Unit,
 ) : AutoCloseable {
 
     // Rides in the frame context below, so the loop can run this scene's work and leave its siblings' where it is.
@@ -89,13 +90,16 @@ internal class SurfaceScene(
         frameContext = loop + work,
         onInvalidate = { surface?.invalidate() },
         platform = hostPlatform,
-        onFailure = { failure ->
-            val crashed = KortexError.SurfaceCrashed(namespace, failure)
-            // The first failure recorded here is the one the surface ends with; later ones only wake the loop.
-            firstCrash.compareAndSet(null, crashed)
-            onCrash(crashed)
-        },
+        onFailure = ::contentFailed,
     )
+
+    /** Records [failure] as this scene's content failing, wherever what failed was run. */
+    fun contentFailed(failure: ContentFailure) {
+        val crashed = KortexError.SurfaceCrashed(namespace, failure)
+        // The first failure recorded here is the one the surface ends with; later ones only wake the loop.
+        firstCrash.compareAndSet(null, crashed)
+        onCrash(crashed)
+    }
 
     /** What content has open for typing into, which the surface's keyboard turns unconsumed keys into edits on. */
     val textInput: KortexTextInput? get() = openTextInput.get()

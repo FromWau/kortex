@@ -50,8 +50,9 @@ internal class DataDevice private constructor(
     // The drag over one of this client's surfaces, from the compositor's enter until its leave or its drop.
     private var drag: Drag? = null
 
-    // What this client's own drag offers, kept so the next drag or the release can give it back.
-    private var dragged: DataSource? = null
+    /** The source of the drag this client is carrying out, and null until one starts and once it has ended. */
+    var dragged: DataSource? = null
+        private set
 
     fun onDataOffer(data: MemorySegment, device: MemorySegment, offer: MemorySegment) {
         introduced[offer.address()] = DataOffer().also { it.install(offer) }
@@ -167,11 +168,15 @@ internal class DataDevice private constructor(
      *
      * No icon surface is sent, so the compositor shows a drag cursor of its own rather than an image of what is
      * being dragged.
+     *
+     * [source] is taken over here and given back once the compositor ends the drag it carries.
      */
     fun startDrag(source: DataSource, origin: MemorySegment, serial: Int) {
         // Before the request, not after: the compositor ends a drag as its source goes, this new one included.
         dragged?.destroy()
         dragged = source
+        // Posted, not run in the event that tells it: the destroy frees the very stub that event runs in.
+        source.onDragEnded = { loop.asExecutor().execute { endDragged(source) } }
         LibWayland.marshal(
             proxy, WL_DATA_DEVICE_START_DRAG,
             args = listOf(
@@ -213,6 +218,14 @@ internal class DataDevice private constructor(
         dropped.offer.finish()
         display.flush()
         endDrag(dropped)
+    }
+
+    // Back on the loop thread, once the compositor has ended what [source] carried. Another drag, or the release,
+    // can have given it back meanwhile, and a source given back twice would reach a freed proxy.
+    private fun endDragged(source: DataSource) {
+        if (dragged !== source) return
+        source.destroy()
+        dragged = null
     }
 
     // Tells content the drag is over with nothing dropped, and gives its offer back.
@@ -467,6 +480,9 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
     @Volatile
     private var cancelled = false
 
+    /** Called on the loop thread once the compositor ends the drag this carries, for its owner to give it back. */
+    var onDragEnded: () -> Unit = {}
+
     // What it holds until the compositor cancels it, as it does once another selection or a clear replaces it.
     private val ownedClip: Clip? get() = clip.takeUnless { cancelled }
 
@@ -489,15 +505,19 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
         Dispatchers.IO.asExecutor().execute { writePipeAndClose(fd, bytes, TRANSFER_TIMEOUT_MILLIS) }
     }
 
-    // Replaced as the selection. The next copy or clear, or the clipboard's close, destroys it, never this event,
-    // which runs in one of the stubs that would free.
+    // Replaced as the selection, or the drag this carried is over. Destroyed by whoever owns it, never by this
+    // event, which runs in one of the stubs that would free.
     fun onCancelled(data: MemorySegment, source: MemorySegment) {
         cancelled = true
+        onDragEnded()
     }
 
     fun onDndDropPerformed(data: MemorySegment, source: MemorySegment) = Unit
 
-    fun onDndFinished(data: MemorySegment, source: MemorySegment) = Unit
+    // The destination is done with what this offered, so nothing will be asked of it again.
+    fun onDndFinished(data: MemorySegment, source: MemorySegment) {
+        onDragEnded()
+    }
 
     fun onAction(data: MemorySegment, source: MemorySegment, dndAction: Int) = Unit
 

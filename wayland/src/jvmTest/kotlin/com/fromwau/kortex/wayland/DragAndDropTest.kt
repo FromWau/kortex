@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -138,6 +139,10 @@ class DragAndDropTest {
                 clipboard.startDrag(Clip.Text(DRAGGED_TEXT), origin = NULL),
                 "a drag with no input serial must fail before a source is made or start_drag sent",
             )
+            assertNull(
+                clipboard.dragSource,
+                "a drag with no input serial was carried to the compositor anyway",
+            )
         }
     }
 
@@ -163,7 +168,7 @@ class DragAndDropTest {
     private fun withUnfocusedClipboard(block: (WaylandClipboard) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland ->
-            // Unconfined runs the clipboard's loop work right here, on the thread that owns this connection.
+            // Never used: a drag marshals on the calling thread, and nothing here dispatches an event to the device.
             val clipboard = WaylandClipboard.bind(wayland, Dispatchers.Unconfined)
                 .getOrElse { error -> fail("binding the clipboard failed: $error") }
             clipboard.use(block)
