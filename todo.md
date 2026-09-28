@@ -819,6 +819,29 @@ where on the monitor the compositor put it.
       own layout, and the flip was only one reader of them. Open: delete the flip, its enum and the nine cases,
       or give it a caller. (`MenuAnchorTest`, `SurfacePresetTest`)
 
+## Where the work stands
+
+Written down because the rest of it lives in a conversation and in a git-ignored directory, and neither
+survives on its own.
+
+- **Branch `windows-and-input`, 152 commits ahead of `master`, nothing pushed, working tree clean.**
+  375 tests green across `:wayland`, `:compose` and `:bar`. The three `@Hotplug` classes are excluded
+  and have never run here; changing an output on this machine crashes the installed GTK about one run
+  in 256.
+- **It sits on `reactive-surfaces`, which is itself not merged into `master`.** Merging that first keeps
+  the history straight. That decision has been open since before the audit and is still nobody's but
+  yours.
+- **The audit's own reports are in `.superpowers/sdd/protocol-audit/`, nineteen files, and that path is
+  git-ignored.** `SUMMARY.md` is the way in; each `report-*.md` quotes both sides of every finding. A
+  `git clean -fdx` takes all of it. Every entry below carries its own evidence for that reason, but the
+  reports hold the roughly 190 items that were checked and found correct, which nothing else records.
+- **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
+  `PopupTeardownWireTest` and `DragWireTest` take focus, re-tile open windows and drive the pointer, so
+  they want a session kept free. Ask before starting a run.
+- **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
+  which made three "green" reports meaningless before it was noticed. The counts in
+  `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
+
 ## Audit against the reference implementations
 
 A fourteen-agent audit covered every line of kortex against Weston, libwayland, Hyprland 0.56.2,
