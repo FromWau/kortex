@@ -125,8 +125,10 @@ class ProtocolVersionTest {
 
     /**
      * From v5 a scroll is a source plus an axis inside a frame group, and from v8 an `axis_value120`
-     * rides alongside the axis. kortex reads only `axis`, so this drives a real wheel through the
-     * compositor and asserts the newer grouping did not swallow it on the way to the composition.
+     * rides alongside the axis, which is the one kortex measures a detent by. So this drives a real
+     * wheel through the compositor and asserts the grouping did not swallow it on the way to the
+     * composition. It asserts a direction rather than a magnitude: `SCROLL_FIXED` is one detent under
+     * both the value120 and the surface-pixel formulas, so it cannot tell them apart.
      */
     @Test
     fun `a wheel scroll reaches the composition at the negotiated pointer version`() {

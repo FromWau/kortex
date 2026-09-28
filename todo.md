@@ -338,7 +338,7 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       (`XDGDecoration.cpp:19`, `:27`, `:40`), so nothing here can take that branch and it is covered by reading.
       Open: a title bar, its theme, its buttons and eight resize edges, which is a body of work of its own, for
       the day a compositor that needs them becomes a target.
-- [ ] **Content reads a window's states and asks the compositor for none of them.** `WindowState` publishes the
+- [x] **Content reads a window's states and asks the compositor for none of them.** `WindowState` publishes the
       `maximized`, `fullscreen`, `tiled` and `activated` every `xdg_toplevel.configure` carries, and there is no
       call to maximize, fullscreen or minimize a window, none to move or resize one, and none to raise it. Every
       setting a kortex surface has is one its caller states and kortex sends. Open: a request back is a different
@@ -607,7 +607,7 @@ where on the monitor the compositor put it.
       or asks for on an offer; since the compositor picks a drop's action from the source's own mask, a drag out
       of kortex is a copy, while a drag into it is whatever its source declared, so content taking one cannot
       assume the source treated it as a copy. (`DragAndDropTest`, `KortexSceneTest`)
-- [ ] **A drag out that never starts tells the content that asked nothing.** `KortexShell.startDragFrom` discards
+- [x] **A drag out that never starts tells the content that asked nothing.** `KortexShell.startDragFrom` discards
       the `EmptyResult<ClipboardError>` `WaylandClipboard.startDrag` answers with, and `KortexSurface.startDrag`
       drops an encoding that failed past the 64 MiB cap the same way. So content cannot tell a drag the compositor
       was asked for from one that ended as `NoInputSerial`, `NoClipboard` or `TooLarge`: the only answer it gets,
@@ -633,7 +633,7 @@ where on the monitor the compositor put it.
       that the drop happened, so it can remove what left, which is the channel the entry above wants; `ask` means
       answering the compositor mid-drag, once the user has picked an action out of a menu the compositor drives.
 
-- [ ] **A layer surface can wait for its first configure forever.** `LayerShellSurface.waitForConfigure` spins on
+- [x] **A layer surface can wait for its first configure forever.** `LayerShellSurface.waitForConfigure` spins on
       a blocking `display.dispatch()`, so a compositor that never answers leaves the call there with nothing to
       end it. `XdgToplevelSurface` and `XdgPopupSurface` take a sliced dispatch against a four second budget
       instead, and break out when the dispatch reports a dead connection, which is what makes a test mutation
@@ -1002,7 +1002,7 @@ references and stays actionable on its own once the reports are gone.
       22, and `--enable-native-access=ALL-UNNAMED` (`bar/build.gradle.kts:20`) means nothing if the bundled
       JRE predates it. Open: add the same `jvmToolchain` line its two siblings have.
 
-- [ ] **Wheel scroll reaches Compose about fifteen times too fast, and worse on a HiDPI surface.** One detent
+- [x] **Wheel scroll reaches Compose about fifteen times too fast, and worse on a HiDPI surface.** One detent
       from Hyprland is an `axis` value of 15.0 (`InputManager.cpp`, `delta = 15.0 * discrete * factor`, with
       `value120 = round(factor * e.deltaDiscrete)` alongside it). `SeatInput.kt:82` forwards
       `fixedToFloat(value) * scale`, so Compose is handed 15.0, or 30.0 at buffer scale 2. Compose's own
@@ -1028,6 +1028,27 @@ references and stays actionable on its own once the reports are gone.
       `zwlr_layer_shell_v1` at 5 and `zwlr_virtual_pointer_v1` at 2, both matching today. Open: read those
       two files in the test. The objection that nothing in the repo reads `/usr/share` is weak, since the
       suite already requires `hyprctl`, `xkbcli`, `grim` and a live compositor.
+
+- [ ] **A drag quotes a grab serial that may no longer be live by the time it is sent.**
+      `WaylandClipboard.startDrag` now quotes the serial of the pointer press that began the gesture rather
+      than whatever input happened last, which is what `wl_data_device.start_drag`'s own argument asks for and
+      what KWin checks (`src/input.cpp:2587`, `hasImplicitPointerGrab(serial)`). The number is right; the
+      grab may not still be held. `KortexSurface.startDrag` encodes the payload on `Dispatchers.Default` and
+      posts back, so the button can be up before the request reaches the wire, and Weston additionally
+      requires `button_count == 1` and would refuse it. `grabSerial` is deliberately **not** cleared on
+      release: clearing it would fail every drag on that same race, including on Hyprland, which validates
+      nothing and works today. Open: start the drag on the press path and fill the payload lazily behind
+      `wl_data_source.send`, which would also let `startDragAndDropTransfer`'s own `Boolean` carry the whole
+      answer instead of the callback the encode hop forced.
+- [ ] **`wm_capabilities` is still an empty listener slot, and now it would have a reader.**
+      `xdg_toplevel.wm_capabilities` (since 5, and Hyprland advertises `xdg_wm_base` 7) tells a client which
+      of `askMaximized`, `askFullscreen` and `askMinimized` the compositor will honour at all. Asking for one
+      it never advertised is harmless (the XML says a compositor ignores what it does not support), so this
+      is not a hazard, only a gap content cannot see around. Publishing it has to go through `WindowStates`
+      and `SurfaceSlot.followWindow` the way every other window state does; reading it straight off the
+      toplevel would give `WindowState` a value that never recomposes when the compositor changes it, which
+      is a worse trap than not having it. Open: decode it into `WindowStates` alongside the states already
+      published there.
 
 ## Deliberately not doing
 
