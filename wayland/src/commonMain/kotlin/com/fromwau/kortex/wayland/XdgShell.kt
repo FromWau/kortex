@@ -35,36 +35,6 @@ private fun destroyWmBase(wmBase: MemorySegment) {
     LibWayland.proxyDestroy(wmBase)
 }
 
-private const val CONFIGURE_TIMEOUT_MILLIS = 4_000L
-private const val DISPATCH_SLICE_MILLIS = 50L
-private const val NANOS_PER_MILLI = 1_000_000L
-
-/**
- * Dispatches until [xdgSurfaceListener] has acknowledged a configure, which every xdg role waits for alike.
- *
- * @return `Ok` once configured; else the connection's error when it died before a configure came, else
- *   [KortexError.SurfaceNotConfigured], which is also what a role the compositor gave up on ends with.
- */
-private fun awaitXdgConfigure(
-    display: WaylandDisplay,
-    xdgSurfaceListener: XdgSurfaceListener,
-    // The role's own closed flag, which the compositor sets by closing the window or dismissing the popup.
-    closed: () -> Boolean,
-): EmptyResult<KortexError> {
-    display.roundtrip()
-    val deadline = System.nanoTime() + CONFIGURE_TIMEOUT_MILLIS * NANOS_PER_MILLI
-    // Dispatched in slices rather than blocking: a compositor that answers nothing at all must still
-    // leave this call, and the whole build behind it, with an error rather than a hang.
-    while (!xdgSurfaceListener.configured && !closed() && System.nanoTime() < deadline) {
-        // A negative return means the connection is already gone: dispatching again would return
-        // immediately without sleeping, so this loop would burn the rest of the budget spinning.
-        if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
-    }
-    if (xdgSurfaceListener.configured) return Ok(Unit)
-    // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-    return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
-}
-
 /** The `xdg_shell` tables, from `wayland-scanner private-code xdg-shell.xml`. */
 internal object XdgShellProtocol {
     // These two come first because a table resolves its `types` entries in declaration order, and both
@@ -111,16 +81,17 @@ internal object XdgShellProtocol {
                 WlMessage("set_parent", "?o", listOf(self)),
                 WlMessage("set_title", "s", listOf(MemorySegment.NULL)),
                 WlMessage("set_app_id", "s", listOf(MemorySegment.NULL)),
-                // show_window_menu, move, resize and set_fullscreen carry no real object type either,
-                // safe only because no opcode is declared for any of them.
-                WlMessage("show_window_menu", "ouii", List(4) { MemorySegment.NULL }),
-                WlMessage("move", "ou", List(2) { MemorySegment.NULL }),
-                WlMessage("resize", "ouu", List(3) { MemorySegment.NULL }),
+                WlMessage(
+                    "show_window_menu", "ouii",
+                    listOf(LibWayland.seatInterface) + List(3) { MemorySegment.NULL },
+                ),
+                WlMessage("move", "ou", listOf(LibWayland.seatInterface, MemorySegment.NULL)),
+                WlMessage("resize", "ouu", listOf(LibWayland.seatInterface) + List(2) { MemorySegment.NULL }),
                 WlMessage("set_max_size", "ii", List(2) { MemorySegment.NULL }),
                 WlMessage("set_min_size", "ii", List(2) { MemorySegment.NULL }),
                 WlMessage("set_maximized", ""),
                 WlMessage("unset_maximized", ""),
-                WlMessage("set_fullscreen", "?o", listOf(MemorySegment.NULL)),
+                WlMessage("set_fullscreen", "?o", listOf(LibWayland.outputInterface)),
                 WlMessage("unset_fullscreen", ""),
                 WlMessage("set_minimized", ""),
             )
@@ -179,6 +150,11 @@ internal object XdgShellProtocol {
     const val SET_PARENT = 1
     const val SET_TITLE = 2
     const val SET_APP_ID = 3
+    const val SET_MAXIMIZED = 9
+    const val UNSET_MAXIMIZED = 10
+    const val SET_FULLSCREEN = 11
+    const val UNSET_FULLSCREEN = 12
+    const val SET_MINIMIZED = 13
 
     const val POSITIONER_DESTROY = 0
     const val SET_POSITIONER_SIZE = 1
@@ -553,6 +529,22 @@ internal class XdgToplevelSurface private constructor(
     fun setAppId(appId: String) = sendString(XdgShellProtocol.SET_APP_ID, appId)
 
     /**
+     * Asks the compositor to maximize this window, or to take that back; it answers with a configure carrying
+     * whatever states it settled on, which need not be the ones asked for. The loop thread only.
+     */
+    fun askMaximized(maximized: Boolean) =
+        send(if (maximized) XdgShellProtocol.SET_MAXIMIZED else XdgShellProtocol.UNSET_MAXIMIZED)
+
+    /** As [askMaximized], for the whole of a monitor; NULL leaves the compositor to choose which monitor. */
+    fun askFullscreen(fullscreen: Boolean) = when {
+        fullscreen -> send(XdgShellProtocol.SET_FULLSCREEN, listOf(WlArg.Ptr(MemorySegment.NULL)))
+        else -> send(XdgShellProtocol.UNSET_FULLSCREEN)
+    }
+
+    /** As [askMaximized], except that the protocol carries no state for it and no request back. */
+    fun askMinimized() = send(XdgShellProtocol.SET_MINIMIZED)
+
+    /**
      * Dispatches until `xdg_surface.configure` has arrived and been acknowledged, and gives up if the compositor
      * closes the window first, then settles which side draws the decoration.
      *
@@ -561,7 +553,7 @@ internal class XdgToplevelSurface private constructor(
      *   [KortexError.ClientSideDecorationRequired].
      */
     override fun waitForConfigure(): EmptyResult<KortexError> {
-        awaitXdgConfigure(display, xdgSurfaceListener) { closed }.getOrElse { return Err(it) }
+        awaitConfigure(display, { xdgSurfaceListener.configured }, { closed }).getOrElse { return Err(it) }
         // Silence counts as client side, which is what the decoration protocol says an unanswered ask means.
         // Hyprland 0.56.2 answers server side to every ask, so this is read rather than run on this desktop.
         if (decoration.mode != XdgDecorationMode.ServerSide) return Err(KortexError.ClientSideDecorationRequired)
@@ -608,10 +600,15 @@ internal class XdgToplevelSurface private constructor(
     // wl_proxy_marshal copies a string argument into the message it builds, so the value is only borrowed
     // for the call and has no business in an arena that outlives it.
     private fun sendString(opcode: Int, value: String) {
-        Arena.ofConfined().use { request ->
-            LibWayland.marshal(toplevel, opcode, args = listOf(WlArg.Ptr(request.allocateFrom(value))))
-        }
-        // Neither request is double-buffered, so neither waits for a commit the window may never make again.
+        Arena.ofConfined().use { request -> send(opcode, listOf(WlArg.Ptr(request.allocateFrom(value)))) }
+    }
+
+    private fun send(
+        opcode: Int,
+        args: List<WlArg> = emptyList(),
+    ) {
+        LibWayland.marshal(toplevel, opcode, args = args)
+        // None of these requests is double-buffered, so none waits for a commit the window may never make again.
         display.flush()
     }
 
@@ -721,12 +718,14 @@ internal fun KortexSurface.Companion.createOnToplevel(
     parent: MemorySegment,
     loopQueue: LoopQueue? = null,
     onInputSerial: (Int) -> Unit = {},
+    onPointerGrab: (Int) -> Unit = {},
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-    onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
+    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = { _, _ -> Ok(Unit) },
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
     loopQueue = loopQueue,
     onInputSerial = onInputSerial,
+    onPointerGrab = onPointerGrab,
     onKeyboardFocus = onKeyboardFocus,
     onStartDrag = onStartDrag,
 ) {
@@ -899,7 +898,7 @@ internal class XdgPopupSurface private constructor(
      *   ends with.
      */
     override fun waitForConfigure(): EmptyResult<KortexError> =
-        awaitXdgConfigure(display, xdgSurfaceListener) { closed }
+        awaitConfigure(display, { xdgSurfaceListener.configured }, { closed })
 
     override fun consumeResize(): Boolean = popupListener.consumeResize()
 
@@ -1079,12 +1078,14 @@ internal fun KortexSurface.Companion.createOnPopup(
     parent: PopupParent,
     loopQueue: LoopQueue? = null,
     onInputSerial: (Int) -> Unit = {},
+    onPointerGrab: (Int) -> Unit = {},
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-    onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
+    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = { _, _ -> Ok(Unit) },
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
     loopQueue = loopQueue,
     onInputSerial = onInputSerial,
+    onPointerGrab = onPointerGrab,
     onKeyboardFocus = onKeyboardFocus,
     onStartDrag = onStartDrag,
 ) {

@@ -1,7 +1,42 @@
 package com.fromwau.kortex.wayland
 
 import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.flatMap
 import java.lang.foreign.MemorySegment
+
+private const val CONFIGURE_TIMEOUT_MILLIS = 4_000L
+private const val DISPATCH_SLICE_MILLIS = 50L
+private const val NANOS_PER_MILLI = 1_000_000L
+
+/**
+ * Dispatches until [configured] answers true, which is what every role's [SurfaceRole.waitForConfigure] waits
+ * on, and gives up when [closed] answers first or when neither does within the budget.
+ *
+ * @return `Ok` once configured; else the connection's error when it died before a configure came, else
+ *   [KortexError.SurfaceNotConfigured], which is also what a role the compositor gave up on ends with.
+ */
+internal fun awaitConfigure(
+    display: WaylandDisplay,
+    configured: () -> Boolean,
+    // The role's own closed flag, which the compositor sets by closing the window or dismissing the surface.
+    closed: () -> Boolean,
+): EmptyResult<KortexError> {
+    display.roundtrip()
+    val deadline = System.nanoTime() + CONFIGURE_TIMEOUT_MILLIS * NANOS_PER_MILLI
+    // Dispatched in slices rather than blocking: this runs on the one thread that pumps the connection, and
+    // wl_display_dispatch returns only once an event arrives, so a compositor that answers nothing at all
+    // would hold the whole application here, past any exitApplication.
+    while (!configured() && !closed() && System.nanoTime() < deadline) {
+        // A negative return means the connection is already gone: dispatching again would return immediately
+        // without sleeping, so this loop would burn the rest of the budget spinning.
+        if (display.dispatch(DISPATCH_SLICE_MILLIS) < 0) break
+    }
+    if (configured()) return Ok(Unit)
+    // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
+    return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
+}
 
 /** How a surface parents a popup opened from its content: the two ways the protocol offers. */
 internal sealed interface PopupParent {

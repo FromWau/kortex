@@ -6,7 +6,6 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
-import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import java.lang.foreign.Arena
 import java.lang.foreign.FunctionDescriptor
@@ -142,22 +141,13 @@ internal class LayerShellSurface(
 
     /**
      * Dispatches until `zwlr_layer_surface_v1.configure` arrives, and gives up if the compositor closes the
-     * surface first.
+     * surface first or answers neither within the wait budget.
      *
      * @return `Ok` once configured; else the connection's error when it died before a configure came, else
-     *   [KortexError.SurfaceNotConfigured].
+     *   [KortexError.SurfaceNotConfigured], which is also what a surface the compositor closed ends with.
      */
-    override fun waitForConfigure(): EmptyResult<KortexError> {
-        display.roundtrip()
-        var spins = 0
-        while (!state.configured && !state.closed && spins < MAX_SPINS) {
-            display.dispatch()
-            spins++
-        }
-        if (state.configured) return Ok(Unit)
-        // A dead connection surfaces first as an unconfigured surface; prefer the real cause.
-        return display.requireAlive().flatMap { Err(KortexError.SurfaceNotConfigured) }
-    }
+    override fun waitForConfigure(): EmptyResult<KortexError> =
+        awaitConfigure(display, { state.configured }, { state.closed })
 
     override fun consumeResize(): Boolean = state.consumeResize()
 
@@ -402,7 +392,6 @@ internal class LayerShellSurface(
             }
         }
 
-        private const val MAX_SPINS = 32
         private const val NO_EXCLUSIVE_EDGE = 0
 
         private val CONFIGURE_DESCRIPTOR =
@@ -452,12 +441,14 @@ internal fun KortexSurface.Companion.createOnLayer(
     output: MemorySegment = MemorySegment.NULL,
     loopQueue: LoopQueue? = null,
     onInputSerial: (Int) -> Unit = {},
+    onPointerGrab: (Int) -> Unit = {},
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-    onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
+    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = { _, _ -> Ok(Unit) },
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
     loopQueue = loopQueue,
     onInputSerial = onInputSerial,
+    onPointerGrab = onPointerGrab,
     onKeyboardFocus = onKeyboardFocus,
     onStartDrag = onStartDrag,
 ) { LayerShellSurface.create(display, config, output) }
