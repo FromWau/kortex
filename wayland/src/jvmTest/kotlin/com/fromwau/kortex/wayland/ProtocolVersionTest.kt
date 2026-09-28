@@ -49,17 +49,26 @@ class ProtocolVersionTest {
                     "$interfaceName must bind at the lower of v$asked and the advertised v$advertised",
                 )
             }
+            // A bind past what the compositor advertises leaves the local proxy at the clamped version
+            // and kills the connection, which only surfaces once this side has read the error back.
+            wayland.roundtrip()
+            assertEquals(Ok(Unit), wayland.requireAlive(), "a bind was refused and the connection died")
         }
     }
 
     /**
-     * The leg above compares against what the compositor advertises, which never exceeds the ceiling
-     * libwayland's own tables declare — so it cannot see a constant raised past that ceiling, which is
-     * the case `wl_proxy_marshal_flags` answers by aborting inside native code.
+     * The leg above only ever compares against what the compositor advertises, so a constant raised past
+     * the table kortex binds with is clamped away before anything can notice it. A compositor that does
+     * advertise that high binds a proxy whose table has no entry for the events it then receives, and
+     * libwayland's `queue_event` answers the first of them by killing the connection.
+     *
+     * The two hand-built tables are left out: `buildInterface` is handed the very constant this compares
+     * against, so the row cannot fail. Their ceiling is the one the protocol XML they were copied from
+     * declares, which nothing here reads.
      */
     @Test
-    fun `every version kortex asks for is one its own wl_interface declares`() {
-        BINDINGS.forEach { (interfaceName, iface, asked) ->
+    fun `every version kortex asks for is one libwayland's own table declares`() {
+        BINDINGS.filterNot { it.handBuilt }.forEach { (interfaceName, iface, asked) ->
             val declared = LibWayland.interfaceVersion(iface)
             assertTrue(
                 asked <= declared,
@@ -195,7 +204,13 @@ class ProtocolVersionTest {
     }
 
     /** One global kortex binds, with the version it asks for. */
-    private data class Binding(val interfaceName: String, val iface: MemorySegment, val asked: Int)
+    private data class Binding(
+        val interfaceName: String,
+        val iface: MemorySegment,
+        val asked: Int,
+        /** Whether [iface] is a table kortex builds itself rather than one libwayland exports. */
+        val handBuilt: Boolean = false,
+    )
 
     private companion object {
         val BINDINGS = listOf(
@@ -204,11 +219,17 @@ class ProtocolVersionTest {
             Binding("wl_seat", LibWayland.seatInterface, WlVersion.SEAT),
             Binding("wl_output", LibWayland.outputInterface, WlVersion.OUTPUT),
             Binding("wl_data_device_manager", LibWayland.dataDeviceManagerInterface, WlVersion.DATA_DEVICE_MANAGER),
-            Binding("zwlr_layer_shell_v1", LayerShellProtocol.layerShellInterface, WlVersion.LAYER_SHELL),
+            Binding(
+                "zwlr_layer_shell_v1",
+                LayerShellProtocol.layerShellInterface,
+                WlVersion.LAYER_SHELL,
+                handBuilt = true,
+            ),
             Binding(
                 "zwlr_virtual_pointer_manager_v1",
                 VirtualPointerProtocol.virtualPointerManagerInterface,
                 WlVersion.VIRTUAL_POINTER,
+                handBuilt = true,
             ),
         )
 

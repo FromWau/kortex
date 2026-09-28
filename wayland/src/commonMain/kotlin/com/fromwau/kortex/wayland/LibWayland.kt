@@ -215,7 +215,7 @@ internal object LibWayland {
      * shared arena, not a confined one, which would refuse every thread but the one that installed.
      *
      * The Java signature is derived from [descriptor], because a mismatch between the two crashes inside
-     * native code rather than failing to compile. [method] must be public — Kotlin mangles an `internal`
+     * native code rather than failing to compile. [method] must be public: Kotlin mangles an `internal`
      * name out of the lookup's reach.
      */
     fun upcall(arena: Arena, target: Any, method: String, descriptor: FunctionDescriptor): MemorySegment {
@@ -231,7 +231,7 @@ internal object LibWayland {
     fun interfaceName(iface: MemorySegment): MemorySegment =
         iface.reinterpret(INTERFACE.byteSize()).get(ADDRESS, NAME_OFFSET)
 
-    /** The newest version a `wl_interface` declares; binding past it aborts inside libwayland. */
+    /** The `version` field of a `wl_interface`; nothing on the client side checks a bind or a marshal against it. */
     fun interfaceVersion(iface: MemorySegment): Int =
         iface.reinterpret(INTERFACE.byteSize()).get(JAVA_INT, VERSION_OFFSET)
 
@@ -271,8 +271,9 @@ internal object LibWayland {
     /**
      * Marshals [opcode] only when the proxy's negotiated version is [since] or newer.
      *
-     * libwayland refuses a marshal past a proxy's own version and kills the connection with EINVAL, so a
-     * request the compositor is too old to know has to be skipped rather than sent and ignored.
+     * Nothing on this side rejects the send. The compositor compares the resource's version against the
+     * request's own `since` and answers one it is too old for with `wl_display.error(invalid_method)`,
+     * which destroys the client, so the request has to be skipped here or the whole connection dies.
      */
     fun marshalIfSince(proxy: MemorySegment, opcode: Int, since: Int, args: List<WlArg> = emptyList()) {
         if (proxyGetVersion(proxy) >= since) marshal(proxy, opcode, args = args)
