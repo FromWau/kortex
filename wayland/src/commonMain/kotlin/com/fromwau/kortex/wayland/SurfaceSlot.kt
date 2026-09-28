@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -94,6 +95,9 @@ internal class SurfaceSlot(
 
     private val closeDeclined = AtomicBoolean(false)
 
+    // Asks made from content's thread and sent on the loop's, which is the only one that may marshal.
+    private val windowAsks = ConcurrentLinkedQueue<(XdgToplevelSurface) -> Unit>()
+
     /** What content sees as its own `this`, and as `LocalKortexSurface`, for as long as its call composes. */
     val scope: SurfaceScope = object : SurfaceScope {
         // From the scene, which outlives a rebuild: the size holds until the surface that takes over is configured.
@@ -113,6 +117,15 @@ internal class SurfaceSlot(
      */
     fun declineClose() {
         closeDeclined.set(true)
+        wake()
+    }
+
+    /**
+     * Queues an ask for this window's state, from any thread; the shell sends it in its next pass, and a call
+     * holding anything but a window on screen sends none.
+     */
+    fun askWindow(request: (XdgToplevelSurface) -> Unit) {
+        windowAsks += request
         wake()
     }
 
@@ -162,9 +175,16 @@ internal class SurfaceSlot(
 
     /** Publishes what the window this call holds reports about itself; a call holding anything else has none. */
     fun followWindow() {
-        val toplevel = surface?.role as? XdgToplevelSurface ?: return
+        val toplevel = surface?.role as? XdgToplevelSurface
+        if (toplevel == null) {
+            // A window still being placed, or one that has ended, takes no ask, as WindowState's own docs say.
+            windowAsks.clear()
+            return
+        }
         // Taken back here, where the window is read: a decline acted on anywhere else is republished away below.
         if (closeDeclined.getAndSet(false)) toplevel.declineClose()
+        // Before the publish below, so a state the compositor answers with is read in the pass that follows.
+        generateSequence(windowAsks::poll).forEach { request -> request(toplevel) }
         publish(
             WindowStates(
                 closeRequested = toplevel.closeRequested,

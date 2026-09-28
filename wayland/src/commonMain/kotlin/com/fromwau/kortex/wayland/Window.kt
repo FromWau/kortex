@@ -41,6 +41,9 @@ import com.fromwau.kern.result.Result
  * Take the call out of composition to close it, leave it in to refuse, and take as long as you like to ask the
  * user first. Say a refusal with [WindowState.declineClose], so the next ask is seen as one.
  *
+ * Asks go the other way too: [WindowState.askMaximized], [WindowState.askFullscreen] and
+ * [WindowState.askMinimized] put the case to the compositor, which answers with the states it chose.
+ *
  * Once the window has ended, in any of the ways [WindowStatus.Ended] lists, the call shows nothing until you take it
  * out of composition and put it back, which places a window again and takes [state] with it.
  *
@@ -196,6 +199,53 @@ public class WindowState {
 
     /** The window is the one the user is working in, and is where their typing goes. */
     public val activated: Boolean get() = published.windowStates.activated
+
+    /**
+     * Asks the compositor to maximize this window, or to take that back, and reports what it chose through
+     * [maximized].
+     *
+     * Asking is not getting. The compositor answers an ask with the states it chose, which may be the ones the
+     * window already had, and a compositor that does not maximize windows at all ignores it. So read
+     * [maximized] for what the window is, and never take the ask itself as the answer: nothing about the window
+     * changes at the call.
+     *
+     * ```kotlin
+     * val state = rememberWindowState()
+     *
+     * Button(onClick = { state.askMaximized(!state.maximized) }) {
+     *     Text(if (state.maximized) "Restore" else "Maximize")
+     * }
+     * ```
+     *
+     * Call it from any thread, as [declineClose] takes one: the ask reaches the compositor in the shell's next
+     * pass. Until the window is on screen, and once it has ended, it does nothing.
+     */
+    public fun askMaximized(maximized: Boolean) {
+        ask { window -> window.askMaximized(maximized) }
+    }
+
+    /**
+     * Asks for this window to have the whole of a monitor with nothing else over it, or to take that back, on
+     * the terms [askMaximized] describes; [fullscreen] reports what the compositor chose.
+     *
+     * Which monitor that is, the compositor chooses.
+     */
+    public fun askFullscreen(fullscreen: Boolean) {
+        ask { window -> window.askFullscreen(fullscreen) }
+    }
+
+    /**
+     * Asks for this window to be minimized, on the terms [askMaximized] describes, with one difference: the
+     * protocol carries no state for it and no ask back. Nothing here reports whether the compositor minimized
+     * the window, and nothing here brings it back, which is the user's to do.
+     */
+    public fun askMinimized() {
+        ask { window -> window.askMinimized() }
+    }
+
+    private fun ask(request: (XdgToplevelSurface) -> Unit) {
+        published.boundTo?.askWindow(request)
+    }
 }
 
 /**
