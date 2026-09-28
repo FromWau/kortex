@@ -29,7 +29,8 @@ public sealed interface SurfaceStatus {
      *   or the call leaving composition. `Err` carries what ended it instead: [KortexError.SurfaceCrashed] when
      *   your content threw; [KortexError.UnspannableAxis], [KortexError.NegativeSize],
      *   [KortexError.InvalidExclusiveEdge] or [KortexError.InvalidExclusiveZone] when the settings asked for could
-     *   not be placed; [KortexError.MissingSeatDevice], [KortexError.SurfaceNotConfigured] or
+     *   not be placed; [KortexError.ExclusiveEdgeUnsupported] when the compositor's layer shell is too old for
+     *   one of them; [KortexError.MissingSeatDevice], [KortexError.SurfaceNotConfigured] or
      *   [KortexError.ShmAllocationFailed] when the compositor would not give the surface what it needs to draw; and
      *   the same error [kortexApplication] returns when the connection to the compositor failed.
      */
