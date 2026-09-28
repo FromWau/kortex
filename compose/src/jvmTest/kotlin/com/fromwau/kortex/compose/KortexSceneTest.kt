@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertNotEquals
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -498,6 +499,55 @@ class KortexSceneTest {
     }
 
     /**
+     * The other end of the same call. A host takes a drag on before it knows whether it can carry it: the
+     * payload is encoded off the loop thread, so a size it cannot carry is only found once the gesture has
+     * already returned true. Compose keeps a channel for exactly that, and content heard nothing through it
+     * until the host was given one.
+     */
+    @Test
+    @OptIn(ExperimentalComposeUiApi::class)
+    fun `a drag the host takes on and then cannot start tells content it did not complete`() {
+        val completedWith = AtomicReference<DragAndDropTransferAction?>(null)
+        val told = CountDownLatch(1)
+        val asked = CountDownLatch(1)
+        val host = object : KortexPlatform {
+            override fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean {
+                asked.countDown()
+                // As the real host does: taken on here, found impossible a few loop passes later.
+                onNotStarted()
+                return true
+            }
+        }
+
+        withScene(platform = host) { scene, surface ->
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .dragAndDropSource(drawDragDecoration = {}) {
+                            DragAndDropTransferData(
+                                KortexDragSource.Text(DRAGGED_TEXT),
+                                listOf(DragAndDropTransferAction.Copy),
+                                onTransferCompleted = { action ->
+                                    completedWith.set(action)
+                                    told.countDown()
+                                },
+                            )
+                        },
+                )
+            }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+            assertTrue(dragUntilAsked(scene, asked), "dragging content never asked the host to carry it")
+            assertTrue(told.await(TOLD_SECONDS, TimeUnit.SECONDS), "content was never told the drag did not start")
+        }
+
+        // Null is the whole point: Compose reads it as "the gesture did not complete successfully", which is
+        // what a drag the host could not start is, and an action would say the opposite.
+        assertNull(completedWith.get(), "content was told the drag completed, with ${completedWith.get()}")
+    }
+
+    /**
      * Presses and drags across [scene] until [asked] counts down, giving up after [DRAG_WAIT_MILLIS].
      *
      * Repeated because the gesture that starts a drag runs on the scene's own dispatcher: a press sent before it
@@ -608,6 +658,9 @@ class KortexSceneTest {
         const val EFFECT_DELAY_MILLIS = 50L
         const val FAILURE_WAIT_MILLIS = 5_000L
         const val DRAG_WAIT_MILLIS = 5_000L
+        // A drag refused on the host's own thread, so this waits on a handover rather than real work.
+        const val TOLD_SECONDS = 5L
+
         const val DRAGGED_TEXT = "dragged"
 
         // Far enough apart for the drag to pass the 18dp of touch slop a gesture starts after, and both inside

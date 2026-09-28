@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -70,6 +71,27 @@ class DragWireTest {
             "the drag left the surface and its offer was never given back; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
         )
 
+        // The serial start_drag quotes must be a button press's own. Its argument asks for "the serial
+        // number of the implicit grab on the origin", and KWin refuses a drag whose serial names no such
+        // grab (src/input.cpp, hasImplicitPointerGrab). kortex used to quote whatever input happened last,
+        // which a key or a button release could be.
+        val startDrag = wire.first { it.isRequest("wl_data_device", "start_drag") }
+        val quoted = assertNotNull(
+            START_DRAG_SERIAL.find(startDrag)?.groupValues?.get(1)?.toIntOrNull(),
+            "could not read start_drag's serial from: $startDrag",
+        )
+        val pressSerials = wire
+            .filter { it.isEvent("wl_pointer", "button") }
+            .mapNotNull { BUTTON_PRESS_SERIAL.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        assertTrue(
+            pressSerials.isNotEmpty(),
+            "no wl_pointer.button press reached the client at all; wire:\n" + wire.traceOf("wl_pointer"),
+        )
+        assertTrue(
+            quoted in pressSerials,
+            "start_drag quoted $quoted, which is no button press's serial (presses: $pressSerials)",
+        )
+
         // And the end of it: the text the source offered reached the target's content.
         assertTrue(
             output.any { it == PROBE_MARKER_DROPPED + PROBE_DRAGGED_TEXT },
@@ -77,3 +99,9 @@ class DragWireTest {
         )
     }
 }
+
+// start_drag(source, origin, icon, serial): the serial is its last argument.
+private val START_DRAG_SERIAL = Regex("\\.start_drag\\([^)]*,\\s*(\\d+)\\s*\\)")
+
+// button(serial, time, button, state): state 1 is a press, and only a press begins a grab.
+private val BUTTON_PRESS_SERIAL = Regex("\\.button\\((\\d+),\\s*\\d+,\\s*\\d+,\\s*1\\)")
