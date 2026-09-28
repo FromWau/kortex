@@ -60,8 +60,7 @@ import androidx.compose.ui.unit.dp
  * @param margins insets from the anchor point; an edge [anchor] does not pin ignores its margin.
  * @param exclusiveZone what the surface reserves of the space the compositor tiles other windows into.
  * @param exclusiveEdge which anchored edge [exclusiveZone] is measured from, needed only when [anchor] pins a
- *   corner. It needs `zwlr_layer_shell_v1` 5; against an older compositor the surface is not placed and ends
- *   with `Err(KortexError.ExclusiveEdgeUnsupported(...))` rather than reserving against an edge nobody chose.
+ *   corner.
  * @param keyboard whether the surface can take keyboard focus.
  * @param state where to read what the surface is doing: [SurfaceStatus.Placing] until it reaches the screen,
  *   [SurfaceStatus.OnScreen] with the size it is drawn at, and [SurfaceStatus.Ended] with how it ended, once and for

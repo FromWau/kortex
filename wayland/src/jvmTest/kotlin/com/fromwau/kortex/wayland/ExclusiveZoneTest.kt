@@ -217,41 +217,6 @@ class ExclusiveZoneTest {
         exclusiveZone = exclusiveZone,
     )
 
-    /**
-     * The one case in this file that needs no compositor. [LayerShellSurface.requireSupported] is what stands
-     * between a corner anchor and a layer shell too old to be told which of the two edges the zone is measured
-     * from; below version 5 the compositor deduces the edge from the anchor, which at a corner it cannot do.
-     * Hyprland advertises 5, so nothing on this desktop can negotiate a version that reaches it, and the
-     * version is passed in rather than bound.
-     */
-    @Test
-    fun `an exclusiveEdge is rejected against a layer shell too old to carry it`() {
-        val corner = SurfaceConfig(
-            namespace = REJECTED_NAMESPACE,
-            anchor = setOf(Edge.Bottom, Edge.Right),
-            width = CORNER_WIDTH.dp,
-            height = CORNER_HEIGHT.dp,
-            exclusiveZone = ExclusiveZone.Reserve(CORNER_ZONE.dp),
-            exclusiveEdge = Edge.Bottom,
-        )
-
-        assertEquals(
-            Err(KortexError.ExclusiveEdgeUnsupported(Edge.Bottom, TOO_OLD_FOR_EXCLUSIVE_EDGE)),
-            LayerShellSurface.requireSupported(corner, TOO_OLD_FOR_EXCLUSIVE_EDGE),
-            "a shell below set_exclusive_edge's own version must not be sent one",
-        )
-        assertEquals(
-            Ok(Unit),
-            LayerShellSurface.requireSupported(corner, LayerShellProtocol.SET_EXCLUSIVE_EDGE_SINCE),
-            "the version the request arrives in must take it",
-        )
-        assertEquals(
-            Ok(Unit),
-            LayerShellSurface.requireSupported(corner.copy(exclusiveEdge = null), TOO_OLD_FOR_EXCLUSIVE_EDGE),
-            "a config naming no edge asks nothing of the version",
-        )
-    }
-
     private companion object {
         const val PANEL_NAMESPACE = "kortex-exclusive-zone-panel"
         const val BACKGROUND_NAMESPACE = "kortex-exclusive-zone-background"
@@ -272,7 +237,5 @@ class ExclusiveZoneTest {
         const val CORNER_WIDTH = 133
         const val CORNER_ZONE = 77
 
-        // Derived, not written down: a raised SET_EXCLUSIVE_EDGE_SINCE must keep this below it.
-        const val TOO_OLD_FOR_EXCLUSIVE_EDGE = LayerShellProtocol.SET_EXCLUSIVE_EDGE_SINCE - 1
     }
 }

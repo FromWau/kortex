@@ -81,7 +81,6 @@ internal object LayerShellProtocol {
 
     /** `zwlr_layer_shell_v1.destroy`, which the interface table declares from version 3. */
     const val DESTROY = 1
-    const val DESTROY_SINCE = 3
 
     const val SET_SIZE = 0
     const val SET_ANCHOR = 1
@@ -92,12 +91,10 @@ internal object LayerShellProtocol {
     const val ACK_CONFIGURE = 6
     const val LAYER_SURFACE_DESTROY = 7
     const val SET_LAYER = 8
-    const val SET_LAYER_SINCE = 2
 
     const val SET_EXCLUSIVE_EDGE = 9
 
     /** Below this the compositor deduces the edge from the anchor, which at a corner it cannot disambiguate. */
-    const val SET_EXCLUSIVE_EDGE_SINCE = 5
 }
 
 /**
@@ -164,7 +161,7 @@ internal class LayerShellSurface(
     /**
      * Requests a new size in logical (surface-local) pixels, which the compositor answers with a fresh configure.
      *
-     * @return what [requirePlaceable] or [requireSupported] rejects the new size for, leaving the surface at
+     * @return what [requirePlaceable] rejects the new size for, leaving the surface at
      *   the size it already has.
      */
     fun setSize(width: Int, height: Int): EmptyResult<KortexError> =
@@ -173,13 +170,12 @@ internal class LayerShellSurface(
     /**
      * Sends only what [new] changes from the config this surface holds, then commits once.
      *
-     * @return what [requirePlaceable] or [requireSupported] rejects [new] for, with nothing sent and the
+     * @return what [requirePlaceable] rejects [new] for, with nothing sent and the
      *   surface left as it was.
      */
     fun apply(new: SurfaceConfig): EmptyResult<KortexError> {
         check(new.namespace == config.namespace) { "get_layer_surface fixes the namespace for the surface's life" }
         requirePlaceable(new).getOrElse { return Err(it) }
-        requireSupported(new, LibWayland.proxyGetVersion(layerSurface)).getOrElse { return Err(it) }
         val known = config
         fun changed(setting: SurfaceConfig.() -> Any?): Boolean = new.setting() != known.setting()
         // First: Hyprland validates an exclusive edge against the anchor pending when that request arrives.
@@ -190,8 +186,7 @@ internal class LayerShellSurface(
             )
         }
         if (changed { exclusiveEdge }) {
-            LibWayland.marshalIfSince(
-                layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, LayerShellProtocol.SET_EXCLUSIVE_EDGE_SINCE,
+            LibWayland.marshal(layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE,
                 args = listOf(WlArg.Num(new.exclusiveEdge?.bit ?: NO_EXCLUSIVE_EDGE)),
             )
         }
@@ -211,8 +206,7 @@ internal class LayerShellSurface(
             )
         }
         if (changed { layer }) {
-            LibWayland.marshalIfSince(
-                layerSurface, LayerShellProtocol.SET_LAYER, LayerShellProtocol.SET_LAYER_SINCE,
+            LibWayland.marshal(layerSurface, LayerShellProtocol.SET_LAYER,
                 args = listOf(WlArg.Num(new.layer.wireValue)),
             )
         }
@@ -251,9 +245,7 @@ internal class LayerShellSurface(
         /**
          * Creates a layer surface of [config] on [output], and drives it to its first configure.
          *
-         * @return what [requirePlaceable] or [requireSupported] rejects [config] for, with no surface made.
-         *   [requireSupported] needs the shell bound to know its version, so that one has bound and given
-         *   back a `zwlr_layer_shell_v1` by the time it answers.
+         * @return what [requirePlaceable] rejects [config] for, with nothing sent and no surface made.
          */
         fun create(
             display: WaylandDisplay,
@@ -272,11 +264,6 @@ internal class LayerShellSurface(
                     releaseCompositor(compositor)
                     return Err(it)
                 }
-            requireSupported(config, LibWayland.proxyGetVersion(shell)).getOrElse {
-                releaseLayerShell(shell)
-                releaseCompositor(compositor)
-                return Err(it)
-            }
 
             val surface = LibWayland.marshal(
                 compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
@@ -322,9 +309,7 @@ internal class LayerShellSurface(
                 args = listOf(WlArg.Num(config.exclusiveZone.toWireValue())),
             )
             config.exclusiveEdge?.let { edge ->
-                LibWayland.marshalIfSince(
-                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE,
-                    LayerShellProtocol.SET_EXCLUSIVE_EDGE_SINCE, args = listOf(WlArg.Num(edge.bit)),
+                LibWayland.marshal(layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(edge.bit)),
                 )
             }
             LibWayland.marshal(layerSurface, LayerShellProtocol.SET_MARGIN, args = config.margins.toWireArgs())
@@ -343,9 +328,6 @@ internal class LayerShellSurface(
         /**
          * Every rule a config must satisfy before any of it is sent: size, spanned axes, exclusive edge, zone.
          *
-         * These are the caller's own mistakes, true of any compositor. What this one cannot do is
-         * [requireSupported]'s question.
-         *
          * @return [KortexError.NegativeSize] when a dimension is below 0, which `set_size`'s unsigned arguments would
          *   read as a size above four billion; [KortexError.UnspannableAxis] when an axis is left 0 without both of
          *   its edges anchored, which the protocol allows only then and Hyprland answers by dropping the connection;
@@ -354,16 +336,9 @@ internal class LayerShellSurface(
          */
         /** Gives back a `zwlr_layer_shell_v1` bound by [create], which binds one per surface. */
         fun releaseLayerShell(shell: MemorySegment) {
-            LibWayland.marshalIfSince(shell, LayerShellProtocol.DESTROY, LayerShellProtocol.DESTROY_SINCE)
+            LibWayland.marshal(shell, LayerShellProtocol.DESTROY)
             LibWayland.proxyDestroy(shell)
         }
-
-        fun requireSupported(config: SurfaceConfig, shellVersion: Int): EmptyResult<KortexError> =
-            if (config.exclusiveEdge != null && shellVersion < LayerShellProtocol.SET_EXCLUSIVE_EDGE_SINCE) {
-                Err(KortexError.ExclusiveEdgeUnsupported(config.exclusiveEdge, shellVersion))
-            } else {
-                Ok(Unit)
-            }
 
         fun requirePlaceable(config: SurfaceConfig): EmptyResult<KortexError> {
             val width = config.width.toLogicalPx()

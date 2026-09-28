@@ -47,13 +47,6 @@ public sealed interface KortexError : IError {
     public data class InvalidExclusiveEdge(public val edge: Edge, public val anchor: Set<Edge>) : KortexError
 
     /**
-     * Naming the edge a zone is reserved against needs `zwlr_layer_shell_v1` 5, and the compositor offers
-     * [version]. Below that the compositor deduces the edge from the anchor, which at a corner it cannot do,
-     * so the surface would reserve against whichever of the two the compositor picked.
-     */
-    public data class ExclusiveEdgeUnsupported(public val edge: Edge, public val version: Int) : KortexError
-
-    /**
      * [amount] reserves nothing once rounded to logical pixels, so it names a case of its own:
      * [ExclusiveZone.Yield] at 0, [ExclusiveZone.Overlap] below it.
      */
