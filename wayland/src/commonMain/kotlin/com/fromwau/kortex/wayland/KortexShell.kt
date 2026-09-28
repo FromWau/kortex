@@ -506,12 +506,14 @@ internal class KortexShell private constructor(
     }
 
     /**
-     * Closes [slot]'s surface and the scene it drew, if any, and returns its content's crash, including one its
-     * cleanup threw while closing.
+     * Closes [slot]'s surface and the scene it drew, if any, ending first every popup opened from its content, and
+     * returns its content's crash, including one its cleanup threw while closing.
      */
     private fun takeDown(slot: SurfaceSlot): KortexError.SurfaceCrashed? {
         val scene = slot.scene ?: return null
         placed.remove(slot)
+        // Before the surface: mutter posts not_the_topmost_popup and drops the client when a popup's parent unmaps.
+        endPopupsUnder(slot)
         // Before the scene: its seat keeps delivering into a composition this is about to dispose.
         slot.surface?.close()
         slot.surface = null
