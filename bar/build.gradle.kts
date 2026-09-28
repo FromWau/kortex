@@ -6,6 +6,10 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
+kotlin {
+    jvmToolchain(libs.versions.jdk.get().toInt())
+}
+
 dependencies {
     implementation(project(":wayland"))
     implementation(libs.compose.material3)

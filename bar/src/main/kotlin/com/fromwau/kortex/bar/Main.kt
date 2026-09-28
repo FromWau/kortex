@@ -55,6 +55,9 @@ import com.fromwau.kortex.wayland.rememberWindowState
 import java.nio.file.Path
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 fun main() {
     val crashLog = crashLogPath(System.getenv())
@@ -95,15 +98,17 @@ private val Result<SurfaceEnd, KortexError>.crash: KortexError.SurfaceCrashed?
     get() = errorOrNull() as? KortexError.SurfaceCrashed
 
 /** Appends the crash a surface ended with to the crash log at [path], if it ended with one. */
-private fun logIfCrashed(
+private suspend fun logIfCrashed(
     path: Path,
     ending: Result<SurfaceEnd, KortexError>,
 ) {
     ending.crash?.let { crash -> logCrash(path, crash) }
 }
 
-private fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
-    appendCrash(path, crash).onError { writeFailure ->
+private suspend fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
+    // NonCancellable: this runs inside the ended surface's own LaunchedEffect, and an outer surface (or the whole
+    // application) can leave composition and cancel it before the write lands.
+    withContext(NonCancellable + Dispatchers.IO) { appendCrash(path, crash) }.onError { writeFailure ->
         System.err.println("kortex: surface crashed: $crash")
         System.err.println(crash.failure.cause.stackTraceToString())
         System.err.println("kortex: could not write the crash log: $writeFailure")
