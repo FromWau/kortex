@@ -836,8 +836,8 @@ survives on its own.
   `git clean -fdx` takes all of it. Every entry below carries its own evidence for that reason, but the
   reports hold the roughly 190 items that were checked and found correct, which nothing else records.
 - **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
-  `PopupTeardownWireTest` and `DragWireTest` take focus, re-tile open windows and drive the pointer, so
-  they want a session kept free. Ask before starting a run.
+  `PopupTeardownWireTest`, `DragWireTest` and `PointerReleaseOrderTest` take focus, re-tile open windows
+  and drive the pointer, so they want a session kept free. Ask before starting a run.
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
@@ -1092,19 +1092,54 @@ references and stays actionable on its own once the reports are gone.
       `PopupTeardownWireTest` read theirs. Open: the `askMinimized` one, and a decision to stop trying on
       `preciseScroll` rather than leaving it looking like an oversight.
 
-- [ ] **A freed upcall stub has taken this JVM down, and nothing records when or why.** Three
-      `hs_err_pid*.log` files sit in `wayland/`, all SIGSEGV, dated well before this branch's fixes
-      (two on 14 September, one on 23 September). The most recent crashed at `pc=0x0000000100000004`,
-      a jump to an address nothing is mapped at, inside `wl_display_roundtrip` reached through an FFM
-      downcall. That is the shape of a listener stub being called after the arena holding it was closed,
-      which is the hazard `report-core.md` raised as a lifetime question and `CrashedSurfaceProbe`'s own
-      comment alludes to with "should a throw ever escape a libwayland callback **again**". So the class
-      is not theoretical: it has happened here, at least once, and left no account of itself beyond a
-      file in a build directory that nothing reads. Nothing in the suite would notice a recurrence
-      either, since a crashed JVM is exactly what the child-process probes exist to contain. Open: read
-      the three dumps for the Java frames they carry, decide whether the ordering they implicate is one
-      of the teardown paths still in the tree, and either pin it or record it as understood. They are
-      git-ignored, so deleting them without reading them loses the only evidence there is.
+- [ ] **A live `wl_pointer`'s listener was called after its arena closed, and only one of the three dumps is
+      that.** The three `hs_err_pid*.log` files in `wayland/` have now been read. They are two separate
+      faults, not one.
+
+      The pair on 14 September (12:23 and 12:27) are **not** a stub-lifetime fault and are already fixed.
+      Both are `ClipboardTest.a clipboard that owns the selection has text to paste before the compositor
+      ever grants it` reaching `WaylandClipboard.close()` -> `DataSource.destroy()` -> `marshal` with
+      `RDI=0`, `RSI=1`: `wl_data_source.destroy` (request 1) sent on a **NULL proxy**. The faulting
+      instruction is `wl_proxy_marshal_flags+0x4e`, `mov (%r11),%rsi`, reading `proxy->object.interface` at
+      address zero. `7983b24` fixed it the minute after the second one, by unsetting the proxy-less
+      `DataSource` in a `finally` so a failing assertion cannot leave it as the clipboard's source. What the
+      commit did not do, and what is still true, is stop `marshal` from killing the JVM when a caller hands
+      it `MemorySegment.NULL`: `proxyGetVersion` dereferences it first and segfaults just the same. One
+      `check` at the top of `marshal` turns a process kill with no Java frame into an ordinary failure.
+
+      The one on 23 September is the real thing, and it is in code that is still in the tree unchanged.
+      `PointerReleaseOrderTest` crashed at bytecode offset 129 of its own block, which disassembles to the
+      `pumpOrFail(SETTLE_MILLIS)` **immediately after `pointer.release()`**, with nothing between them but a
+      `clickAt`. Two milliseconds before the fault the JVM logged
+      `HandshakeAllThreads (CloseScopedMemory)`, which is what `Arena.ofShared().close()` raises; every
+      other thread in the dump is `_thread_blocked`, so the test worker closed that arena itself. The fault
+      is `ffi_call` jumping to `0x0000000100000004`, reached from `wl_closure_invoke+0x14e`
+      (`mov (%rax,%rcx,8),%rsi`, `implementation[opcode]`). From `wl_closure_invoke`'s own frame:
+      `target` = `0x7fed22e12b10`, whose interface pointer resolves to `wl_pointer_interface` in
+      `libwayland-client.so.0.26.0`, and `opcode` = 5, which is `wl_pointer.frame`. So libwayland called
+      slot 5 of a pointer listener whose backing memory had just been freed and reused.
+
+      What that rules out, checked rather than assumed: the array is not read past its end
+      (`EVENT_COUNT = 12`, `FRAME = 5`, all twelve slots filled); `PointerInput.install` is called once per
+      instance and from one place only; `marshal` never passes `WL_MARSHAL_FLAG_DESTROY`, so nothing is
+      destroyed twice; `WaylandDisplay.require` re-binds rather than caching, so the surface's seat and the
+      test's own seat are genuinely separate proxies; and the shipped 1.26.0 binary does carry the
+      destroyed-proxy guard (`dispatch_event+0xca`, `and $0x2` on `proxy->flags`,
+      skipping the invoke), so a released pointer's queued events really are dropped.
+
+      Which leaves the step that is not yet explained: the proxy libwayland dispatched to had the destroyed
+      flag **clear**, so it was alive, yet its listener array had been freed. `PointerInput.release()`
+      destroys its proxy before closing its arena and has done since `d14546a` on 10 September, so on the
+      code as written that cannot happen. The ordering is unchanged today, and the five commits that have
+      touched `SeatInput.kt` since are version lookup, grab serial, scroll units and comments.
+
+      Open: reproducing it. `PointerReleaseOrderTest` was written to catch exactly this and caught it once
+      in a run that is not recorded anywhere else, so a loop over that one test is the cheapest instrument
+      there is. It drives a virtual pointer across the screen, so it takes the desktop. Until then nothing
+      in the suite would notice a recurrence: a Gradle worker that dies this way reports as a worker
+      failure, not a test failure. The dumps are still git-ignored and a `git clean -fdx` still takes
+      them, but everything above was read out of them, so what they hold beyond this entry is the raw
+      stacks.
 
 ## Deliberately not doing
 
