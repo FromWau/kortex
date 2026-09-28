@@ -40,7 +40,7 @@ class DragWireTest {
         // The request itself, which answers the first question: did the gesture reach the compositor at all.
         assertTrue(
             wire.any { it.isRequest("wl_data_device", "start_drag") },
-            "no wl_data_device.start_drag left the client while the pointer dragged; wire:\n${wire.pretty()}",
+            "no wl_data_device.start_drag left the client while the pointer dragged; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
         )
 
         // A drag's first enter always names the surface it started from, whose own tree holds no drop target,
@@ -48,26 +48,26 @@ class DragWireTest {
         val enterAt = wire.indexOfFirst { it.isEvent("wl_data_device", "enter") }
         assertTrue(
             enterAt >= 0,
-            "the compositor never entered any surface with the drag; wire:\n${wire.pretty()}",
+            "the compositor never entered any surface with the drag; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
         )
         val leaveAt = wire.drop(enterAt).indexOfFirst { it.isEvent("wl_data_device", "leave") }
         assertTrue(
             leaveAt >= 0,
-            "the drag entered a surface and never left it; wire:\n${wire.pretty()}",
+            "the drag entered a surface and never left it; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
         )
 
         val whileEntered = wire.subList(enterAt, enterAt + leaveAt)
         assertEquals(
             emptyList(), whileEntered.filter { it.isRequest("wl_data_offer", "destroy") },
             "an offer the compositor still held as the drag's own was given back before it left; " +
-                "wire:\n${whileEntered.pretty()}",
+                "wire:\n${whileEntered.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
         )
 
         // The other half of the same rule: held until the leave, and given back once it comes, since an offer
         // nobody destroys is a leak on both sides of the socket.
         assertTrue(
             wire.drop(enterAt + leaveAt).any { it.isRequest("wl_data_offer", "destroy") },
-            "the drag left the surface and its offer was never given back; wire:\n${wire.pretty()}",
+            "the drag left the surface and its offer was never given back; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
         )
 
         // And the end of it: the text the source offered reached the target's content.
@@ -77,16 +77,3 @@ class DragWireTest {
         )
     }
 }
-
-// WAYLAND_DEBUG marks a request with an arrow and leaves an event bare, so the two are told apart by that
-// alone. The id follows a #, as libwayland's own wl_closure_print writes it, and matching on it keeps
-// wl_data_device from also matching wl_data_device_manager.
-private fun String.isRequest(interfaceName: String, name: String): Boolean =
-    contains("-> $interfaceName#") && contains(".$name(")
-
-private fun String.isEvent(interfaceName: String, name: String): Boolean =
-    !contains("-> ") && contains("$interfaceName#") && contains(".$name(")
-
-/** Only the data-device traffic, since a failure message full of frame callbacks helps nobody. */
-private fun List<String>.pretty(): String =
-    filter { it.contains("wl_data_") }.joinToString("\n").ifEmpty { "(no wl_data_* traffic at all)" }
