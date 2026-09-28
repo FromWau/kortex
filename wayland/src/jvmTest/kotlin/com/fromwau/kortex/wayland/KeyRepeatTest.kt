@@ -29,7 +29,7 @@ import org.jetbrains.skia.Surface
 
 /**
  * A client cannot make a real compositor hold a key down, so this drives [KeyboardInput]'s listener
- * entry points, and its [KeyboardInput.checkRepeat] tick seam, directly — the pattern [OutputRescaleTest]
+ * entry points, and its [KeyboardInput.checkRepeat] tick seam, directly: the pattern [OutputRescaleTest]
  * uses for `scaleOverride`. A real compositor connection is still needed for the keymap, since xkbcommon
  * has to translate every keycode used here.
  */

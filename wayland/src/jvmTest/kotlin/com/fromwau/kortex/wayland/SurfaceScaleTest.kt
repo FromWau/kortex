@@ -40,7 +40,7 @@ class SurfaceScaleTest {
 
     /**
      * The single-monitor leg above cannot fail on a uniformly scaled setup, so this hotplugs a second
-     * output — Hyprland scales a headless one on its own — and pins each bar to its own monitor.
+     * output (Hyprland scales a headless one on its own) and pins each bar to its own monitor.
      */
     @Hotplug
     @Test

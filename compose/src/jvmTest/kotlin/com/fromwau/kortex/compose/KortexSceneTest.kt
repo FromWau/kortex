@@ -566,7 +566,7 @@ class KortexSceneTest {
         block: (KortexScene, Surface) -> Unit,
     ) {
         // FrameRecomposer rejects a context with no ContinuationInterceptor, and Dispatchers.Unconfined
-        // satisfies that check while never delivering onInvalidate at all — recomposition runs inline, so
+        // satisfies that check while never delivering onInvalidate at all: recomposition runs inline, so
         // the recomposer never awaits a frame. Only a real dispatcher exercises the contract.
         val dispatcher = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "kortex-test").apply { isDaemon = true }

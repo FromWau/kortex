@@ -14,8 +14,8 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
- * `zwlr_layer_surface_v1.configure` can arrive again with a different size — on a scale change, a mode
- * change, or just twice during setup — and a bar that reacts only to the first keeps its old buffers.
+ * `zwlr_layer_surface_v1.configure` can arrive again with a different size, on a scale change, a mode
+ * change, or just twice during setup, and a bar that reacts only to the first keeps its old buffers.
  */
 class ReconfigureResizeTest {
     @Test

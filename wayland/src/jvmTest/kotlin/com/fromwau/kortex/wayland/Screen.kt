@@ -37,7 +37,7 @@ private const val BTN_LEFT = 0x110
 /**
  * Where the compositor placed a layer surface, and which monitor and [Layer] it landed on.
  *
- * hyprctl reports the geometry in logical (surface-local) pixels, the same space `configure` uses —
+ * hyprctl reports the geometry in logical (surface-local) pixels, the same space `configure` uses:
  * not the buffer pixels a [KortexSurface] reports, which are larger by the output scale.
  */
 internal data class LayerGeometry(

@@ -87,7 +87,7 @@ class InputDeliveryTest {
             val pointer = PointerInput(scene, scale = SCALE)
 
             // Surface-local 24 is scene pixel 48 once scaled up, which is outside the target. Dividing
-            // instead would give 12, land inside, and click it — which is the whole bug.
+            // instead would give 12, land inside, and click it, which is the whole bug.
             pointer.onEnter(NULL, NULL, 1, NULL, fixed(OUTSIDE_LOGICAL), fixed(OUTSIDE_LOGICAL))
             pointer.onButton(NULL, NULL, 2, 20, BTN_LEFT, PRESSED)
             pointer.onButton(NULL, NULL, 3, 30, BTN_LEFT, RELEASED)

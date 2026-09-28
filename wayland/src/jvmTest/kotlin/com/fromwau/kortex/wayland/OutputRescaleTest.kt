@@ -22,8 +22,8 @@ import kotlin.test.fail
 
 /**
  * A client cannot make a real compositor send `wl_surface.preferred_buffer_scale`, so this drives
- * [KortexSurface.scaleOverride] instead. It proves the reaction is right — rebuilt buffers, `scene.size`,
- * `scene.density` — but not that a real event reaches that seam.
+ * [KortexSurface.scaleOverride] instead. It proves the reaction is right: rebuilt buffers, `scene.size`,
+ * `scene.density`, but not that a real event reaches that seam.
  */
 class OutputRescaleTest {
     @Test
@@ -68,7 +68,7 @@ class OutputRescaleTest {
 
     /**
      * Wayland keeps reporting surface-local (logical) coordinates across a rescale, so a pointer whose
-     * scale stayed behind delivers a plausible position that is simply in the wrong place — which no
+     * scale stayed behind delivers a plausible position that is simply in the wrong place, which no
      * assertion on buffers or density can see.
      */
     @Test
