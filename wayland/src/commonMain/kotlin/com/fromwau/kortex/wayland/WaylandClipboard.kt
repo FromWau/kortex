@@ -244,13 +244,12 @@ internal class WaylandClipboard private constructor(
         }
 
         private fun releaseManager(manager: MemorySegment) {
-            LibWayland.marshalIfSince(manager, WL_DATA_DEVICE_MANAGER_RELEASE, WL_DATA_DEVICE_MANAGER_RELEASE_SINCE)
+            LibWayland.marshal(manager, WL_DATA_DEVICE_MANAGER_RELEASE)
             LibWayland.proxyDestroy(manager)
         }
 
         private const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
         private const val WL_DATA_DEVICE_MANAGER_RELEASE = 2
-        private const val WL_DATA_DEVICE_MANAGER_RELEASE_SINCE = 4
     }
 }
 

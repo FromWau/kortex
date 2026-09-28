@@ -11,6 +11,7 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
 import java.lang.invoke.MethodHandle
+import java.util.concurrent.ConcurrentHashMap
 import java.lang.invoke.MethodHandles
 
 /** One argument of a marshalled request. */
@@ -140,6 +141,7 @@ internal object LibWayland {
     private val displayGetProtocolError =
         downcall("wl_display_get_protocol_error", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS))
     private val proxyGetVersion = downcall("wl_proxy_get_version", FunctionDescriptor.of(JAVA_INT, ADDRESS))
+    private val proxyGetInterface = downcall("wl_proxy_get_interface", FunctionDescriptor.of(ADDRESS, ADDRESS))
     private val proxyDestroy = downcall("wl_proxy_destroy", FunctionDescriptor.ofVoid(ADDRESS))
     private val proxyAddListener =
         downcall("wl_proxy_add_listener", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS))
@@ -202,6 +204,10 @@ internal object LibWayland {
     }
 
     fun proxyGetVersion(proxy: MemorySegment): Int = proxyGetVersion.invoke(proxy) as Int
+
+    /** The `wl_interface` a proxy was made with, which carries its request table. */
+    private fun proxyGetInterface(proxy: MemorySegment): MemorySegment =
+        proxyGetInterface.invoke(proxy) as MemorySegment
     fun proxyDestroy(proxy: MemorySegment) { proxyDestroy.invoke(proxy) }
 
     fun proxyAddListener(proxy: MemorySegment, implementation: MemorySegment, data: MemorySegment): Int =
@@ -231,6 +237,33 @@ internal object LibWayland {
     fun interfaceName(iface: MemorySegment): MemorySegment =
         iface.reinterpret(INTERFACE.byteSize()).get(ADDRESS, NAME_OFFSET)
 
+    /**
+     * The version [opcode] first appeared in, read off its own entry in the interface's request table.
+     *
+     * libwayland writes it as the leading digits of the signature and reads it back with `atoi`, taking a
+     * missing one as 1 (`wl_message_get_since`, src/connection.c). Every table kortex builds follows the
+     * same encoding, because `wayland-scanner` does.
+     */
+    private fun requestSince(proxy: MemorySegment, opcode: Int): Int {
+        val iface = proxyGetInterface(proxy)
+        if (iface == MemorySegment.NULL) return FIRST_VERSION
+        // Cached per interface: this sits on the path every commit and every damage takes.
+        val sinceByOpcode = requestSince.computeIfAbsent(iface.address()) { readRequestSince(iface) }
+        return sinceByOpcode.getOrElse(opcode) { FIRST_VERSION }
+    }
+
+    private fun readRequestSince(iface: MemorySegment): IntArray {
+        val header = iface.reinterpret(INTERFACE.byteSize())
+        val count = header.get(JAVA_INT, METHOD_COUNT_OFFSET)
+        if (count <= 0) return IntArray(0)
+        val methods = header.get(ADDRESS, METHODS_OFFSET).reinterpret(MESSAGE.byteSize() * count)
+        return IntArray(count) { opcode ->
+            val entry = methods.asSlice(opcode * MESSAGE.byteSize(), MESSAGE.byteSize())
+            val signature = entry.get(ADDRESS, MESSAGE_SIGNATURE_OFFSET).reinterpret(Long.MAX_VALUE).getString(0)
+            signature.takeWhile(Char::isDigit).toIntOrNull() ?: FIRST_VERSION
+        }
+    }
+
     /** The `version` field of a `wl_interface`; nothing on the client side checks a bind or a marshal against it. */
     fun interfaceVersion(iface: MemorySegment): Int =
         iface.reinterpret(INTERFACE.byteSize()).get(JAVA_INT, VERSION_OFFSET)
@@ -250,6 +283,15 @@ internal object LibWayland {
         version: Int = 0,
         args: List<WlArg> = emptyList(),
     ): MemorySegment {
+        // A request the negotiated version does not carry is answered by the compositor with
+        // wl_display.error(invalid_method), which destroys the client, so it is not sent. Only the server
+        // checks this (wayland-server.c, where it reads wl_message_get_since); libwayland's client side
+        // does not, which is why every versioned request used to name its own since by hand and two did not.
+        // A request that makes an object is exempt: skipping one would hand back a null proxy, and kortex
+        // declares none of those above version 1.
+        if (iface == MemorySegment.NULL && proxyGetVersion(proxy) < requestSince(proxy, opcode)) {
+            return MemorySegment.NULL
+        }
         val shape = args.joinToString("") { if (it is WlArg.Num) "n" else "p" }
         // FFM wants the variadic layouts spelled out, so there is one handle per argument shape.
         val handle = marshalHandles.getOrPut(shape) {
@@ -268,16 +310,6 @@ internal object LibWayland {
         return handle.invokeWithArguments(call) as MemorySegment
     }
 
-    /**
-     * Marshals [opcode] only when the proxy's negotiated version is [since] or newer.
-     *
-     * Nothing on this side rejects the send. The compositor compares the resource's version against the
-     * request's own `since` and answers one it is too old for with `wl_display.error(invalid_method)`,
-     * which destroys the client, so the request has to be skipped here or the whole connection dies.
-     */
-    fun marshalIfSince(proxy: MemorySegment, opcode: Int, since: Int, args: List<WlArg> = emptyList()) {
-        if (proxyGetVersion(proxy) >= since) marshal(proxy, opcode, args = args)
-    }
 
     /**
      * Builds a `wl_interface` and its message tables in native memory.
@@ -337,6 +369,10 @@ internal object LibWayland {
 
     private val marshalHandles = HashMap<String, MethodHandle>()
 
+    // Each interface's request versions, by the address of the wl_interface they were read from. Both the
+    // tables kortex builds and libwayland's own live for the process, so an address identifies one for good.
+    private val requestSince = ConcurrentHashMap<Long, IntArray>()
+
     private val TIMESPEC: StructLayout = MemoryLayout.structLayout(
         JAVA_LONG.withName("tv_sec"),
         JAVA_LONG.withName("tv_nsec"),
@@ -369,6 +405,9 @@ internal object LibWayland {
 
     private const val NAME_OFFSET = 0L
     private const val VERSION_OFFSET = 8L
+    // What a signature with no leading digits means, as libwayland's own wl_message_get_since takes it.
+    private const val FIRST_VERSION = 1
+
     private const val METHOD_COUNT_OFFSET = 12L
     private const val METHODS_OFFSET = 16L
     private const val EVENT_COUNT_OFFSET = 24L

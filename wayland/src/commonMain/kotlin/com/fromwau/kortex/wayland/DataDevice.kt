@@ -197,7 +197,7 @@ internal class DataDevice private constructor(
 
     /** Gives the device back, then every offer it introduced; nothing here may be used afterwards. */
     fun release() {
-        LibWayland.marshalIfSince(proxy, WL_DATA_DEVICE_RELEASE, WL_DATA_DEVICE_RELEASE_SINCE)
+        LibWayland.marshal(proxy, WL_DATA_DEVICE_RELEASE)
         LibWayland.proxyDestroy(proxy)
         // After the destroy, never before: a data_offer or selection still queued would otherwise reach a freed stub.
         arena.close()
@@ -337,7 +337,6 @@ internal class DataDevice private constructor(
         private const val WL_DATA_DEVICE_START_DRAG = 0
         private const val WL_DATA_DEVICE_SET_SELECTION = 1
         private const val WL_DATA_DEVICE_RELEASE = 2
-        private const val WL_DATA_DEVICE_RELEASE_SINCE = 2
 
         // wl_data_device v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
@@ -429,8 +428,7 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
 
     /** `wl_data_offer.set_actions`: the drag actions this client supports, and the one it would rather have. */
     fun setActions(actions: Int, preferred: Int) {
-        LibWayland.marshalIfSince(
-            proxy, WL_DATA_OFFER_SET_ACTIONS, WL_DATA_OFFER_SET_ACTIONS_SINCE,
+        LibWayland.marshal(proxy, WL_DATA_OFFER_SET_ACTIONS,
             args = listOf(WlArg.Num(actions), WlArg.Num(preferred)),
         )
     }
@@ -439,7 +437,7 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     fun finish() {
         when (settled) {
             DndAction.Copy, DndAction.Move ->
-                LibWayland.marshalIfSince(proxy, WL_DATA_OFFER_FINISH, WL_DATA_OFFER_FINISH_SINCE)
+                LibWayland.marshal(proxy, WL_DATA_OFFER_FINISH)
             // A finish the compositor has settled no action for is a protocol error, and an ask is settled only
             // once the destination has answered it with a set_actions of its own, which kortex never sends.
             DndAction.None, DndAction.Ask -> Unit
@@ -473,9 +471,7 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
         const val WL_DATA_OFFER_RECEIVE = 1
         const val WL_DATA_OFFER_DESTROY = 2
         const val WL_DATA_OFFER_FINISH = 3
-        const val WL_DATA_OFFER_FINISH_SINCE = 3
         const val WL_DATA_OFFER_SET_ACTIONS = 4
-        const val WL_DATA_OFFER_SET_ACTIONS_SINCE = 3
 
         // wl_data_offer v4 declares exactly these three events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
@@ -571,8 +567,7 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
 
     /** `wl_data_source.set_actions`: kortex drags as a copy and asks for nothing else. */
     private fun offerAsCopy() {
-        LibWayland.marshalIfSince(
-            proxy, WL_DATA_SOURCE_SET_ACTIONS, WL_DATA_SOURCE_SET_ACTIONS_SINCE,
+        LibWayland.marshal(proxy, WL_DATA_SOURCE_SET_ACTIONS,
             args = listOf(WlArg.Num(DndAction.Copy.wire)),
         )
     }
@@ -609,7 +604,6 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
         private const val WL_DATA_SOURCE_OFFER = 0
         private const val WL_DATA_SOURCE_DESTROY = 1
         private const val WL_DATA_SOURCE_SET_ACTIONS = 2
-        private const val WL_DATA_SOURCE_SET_ACTIONS_SINCE = 3
 
         // wl_data_source v4 declares exactly these six events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.

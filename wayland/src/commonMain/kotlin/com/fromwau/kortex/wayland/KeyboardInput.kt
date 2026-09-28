@@ -185,7 +185,7 @@ internal class KeyboardInput(
         onKeyboardFocus(this, false)
         scene.windowFocused = false
         if (keyboardProxy.equals(MemorySegment.NULL)) return
-        LibWayland.marshalIfSince(keyboardProxy, WL_KEYBOARD_RELEASE, WL_KEYBOARD_RELEASE_SINCE)
+        LibWayland.marshal(keyboardProxy, WL_KEYBOARD_RELEASE)
         LibWayland.proxyDestroy(keyboardProxy)
         keyboardProxy = MemorySegment.NULL
         // After the destroy, never before: closing the arena frees the code the six stubs above are, and
@@ -197,7 +197,6 @@ internal class KeyboardInput(
 
     private companion object {
         const val WL_KEYBOARD_RELEASE = 0
-        const val WL_KEYBOARD_RELEASE_SINCE = 3
         const val KEY_PRESSED = 1
         const val XKB_V1_FORMAT = 1
         const val FIRST_PRINTABLE = 0x20

@@ -213,7 +213,7 @@ internal class PointerInput(
     /** Gives the pointer back and frees its stubs; nothing here may be used afterwards. */
     fun release() {
         if (pointerProxy.equals(MemorySegment.NULL)) return
-        LibWayland.marshalIfSince(pointerProxy, WL_POINTER_RELEASE, WL_POINTER_RELEASE_SINCE)
+        LibWayland.marshal(pointerProxy, WL_POINTER_RELEASE)
         LibWayland.proxyDestroy(pointerProxy)
         pointerProxy = MemorySegment.NULL
         // After the destroy, never before: closing the arena frees the code the twelve stubs above are,
@@ -264,7 +264,6 @@ internal class PointerInput(
 
         private const val WL_POINTER_SET_CURSOR = 0
         private const val WL_POINTER_RELEASE = 1
-        private const val WL_POINTER_RELEASE_SINCE = 3
         private const val WL_POINTER_FRAME_SINCE = 5
 
         // linux/input-event-codes.h
@@ -359,7 +358,7 @@ internal class Seat private constructor(
     fun release() {
         if (released) return
         released = true
-        LibWayland.marshalIfSince(proxy, WL_SEAT_RELEASE, WL_SEAT_RELEASE_SINCE)
+        LibWayland.marshal(proxy, WL_SEAT_RELEASE)
         LibWayland.proxyDestroy(proxy)
         // After the destroy, so no capabilities event can still reach a stub this frees.
         capabilities.close()
@@ -378,7 +377,6 @@ internal class Seat private constructor(
         private const val CAPABILITY_KEYBOARD = 2
         private const val WL_SEAT_GET_KEYBOARD = 1
         private const val WL_SEAT_RELEASE = 3
-        private const val WL_SEAT_RELEASE_SINCE = 5
     }
 }
 
