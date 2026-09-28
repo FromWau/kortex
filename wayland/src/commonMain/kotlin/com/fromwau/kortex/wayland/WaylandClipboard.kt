@@ -46,6 +46,10 @@ internal class WaylandClipboard private constructor(
     var inputSerial: Int? = null
         private set
 
+    /** The serial the next [startDrag] quotes; loop thread only, and readable so a test can quote it too. */
+    var grabSerial: Int? = null
+        private set
+
     // Each of the shell's keyboards that has focus now, since each surface binds its own. Written on the loop thread
     // alone; hasText reads it from any.
     private val focusedKeyboards: MutableSet<Any> = ConcurrentHashMap.newKeySet()
@@ -66,6 +70,15 @@ internal class WaylandClipboard private constructor(
     /** Keeps [serial], of a key, a keyboard enter or a button, for the next [setText] or [clear] to quote. */
     fun recordInputSerial(serial: Int) {
         inputSerial = serial
+    }
+
+    /**
+     * Keeps [serial], of the pointer button press that took the implicit grab, for the next [startDrag] to
+     * quote. `wl_data_device.start_drag`'s own argument is "serial number of the implicit grab on the
+     * origin", and a compositor that checks it refuses every other input serial.
+     */
+    fun recordPointerGrab(serial: Int) {
+        grabSerial = serial
     }
 
     /**
@@ -97,13 +110,15 @@ internal class WaylandClipboard private constructor(
      * Drags [clip] out of [origin], one of the shell's own surfaces, offering it as a copy and nothing else; the
      * loop thread alone calls it, since it marshals where it is called rather than hopping as the requests below do.
      *
-     * @return `Ok` once the compositor has been asked, [ClipboardError.NoInputSerial] where no input has reached
-     *   the shell for the drag to quote, or [ClipboardError.NoClipboard] on a compositor that offers none.
+     * @return `Ok` once the compositor has been asked, [ClipboardError.NoInputSerial] where no pointer button
+     *   press has reached the shell for the drag to name its grab by, or [ClipboardError.NoClipboard] on a
+     *   compositor that offers none.
      */
     fun startDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> {
         checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
-        val serial = inputSerial ?: return Err(ClipboardError.NoInputSerial)
+        // The grab's own serial, never the last input's: start_drag names one grab and the last key is not it.
+        val serial = grabSerial ?: return Err(ClipboardError.NoInputSerial)
         // Named rather than passed inline: set_actions is part of making the source and must precede start_drag.
         val source = DataSource.createForDrag(bound.manager, clip)
         bound.device.startDrag(source, origin, serial)

@@ -468,7 +468,7 @@ class KortexSceneTest {
         val carried = AtomicReference<KortexDragSource?>(null)
         val asked = CountDownLatch(1)
         val host = object : KortexPlatform {
-            override fun startDrag(dragged: KortexDragSource): Boolean {
+            override fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean {
                 carried.set(dragged)
                 asked.countDown()
                 return true

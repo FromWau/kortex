@@ -106,8 +106,11 @@ public interface KortexPlatform {
      *
      * @return whether the drag was taken on. Answer false, as the default does, when nothing you host can carry
      *   a drag to the desktop.
+     * @param onNotStarted called if the drag turns out not to start after all, which is only known once the
+     *   payload has been encoded and offered. Answering true and then calling this is the ordinary case for a
+     *   payload too large to carry.
      */
-    public fun startDrag(dragged: KortexDragSource): Boolean = false
+    public fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean = false
 
     public companion object {
         public val None: KortexPlatform = object : KortexPlatform {}

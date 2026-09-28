@@ -142,12 +142,6 @@ internal class KortexShell private constructor(
     private fun dragDestinationOn(surface: Long): DragDestination? =
         shownSurfaces.firstOrNull { it.surfaceAddress == surface }?.dragDestination
 
-    // A drag the clipboard cannot start does not start: content asked for it from a call that has already
-    // returned, so there is nothing left to hand the failure to.
-    private fun startDragFrom(clip: Clip, origin: MemorySegment) {
-        clipboard.startDrag(clip, origin)
-    }
-
     /**
      * Runs the application until `exitApplication()` is called, returning `Ok`. Ends early with
      * [KortexError.ApplicationCrashed] once the application's own code throws, and with the connection's error once
@@ -413,8 +407,9 @@ internal class KortexShell private constructor(
                 output = output,
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
+                onPointerGrab = clipboard::recordPointerGrab,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
-                onStartDrag = ::startDragFrom,
+                onStartDrag = clipboard::startDrag,
             )
 
             is ToplevelSettings -> KortexSurface.createOnToplevel(
@@ -428,8 +423,9 @@ internal class KortexShell private constructor(
                 },
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
+                onPointerGrab = clipboard::recordPointerGrab,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
-                onStartDrag = ::startDragFrom,
+                onStartDrag = clipboard::startDrag,
             )
 
             is PopupSettings -> KortexSurface.createOnPopup(
@@ -441,8 +437,9 @@ internal class KortexShell private constructor(
                     .popupParent,
                 loopQueue = loopQueue,
                 onInputSerial = clipboard::recordInputSerial,
+                onPointerGrab = clipboard::recordPointerGrab,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
-                onStartDrag = ::startDragFrom,
+                onStartDrag = clipboard::startDrag,
             )
         }
         return built.flatMap { surface ->

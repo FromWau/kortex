@@ -76,9 +76,11 @@ internal class SurfaceScene(
         }
 
         // One drag, so the surface drawing this scene carries it where there is one, and the host otherwise.
-        override fun startDrag(dragged: KortexDragSource): Boolean {
-            val surface = surface ?: return platform.startDrag(dragged)
-            surface.startDrag(dragged)
+        override fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean {
+            val surface = surface ?: return platform.startDrag(dragged, onNotStarted)
+            // The reason stops here: ClipboardError is this module's, and Compose's own onTransferCompleted
+            // carries no reason either, only that the gesture did not complete.
+            surface.startDrag(dragged) { onNotStarted() }
             return true
         }
     }

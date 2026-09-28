@@ -9,6 +9,7 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.onError
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexDragSource
@@ -42,10 +43,12 @@ internal class KortexSurface private constructor(
     private val seat: Seat,
     // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
     private val onInputSerial: (Int) -> Unit,
+    private val onPointerGrab: (Int) -> Unit,
     // Told as this surface's keyboard gains and loses focus, which gates reading another client's text.
     private val onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit,
-    // Handed what content drags out of this surface, and the wl_surface it is dragged from.
-    private val onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit,
+    // Handed what content drags out of this surface, and the wl_surface it is dragged from; answers whether the
+    // compositor was asked for it.
+    private val onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError>,
 ) : AutoCloseable {
 
     // Filled through post() from any thread and drained only on the loop thread, which is the one thread
@@ -134,7 +137,9 @@ internal class KortexSurface private constructor(
         this.scene = scene
         scene.drawOn(this)
         pointerInput =
-            seat.attachPointer(scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial)
+            seat.attachPointer(
+                scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial, onPointerGrab,
+            )
         if (role.wantsKeyboard) keyboardInput = takeKeyboard()
         display.roundtrip()
         sizeScene()
@@ -169,10 +174,13 @@ internal class KortexSurface private constructor(
     /**
      * Drags [dragged] out of this surface, from whichever thread content asked to.
      *
-     * A payload the drag cannot carry, an image past the cap say, drops the drag silently: content has no channel
-     * back by the time it would be known, and the desktop shows nothing either way.
+     * The payload is encoded off the loop thread, so a drag that never starts is known only once the gesture that
+     * asked for it has returned; [onNotStarted] is how that reaches the content that asked, on the loop thread.
      */
-    internal fun startDrag(dragged: KortexDragSource) {
+    internal fun startDrag(
+        dragged: KortexDragSource,
+        onNotStarted: (ClipboardError) -> Unit,
+    ) {
         // Off the loop thread: encoding an image on it would stall every surface for as long as it runs.
         Dispatchers.Default.asExecutor().execute {
             val encoded = try {
@@ -182,8 +190,23 @@ internal class KortexSurface private constructor(
                 post { scene?.contentFailed(ContentFailure.PointerInput(cause)) }
                 return@execute
             }
-            val clip = encoded.getOrElse { return@execute }
-            post { onStartDrag(clip, role.surface) }
+            val clip = encoded.getOrElse { reason ->
+                post { tellNotStarted(reason, onNotStarted) }
+                return@execute
+            }
+            post { onStartDrag(clip, role.surface).onError { reason -> tellNotStarted(reason, onNotStarted) } }
+        }
+    }
+
+    // Content's own code runs here: a throw left to escape would reach the loop, and the whole run would end on it.
+    private fun tellNotStarted(
+        reason: ClipboardError,
+        onNotStarted: (ClipboardError) -> Unit,
+    ) {
+        try {
+            onNotStarted(reason)
+        } catch (cause: Throwable) {
+            scene?.contentFailed(ContentFailure.PointerInput(cause))
         }
     }
 
@@ -412,10 +435,12 @@ internal class KortexSurface private constructor(
             loopQueue: LoopQueue? = null,
             // Handed the serial of every key, keyboard enter and button; the clipboard quotes one to set the selection.
             onInputSerial: (Int) -> Unit = {},
+            onPointerGrab: (Int) -> Unit = {},
             // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-            // Handed what content drags out of the surface, and the wl_surface it is dragged from.
-            onStartDrag: (clip: Clip, origin: MemorySegment) -> Unit = { _, _ -> },
+            // Handed what content drags out of the surface, and the wl_surface it is dragged from; answers
+            // whether the compositor was asked for it.
+            onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = { _, _ -> Ok(Unit) },
             // Makes what the surface is built on, which the surface owns from the moment it is handed over.
             buildRole: () -> Result<SurfaceRole, KortexError>,
         ): Result<KortexSurface, KortexError> {
@@ -466,6 +491,7 @@ internal class KortexSurface private constructor(
                     cursorSurface = cursorSurface,
                     seat = seat,
                     onInputSerial = onInputSerial,
+                    onPointerGrab = onPointerGrab,
                     onKeyboardFocus = onKeyboardFocus,
                     onStartDrag = onStartDrag,
                 )
