@@ -195,7 +195,15 @@ class ProtocolVersionTest {
 
                 assertEquals(Ok(Unit), wayland.requireAlive(), "the connection reported a protocol error")
                 assertTrue(delivered, "a wheel scroll over the bar never reached the composition")
-                assertTrue(scrolled.get().y != 0f, "the scroll arrived on the wrong axis: ${scrolled.get()}")
+                assertTrue(scrolled.get().x == 0f, "the scroll arrived on the wrong axis: ${scrolled.get()}")
+                // One detent is one step, the unit Compose's own host hands content through
+                // preciseWheelRotation. SCROLL_FIXED is one detent whether the compositor reports it as a
+                // value120 or as the fifteen surface pixels Hyprland converts a detent to, so this holds on
+                // either path and fails on a delta handed over in the compositor's own units.
+                assertEquals(
+                    ONE_STEP, scrolled.get().y, STEP_TOLERANCE,
+                    "one wheel detent reached the composition as ${scrolled.get().y} steps",
+                )
             }
         }
     }
@@ -246,6 +254,11 @@ class ProtocolVersionTest {
 
         /** How far to scroll, as wl_fixed_t; only that it is non-zero matters. */
         const val SCROLL_FIXED = 15 * 256
+
+        // What one detent must reach content as, and a tolerance for the float divide, not for a wrong unit:
+        // the old delta was fifteen steps, so nothing near this passes by accident.
+        const val ONE_STEP = 1f
+        const val STEP_TOLERANCE = 0.001f
 
         val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }

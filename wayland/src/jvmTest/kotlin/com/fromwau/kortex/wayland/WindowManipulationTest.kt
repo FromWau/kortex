@@ -260,6 +260,70 @@ class WindowManipulationTest {
         listed != null && status == WindowStatus.OnScreen(listed.size)
 
     /** Places one window whose content holds a counter and runs an effect, and hands it to [block]. */
+    /**
+     * The other direction from the tests above: there the compositor acts and the window reports it, here the
+     * window asks and the compositor acts. hyprctl is the oracle either way, so a request that never reached
+     * the wire fails this even though the window's own state would agree with it.
+     */
+    @Test
+    fun `a window that asks for the whole screen is given it, and can give it back`() {
+        onWindow { placed ->
+            assertEquals(
+                false, Hyprctl.window(TITLE)?.fullscreen,
+                "the compositor listed the window as full screen before it asked",
+            )
+
+            placed.state.askFullscreen(true)
+
+            assertTrue(
+                placed.shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.window(TITLE)?.fullscreen == true },
+                "the window asked for the whole screen and the compositor never listed it as having one",
+            )
+            // Waited for rather than read: the compositor acts on the ask before the configure carrying the
+            // state reaches this client, so the two agree on a later pass and not on the same one.
+            assertTrue(
+                placed.shell.pumpOrFail(PUMP_MILLIS) { placed.state.fullscreen },
+                "the compositor gave the whole screen and the window's own state never said so",
+            )
+            placed.assertWhole("while the window held the screen it asked for")
+
+            placed.state.askFullscreen(false)
+
+            assertTrue(
+                placed.shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.window(TITLE)?.fullscreen == false },
+                "the window gave the whole screen back and the compositor still lists it as having one",
+            )
+            assertTrue(
+                placed.shell.pumpOrFail(PUMP_MILLIS) { !placed.state.fullscreen },
+                "the compositor took the whole screen back and the window still reports having it",
+            )
+            placed.assertWhole("after the window gave the screen back")
+        }
+    }
+
+    /**
+     * An ask is not a command, so this pins the round trip rather than the request: what the compositor did is
+     * read from hyprctl, and what the window believes is read from its own state, and the two must agree.
+     */
+    @Test
+    fun `a window that asks to be maximized reports whatever the compositor answered`() {
+        onWindow { placed ->
+            placed.state.askMaximized(true)
+            assertTrue(
+                placed.shell.pumpOrFail(PUMP_MILLIS) { placed.state.maximized },
+                "the window asked to be maximized and its state never reported an answer",
+            )
+
+            // Hyprland tiles rather than maximizes, so it answers the ask with a configure of its own choosing.
+            // What must hold is that the two views agree, not which one the compositor picked.
+            assertEquals(
+                placed.state.maximized, Hyprctl.window(TITLE)?.floating == false,
+                "the window and the compositor disagree about whether it is maximized",
+            )
+            placed.assertWhole("after the window asked to be maximized")
+        }
+    }
+
     private fun onWindow(block: (Placed) -> Unit) {
         val state = WindowState()
         val watch = Watch()
