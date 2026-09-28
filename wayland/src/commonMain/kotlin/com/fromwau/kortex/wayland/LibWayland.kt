@@ -142,6 +142,7 @@ internal object LibWayland {
         downcall("wl_display_get_protocol_error", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS))
     private val proxyGetVersion = downcall("wl_proxy_get_version", FunctionDescriptor.of(JAVA_INT, ADDRESS))
     private val proxyGetInterface = downcall("wl_proxy_get_interface", FunctionDescriptor.of(ADDRESS, ADDRESS))
+    private val proxyGetClass = downcall("wl_proxy_get_class", FunctionDescriptor.of(ADDRESS, ADDRESS))
     private val proxyDestroy = downcall("wl_proxy_destroy", FunctionDescriptor.ofVoid(ADDRESS))
     private val proxyAddListener =
         downcall("wl_proxy_add_listener", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS))
@@ -204,6 +205,12 @@ internal object LibWayland {
     }
 
     fun proxyGetVersion(proxy: MemorySegment): Int = proxyGetVersion.invoke(proxy) as Int
+
+    /** The interface name a proxy carries, for a failure that has to say which one it was. */
+    private fun proxyClass(proxy: MemorySegment): String {
+        val name = proxyGetClass.invoke(proxy) as MemorySegment
+        return if (name == MemorySegment.NULL) "an unnamed proxy" else name.reinterpret(Long.MAX_VALUE).getString(0)
+    }
 
     /** The `wl_interface` a proxy was made with, which carries its request table. */
     private fun proxyGetInterface(proxy: MemorySegment): MemorySegment =
@@ -287,9 +294,17 @@ internal object LibWayland {
         // wl_display.error(invalid_method), which destroys the client, so it is not sent. Only the server
         // checks this (wayland-server.c, where it reads wl_message_get_since); libwayland's client side
         // does not, which is why every versioned request used to name its own since by hand and two did not.
-        // A request that makes an object is exempt: skipping one would hand back a null proxy, and kortex
-        // declares none of those above version 1.
-        if (iface == MemorySegment.NULL && proxyGetVersion(proxy) < requestSince(proxy, opcode)) {
+        // Above zero, as the server's own check reads it: a proxy that carries no version at all, the
+        // display itself among them, answers 0, and 0 means unversioned rather than older than everything.
+        val senderVersion = proxyGetVersion(proxy)
+        if (senderVersion > UNVERSIONED && senderVersion < requestSince(proxy, opcode)) {
+            // One that makes an object cannot simply be skipped: the caller is owed a proxy, and a null one
+            // would be dereferenced somewhere else entirely. Asking a compositor to make something it never
+            // offered is the caller's own mistake, so it is raised where it was made.
+            check(iface == MemorySegment.NULL) {
+                "opcode $opcode of ${proxyClass(proxy)} makes an object and needs a newer version than the " +
+                    "$senderVersion this compositor gave"
+            }
             return MemorySegment.NULL
         }
         val shape = args.joinToString("") { if (it is WlArg.Num) "n" else "p" }
@@ -406,6 +421,9 @@ internal object LibWayland {
     private const val NAME_OFFSET = 0L
     private const val VERSION_OFFSET = 8L
     // What a signature with no leading digits means, as libwayland's own wl_message_get_since takes it.
+    // What wl_proxy_get_version answers for a proxy with no version of its own, such as the display.
+    private const val UNVERSIONED = 0
+
     private const val FIRST_VERSION = 1
 
     private const val METHOD_COUNT_OFFSET = 12L
