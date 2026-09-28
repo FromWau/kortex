@@ -50,6 +50,10 @@ internal class DataDevice private constructor(
     // The drag over one of this client's surfaces, from the compositor's enter until its leave or its drop.
     private var drag: Drag? = null
 
+    // The offer of a drag this client refused, kept until the compositor's leave gives it somewhere to be freed.
+    // Nothing answers a drop of it: a finish after an accept of nothing is a protocol error.
+    private var refused: DataOffer? = null
+
     /** The source of the drag this client is carrying out, and null until one starts and once it has ended. */
     var dragged: DataSource? = null
         private set
@@ -70,6 +74,8 @@ internal class DataDevice private constructor(
         // The compositor leaves one drag before entering with the next, but a drop's transfers can still be
         // draining when that next one arrives, and its offer and its hover would be left behind.
         drag?.let(::leaveDrag)
+        // A refusal whose leave never came: the enter replacing it makes its offer stale either way.
+        endRefused()
         // NULL is in no map, so a drag the compositor names no offer for brings nothing to take.
         val brought = introduced.remove(offer.address()) ?: return
         val destination = dragDestinations(surface.address())
@@ -80,7 +86,7 @@ internal class DataDevice private constructor(
         val taken = destination.scene.sendDragEnter(arrival.position, arrival.announced).getOrElse { false }
         if (!taken) return decline(brought, serial)
         brought.accept(serial, types.first())
-        brought.setActions(DND_ACTION_COPY, DND_ACTION_COPY)
+        brought.setActions(DndAction.Copy.wire, DndAction.Copy.wire)
         display.flush()
         drag = arrival
     }
@@ -88,6 +94,7 @@ internal class DataDevice private constructor(
     fun onLeave(data: MemorySegment, device: MemorySegment) {
         // A drop is followed by a leave of its own, and ends with its transfers rather than here.
         drag?.takeUnless { it.dropping }?.let(::leaveDrag)
+        endRefused()
     }
 
     fun onMotion(data: MemorySegment, device: MemorySegment, time: Int, x: Int, y: Int) {
@@ -199,15 +206,18 @@ internal class DataDevice private constructor(
         dragged?.destroy()
         dragged = null
         drag?.let(::endDrag)
+        endRefused()
         introduced.values.forEach(DataOffer::destroy)
         introduced.clear()
     }
 
-    // Takes nothing from [offer] and gives it back, which leaves the drag's source cancelled.
+    // No destroy here: the compositor holds this offer as the drag's live one until it leaves, and giving a live
+    // offer back tells the drag's source the session is over, other clients' drags as readily as this client's.
     private fun decline(offer: DataOffer, serial: Int) {
         offer.accept(serial, type = null)
+        offer.setActions(DndAction.None.wire, DndAction.None.wire)
         display.flush()
-        offer.destroy()
+        refused = offer
     }
 
     // Back on the loop thread, with everything [dropped] carried in hand.
@@ -215,7 +225,9 @@ internal class DataDevice private constructor(
         // The device can have been given back, or another drag begun, while the transfers drained.
         if (drag !== dropped) return
         dropped.destination.scene.sendDrop(dropped.position, carried)
-        dropped.offer.finish()
+        // A finish says the drop succeeded, and a source dragging a move may delete what it sent as soon as it
+        // hears that, so a drop whose transfers all came back empty is given back unfinished instead.
+        if (carried.readText() is Ok<*> || carried.readImage() is Ok<*>) dropped.offer.finish()
         display.flush()
         endDrag(dropped)
     }
@@ -239,6 +251,12 @@ internal class DataDevice private constructor(
     private fun endDrag(ending: Drag) {
         drag = null
         ending.offer.destroy()
+    }
+
+    // A refused offer, once the compositor has moved its drag on and freeing it can no longer end that drag.
+    private fun endRefused() {
+        refused?.destroy()
+        refused = null
     }
 
     private fun install() {
@@ -350,9 +368,9 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     private var proxy: MemorySegment = MemorySegment.NULL
     private val offered = mutableSetOf<Mime>()
 
-    // A finish before the compositor has settled on an action is a protocol error, and a source older than
-    // wl_data_device_manager v3 makes it settle on none.
-    private var actionSelected = false
+    // What the compositor last settled this drag on, which stays none against a source older than
+    // wl_data_device_manager v3, since such a source names no action for one to be matched against.
+    private var settled = DndAction.None
 
     /** The type a text paste asks for: the first [TextMime] this offer lists, or null when it lists none. */
     val preferredText: TextMime? get() = TextMime.entries.firstOrNull { it in offered }
@@ -371,7 +389,7 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     fun onSourceActions(data: MemorySegment, offer: MemorySegment, sourceActions: Int) = Unit
 
     fun onAction(data: MemorySegment, offer: MemorySegment, dndAction: Int) {
-        actionSelected = dndAction != DND_ACTION_NONE
+        settled = DndAction.fromWire(dndAction)
     }
 
     /** `wl_data_offer.receive`: asks the offer's source to write itself into [fd], as [type]. */
@@ -417,10 +435,15 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
         )
     }
 
-    /** `wl_data_offer.finish`: tells the drag's source its drop is done, where the compositor chose an action. */
+    /** `wl_data_offer.finish`: tells the drag's source its drop succeeded, where the compositor settled on how. */
     fun finish() {
-        if (!actionSelected) return
-        LibWayland.marshalIfSince(proxy, WL_DATA_OFFER_FINISH, WL_DATA_OFFER_FINISH_SINCE)
+        when (settled) {
+            DndAction.Copy, DndAction.Move ->
+                LibWayland.marshalIfSince(proxy, WL_DATA_OFFER_FINISH, WL_DATA_OFFER_FINISH_SINCE)
+            // A finish the compositor has settled no action for is a protocol error, and an ask is settled only
+            // once the destination has answered it with a set_actions of its own, which kortex never sends.
+            DndAction.None, DndAction.Ask -> Unit
+        }
     }
 
     fun install(offer: MemorySegment) {
@@ -453,9 +476,6 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
         const val WL_DATA_OFFER_FINISH_SINCE = 3
         const val WL_DATA_OFFER_SET_ACTIONS = 4
         const val WL_DATA_OFFER_SET_ACTIONS_SINCE = 3
-
-        // wl_data_device_manager.dnd_action: the compositor settled on nothing.
-        const val DND_ACTION_NONE = 0
 
         // wl_data_offer v4 declares exactly these three events; every slot must be filled, because
         // libwayland indexes the struct and calls straight through it.
@@ -553,7 +573,7 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
     private fun offerAsCopy() {
         LibWayland.marshalIfSince(
             proxy, WL_DATA_SOURCE_SET_ACTIONS, WL_DATA_SOURCE_SET_ACTIONS_SINCE,
-            args = listOf(WlArg.Num(DND_ACTION_COPY)),
+            args = listOf(WlArg.Num(DndAction.Copy.wire)),
         )
     }
 
@@ -610,8 +630,19 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
     }
 }
 
-// wl_data_device_manager.dnd_action; copy is the only one kortex offers, asks for or answers to.
-private const val DND_ACTION_COPY = 1
+/** A `wl_data_device_manager.dnd_action`: how a drag is carried out. Copy is the only one kortex asks for. */
+private enum class DndAction(val wire: Int) {
+    None(0),
+    Copy(1),
+    Move(2),
+    Ask(4),
+    ;
+
+    companion object {
+        /** The action [wire] names, and [None] for a value the protocol gives no meaning to. */
+        fun fromWire(wire: Int): DndAction = DndAction.entries.firstOrNull { it.wire == wire } ?: None
+    }
+}
 
 /** Where a drag over one of this client's surfaces goes: the content drawn on it, at the scale it is drawn at. */
 internal class DragDestination(val scene: KortexScene, private val scale: Float) {
