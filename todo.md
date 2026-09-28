@@ -903,14 +903,29 @@ references and stays actionable on its own once the reports are gone.
       `marshal` leaves everything green. Both requests in the second entry above already have a green test
       driving them. Open: a test that binds a global at a forced-low version and asserts the connection
       survives, which would cover the whole class rather than two instances of it.
-- [ ] **kortex has only ever run against the most permissive compositor available.** Hyprland 0.56.2 declines
-      to enforce what the spec lets it: no `not_the_topmost_popup` anywhere, no `invalid_surface_state`, no
-      `start_drag` grab-serial validation (`DataDevice.cpp:264-280` never reads the serial), and `wl_seat` at
-      9 so `wl_pointer.warp` cannot arrive. Five audit findings are correct against the protocol and cannot
-      fire here; Weston and mutter enforce all of them, and mutter's `start_drag` failure is *silent*, so
-      `WaylandClipboard.startDrag` returns `Ok` and the source is never cleared
-      (`meta-wayland-data-device.c:883-889`). Open: run the existing E2E suite under nested weston, which
-      needs no output change and would convert all five from latent to observable in one pass.
+- [ ] **kortex cannot run on Weston or GNOME at all, which narrows what "portability defect" can mean here.**
+      `KortexShell.createApplication` (`:582`) calls `requireSurfaceGlobals` before anything else, and that
+      list (`:617`) holds `zwlr_layer_shell_v1`, so a compositor without it fails with
+      `Err(MissingGlobal("zwlr_layer_shell_v1"))` and nothing runs. Weston has no layer shell (a repo-wide
+      grep of its tree for `wlr-layer-shell` and `zwlr_layer_shell` returns nothing) and neither does mutter.
+      So kortex runs on the wlroots family (Hyprland, sway, river, labwc, Wayfire) and on KWin, which does
+      implement it (`src/wayland/layershell_v1.cpp:22`, `s_version = 5`), and nowhere else. This corrects a
+      recommendation made four times during the audit, including in `SUMMARY.md`: **running the existing E2E
+      suite under nested Weston is not possible.** Weston also lacks `zwlr_virtual_pointer_v1`, which is how
+      the suite synthesises input, and the harness drives `hyprctl` throughout. Reaching Weston would take an
+      xdg-shell-only mode for `Window`, `Dialog` and `Popup`, which is a feature rather than a test change.
+      Open: decide whether that mode is wanted. It would buy GNOME and Weston support and, with them, a
+      reference compositor to test conformance against, which nothing currently provides.
+- [ ] **Re-rank what each latent finding can still reach, now that the compositor set is known.** Of the five
+      the audit called latent on Hyprland, two are unreachable everywhere kortex runs and one is live on KWin.
+      Destroy-order `not_the_topmost_popup`: Hyprland does not implement it, KWin has it as a literal
+      `// TODO` (`src/wayland/xdgshell.cpp:841`), and mutter enforces it but cannot host kortex, so the fix
+      already committed is correct and free but was ranked Critical on the strength of a compositor kortex
+      cannot start on. `invalid_surface_state` for a maximized toplevel: KWin's only uses of that code are
+      layer-shell and lockscreen, not xdg-shell. The `start_drag` grab serial **is** live: KWin checks
+      `hasImplicitPointerGrab(serial)` (`src/input.cpp:2587`) and answers a stale one with `dndCancelled`,
+      which kortex handles, so the drag ends cleanly rather than hanging. `wl_pointer.warp` needs `wl_seat` 11
+      and nothing advertises it yet. Open: fix the serial, which is the one with teeth.
 - [x] **kortex's own docs are unreliable in both directions, and three of them licensed defects.** False:
       `LibWayland.kt:272-276`, `:234` and `ProtocolVersionTest.kt:55-58` all claim libwayland enforces
       versions client-side; `DrivenScene.kt:15-17` claims `Dispatchers.Unconfined` keeps work on the calling
