@@ -286,7 +286,7 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       `wl_seat` and the serial of the input that opened the popup, both new in `Popup`'s public signature, and
       taking one gives the popup the user's keyboard for as long as it is up, which would put every popup test
       in a session kept free for it.
-- [ ] **Nested popups are taken down outermost first.** The code defect is real and the fix is the one below:
+- [x] **Nested popups are taken down outermost first.** The code defect is real and the fix is the one below:
       `KortexShell.takeDown` closes a slot's surface without ending the popups under it, and both the reconcile
       that ends slots and the shell's own close walk `placed` parent-before-child. The *reason* first recorded
       here was wrong, and the audit corrected it: destroy-order `xdg_wm_base.not_the_topmost_popup` is enforced
@@ -641,7 +641,7 @@ where on the monitor the compositor put it.
       spec C added the other two. Open: give it the same bounded wait, which is the shape `awaitXdgConfigure`
       already holds.
 
-- [ ] **No test carries a drag across the wire, and one attempt got most of the way.** `DragAndDropTest` drives
+- [x] **No test carries a drag across the wire, and one attempt got most of the way.** `DragAndDropTest` drives
       the scene directly and never lets a compositor introduce an offer, so `wl_data_device`'s own side has no
       cover. An attempt placed two layer surfaces through a real shell, one a `dragAndDropSource` and one a
       `dragAndDropTarget`, and drove a press, a slop-clearing move, eight motions across the screen and a release
@@ -880,7 +880,7 @@ references and stays actionable on its own once the reports are gone.
       (`meta-wayland-xdg-shell.c:679-695`) **outside** the `if (seat)` block, so it fires for non-grabbing
       popups, which is all kortex has, and posts `not_the_topmost_popup`. Open: one `endPopupsUnder(slot)`
       call at the top of `takeDown`.
-- [ ] **No test reaches the `wl_data_device` destination path at all, so the drag defect had nothing to catch it.**
+- [x] **No test reaches the `wl_data_device` destination path at all, so the drag defect had nothing to catch it.**
       Nothing in the repository constructs a `DataDevice` or calls `onEnter`, `onMotion`, `onLeave` or
       `onDrop`; `DragAndDropTest` drives `KortexScene.sendDragEnter/Move/Leave/Drop`, the Compose seam one
       layer beneath, and its `withDropTarget` fixture always accepts, which negates all three routes into
@@ -889,14 +889,14 @@ references and stays actionable on its own once the reports are gone.
       against a real manager as `ClipboardTest` already does, installs a `dragDestinations` lambda, calls
       `onDataOffer` then `onEnter` for a surface whose scene has no drop target, and asserts the offer proxy
       is still alive; or a `WAYLAND_DEBUG` assertion that no `wl_data_offer.destroy` precedes a `leave`.
-- [ ] **`PopupTest` performs the fatal parent-destroy sequence on every run and reports green.** Four of its
+- [x] **`PopupTest` performs the fatal parent-destroy sequence on every run and reports green.** Four of its
       six tests leave a popup on screen at block end; only the teardown test at `:92` sets
       `showing.value = false`. `onApplication`'s `useOrFail` then calls `KortexShell.close()`, which runs
       `reconcileSlots()` and `takeDown` parent-first. The test at `:126` has a `Window` parent, the exact
       shape mutter kills. Applying the `endPopupsUnder` fix above changes no test's colour either way, which
       is the proof in reverse that nothing pins it. Open: a test that opens a popup from a window, ends the
       window while the popup is up, and asserts the wire order of the two destroys.
-- [ ] **No test binds a global below what kortex asks for, so a missing `since` guard cannot be observed.**
+- [x] **No test binds a global below what kortex asks for, so a missing `since` guard cannot be observed.**
       Every version assertion in the suite passes the maximum (`ProtocolVersionTest.kt:45,63,80`,
       `ClipboardTest.kt:389`, `OutputGeometryTest.kt:38,41`, `BoundOutput.kt:14`, `SurfaceScaleTest.kt:60`).
       Replacing the one guard the layer-shell path has, `marshalIfSince` at `LayerShell.kt:247`, with a plain
@@ -1017,23 +1017,20 @@ references and stays actionable on its own once the reports are gone.
       which would also stop trackpad scrolling getting Compose's smooth-scroll animation
       (`isPreciseWheelScroll` is false for kortex, always). One agent needs both `SeatInput.kt` and
       `KortexScene.kt` to do it.
-- [ ] **Nothing checks a hand-built `wl_interface`'s version against the XML it was copied from.**
-      `ProtocolVersionTest`'s second leg now excludes `zwlr_layer_shell_v1` and
-      `zwlr_virtual_pointer_manager_v1`, because `buildInterface` is handed the very constant the assertion
-      compared against, which made those two rows unfailable. Excluding them is honest but leaves the gap
-      the tautology was hiding: raising `WlVersion.LAYER_SHELL` past what the hand-built table actually
-      describes is caught by nothing, and binding that high against a compositor that offers it delivers
-      events whose opcodes the table has no entry for, which `queue_event` answers by killing the connection.
-      The only independent ceiling is the protocol XML: `/usr/share/wlr-protocols/unstable/` declares
-      `zwlr_layer_shell_v1` at 5 and `zwlr_virtual_pointer_v1` at 2, both matching today. Open: read those
-      two files in the test. The objection that nothing in the repo reads `/usr/share` is weak, since the
-      suite already requires `hyprctl`, `xkbcli`, `grim` and a live compositor.
-
-- [ ] **A drag quotes a grab serial that may no longer be live by the time it is sent.**
-      `WaylandClipboard.startDrag` now quotes the serial of the pointer press that began the gesture rather
-      than whatever input happened last, which is what `wl_data_device.start_drag`'s own argument asks for and
-      what KWin checks (`src/input.cpp:2587`, `hasImplicitPointerGrab(serial)`). The number is right; the
-      grab may not still be held. `KortexSurface.startDrag` encodes the payload on `Dispatchers.Default` and
+- [ ] **Nothing bounds a hand-built `wl_interface`'s own version against the XML it was copied from.**
+      Two of the tables kortex builds itself, `zwlr_layer_shell_v1` and `zwlr_virtual_pointer_manager_v1`,
+      carry the version `WlVersion` asks for, so `ProtocolVersionTest` comparing the constant against the
+      table it built compares the constant against itself. Nothing catches `LAYER_SHELL = 9`. Since the
+      marshal guard now reads each request's own version out of the table, the consequence is narrower than
+      it was: a request above the negotiated version is skipped or refused rather than sent. What is left is
+      binding a proxy at a version the table does not describe, whose events then arrive with opcodes the
+      table has no entry for, which `queue_event` answers by killing the connection. The only independent
+      statement is the protocol XML: `/usr/share/wlr-protocols/unstable/` declares 5 and 2, both matching
+      today. I wrote that test and deleted it along with the version-specific code it sat beside; it should
+      come back on its own. Open: read those two files in a test.
+- [ ] **A drag quotes a grab serial that may no longer be live by the time it is sent.** The serial itself
+      is now right and `DragWireTest` pins it: `start_drag`'s argument is asserted against the `wl_pointer`
+      button press it came from, read off the same wire the request left on. The grab may not still be held. `KortexSurface.startDrag` encodes the payload on `Dispatchers.Default` and
       posts back, so the button can be up before the request reaches the wire, and Weston additionally
       requires `button_count == 1` and would refuse it. `grabSerial` is deliberately **not** cleared on
       release: clearing it would fail every drag on that same race, including on Hyprland, which validates
@@ -1049,6 +1046,28 @@ references and stays actionable on its own once the reports are gone.
       toplevel would give `WindowState` a value that never recomposes when the compositor changes it, which
       is a worse trap than not having it. Open: decode it into `WindowStates` alongside the states already
       published there.
+
+- [x] **A request's own version is read from the table it is declared in, not named at the call site.**
+      Fifteen call sites each named the version their request first appeared in, and a constant beside it
+      transcribed a fact the message table already carried; two were forgotten, and nothing could see it,
+      since only the compositor compares the two and it answers a request below the negotiated version by
+      destroying the client. `marshal` now reads the leading digits of the signature the way libwayland
+      writes and reads them (`wl_message_get_since`, `src/connection.c`) and compares them the way its
+      server side does (`wayland-server.c`), above zero as that check does, since a proxy with no version of
+      its own answers 0. Fourteen constants and `marshalIfSince` went with it. One that makes an object is
+      refused rather than skipped, because a skipped one hands back a null proxy: kortex declares one such
+      request, `create_virtual_pointer_with_output` at `"2?o?on"`, and nothing calls it, so the exemption it
+      used to enjoy held by luck rather than by rule.
+- [ ] **`bareSurface` still swallows a drag out, and two of this stretch's fixes have no test of their own.**
+      `bareSurface` builds its `KortexSurface` without an `onStartDrag`, so a drag asked for on that harness
+      is answered by nothing; any drag test written on it passes vacuously, which is recorded separately
+      under "Keyboard and clipboard" and is still true. Beyond it, `preciseScroll` and `askMinimized` have
+      no cover. `preciseScroll` may not be coverable at all: Compose decides precision from an AWT event
+      through `LocalScrollConfig`, which is `internal`, and a finger source and a wheel source deliver the
+      same magnitude for the same input, so neither side of the seam can tell them apart. `askMinimized` is
+      coverable on the wire, as `set_minimized` reaching it, the way `DragWireTest` and
+      `PopupTeardownWireTest` read theirs. Open: the `askMinimized` one, and a decision to stop trying on
+      `preciseScroll` rather than leaving it looking like an oversight.
 
 ## Deliberately not doing
 
