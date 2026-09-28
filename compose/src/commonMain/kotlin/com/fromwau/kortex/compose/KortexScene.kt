@@ -37,7 +37,10 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import java.awt.Canvas as AwtCanvas
 import java.awt.Cursor
+import java.awt.event.MouseEvent
+import java.awt.event.MouseWheelEvent
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -145,6 +148,10 @@ public class KortexScene(
      * @param position where the pointer is, in logical pixels relative to the content; convert physical
      *   pixels yourself, as the scene is never told the output scale.
      * @param timeMillis when the event happened. The origin does not matter, only that it advances.
+     * @param scrollDelta how far a [PointerEventType.Scroll] scrolled, in scroll steps: one step is one
+     *   wheel detent, and a device that scrolls by distance gives a fraction of one.
+     * @param preciseScroll whether that scroll came from a device that scrolls by distance, a trackpad
+     *   say, rather than in detents. Content applies a precise scroll at once instead of animating it.
      */
     public fun sendPointerEvent(
         eventType: PointerEventType,
@@ -155,6 +162,7 @@ public class KortexScene(
         buttons: PointerButtons? = null,
         keyboardModifiers: PointerKeyboardModifiers? = null,
         button: PointerButton? = null,
+        preciseScroll: Boolean = false,
     ): EmptyResult<ContentFailure> = runContent(ContentFailure::PointerInput) {
         scene.sendPointerEvent(
             eventType = eventType,
@@ -164,6 +172,7 @@ public class KortexScene(
             type = type,
             buttons = buttons,
             keyboardModifiers = keyboardModifiers,
+            nativeEvent = if (preciseScroll) preciseWheelEvent(scrollDelta, timeMillis) else null,
             button = button,
         )
     }
@@ -343,7 +352,7 @@ private class KortexPlatformContext(
 /** Hands content's own request to drag something out to [startDrag], and refuses a payload kortex cannot carry. */
 @OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
 private class KortexDragAndDropManager(
-    private val startDrag: (KortexDragSource) -> Boolean,
+    private val startDrag: (dragged: KortexDragSource, onNotStarted: () -> Unit) -> Boolean,
 ) : PlatformDragAndDropManager {
     // Without this Compose waits for a drag the desktop starts on its own, which no Wayland compositor does.
     override val isRequestDragAndDropTransferRequired: Boolean get() = true
@@ -356,13 +365,31 @@ private class KortexDragAndDropManager(
                 decorationSize: Size,
                 drawDragDecoration: DrawScope.() -> Unit,
             ): Boolean {
-                started = (transferData.transferable as? KortexDragSource)?.let(startDrag) == true
+                val dragged = transferData.transferable as? KortexDragSource ?: return false
+                // Compose's own channel for a gesture that did not complete, which is what a drag the host
+                // took on and then could not start is; the answer is only known after this has returned true.
+                started = startDrag(dragged) { transferData.onTransferCompleted?.invoke(null) }
                 return started
             }
         }
         with(source) { transfers.startDragAndDropTransfer(offset) { started } }
     }
 }
+
+// java.awt.event.MouseEvent refuses a null source, and this one is never shown, drawn into or delivered to.
+private val WHEEL_EVENT_SOURCE = AwtCanvas()
+
+/**
+ * A scroll of [delta] as the AWT event Compose's desktop scroll config reads precision off: it asks whether the
+ * rotation is a whole number of clicks, which only a wheel's detents are. Nothing else on the event is read.
+ */
+private fun preciseWheelEvent(delta: Offset, timeMillis: Long): MouseWheelEvent = MouseWheelEvent(
+    WHEEL_EVENT_SOURCE, MouseEvent.MOUSE_WHEEL, timeMillis, 0,
+    0, 0, 0, 0, 0, false,
+    // One unit and not a page, which is what the config falls back to when no AWT event carries the scroll.
+    MouseWheelEvent.WHEEL_UNIT_SCROLL, 1,
+    0, (if (delta.y != 0f) delta.y else delta.x).toDouble(),
+)
 
 // AwtCursor's equals and hashCode go by cursor type, so content's own PointerIcon(Cursor(type)) finds its entry.
 private val CURSOR_ICONS: Map<PointerIcon, KortexCursor> = mapOf(

@@ -22,7 +22,8 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  * Forwards `wl_pointer` events into a [KortexScene].
  *
  * Wayland reports surface-local (logical) coordinates and the scene draws in buffer (physical) pixels,
- * so everything is multiplied by scale here.
+ * so every position is multiplied by scale here. A scroll is not: it is delivered in scroll steps, which
+ * are a count rather than a distance.
  */
 internal class PointerInput(
     private val scene: KortexScene,
@@ -33,11 +34,23 @@ internal class PointerInput(
     private val cursorSurface: WlCursorSurface? = null,
     // Handed the serial of every button, which the clipboard quotes to set the selection.
     private val onInputSerial: (Int) -> Unit = {},
+    // Handed the serial of every press, which is the implicit grab a drag out of this client has to name.
+    private val onPointerGrab: (Int) -> Unit = {},
 ) {
     private val arena: Arena = Arena.ofShared()
 
     private var position = Offset.Zero
     private var buttons = PointerButtons()
+
+    // A scroll arrives as an axis value, a source and a value120 in separate events, and only the frame
+    // that closes the group says which of them belong together.
+    private val verticalScroll = PendingScroll()
+    private val horizontalScroll = PendingScroll()
+    private var scrollsByDistance = false
+
+    // False until install() sees a pointer new enough: below wl_pointer v5 no frame event ever arrives,
+    // and a scroll held back for one would never be delivered at all.
+    private var framesEvents = false
 
     /** The bound `wl_pointer`; not private because a test asserts the version it negotiated. */
     var pointerProxy: MemorySegment = MemorySegment.NULL
@@ -68,6 +81,8 @@ internal class PointerInput(
         onInputSerial(serial)
         val pressed = state == BUTTON_PRESSED
         val which = button.toPointerButton() ?: return
+        // After the filter: a button the scene never sees cannot be the one a drag gesture began with.
+        if (pressed) onPointerGrab(serial)
         buttons = buttonsWith(which, pressed)
         scene.sendPointerEvent(
             eventType = if (pressed) PointerEventType.Press else PointerEventType.Release,
@@ -79,33 +94,75 @@ internal class PointerInput(
     }
 
     fun onAxis(data: MemorySegment, proxy: MemorySegment, time: Int, axis: Int, value: Int) {
-        val delta = fixedToFloat(value) * scale
-        scene.sendPointerEvent(
-            eventType = PointerEventType.Scroll,
-            position = position,
-            timeMillis = time.toUInt().toLong(),
-            scrollDelta = if (axis == AXIS_VERTICAL) Offset(0f, delta) else Offset(delta, 0f),
-            buttons = buttons,
-        )
+        val pending = scrollOn(axis)
+        // Summed rather than replaced: the XML makes a frame's several axis events on one axis one motion.
+        pending.value = (pending.value ?: 0) + value
+        pending.timeMillis = time.toUInt().toLong()
+        if (!framesEvents) deliverScroll()
     }
 
-    // A frame's axis events are deliberately not accumulated: Compose reduces a scroll to the single axis
-    // its angle favours, so two single-axis events move both axes where one combined diagonal moves one.
-    fun onFrame(data: MemorySegment, proxy: MemorySegment) = Unit
+    fun onFrame(data: MemorySegment, proxy: MemorySegment) = deliverScroll()
 
-    fun onAxisSource(data: MemorySegment, proxy: MemorySegment, axisSource: Int) = Unit
+    fun onAxisSource(data: MemorySegment, proxy: MemorySegment, axisSource: Int) {
+        scrollsByDistance = axisSource == AXIS_SOURCE_FINGER || axisSource == AXIS_SOURCE_CONTINUOUS
+    }
 
     fun onAxisStop(data: MemorySegment, proxy: MemorySegment, time: Int, axis: Int) = Unit
 
     // wl_pointer v8 replaced this with axis_value120 and stops sending it, so it fires only below v8.
     fun onAxisDiscrete(data: MemorySegment, proxy: MemorySegment, axis: Int, discrete: Int) = Unit
 
-    fun onAxisValue120(data: MemorySegment, proxy: MemorySegment, axis: Int, value120: Int) = Unit
+    fun onAxisValue120(data: MemorySegment, proxy: MemorySegment, axis: Int, value120: Int) {
+        val pending = scrollOn(axis)
+        pending.value120 = (pending.value120 ?: 0) + value120
+    }
 
     // The physical direction, which content must not follow: obeying it would undo natural scrolling.
     fun onAxisRelativeDirection(data: MemorySegment, proxy: MemorySegment, axis: Int, direction: Int) = Unit
 
     fun onWarp(data: MemorySegment, proxy: MemorySegment, x: Int, y: Int) = Unit
+
+    private fun scrollOn(axis: Int): PendingScroll = if (axis == AXIS_VERTICAL) verticalScroll else horizontalScroll
+
+    // The two axes go out as two events and are never combined into one diagonal: Compose reduces a scroll to
+    // the single axis its angle favours, so two single-axis events move both axes where one diagonal moves one.
+    private fun deliverScroll() {
+        sendScroll(verticalScroll, vertical = true)
+        sendScroll(horizontalScroll, vertical = false)
+        scrollsByDistance = false
+    }
+
+    /** Delivers what one axis collected over a frame group, if anything, and empties it for the next. */
+    private fun sendScroll(pending: PendingScroll, vertical: Boolean) {
+        val value = pending.value
+        val value120 = pending.value120
+        // Emptied before the early return too: a value120 kept back would count towards a later frame's scroll.
+        pending.value = null
+        pending.value120 = null
+        if (value == null) return
+        // value120 counts detents, 120 to the step, which is the unit Compose's own host hands content; a
+        // device that scrolls by distance has none, and Hyprland converts it at fifteen pixels to the step.
+        val steps = if (value120 != null && !scrollsByDistance) {
+            value120 / VALUE120_PER_STEP
+        } else {
+            fixedToFloat(value) / PIXELS_PER_STEP
+        }
+        scene.sendPointerEvent(
+            eventType = PointerEventType.Scroll,
+            position = position,
+            timeMillis = pending.timeMillis,
+            scrollDelta = if (vertical) Offset(0f, steps) else Offset(steps, 0f),
+            buttons = buttons,
+            preciseScroll = scrollsByDistance,
+        )
+    }
+
+    /** One axis of a scroll while its frame group builds up; [value] is null where the group carried none. */
+    private class PendingScroll {
+        var value: Int? = null
+        var value120: Int? = null
+        var timeMillis = 0L
+    }
 
     private fun buttonsWith(button: PointerButton, pressed: Boolean) = PointerButtons(
         isPrimaryPressed = if (button == PointerButton.Primary) pressed else buttons.isPrimaryPressed,
@@ -122,6 +179,7 @@ internal class PointerInput(
 
     fun install(pointer: MemorySegment) {
         pointerProxy = pointer
+        framesEvents = LibWayland.proxyGetVersion(pointer) >= WL_POINTER_FRAME_SINCE
         val listener = arena.allocate(ADDRESS.byteSize() * EVENT_COUNT)
         listener.setAtIndex(ADDRESS, ENTER, LibWayland.upcall(arena, this, "onEnter", ENTER_DESCRIPTOR))
         listener.setAtIndex(ADDRESS, LEAVE, LibWayland.upcall(arena, this, "onLeave", LEAVE_DESCRIPTOR))
@@ -195,9 +253,19 @@ internal class PointerInput(
         private const val FIXED_ONE = 256f
         private const val BUTTON_PRESSED = 1
         private const val AXIS_VERTICAL = 0
+        private const val AXIS_SOURCE_FINGER = 1
+        private const val AXIS_SOURCE_CONTINUOUS = 2
+
+        /** `axis_value120`'s own unit: "each multiple of 120 representing one logical scroll step". */
+        private const val VALUE120_PER_STEP = 120f
+
+        /** What a device that scrolls by distance moves for one step, as Hyprland converts it both ways. */
+        private const val PIXELS_PER_STEP = 15f
+
         private const val WL_POINTER_SET_CURSOR = 0
         private const val WL_POINTER_RELEASE = 1
         private const val WL_POINTER_RELEASE_SINCE = 3
+        private const val WL_POINTER_FRAME_SINCE = 5
 
         // linux/input-event-codes.h
         private const val BTN_LEFT = 0x110
@@ -262,13 +330,15 @@ internal class Seat private constructor(
         cursorTheme: WlCursorTheme? = null,
         cursorSurface: WlCursorSurface? = null,
         onInputSerial: (Int) -> Unit = {},
+        onPointerGrab: (Int) -> Unit = {},
     ): PointerInput? {
         if (!hasPointer) return null
         val pointer = LibWayland.marshal(
             proxy, WL_SEAT_GET_POINTER, LibWayland.pointerInterface,
             LibWayland.proxyGetVersion(proxy), listOf(WlArg.Ptr(MemorySegment.NULL)),
         )
-        return PointerInput(scene, scale, cursorTheme, cursorSurface, onInputSerial).also { it.install(pointer) }
+        return PointerInput(scene, scale, cursorTheme, cursorSurface, onInputSerial, onPointerGrab)
+            .also { it.install(pointer) }
     }
 
     fun attachKeyboard(
