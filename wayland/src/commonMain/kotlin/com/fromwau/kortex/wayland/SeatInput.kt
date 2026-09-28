@@ -89,16 +89,20 @@ internal class PointerInput(
         )
     }
 
+    // A frame's axis events are deliberately not accumulated: Compose reduces a scroll to the single axis
+    // its angle favours, so two single-axis events move both axes where one combined diagonal moves one.
     fun onFrame(data: MemorySegment, proxy: MemorySegment) = Unit
 
     fun onAxisSource(data: MemorySegment, proxy: MemorySegment, axisSource: Int) = Unit
 
     fun onAxisStop(data: MemorySegment, proxy: MemorySegment, time: Int, axis: Int) = Unit
 
+    // wl_pointer v8 replaced this with axis_value120 and stops sending it, so it fires only below v8.
     fun onAxisDiscrete(data: MemorySegment, proxy: MemorySegment, axis: Int, discrete: Int) = Unit
 
     fun onAxisValue120(data: MemorySegment, proxy: MemorySegment, axis: Int, value120: Int) = Unit
 
+    // The physical direction, which content must not follow: obeying it would undo natural scrolling.
     fun onAxisRelativeDirection(data: MemorySegment, proxy: MemorySegment, axis: Int, direction: Int) = Unit
 
     fun onWarp(data: MemorySegment, proxy: MemorySegment, x: Int, y: Int) = Unit
