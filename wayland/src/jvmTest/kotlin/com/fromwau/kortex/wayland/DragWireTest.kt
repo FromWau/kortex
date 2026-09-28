@@ -37,11 +37,12 @@ class DragWireTest {
             "the probe's markers are missing or out of order (placed=$placedAt driven=$drivenAt); output:\n$raw",
         )
         val wire = output.subList(placedAt + 1, drivenAt)
+        val dataTraffic = wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")
 
         // The request itself, which answers the first question: did the gesture reach the compositor at all.
         assertTrue(
             wire.any { it.isRequest("wl_data_device", "start_drag") },
-            "no wl_data_device.start_drag left the client while the pointer dragged; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
+            "no wl_data_device.start_drag left the client while the pointer dragged; wire:\n$dataTraffic",
         )
 
         // A drag's first enter always names the surface it started from, whose own tree holds no drop target,
@@ -49,26 +50,28 @@ class DragWireTest {
         val enterAt = wire.indexOfFirst { it.isEvent("wl_data_device", "enter") }
         assertTrue(
             enterAt >= 0,
-            "the compositor never entered any surface with the drag; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
+            "the compositor never entered any surface with the drag; wire:\n$dataTraffic",
         )
         val leaveAt = wire.drop(enterAt).indexOfFirst { it.isEvent("wl_data_device", "leave") }
         assertTrue(
             leaveAt >= 0,
-            "the drag entered a surface and never left it; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
+            "the drag entered a surface and never left it; wire:\n$dataTraffic",
         )
 
         val whileEntered = wire.subList(enterAt, enterAt + leaveAt)
+        val whileEnteredTraffic =
+            whileEntered.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")
         assertEquals(
             emptyList(), whileEntered.filter { it.isRequest("wl_data_offer", "destroy") },
             "an offer the compositor still held as the drag's own was given back before it left; " +
-                "wire:\n${whileEntered.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
+                "wire:\n$whileEnteredTraffic",
         )
 
         // The other half of the same rule: held until the leave, and given back once it comes, since an offer
         // nobody destroys is a leak on both sides of the socket.
         assertTrue(
             wire.drop(enterAt + leaveAt).any { it.isRequest("wl_data_offer", "destroy") },
-            "the drag left the surface and its offer was never given back; wire:\n${wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")}",
+            "the drag left the surface and its offer was never given back; wire:\n$dataTraffic",
         )
 
         // The serial start_drag quotes must be a button press's own. Its argument asks for "the serial

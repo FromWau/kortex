@@ -309,7 +309,9 @@ internal class LayerShellSurface(
                 args = listOf(WlArg.Num(config.exclusiveZone.toWireValue())),
             )
             config.exclusiveEdge?.let { edge ->
-                LibWayland.marshal(layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE, args = listOf(WlArg.Num(edge.bit)),
+                LibWayland.marshal(
+                    layerSurface, LayerShellProtocol.SET_EXCLUSIVE_EDGE,
+                    args = listOf(WlArg.Num(edge.bit)),
                 )
             }
             LibWayland.marshal(layerSurface, LayerShellProtocol.SET_MARGIN, args = config.margins.toWireArgs())

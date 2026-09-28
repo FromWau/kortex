@@ -37,21 +37,22 @@ class PopupTeardownWireTest {
             "the probe's markers are missing or out of order (up=$upAt down=$downAt); output:\n$raw",
         )
         val teardown = output.subList(upAt + 1, downAt)
+        val xdgTraffic = teardown.traceOf("xdg_popup", "xdg_toplevel", "xdg_surface")
 
         val popupAt = teardown.indexOfFirst { it.isRequest("xdg_popup", "destroy") }
         val toplevelAt = teardown.indexOfFirst { it.isRequest("xdg_toplevel", "destroy") }
         assertTrue(
             popupAt >= 0,
-            "the popup was never destroyed while the application ended; teardown:\n${teardown.traceOf("xdg_popup", "xdg_toplevel", "xdg_surface")}",
+            "the popup was never destroyed while the application ended; teardown:\n$xdgTraffic",
         )
         assertTrue(
             toplevelAt >= 0,
-            "the window was never destroyed while the application ended; teardown:\n${teardown.traceOf("xdg_popup", "xdg_toplevel", "xdg_surface")}",
+            "the window was never destroyed while the application ended; teardown:\n$xdgTraffic",
         )
         assertTrue(
             popupAt < toplevelAt,
             "the window was destroyed before the popup inside it, which unmaps a popup's parent under it; " +
-                "teardown:\n${teardown.traceOf("xdg_popup", "xdg_toplevel", "xdg_surface")}",
+                "teardown:\n$xdgTraffic",
         )
     }
 }

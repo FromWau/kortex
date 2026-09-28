@@ -46,8 +46,8 @@ internal class KortexSurface private constructor(
     private val onPointerGrab: (Int) -> Unit,
     // Told as this surface's keyboard gains and loses focus, which gates reading another client's text.
     private val onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit,
-    // Handed what content drags out of this surface, and the wl_surface it is dragged from; answers whether the
-    // compositor was asked for it.
+    // Handed what content drags out of this surface, and the wl_surface it is dragged from; answers why the
+    // compositor could not be asked, where it could not.
     private val onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError>,
 ) : AutoCloseable {
 
@@ -439,7 +439,7 @@ internal class KortexSurface private constructor(
             // Told as the surface's keyboard gains and loses focus, which gates reading another client's text.
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
             // Handed what content drags out of the surface, and the wl_surface it is dragged from; answers
-            // whether the compositor was asked for it.
+            // why the compositor could not be asked, where it could not.
             onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = { _, _ -> Ok(Unit) },
             // Makes what the surface is built on, which the surface owns from the moment it is handed over.
             buildRole: () -> Result<SurfaceRole, KortexError>,

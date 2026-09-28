@@ -1069,6 +1069,20 @@ references and stays actionable on its own once the reports are gone.
       `PopupTeardownWireTest` read theirs. Open: the `askMinimized` one, and a decision to stop trying on
       `preciseScroll` rather than leaving it looking like an oversight.
 
+- [ ] **A freed upcall stub has taken this JVM down, and nothing records when or why.** Three
+      `hs_err_pid*.log` files sit in `wayland/`, all SIGSEGV, dated well before this branch's fixes
+      (two on 14 September, one on 23 September). The most recent crashed at `pc=0x0000000100000004`,
+      a jump to an address nothing is mapped at, inside `wl_display_roundtrip` reached through an FFM
+      downcall. That is the shape of a listener stub being called after the arena holding it was closed,
+      which is the hazard `report-core.md` raised as a lifetime question and `CrashedSurfaceProbe`'s own
+      comment alludes to with "should a throw ever escape a libwayland callback **again**". So the class
+      is not theoretical: it has happened here, at least once, and left no account of itself beyond a
+      file in a build directory that nothing reads. Nothing in the suite would notice a recurrence
+      either, since a crashed JVM is exactly what the child-process probes exist to contain. Open: read
+      the three dumps for the Java frames they carry, decide whether the ordering they implicate is one
+      of the teardown paths still in the tree, and either pin it or record it as understood. They are
+      git-ignored, so deleting them without reading them loses the only evidence there is.
+
 ## Deliberately not doing
 
 - `BinarySource` / bundled binary extraction / arch-specific resources: no helper binary exists.
