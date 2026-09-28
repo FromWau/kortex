@@ -1133,13 +1133,21 @@ references and stays actionable on its own once the reports are gone.
       code as written that cannot happen. The ordering is unchanged today, and the five commits that have
       touched `SeatInput.kt` since are version lookup, grab serial, scroll units and comments.
 
-      Open: reproducing it. `PointerReleaseOrderTest` was written to catch exactly this and caught it once
-      in a run that is not recorded anywhere else, so a loop over that one test is the cheapest instrument
-      there is. It drives a virtual pointer across the screen, so it takes the desktop. Until then nothing
-      in the suite would notice a recurrence: a Gradle worker that dies this way reports as a worker
-      failure, not a test failure. The dumps are still git-ignored and a `git clean -fdx` still takes
-      them, but everything above was read out of them, so what they hold beyond this entry is the raw
-      stacks.
+      Not reproduced yet, and the obvious instrument is the wrong one. `PointerReleaseOrderTest` ran 30
+      times under `--tests` with `--rerun`, all clean, no new dump; the full suite also passed once with
+      the null-proxy guard in. But `settings.gradle.kts` sets neither `forkEvery` nor
+      `maxParallelForks`, so the whole of `:wayland:jvmTest` runs sequentially in **one** JVM, and a
+      filtered run is a fresh worker that has opened and closed nothing else. The crash was 17 seconds
+      into a worker that had already run other classes: the dump logs six earlier
+      `CloseScopedMemory` handshakes before the fatal one, and `java.awt.datatransfer.StringSelection`
+      loading at 12.238s puts a clipboard test ahead of it. A 4-second solo run reaches none of that. So
+      the instrument is a loop over the whole `:wayland:jvmTest` task, 2m12s a pass, which takes the
+      desktop for as long as it runs.
+
+      Until it is pinned, nothing in the suite would notice a recurrence: a Gradle worker that dies this
+      way reports as a worker failure, not a test failure. The dumps are still git-ignored and a
+      `git clean -fdx` still takes them, but everything above was read out of them, so what they hold
+      beyond this entry is the raw stacks.
 
 ## Deliberately not doing
 
