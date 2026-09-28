@@ -61,7 +61,7 @@ public class KortexScene(
     platform: KortexPlatform = KortexPlatform.None,
     private val onFailure: (ContentFailure) -> Unit = {},
 ) : AutoCloseable {
-    private val windowInfo = KortexWindowInfo()
+    private val windowInfo = KortexWindowInfo(size)
 
     // Atomic because an effect can resume, and fail, on the host dispatcher's thread.
     private val firstFailure = AtomicReference<ContentFailure?>(null)
@@ -96,6 +96,7 @@ public class KortexScene(
         set(value) {
             field = value
             scene.size = value
+            windowInfo.containerSize = value
         }
 
     /**
@@ -249,9 +250,15 @@ public class KortexScene(
             dropped
         }
 
-    /** Disposes the composition, even a failed one; content's own cleanup failing becomes [failure]. */
+    private var closed = false
+
+    /**
+     * Disposes the composition, even a failed one; content's own cleanup failing becomes [failure].
+     * Safe to call more than once.
+     */
     override fun close() {
-        // Scene first: it holds the recomposer, whose coroutine scope would otherwise outlive it.
+        if (closed) return
+        closed = true
         try {
             scene.close()
         } catch (cause: Throwable) {
@@ -307,8 +314,11 @@ public class KortexScene(
     }
 }
 
-private class KortexWindowInfo : WindowInfo {
+private class KortexWindowInfo(size: IntSize) : WindowInfo {
     override var isWindowFocused: Boolean by mutableStateOf(true)
+
+    // WindowInfo's default is Int.MIN_VALUE on both axes, which drops every popup at the scene's corner.
+    override var containerSize: IntSize by mutableStateOf(size)
 }
 
 @OptIn(InternalComposeUiApi::class)
@@ -346,7 +356,6 @@ private class KortexDragAndDropManager(
                 decorationSize: Size,
                 drawDragDecoration: DrawScope.() -> Unit,
             ): Boolean {
-                // Any other transferable wraps an AWT one, which nothing here can read without starting the toolkit.
                 started = (transferData.transferable as? KortexDragSource)?.let(startDrag) == true
                 return started
             }
