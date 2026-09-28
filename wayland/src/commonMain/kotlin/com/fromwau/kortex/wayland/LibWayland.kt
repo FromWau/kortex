@@ -290,6 +290,9 @@ internal object LibWayland {
         version: Int = 0,
         args: List<WlArg> = emptyList(),
     ): MemorySegment {
+        // libwayland reads the proxy's interface before anything else, so a null one is a SIGSEGV inside
+        // wl_proxy_marshal_flags that takes the process with it, leaving no Java frame to say who sent it.
+        require(!proxy.equals(MemorySegment.NULL)) { "request $opcode was sent on a proxy that is not there" }
         // A request the negotiated version does not carry is answered by the compositor with
         // wl_display.error(invalid_method), which destroys the client, so it is not sent. Only the server
         // checks this (wayland-server.c, where it reads wl_message_get_since); libwayland's client side
