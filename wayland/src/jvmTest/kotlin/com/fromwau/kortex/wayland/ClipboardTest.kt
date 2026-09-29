@@ -62,6 +62,28 @@ class ClipboardTest {
         }
     }
 
+    /**
+     * The third family a paste can ask for, which only another application ever offers: no [Clip] carries a
+     * file list, so nothing this client copies is ever pasted back as one.
+     */
+    @Test
+    fun `a selection offered as a file list has files to paste, and a text or image selection has none`() {
+        withOffer(URI_LIST_OFFER) { offer ->
+            assertEquals(
+                UriListMime.TextUriList, offer.preferredUriList,
+                "a file selection had no files to paste",
+            )
+            assertNull(offer.preferredText, "a selection offered only as a file list had text to paste")
+            assertNull(offer.preferredImage, "a selection offered only as a file list had an image to paste")
+        }
+        withOffer(PASTE_PREFERENCE) { offer ->
+            assertNull(offer.preferredUriList, "a text selection had files to paste")
+        }
+        withOffer(IMAGE_OFFER) { offer ->
+            assertNull(offer.preferredUriList, "an image selection had files to paste")
+        }
+    }
+
     @Test
     fun `a copy offers an image as PNG and JPEG, and a text under the five text types`() {
         assertEquals(IMAGE_OFFER, imageClipOrFail().offeredTypes.map { it.wireName }, "an image copy's offer")
@@ -364,6 +386,27 @@ class ClipboardTest {
         }
     }
 
+    /**
+     * A text or image paste answers this client's own copy from memory before it looks at the selection, and
+     * a file paste has nothing to answer from: no [Clip] carries a file list. So the same clipboard at the
+     * same moment hands back the text it holds and no files at all.
+     *
+     * The failure it reads as is this fixture's: a clipboard with no surface is never given keyboard focus,
+     * so the compositor never names a selection for it to fall through to.
+     */
+    @Test
+    fun `kortex's own copy is text to paste and never files, read at the same moment`() {
+        withOwnCopy { clipboard ->
+            clipboard.recordKeyboardFocus(Any(), focused = true)
+
+            assertEquals(Ok(COPIED), runBlocking { clipboard.readText() }, "a text this client copied")
+            assertEquals(
+                Err(ClipboardError.NoSelection), runBlocking { clipboard.readUris() },
+                "a text this client copied was handed back to a file paste",
+            )
+        }
+    }
+
     @Test
     fun `the clipboard quotes the latest input serial it is handed`() {
         withUnfocusedClipboard { clipboard ->
@@ -539,6 +582,9 @@ class ClipboardTest {
 
         // Spelled out rather than read off ImageMime, so reordering or dropping an entry fails here.
         val IMAGE_OFFER = listOf("image/png", "image/jpeg")
+
+        // Spelled out rather than read off UriListMime, on the same terms as the two above.
+        val URI_LIST_OFFER = listOf("text/uri-list")
 
         const val SWATCH_SIDE = 8
         const val BYTES_PER_PIXEL = 4

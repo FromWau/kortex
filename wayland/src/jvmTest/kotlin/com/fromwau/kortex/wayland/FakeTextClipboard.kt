@@ -46,4 +46,7 @@ internal class FakeTextClipboard(
 
     override suspend fun readImage(): Result<ImageBitmap, ClipboardError> =
         error("nothing this fake stands in for pastes an image")
+
+    override suspend fun readUris(): Result<List<String>, ClipboardError> =
+        error("nothing this fake stands in for pastes a file")
 }

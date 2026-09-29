@@ -452,6 +452,9 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     /** The type an image paste asks for: the first [ImageMime] this offer lists, or null when it lists none. */
     val preferredImage: ImageMime? get() = ImageMime.entries.firstOrNull { it in offered }
 
+    /** The type a file paste asks for: the first [UriListMime] this offer lists, or null when it lists none. */
+    val preferredUriList: UriListMime? get() = UriListMime.entries.firstOrNull { it in offered }
+
     /** Every type this offer lists that kortex can carry, in the order a read prefers them. */
     val offeredTypes: List<Mime> get() = Mime.all.filter { it in offered }
 

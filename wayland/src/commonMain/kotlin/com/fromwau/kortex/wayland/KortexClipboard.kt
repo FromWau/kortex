@@ -98,6 +98,28 @@ public sealed interface KortexClipboard {
      * @throws IllegalStateException once [kortexApplication] has returned.
      */
     public suspend fun readImage(): Result<ImageBitmap, ClipboardError>
+
+    /**
+     * The files on the clipboard, as the URIs the application that copied them named them by, such as
+     * `file:///home/you/notes.txt`.
+     *
+     * Files another application copied read back only while one of your surfaces has keyboard focus, since
+     * only then does the compositor say what is on the clipboard; without it, the read is
+     * [ClipboardError.NoSelection]. Nothing your own application copies reads back here: kortex puts text and
+     * images on the clipboard and never a list of files.
+     *
+     * They arrive percent-encoded and under any scheme, so turn one into a path yourself, with
+     * `Path.of(URI(uri))` for a `file` and your own handling for the rest.
+     *
+     * Cancelling your coroutine does not cut a read short: the coroutine sees its cancellation once the read
+     * has returned, at most a second after the read began.
+     *
+     * @return the URIs, or why there are none: [ClipboardError.NoSelection], [ClipboardError.NoUris],
+     *   [ClipboardError.NoClipboard], [ClipboardError.PipeFailed], [ClipboardError.ReadTimedOut] or
+     *   [ClipboardError.TooLarge].
+     * @throws IllegalStateException once [kortexApplication] has returned.
+     */
+    public suspend fun readUris(): Result<List<String>, ClipboardError>
 }
 
 /**
@@ -127,10 +149,7 @@ public sealed interface ClipboardError : IError {
      */
     public data object NoImage : ClipboardError
 
-    /**
-     * What a drag carries is not a list of files or other URIs. No clipboard call answers this: only a drag is
-     * ever read for URIs.
-     */
+    /** What is on the clipboard, or what a drag carries, is not a list of files or other URIs. */
     public data object NoUris : ClipboardError
 
     /**

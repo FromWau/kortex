@@ -161,6 +161,17 @@ internal class WaylandClipboard private constructor(
         return decodeOffLoop(received.getOrElse { return Err(it) })
     }
 
+    /**
+     * Reads the `text/uri-list` on the clipboard.
+     *
+     * Nothing answers from memory the way [readText] and [readImage] do: no [Clip] offers a file list, so
+     * this client's own copy is never one.
+     */
+    override suspend fun readUris(): Result<List<String>, ClipboardError> {
+        checkOpen()
+        return readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveUris() }.map(::decodeUriList)
+    }
+
     // Off the loop thread: decoding a large image on it would stall every surface for as long as it runs.
     private suspend fun decodeOffLoop(encoded: ByteArray): Result<ImageBitmap, ClipboardError> =
         withContext(Dispatchers.Default) { decodeImage(encoded) }
@@ -187,6 +198,9 @@ internal class WaylandClipboard private constructor(
 
     private fun receiveImage(): Result<Int, ClipboardError> =
         receiveSelection(ClipboardError.NoImage, DataOffer::preferredImage)
+
+    private fun receiveUris(): Result<Int, ClipboardError> =
+        receiveSelection(ClipboardError.NoUris, DataOffer::preferredUriList)
 
     /** Opens a pipe on the selection under the type [pick] takes, or fails as [absent] where it lists none. */
     private fun receiveSelection(absent: ClipboardError, pick: (DataOffer) -> Mime?): Result<Int, ClipboardError> {
