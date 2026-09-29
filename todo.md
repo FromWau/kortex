@@ -824,12 +824,11 @@ where on the monitor the compositor put it.
 Written down because the rest of it lives in a conversation and in a git-ignored directory, and neither
 survives on its own.
 
-- **Branch `windows-and-input`, 160 commits ahead of `master`, nothing pushed, working tree clean.**
-  376 tests across `:wayland`, `:compose` and `:bar`, of which 375 pass and `DragWireTest`
-  intermittently does not; the entry below says what is known about it. Do not read a green run as
-  proof there, or a red one as a drag defect, without reading which assertion failed. The three
-  `@Hotplug` classes are excluded and have never run here; changing an output on this machine
-  crashes the installed GTK about one run in 256.
+- **Branch `windows-and-input`, nothing pushed, working tree clean.** 376 tests across `:wayland`,
+  `:compose` and `:bar`. `:wayland`'s 346 went green twice in a row after the drag fix below;
+  the other 30 have not been re-run since and were green before it. The three `@Hotplug`
+  classes are excluded and have never run here; changing an output on this machine crashes the
+  installed GTK about one run in 256.
 - **It sits on `reactive-surfaces`, which is itself not merged into `master`.** Merging that first keeps
   the history straight. That decision has been open since before the audit and is still nobody's but
   yours.
@@ -840,32 +839,6 @@ survives on its own.
 - **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
   `PopupTeardownWireTest`, `DragWireTest` and `PointerReleaseOrderTest` take focus, re-tile open windows
   and drive the pointer, so they want a session kept free. Ask before starting a run.
-- **`DragWireTest` failed eleven runs in a row and then passed four, with no code change between
-  them.** The failure was always `no wl_data_device.start_drag left the client while the pointer
-  dragged`. Three things are now settled and one is not. The capture works: the probe's slice held
-  1137 wire lines, so nothing was lost between the child and the test. The data device is real: a
-  drag from Dolphin into the running bar demo shows `wl_data_device_manager#3.get_data_device` at
-  start-up and a whole clean drag afterwards, so nothing about the device or its manager is missing;
-  the probe's slice simply begins after the device is made. And the test was reporting the wrong
-  thing: `startDrag` answers a missing grab serial with `NoInputSerial` and sends nothing, which on
-  the wire is what a refused drag looks like too, and the press check that separates them sat after
-  the `start_drag` assertion, so it never ran. It runs first now.
-
-  The reordered check is what makes the failures worth reading: it runs first now, and it passes. A
-  `wl_pointer.button` press does reach the client, among roughly 1145 wire lines, and `start_drag`
-  still never leaves. So the half where the pointer never arrives at the source surface is out. What
-  is left sits between the press landing and the request going: either Compose's own drag detection
-  never asks the host to carry the payload, or `startDrag` is asked and answers with a typed error
-  nobody prints. The probe can tell those apart by saying what `startDrag` returned, which it does
-  not say today, and that is a code change rather than more desktop time.
-
-  Two things it is not. It is not the machine being in use: a run on a deliberately quiet desktop
-  fails the same way, so input contention is not the explanation, whatever part it may once have
-  played. And it is not evenly random. Counting this session, a run of the test on its own passes 4
-  of 5, while a run of it inside the whole suite passes 1 of 13, and in both groups the odd one out
-  is the earliest run. Roughly eighty classes go first in that one JVM and many of them place layer
-  surfaces and drive the pointer, so what they leave behind is the thing to look at next after the
-  probe learns to speak.
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
@@ -1109,6 +1082,23 @@ references and stays actionable on its own once the reports are gone.
       refused rather than skipped, because a skipped one hands back a null proxy: kortex declares one such
       request, `create_virtual_pointer_with_output` at `"2?o?on"`, and nothing calls it, so the exemption it
       used to enjoy held by luck rather than by rule.
+- [x] **A drag test that could never pass, because its gesture left the surface before it began.**
+      `DragWireTest` failed twelve whole-suite runs reporting `no wl_data_device.start_drag left the
+      client`, which read as a drag defect and was not one. The probe pressed at the middle of a 64 px
+      source box and then moved 40 px to cross Compose's drag slop: the middle is 32 px from the edge, so
+      that move always landed outside the surface, and a pointer that leaves gets `wl_pointer.leave` and
+      not `motion`. Compose saw `enter`, a press, and a leave, never a single movement, so it never called
+      the gesture a drag and never asked the host to carry anything. No `start_drag` was correct; there was
+      no drag. The box is 160 px now, so the slop is crossed well inside it, and it is crossed in four
+      steps rather than one jump, since a gesture wants several events and one jump is one event.
+      Five solo runs and two whole-suite runs green.
+
+      Three things had to go right to see it. The test's own press check was ordered after the
+      `start_drag` assertion, so it never ran and never said the press had arrived; it runs first now.
+      `traceOf` reported an empty match and an empty capture identically, so 1137 captured lines read as
+      nothing captured; it counts what it searched now. And the wire was only ever filtered to
+      `wl_data_*`, where the whole story sat in `wl_pointer`. The hand drag that proved the product side
+      was right used a 160 px box, which is why it worked where the probe could not.
 - [ ] **Every event the virtual pointer sends carries a timestamp of zero.**
       `VirtualPointer.motionAbsolute`, `button` and `axis` each default `timeMillis = 0`, and every call
       site takes the default: `Screen.moveTo`, `DragWireProbe`'s press and release,

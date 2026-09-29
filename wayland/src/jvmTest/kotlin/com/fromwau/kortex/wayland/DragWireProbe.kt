@@ -103,9 +103,16 @@ private fun dragAcross(shell: KortexShell, from: LayerGeometry, to: LayerGeometr
             pointer.frame()
             settle()
 
-            // Past Compose's own drag slop, which is what makes it ask the host to carry the payload, then
-            // several settles: the payload is encoded off the loop and the request posted back to it.
-            pointer.moveTo(monitor, from.x + BOX / 2 + SLOP, from.y + BOX / 2)
+            // Past Compose's own drag slop without leaving the surface, which is the whole difficulty: a
+            // press at the middle of the box is half its width from the edge, so a slop wider than that
+            // lands outside, and a pointer that leaves gets wl_pointer.leave rather than motion. Compose
+            // sees no movement at all then and asks for no transfer. Crossed a step at a time, as the
+            // traverse below is and as a hand does, since one jump is one event and a gesture wants several.
+            repeat(SLOP_STEPS) { step ->
+                pointer.moveTo(monitor, from.x + BOX / 2 + SLOP * (step + 1) / SLOP_STEPS, from.y + BOX / 2)
+                settle()
+            }
+            // The payload is encoded off the loop and the request posted back to it.
             settle(ENCODE_SETTLES)
 
             val fromX = from.x + BOX / 2
@@ -166,8 +173,11 @@ private fun DropTarget(dropped: AtomicReference<String?>) {
 
 private const val SOURCE_NAMESPACE = "kortex-drag-wire-source"
 private const val TARGET_NAMESPACE = "kortex-drag-wire-target"
-private const val BOX = 64
+// Wide enough that the slop below is crossed well inside the box: at 64 the middle was 32 from the edge
+// and a 40 slop left the surface before Compose ever called the movement a drag.
+private const val BOX = 160
 private const val SLOP = 40
+private const val SLOP_STEPS = 4
 private const val STEPS = 8
 private const val BTN_LEFT = 0x110
 private const val PLACE_MILLIS = 4_000L

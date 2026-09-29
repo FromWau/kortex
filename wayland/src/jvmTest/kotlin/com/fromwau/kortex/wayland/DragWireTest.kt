@@ -57,10 +57,16 @@ class DragWireTest {
         // Compose never asking the host, or the host being asked and failing to start the drag.
         val asked = output.any { it == PROBE_MARKER_ASKED }
         val notStarted = output.any { it == PROBE_MARKER_NOT_STARTED }
+        // Motion after the press is what Compose reads a drag out of, and an enter is what says the pointer
+        // was over the surface to begin with, so both counts belong beside the markers: a gesture the
+        // compositor never delivered and one Compose declined to call a drag are otherwise the same silence.
+        val enters = wire.count { it.isEvent("wl_pointer", "enter") }
+        val motions = wire.count { it.isEvent("wl_pointer", "motion") }
         assertTrue(
             wire.any { it.isRequest("wl_data_device", "start_drag") },
             "no wl_data_device.start_drag left the client while the pointer dragged " +
-                "(compose asked for the transfer: $asked; the host reported it did not start: $notStarted); " +
+                "(compose asked for the transfer: $asked; the host reported it did not start: $notStarted; " +
+                "pointer enters: $enters, motions: $motions, presses: ${pressSerials.size}); " +
                 "wire:\n$dataTraffic",
         )
 
