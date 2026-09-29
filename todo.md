@@ -684,6 +684,11 @@ where on the monitor the compositor put it.
       are a `\r\n`-separated list of percent-encoded URIs per RFC 2483, so it is neither a text nor an image
       in the sense the two present types carry, and `KortexDragOffer` would need a third reader for it.
       Dropping files is the commonest drag a desktop has, so this is the gap that matters most of the three.
+      Noted in passing by the audit, inside "A drag kortex declines destroys the compositor's live offer"
+      under "Audit against the reference implementations", and given an entry of its own here because that
+      one's own defect is fixed while this one is untouched. The refusal itself is correct now: kortex keeps
+      the offer until the leave, so declining costs the other application nothing.
+
 
 
 
@@ -958,6 +963,12 @@ references and stays actionable on its own once the reports are gone.
       with `accept(serial, null)` and, at v3+, `set_actions(0, 0)`, and destroy the offer at
       `wl_data_device.leave` instead, as `window.c:3795-3856` does. Delete `decline`'s comment rather than
       rewording it: "which leaves the drag's source cancelled" states the bug as if it were the contract.
+      **Confirmed live against a source kortex did not write**, which is the only way this one can be: a file
+      dragged out of Dolphin over the bar draws `accept(serial, nil)` and `set_actions(0, 0)` at the enter and
+      `destroy` only at the leave, and the drag survives to be dropped elsewhere. The `text/uri-list` clause
+      above is now an open entry of its own, under "Keyboard and clipboard": the refusal is correct, and what
+      remains is that kortex has nothing to accept.
+
 - [x] **Two layer-shell requests go out with no version guard, which kills the client on wlroots 0.18 and older.**
       `set_exclusive_edge` (`since="5"`, `LayerShell.kt:194-199` and `:320-324`) and `set_layer` (`since="2"`,
       `:215-220`) use plain `LibWayland.marshal`; they are the only two versioned requests in the module not
