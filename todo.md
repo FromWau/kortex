@@ -1035,6 +1035,10 @@ What every one of them keeps to:
   faked nor scoped, which throws away the thing providers are for.
 - **Nothing runs while nobody is watching**, through `stateIn(scope, SharingStarted.WhileSubscribed(), ...)`.
   An unwatched provider should hold no bus match rule, for the same reason an idle bar draws no frames.
+- **Commands answer `EmptyResult`, and what they changed comes back through the flow.** A provider that can
+  only be read is the exception, not the rule: a notification is dismissed, a tray item is activated, a
+  player is paused. Those are `suspend fun`s returning `EmptyResult<E>`, the shape `KortexClipboard.setText`
+  already has, and none of them returns the new state, which arrives where all state arrives.
 - **No Compose, and no dependency on `:wayland`.** A provider needs neither a compositor nor a composition:
   `collectAsState()` is already the bridge and kortex ships no helper for it. Tray icons arrive as a width, a
   height and ARGB bytes and stay that way, so `:tray` never reaches for `ImageBitmap`.
@@ -1048,6 +1052,7 @@ be faked.
 | `:dbus` | the client itself, public so anyone can write a provider of their own | D-Bus |
 | `:tray` | `StatusNotifierItem` and `DBusMenu` | `:dbus` |
 | `:mpris` | what is playing, and the transport | `:dbus` |
+| `:notification` | what applications have posted, and dismissing or acting on one | `:dbus`, as the server |
 | `:hyprland` | workspaces, the active window | a unix socket, newline protocol, not D-Bus |
 | `:sysinfo` | cpu, memory, temperature, battery | sysfs and procfs |
 
@@ -1062,6 +1067,10 @@ at all.
       `:tray` is the hardest consumer there is. `StatusNotifierItem` is one interface and `DBusMenu` another,
       it needs signals as much as calls, and icons arrive as `a(iiay)`, a width, a height and ARGB bytes. A
       client that survives both survives `:mpris`, which is why the rest should follow it easily.
+      **`:tray` proves only half of it.** A tray host calls, subscribes and registers itself; it never
+      answers. `:notification` does: it takes a bus name exclusively, exports an object, dispatches method
+      calls made to it and returns their values. A `:dbus` designed against `:tray` alone would have no
+      server side at all, so the two together are what the client has to survive.
       One thing to settle inside `:tray` and then copy everywhere: whether `NotConnected` covers "still
       connecting", or whether a caller ever needs to tell that from "there is no tray daemon". If it does,
       that is a second error variant and never a second flow.
@@ -1069,6 +1078,22 @@ at all.
       less code and ties kortex to systemd; FFM into `libdbus-1` is portable and costs hand-rolled message
       marshalling. Both are on the test desktop. That choice belongs here rather than to the portal's one
       method call, because `:tray` is what will live with it.
+- [ ] **`:notification` makes kortex the notification server, not a client.** `org.freedesktop.Notifications`
+      at `/org/freedesktop/Notifications` is what `notify-send` calls, and a shell that shows notifications is
+      what answers it. Read off the running bus rather than remembered: `Notify(susssasa{sv}i)` answering a
+      `u`, with `CloseNotification(u)`, `GetCapabilities()` and `GetServerInformation()` beside it, and
+      `NotificationClosed(uu)` and `ActionInvoked(us)` going back out.
+      **Only one server can hold the name**, and on this desktop dunst holds it. So failing to take it over is
+      a first-class error rather than an edge, the provider has to say which it is plainly, and testing any of
+      this means stopping whatever holds the name first.
+      Everything `notify-send` can express has to survive the trip: the summary, the body, an app icon,
+      actions in pairs, an expiry, and the hints that carry urgency, category, desktop entry, transience and
+      inline image data. Image data arrives as raw pixels the way tray icons do, and stays bytes rather than
+      becoming an `ImageBitmap`.
+      `GetCapabilities` is the caller's to declare and not kortex's to guess: whether body markup, action
+      icons or inline images are supported depends on what the content drawing them can render, and only the
+      caller knows that.
+      Open: the module, and whether it waits for the name or fails at once when something else holds it.
 - [ ] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
       `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
       while every module depends on Compose. A provider must not, so the first Compose-free module ends that
