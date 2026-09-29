@@ -846,18 +846,20 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **387 tests green on `master`: 356 in `:wayland`, 24 in `:compose`, 7 in `:bar`.**
+- **394 tests green on `master`: 363 in `:wayland`, 24 in `:compose`, 7 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
   The three `@Hotplug` classes are excluded and have never run here; changing an output on this machine
-  crashes the installed GTK about one run in 256, so that number is 387 of a slightly larger whole.
+  crashes the installed GTK about one run in 256, so that number is 394 of a slightly larger whole.
+
 
 - **The audit's own reports are in `.superpowers/sdd/protocol-audit/`, nineteen files, and that path is
   git-ignored.** `SUMMARY.md` is the way in; each `report-*.md` quotes both sides of every finding. A
   `git clean -fdx` takes all of it. Every entry below carries its own evidence for that reason, but the
   reports hold the roughly 190 items that were checked and found correct, which nothing else records.
 - **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
-  `PopupTeardownWireTest`, `DragWireTest` and `PointerReleaseOrderTest` take focus, re-tile open windows
-  and drive the pointer, so they want a session kept free. Ask before starting a run.
+  `PopupTeardownWireTest`, `DragWireTest`, `MinimizeWireTest` and `PointerReleaseOrderTest` take focus,
+  re-tile open windows and drive the pointer, so they want a session kept free. Ask before starting a run.
+
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
@@ -959,7 +961,7 @@ references and stays actionable on its own once the reports are gone.
       xdg-shell-only mode for `Window`, `Dialog` and `Popup`, which is a feature rather than a test change.
       Open: decide whether that mode is wanted. It would buy GNOME and Weston support and, with them, a
       reference compositor to test conformance against, which nothing currently provides.
-- [ ] **Re-rank what each latent finding can still reach, now that the compositor set is known.** Of the five
+- [x] **Re-rank what each latent finding can still reach, now that the compositor set is known.** Of the five
       the audit called latent on Hyprland, two are unreachable everywhere kortex runs and one is live on KWin.
       Destroy-order `not_the_topmost_popup`: Hyprland does not implement it, KWin has it as a literal
       `// TODO` (`src/wayland/xdgshell.cpp:841`), and mutter enforces it but cannot host kortex, so the fix
@@ -968,7 +970,10 @@ references and stays actionable on its own once the reports are gone.
       layer-shell and lockscreen, not xdg-shell. The `start_drag` grab serial **is** live: KWin checks
       `hasImplicitPointerGrab(serial)` (`src/input.cpp:2587`) and answers a stale one with `dndCancelled`,
       which kortex handles, so the drag ends cleanly rather than hanging. `wl_pointer.warp` needs `wl_seat` 11
-      and nothing advertises it yet. Open: fix the serial, which is the one with teeth.
+      and nothing advertises it yet. **The serial is fixed**, under "A drag quotes a grab serial that may no
+      longer be live" below: the request now leaves from the pointer event that asked for it, with nothing
+      encoded in between. The re-ranking itself is what this entry is kept for.
+
 - [x] **kortex's own docs are unreliable in both directions, and three of them licensed defects.** False:
       `LibWayland.kt:272-276`, `:234` and `ProtocolVersionTest.kt:55-58` all claim libwayland enforces
       versions client-side; `DrivenScene.kt:15-17` claims `Dispatchers.Unconfined` keeps work on the calling
@@ -1118,15 +1123,19 @@ references and stays actionable on its own once the reports are gone.
       clearing it would fail every drag on that same race, including on Hyprland, which validates nothing and
       works today. (`DragAndDropTest`, which asserts the compositor is asked on the calling thread; `ClipboardTest`)
 
-- [ ] **`wm_capabilities` is still an empty listener slot, and now it would have a reader.**
-      `xdg_toplevel.wm_capabilities` (since 5, and Hyprland advertises `xdg_wm_base` 7) tells a client which
-      of `askMaximized`, `askFullscreen` and `askMinimized` the compositor will honour at all. Asking for one
-      it never advertised is harmless (the XML says a compositor ignores what it does not support), so this
-      is not a hazard, only a gap content cannot see around. Publishing it has to go through `WindowStates`
-      and `SurfaceSlot.followWindow` the way every other window state does; reading it straight off the
-      toplevel would give `WindowState` a value that never recomposes when the compositor changes it, which
-      is a worse trap than not having it. Open: decode it into `WindowStates` alongside the states already
-      published there.
+- [x] **`wm_capabilities` is still an empty listener slot, and now it would have a reader.** It is decoded into
+      `XdgToplevelListener.capabilities` and published through `WindowStates` and `SurfaceSlot.followWindow`, as
+      the entry said it had to be, so a change reaches content by recomposing. `WindowState` reads it back as
+      `canMaximize`, `canFullscreen` and `canMinimize`. The default is every capability, not none: the event
+      arrives only from v5, a compositor that cannot honour an ask ignores it rather than failing it, and hiding
+      a control a silent compositor would have honoured is the worse of the two guesses. `WindowStates` carries
+      the set rather than three booleans, so the three `in` checks live at the public accessors alone and there
+      is one place for the wrong capability to be named. The `wl_array` walk is now one function, since states
+      and capabilities are sent the same way. No live test asserts the published value: Hyprland advertises all
+      four, and a window told nothing offers all three, so a live assertion would read the same whether the
+      value reached the window or not. (`XdgToplevelCapabilityTest`, and `MinimizeProbe` checks `canMinimize`
+      against a real compositor before it asks)
+
 
 - [x] **A request's own version is read from the table it is declared in, not named at the call site.**
       Fifteen call sites each named the version their request first appeared in, and a constant beside it
@@ -1177,8 +1186,12 @@ references and stays actionable on its own once the reports are gone.
       through `LocalScrollConfig`, which is `internal`, and a finger source and a wheel source deliver the
       same magnitude for the same input, so neither side of the seam can tell them apart. `askMinimized` is
       coverable on the wire, as `set_minimized` reaching it, the way `DragWireTest` and
-      `PopupTeardownWireTest` read theirs. Open: the `askMinimized` one, and a decision to stop trying on
-      `preciseScroll` rather than leaving it looking like an oversight.
+      `PopupTeardownWireTest` read theirs. **`askMinimized` now has that test**: `MinimizeWireTest` reads
+      `set_minimized` off a real drag of the wire and asserts no other window request went with it, which is
+      the only oracle there is, since `xdg_toplevel` carries no minimized state and Hyprland keeps no minimized
+      windows for `hyprctl` to list. Open: a decision to stop trying on `preciseScroll` rather than leaving it
+      looking like an oversight.
+
 
 - [x] **A request sent on a proxy that is not there fails here, rather than in libwayland.** `marshal`
       handed its proxy straight to `wl_proxy_marshal_flags`, which reads the interface pointer at offset

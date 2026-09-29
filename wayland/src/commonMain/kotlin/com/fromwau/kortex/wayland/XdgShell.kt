@@ -14,15 +14,22 @@ import java.lang.foreign.ValueLayout.ADDRESS
 import java.lang.foreign.ValueLayout.JAVA_INT
 import java.lang.foreign.ValueLayout.JAVA_LONG
 
-/** The `xdg_toplevel.state` values a `wl_array` of `uint32_t` holds; a value kortex does not know is dropped. */
-private fun statesIn(array: MemorySegment): Set<XdgToplevelState> {
+/**
+ * The `uint32_t` entries of a `wl_array`, which is how `xdg_toplevel` sends its states and its capabilities
+ * alike. Each is turned into what it names below, and a value kortex does not know is dropped.
+ */
+private fun wireValuesIn(array: MemorySegment): List<Int> {
     val header = array.reinterpret(WL_ARRAY_BYTES)
     val bytes = header.get(JAVA_LONG, WL_ARRAY_SIZE_OFFSET)
     val data = header.get(ADDRESS, WL_ARRAY_DATA_OFFSET).reinterpret(bytes)
-    return (0 until bytes / Int.SIZE_BYTES).mapNotNullTo(mutableSetOf()) { index ->
-        XdgToplevelState.fromOrNull(data.getAtIndex(JAVA_INT, index))
-    }
+    return (0 until bytes / Int.SIZE_BYTES).map { index -> data.getAtIndex(JAVA_INT, index) }
 }
+
+private fun statesIn(array: MemorySegment): Set<XdgToplevelState> =
+    wireValuesIn(array).mapNotNullTo(mutableSetOf(), XdgToplevelState::fromOrNull)
+
+private fun capabilitiesIn(array: MemorySegment): Set<XdgToplevelCapability> =
+    wireValuesIn(array).mapNotNullTo(mutableSetOf(), XdgToplevelCapability::fromOrNull)
 
 // struct wl_array { size_t size; size_t alloc; void *data; }, which an upcall hands over with no extent.
 private const val WL_ARRAY_SIZE_OFFSET = 0L
@@ -374,8 +381,28 @@ internal enum class XdgToplevelState(val wireValue: Int) {
 }
 
 /**
- * Tracks what `xdg_toplevel` reports about the window: the size and the states each configure carries, and the
- * compositor asking for it to close.
+ * What `xdg_toplevel.wm_capabilities` says the compositor will honour; an ask outside it is ignored rather than
+ * refused, so nothing here is a hazard, only a gap content would otherwise have to guess at.
+ */
+internal enum class XdgToplevelCapability(val wireValue: Int) {
+    WindowMenu(1),
+    Maximize(2),
+    Fullscreen(3),
+    Minimize(4),
+    ;
+
+    companion object {
+        /** What a compositor that never sends the event is taken to honour: the event arrives only from v5. */
+        val ALL: Set<XdgToplevelCapability> = entries.toSet()
+
+        /** @return the capability [wireValue] names, or null for one this protocol version does not declare. */
+        fun fromOrNull(wireValue: Int): XdgToplevelCapability? = entries.firstOrNull { it.wireValue == wireValue }
+    }
+}
+
+/**
+ * Tracks what `xdg_toplevel` reports about the window: the size and the states each configure carries, what the
+ * compositor says it will honour, and the compositor asking for it to close.
  *
  * [width] and [height] start at the size the window asked for, since a configure of 0 on an axis leaves that
  * axis to the client.
@@ -388,6 +415,11 @@ internal class XdgToplevelListener(width: Int, height: Int) {
         private set
 
     @Volatile var states: Set<XdgToplevelState> = emptySet()
+        private set
+
+    // Every capability until the compositor says otherwise: it says so only from v5, and one that cannot honour
+    // an ask ignores it, so hiding what a silent compositor would have honoured is the worse guess of the two.
+    @Volatile var capabilities: Set<XdgToplevelCapability> = XdgToplevelCapability.ALL
         private set
 
     /** The compositor has asked for the window to close; whether it does is the client's to decide. */
@@ -428,7 +460,9 @@ internal class XdgToplevelListener(width: Int, height: Int) {
 
     fun onConfigureBounds(data: MemorySegment, proxy: MemorySegment, width: Int, height: Int) = Unit
 
-    fun onWmCapabilities(data: MemorySegment, proxy: MemorySegment, capabilities: MemorySegment) = Unit
+    fun onWmCapabilities(data: MemorySegment, proxy: MemorySegment, capabilities: MemorySegment) {
+        this.capabilities = capabilitiesIn(capabilities)
+    }
 
     fun consumeResize(): Boolean {
         if (!resized) return false
@@ -515,6 +549,9 @@ internal class XdgToplevelSurface private constructor(
     val fullscreen: Boolean get() = XdgToplevelState.Fullscreen in toplevelListener.states
     val tiled: Boolean get() = toplevelListener.states.any { it in TILED }
     val activated: Boolean get() = XdgToplevelState.Activated in toplevelListener.states
+
+    /** The asks the compositor said it would honour, through `wm_capabilities`. */
+    val capabilities: Set<XdgToplevelCapability> get() = toplevelListener.capabilities
 
     /** The compositor has asked for this window to close, which by itself ends nothing. */
     val closeRequested: Boolean get() = toplevelListener.closeRequested

@@ -107,6 +107,7 @@ internal data class WindowStates(
     val fullscreen: Boolean = false,
     val tiled: Boolean = false,
     val activated: Boolean = false,
+    val capabilities: Set<XdgToplevelCapability> = XdgToplevelCapability.ALL,
 )
 
 /** What a state reports, made of what its call published: [placing], [onScreen] with its size, or [ended]. */

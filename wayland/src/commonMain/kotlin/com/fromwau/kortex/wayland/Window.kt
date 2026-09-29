@@ -43,6 +43,8 @@ import com.fromwau.kern.result.Result
  *
  * Asks go the other way too: [WindowState.askMaximized], [WindowState.askFullscreen] and
  * [WindowState.askMinimized] put the case to the compositor, which answers with the states it chose.
+ * [WindowState.canMaximize], [WindowState.canFullscreen] and [WindowState.canMinimize] say which of the three
+ * this compositor will honour, so a control for one it ignores need never be shown.
  *
  * Once the window has ended, in any of the ways [WindowStatus.Ended] lists, the call shows nothing until you take it
  * out of composition and put it back, which places a window again and takes [state] with it.
@@ -199,6 +201,24 @@ public class WindowState {
 
     /** The window is the one the user is working in, and is where their typing goes. */
     public val activated: Boolean get() = published.windowStates.activated
+
+    /**
+     * Whether the compositor will honour [askMaximized] at all. Hide or disable whatever offers the ask where
+     * this reads false: a compositor ignores one it does not support, so the control would do nothing.
+     *
+     * True until the compositor says otherwise, which covers every compositor too old to say: `wm_capabilities`
+     * arrives from `xdg_wm_base` 5, and asking one that never sent it costs nothing.
+     */
+    public val canMaximize: Boolean get() = honours(XdgToplevelCapability.Maximize)
+
+    /** Whether the compositor will honour [askFullscreen], on the terms [canMaximize] describes. */
+    public val canFullscreen: Boolean get() = honours(XdgToplevelCapability.Fullscreen)
+
+    /** Whether the compositor will honour [askMinimized], on the terms [canMaximize] describes. */
+    public val canMinimize: Boolean get() = honours(XdgToplevelCapability.Minimize)
+
+    private fun honours(capability: XdgToplevelCapability): Boolean =
+        capability in published.windowStates.capabilities
 
     /**
      * Asks the compositor to maximize this window, or to take that back, and reports what it chose through

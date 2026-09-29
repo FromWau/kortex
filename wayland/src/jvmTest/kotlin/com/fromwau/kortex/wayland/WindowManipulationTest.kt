@@ -259,7 +259,6 @@ class WindowManipulationTest {
     private fun WindowState.agreesWith(listed: HyprWindow?): Boolean =
         listed != null && status == WindowStatus.OnScreen(listed.size)
 
-    /** Places one window whose content holds a counter and runs an effect, and hands it to [block]. */
     /**
      * The other direction from the tests above: there the compositor acts and the window reports it, here the
      * window asks and the compositor acts. hyprctl is the oracle either way, so a request that never reached
@@ -324,6 +323,7 @@ class WindowManipulationTest {
         }
     }
 
+    /** Places one window whose content holds a counter and runs an effect, and hands it to [block]. */
     private fun onWindow(block: (Placed) -> Unit) {
         val state = WindowState()
         val watch = Watch()

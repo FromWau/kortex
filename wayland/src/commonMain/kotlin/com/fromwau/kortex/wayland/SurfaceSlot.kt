@@ -192,6 +192,7 @@ internal class SurfaceSlot(
                 fullscreen = toplevel.fullscreen,
                 tiled = toplevel.tiled,
                 activated = toplevel.activated,
+                capabilities = toplevel.capabilities,
             ),
         )
     }
