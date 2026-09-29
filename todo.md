@@ -1083,9 +1083,16 @@ at all.
       what answers it. Read off the running bus rather than remembered: `Notify(susssasa{sv}i)` answering a
       `u`, with `CloseNotification(u)`, `GetCapabilities()` and `GetServerInformation()` beside it, and
       `NotificationClosed(uu)` and `ActionInvoked(us)` going back out.
-      **Only one server can hold the name**, and on this desktop dunst holds it. So failing to take it over is
-      a first-class error rather than an edge, the provider has to say which it is plainly, and testing any of
-      this means stopping whatever holds the name first.
+      **Only one server can hold the name**, and on this desktop dunst holds it, so failing to take it over is
+      a first-class error rather than an edge and testing any of this means stopping whatever holds the name
+      first.
+      Decided: it fails at once and does not queue. `RequestName` goes out with `DO_NOT_QUEUE`, and the reply
+      that says the name already exists becomes a typed error of its own, so a caller is told it could not
+      become the server. Queueing would leave a bar that has started, looks well, and shows no notification
+      until a daemon nobody is watching happens to exit, which is the worse of the two to diagnose.
+      Open: whether that error carries who holds the name. `GetNameOwner` answers a unique name and
+      `GetConnectionUnixProcessID` turns that into a pid, which is two more round trips for an error that
+      reads "dunst is already running" rather than "the name is taken".
       Everything `notify-send` can express has to survive the trip: the summary, the body, an app icon,
       actions in pairs, an expiry, and the hints that carry urgency, category, desktop entry, transience and
       inline image data. Image data arrives as raw pixels the way tray icons do, and stays bytes rather than
@@ -1093,7 +1100,7 @@ at all.
       `GetCapabilities` is the caller's to declare and not kortex's to guess: whether body markup, action
       icons or inline images are supported depends on what the content drawing them can render, and only the
       caller knows that.
-      Open: the module, and whether it waits for the name or fails at once when something else holds it.
+      Open: the module itself.
 - [ ] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
       `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
       while every module depends on Compose. A provider must not, so the first Compose-free module ends that
