@@ -1021,6 +1021,14 @@ Modules that carry a desktop's own state to whatever draws it. A provider gives 
 widget is where a toolkit starts having opinions about what a bar should look like, and kortex has none. The
 caller builds its own.
 
+**None of this is built, and building it will correct it.** What is settled is the reasoning: data and no UI,
+one flow carrying a `Result` rather than data beside a status, typed errors on `IError`, nothing running
+while nobody is watching, and no Compose or `:wayland` anywhere. What is draft is every shape under it: the
+names, the signatures, how the errors divide, and whether a rule survives contact with a real D-Bus client at
+all. Where the code and this section disagree once `:dbus` and `:tray` exist, the code is right and this is
+what gets rewritten. The only claims here checked against anything are the bus signatures, which were read
+off a running desktop rather than remembered, and each says so where it appears.
+
 What every one of them keeps to:
 
 - **One `StateFlow` per thing, carrying a `Result`.** `Tray.items` is a
