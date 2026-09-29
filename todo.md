@@ -770,16 +770,40 @@ where on the monitor the compositor put it.
       opens the transfer for it, which is `Drag.uriListType` picking the type, and the uris reach content as
       themselves. None of that had automated cover before, because no test could make a file manager drag on
       demand.
-      `application/vnd.portal.filetransfer` stays unread, which is what a sandboxed source offers in place of
-      a path. Its bytes are a key for `org.freedesktop.portal.FileTransfer.RetrieveFiles()` over D-Bus, so
-      reading it is a D-Bus call rather than another `Mime`.
+      **The key a sandboxed source offers is read now**, and handed to content through
+      `KortexDragOffer.readPortalKey`. `PortalMime` sits after `UriListMime` in `Mime.all`, so an application
+      offering both gets its file list preferred: that is the one kortex can hand over without the reader
+      doing anything, where a key means nothing until someone calls D-Bus. The docs name that call rather
+      than leaving a caller to find it, read off the running portal rather than remembered:
+      `org.freedesktop.portal.FileTransfer.RetrieveFiles(key, {})` on `org.freedesktop.portal.Documents` at
+      `/org/freedesktop/portal/documents`, whose signature there is `sa{sv}` answering `as`.
+      kortex does not make the call and should not: that is D-Bus, and `:wayland` speaks Wayland. The entry
+      below holds that seam.
+      Cover is desktop-free and has to be: offering a key needs a sandboxed application, which no test here
+      can be, so the drain that reads one off a real drop is uncovered the way `Drag.uriListType`'s was before
+      kortex could drag a file list itself.
       The clipboard side is untouched, and with it the gap a source looked likely to close.
       `KortexClipboard` has no `setUris`, so nothing reaches the type `receiveUris` picks, and adding one
       would not reach it either: `receiveSelection` answers `NoSelection` before it calls the pick, and
       getting past that needs keyboard focus, which only the class that takes the desktop's own clipboard may
       have.
-      Open: the portal, a file copy, and a way to drive a selection read that does not take the user's
-      clipboard with it.
+      Open: a file copy, and a way to drive a selection read that does not take the user's clipboard with it.
+- [ ] **D-Bus has no home, and several of the modules kortex wants next need one.** `:tray` is the heaviest:
+      StatusNotifierItem and DBusMenu are both D-Bus, and it would work a client far harder than anything
+      else here. `:mpris` is D-Bus as well, and notifications, UPower, logind, NetworkManager and BlueZ would
+      be if they are ever wanted. `:hyprland` is not: Hyprland's own IPC is a newline protocol on a unix
+      socket, which shares nothing with D-Bus but the word socket. `:weather` is HTTP and `:hardwareinfo`
+      reads sysfs.
+      So D-Bus is infrastructure rather than a detail of whichever piece needs it first, and its smallest
+      consumer must not settle its shape: the portal is one method call, and `:tray` is a protocol.
+      Decided: a module of its own owns the client, whatever needs it depends on that module, and
+      **`:wayland` does not**, which is what keeps "no helper binary, no socket" true of the toolkit. The
+      portal already falls along that seam, since a transfer key arrives on the Wayland wire and means
+      nothing until a D-Bus call turns it into paths.
+      Open: the module list itself, to be talked through rather than guessed at, and with it whether the
+      client is FFM into `sd_bus`, which is much less code and ties kortex to systemd, or into `libdbus-1`,
+      which is portable and costs hand-rolled message marshalling. Both are on the test desktop, and the
+      choice belongs to `:tray` rather than to the portal.
 - [x] **A drop no longer tells content the drag was a move kortex never offered.** Hyprland 0.56.2 sends
       `wl_data_offer.action(2)` before the destination has answered anything and never sends another, so
       `DataOffer.settledAction` stayed `Move` through all 91 `set_actions(1, 1)` of a drag out of Dolphin

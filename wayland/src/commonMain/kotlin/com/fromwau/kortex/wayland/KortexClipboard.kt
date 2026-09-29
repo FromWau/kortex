@@ -153,6 +153,12 @@ public sealed interface ClipboardError : IError {
     public data object NoUris : ClipboardError
 
     /**
+     * What a drag carries is not a sandboxed application's transfer key. No clipboard call answers this:
+     * only a drag is read for one.
+     */
+    public data object NoPortalKey : ClipboardError
+
+    /**
      * The user has not yet pressed a key, clicked, or given keyboard focus to any of your surfaces. The
      * compositor takes a copy or a clear only in answer to one of those, so try again once the user has.
      */

@@ -280,7 +280,8 @@ internal sealed interface Mime {
 
     companion object {
         /** Every type a paste or a drop of this client's asks for, most preferred first. */
-        val all: List<Mime> = UriListMime.entries + TextMime.entries + ImageMime.entries
+        val all: List<Mime> =
+            UriListMime.entries + PortalMime.entries + TextMime.entries + ImageMime.entries
 
         /** The entry named [wireName], or null for a type this client neither offers nor asks for. */
         fun fromWireNameOrNull(wireName: String): Mime? = all.firstOrNull { it.wireName == wireName }
@@ -294,6 +295,17 @@ internal sealed interface Mime {
  */
 internal enum class UriListMime(override val wireName: String) : Mime {
     TextUriList("text/uri-list"),
+}
+
+/**
+ * The sandboxed-transfer types, which carry no files but a key to fetch them by.
+ *
+ * An application in a sandbox offers one because the paths it knows mean nothing outside its own filesystem.
+ * After [UriListMime] in [Mime.all] rather than before it: a list of files is the one kortex can hand over
+ * itself, and a key is one the reader has to take to the portal over D-Bus before it means anything.
+ */
+internal enum class PortalMime(override val wireName: String) : Mime {
+    FileTransfer("application/vnd.portal.filetransfer"),
 }
 
 /** The text types, in the order a paste prefers them. */
@@ -402,6 +414,13 @@ private fun encodeImage(image: ImageBitmap, type: ImageMime): Result<ByteArray, 
     }
     return if (encoded.size > MAX_IMAGE_BYTES) Err(ClipboardError.TooLarge) else Ok(encoded)
 }
+
+/**
+ * [encoded] as the transfer key it carries, with the NUL some senders terminate it with taken off.
+ *
+ * The key is an opaque token to everything here: only the portal that issued it knows what it names.
+ */
+internal fun decodePortalKey(encoded: ByteArray): String = encoded.decodeToString().trimEnd('\u0000').trim()
 
 /**
  * [uris] as RFC 2483 writes them: one per line, each line ended by a CRLF, including the last.

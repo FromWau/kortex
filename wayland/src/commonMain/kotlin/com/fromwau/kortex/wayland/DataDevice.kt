@@ -134,6 +134,7 @@ internal class DataDevice private constructor(
         val textPipe = dropped.textType?.let(dropped.offer::openTransfer)
         val imagePipe = dropped.imageType?.let(dropped.offer::openTransfer)
         val uriListPipe = dropped.uriListType?.let(dropped.offer::openTransfer)
+        val portalKeyPipe = dropped.portalKeyType?.let(dropped.offer::openTransfer)
         display.flush()
         val io = Dispatchers.IO.asExecutor()
         io.execute {
@@ -144,6 +145,7 @@ internal class DataDevice private constructor(
                 text = Err(ClipboardError.PipeFailed),
                 image = Err(ClipboardError.PipeFailed),
                 uris = Err(ClipboardError.PipeFailed),
+                portalKey = Err(ClipboardError.PipeFailed),
             )
             try {
                 // A task each: a source writing the image first blocks on its full pipe until something reads it, so
@@ -158,11 +160,16 @@ internal class DataDevice private constructor(
                     { drain(uriListPipe, MAX_TEXT_BYTES, ClipboardError.NoUris).map(::decodeUriList) },
                     io,
                 )
+                val portalKey = CompletableFuture.supplyAsync(
+                    { drain(portalKeyPipe, MAX_TEXT_BYTES, ClipboardError.NoPortalKey).map(::decodePortalKey) },
+                    io,
+                )
                 carried = KortexDragOffer(
                     carried = dropped.types,
                     text = drain(textPipe, MAX_TEXT_BYTES, ClipboardError.NoText).map(ByteArray::decodeToString),
                     image = joinDrain(image),
                     uris = joinDrain(uris),
+                    portalKey = joinDrain(portalKey),
                 )
             } finally {
                 // However a drain ended: left unposted, the drag would hover for good and its offer never be freed.
@@ -330,6 +337,9 @@ internal class DataDevice private constructor(
 
         /** The one list-of-files type a drop reads, out of [types]; null where the drag offers no file list. */
         val uriListType: UriListMime? = types.filterIsInstance<UriListMime>().firstOrNull()
+
+        /** The one transfer-key type a drop reads, out of [types]; null where the drag offers no key. */
+        val portalKeyType: PortalMime? = types.filterIsInstance<PortalMime>().firstOrNull()
 
         /** Set as the drop's transfers open, since the compositor follows a drop with a leave of its own. */
         var dropping = false
