@@ -1130,63 +1130,6 @@ references and stays actionable on its own once the reports are gone.
       `7983b24` fixed the test that left it there in September; the request path itself stayed able to kill
       the JVM for any other caller, `proxyGetVersion` dereferencing the same null a line earlier.
       `NullProxyRequestTest` pins the refusal.
-- [ ] **A live `wl_pointer`'s listener was called after its arena closed, and only one of the three dumps is
-      that.** The three `hs_err_pid*.log` files in `wayland/` have now been read. They are two separate
-      faults, not one.
-
-      The pair on 14 September (12:23 and 12:27) are **not** a stub-lifetime fault and are already fixed.
-      Both are `ClipboardTest.a clipboard that owns the selection has text to paste before the compositor
-      ever grants it` reaching `WaylandClipboard.close()` -> `DataSource.destroy()` -> `marshal` with
-      `RDI=0`, `RSI=1`: `wl_data_source.destroy` (request 1) sent on a **NULL proxy**. The faulting
-      instruction is `wl_proxy_marshal_flags+0x4e`, `mov (%r11),%rsi`, reading `proxy->object.interface` at
-      address zero. `7983b24` fixed it the minute after the second one, by unsetting the proxy-less
-      `DataSource` in a `finally` so a failing assertion cannot leave it as the clipboard's source. What the
-      commit did not do, and what is still true, is stop `marshal` from killing the JVM when a caller hands
-      it `MemorySegment.NULL`: `proxyGetVersion` dereferences it first and segfaults just the same. One
-      `check` at the top of `marshal` turns a process kill with no Java frame into an ordinary failure.
-
-      The one on 23 September is the real thing, and it is in code that is still in the tree unchanged.
-      `PointerReleaseOrderTest` crashed at bytecode offset 129 of its own block, which disassembles to the
-      `pumpOrFail(SETTLE_MILLIS)` **immediately after `pointer.release()`**, with nothing between them but a
-      `clickAt`. Two milliseconds before the fault the JVM logged
-      `HandshakeAllThreads (CloseScopedMemory)`, which is what `Arena.ofShared().close()` raises; every
-      other thread in the dump is `_thread_blocked`, so the test worker closed that arena itself. The fault
-      is `ffi_call` jumping to `0x0000000100000004`, reached from `wl_closure_invoke+0x14e`
-      (`mov (%rax,%rcx,8),%rsi`, `implementation[opcode]`). From `wl_closure_invoke`'s own frame:
-      `target` = `0x7fed22e12b10`, whose interface pointer resolves to `wl_pointer_interface` in
-      `libwayland-client.so.0.26.0`, and `opcode` = 5, which is `wl_pointer.frame`. So libwayland called
-      slot 5 of a pointer listener whose backing memory had just been freed and reused.
-
-      What that rules out, checked rather than assumed: the array is not read past its end
-      (`EVENT_COUNT = 12`, `FRAME = 5`, all twelve slots filled); `PointerInput.install` is called once per
-      instance and from one place only; `marshal` never passes `WL_MARSHAL_FLAG_DESTROY`, so nothing is
-      destroyed twice; `WaylandDisplay.require` re-binds rather than caching, so the surface's seat and the
-      test's own seat are genuinely separate proxies; and the shipped 1.26.0 binary does carry the
-      destroyed-proxy guard (`dispatch_event+0xca`, `and $0x2` on `proxy->flags`,
-      skipping the invoke), so a released pointer's queued events really are dropped.
-
-      Which leaves the step that is not yet explained: the proxy libwayland dispatched to had the destroyed
-      flag **clear**, so it was alive, yet its listener array had been freed. `PointerInput.release()`
-      destroys its proxy before closing its arena and has done since `d14546a` on 10 September, so on the
-      code as written that cannot happen. The ordering is unchanged today, and the five commits that have
-      touched `SeatInput.kt` since are version lookup, grab serial, scroll units and comments.
-
-      Not reproduced yet, and the obvious instrument is the wrong one. `PointerReleaseOrderTest` ran 30
-      times under `--tests` with `--rerun`, all clean, no new dump; the full suite also passed once with
-      the null-proxy guard in. But `settings.gradle.kts` sets neither `forkEvery` nor
-      `maxParallelForks`, so the whole of `:wayland:jvmTest` runs sequentially in **one** JVM, and a
-      filtered run is a fresh worker that has opened and closed nothing else. The crash was 17 seconds
-      into a worker that had already run other classes: the dump logs six earlier
-      `CloseScopedMemory` handshakes before the fatal one, and `java.awt.datatransfer.StringSelection`
-      loading at 12.238s puts a clipboard test ahead of it. A 4-second solo run reaches none of that. So
-      the instrument is a loop over the whole `:wayland:jvmTest` task, 2m12s a pass, which takes the
-      desktop for as long as it runs.
-
-      Until it is pinned, nothing in the suite would notice a recurrence: a Gradle worker that dies this
-      way reports as a worker failure, not a test failure. The dumps are still git-ignored and a
-      `git clean -fdx` still takes them, but everything above was read out of them, so what they hold
-      beyond this entry is the raw stacks.
-
 ## Deliberately not doing
 
 - `BinarySource` / bundled binary extraction / arch-specific resources: no helper binary exists.
@@ -1201,3 +1144,71 @@ references and stays actionable on its own once the reports are gone.
 - Replacing Skiko's `MainUIDispatcher`. It is what runs Compose's debounced layout-rect callbacks on Swing's event
   queue, which is what starts AWT's toolkit in any scene with a text field; the dispatcher is Skiko's, not
   kortex's, and swapping it is a fork of somebody else's frame scheduling.
+
+## Archived
+
+Not reproducing, and kept for the evidence rather than the task.
+
+- **A live `wl_pointer`'s listener was called after its arena closed, once, on 23 September 2026.**
+  Archived rather than closed: it has not happened again, and nothing was changed that would have
+  stopped it. Ten whole-suite passes and thirty runs of `PointerReleaseOrderTest` on its own did not
+  reproduce it, and no `hs_err` file has appeared since. Kept in full because the dumps are the only
+  evidence there is and they are git-ignored. Reopen it if a `wayland/hs_err_pid*.log` turns up whose
+  faulting frame is `libffi` under `wl_display_roundtrip`, or if a test worker dies with no test
+  failure to account for it.
+
+  The three `hs_err_pid*.log` files in `wayland/` have been read. They are two separate faults, not
+  one.
+
+    The pair on 14 September (12:23 and 12:27) are **not** a stub-lifetime fault and are already fixed.
+    Both are `ClipboardTest.a clipboard that owns the selection has text to paste before the compositor
+    ever grants it` reaching `WaylandClipboard.close()` -> `DataSource.destroy()` -> `marshal` with
+    `RDI=0`, `RSI=1`: `wl_data_source.destroy` (request 1) sent on a **NULL proxy**. The faulting
+    instruction is `wl_proxy_marshal_flags+0x4e`, `mov (%r11),%rsi`, reading `proxy->object.interface` at
+    address zero. `7983b24` fixed it the minute after the second one, by unsetting the proxy-less
+    `DataSource` in a `finally` so a failing assertion cannot leave it as the clipboard's source. What the
+    commit did not do, and what is still true, is stop `marshal` from killing the JVM when a caller hands
+    it `MemorySegment.NULL`: `proxyGetVersion` dereferences it first and segfaults just the same. One
+    `check` at the top of `marshal` turns a process kill with no Java frame into an ordinary failure.
+
+    The one on 23 September is the real thing, and it is in code that is still in the tree unchanged.
+    `PointerReleaseOrderTest` crashed at bytecode offset 129 of its own block, which disassembles to the
+    `pumpOrFail(SETTLE_MILLIS)` **immediately after `pointer.release()`**, with nothing between them but a
+    `clickAt`. Two milliseconds before the fault the JVM logged
+    `HandshakeAllThreads (CloseScopedMemory)`, which is what `Arena.ofShared().close()` raises; every
+    other thread in the dump is `_thread_blocked`, so the test worker closed that arena itself. The fault
+    is `ffi_call` jumping to `0x0000000100000004`, reached from `wl_closure_invoke+0x14e`
+    (`mov (%rax,%rcx,8),%rsi`, `implementation[opcode]`). From `wl_closure_invoke`'s own frame:
+    `target` = `0x7fed22e12b10`, whose interface pointer resolves to `wl_pointer_interface` in
+    `libwayland-client.so.0.26.0`, and `opcode` = 5, which is `wl_pointer.frame`. So libwayland called
+    slot 5 of a pointer listener whose backing memory had just been freed and reused.
+
+    What that rules out, checked rather than assumed: the array is not read past its end
+    (`EVENT_COUNT = 12`, `FRAME = 5`, all twelve slots filled); `PointerInput.install` is called once per
+    instance and from one place only; `marshal` never passes `WL_MARSHAL_FLAG_DESTROY`, so nothing is
+    destroyed twice; `WaylandDisplay.require` re-binds rather than caching, so the surface's seat and the
+    test's own seat are genuinely separate proxies; and the shipped 1.26.0 binary does carry the
+    destroyed-proxy guard (`dispatch_event+0xca`, `and $0x2` on `proxy->flags`,
+    skipping the invoke), so a released pointer's queued events really are dropped.
+
+    Which leaves the step that is not yet explained: the proxy libwayland dispatched to had the destroyed
+    flag **clear**, so it was alive, yet its listener array had been freed. `PointerInput.release()`
+    destroys its proxy before closing its arena and has done since `d14546a` on 10 September, so on the
+    code as written that cannot happen. The ordering is unchanged today, and the five commits that have
+    touched `SeatInput.kt` since are version lookup, grab serial, scroll units and comments.
+
+    Both instruments were run and neither reproduced it. Thirty runs of `PointerReleaseOrderTest` under
+    `--tests` with `--rerun` came back clean, but those are the weaker evidence: `settings.gradle.kts`
+    sets neither `forkEvery` nor `maxParallelForks`, so the whole of `:wayland:jvmTest` runs sequentially
+    in **one** JVM and a filtered run is a fresh worker that has opened and closed nothing else. The
+    crash was 17 seconds into a worker that had already run other classes, with six earlier
+    `CloseScopedMemory` handshakes behind it and `java.awt.datatransfer.StringSelection` loaded at
+    12.238s putting a clipboard test ahead of it; a 4-second solo run reaches none of that. So ten passes
+    of the whole task were run too, at 2m12s each, in the state the fault actually happened in. Clean as
+    well. Whatever the conditions are, roughly forty minutes of the right kind of running did not meet
+    them.
+
+    Until it is pinned, nothing in the suite would notice a recurrence: a Gradle worker that dies this
+    way reports as a worker failure, not a test failure. The dumps are still git-ignored and a
+    `git clean -fdx` still takes them, but everything above was read out of them, so what they hold
+    beyond this entry is the raw stacks.
