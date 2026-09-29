@@ -308,9 +308,9 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       without a grab (`libweston/desktop/xdg-shell.c:1437-1444`), mutter's equivalent check sits inside
       `if (seat)`, KWin has it as a literal `// TODO` (`xdgshell.cpp:839-846`), and Hyprland has no such code
       at all. What does fire is mutter's parent-unmap path, which is a client disconnect rather than a
-      portability nicety. Open: see "Destroying a window while a popup opened from it is still up" under
-      "Audit against the reference implementations"; this entry is kept only so the old reasoning is not
-      rediscovered and believed.
+      portability nicety. The defect it pointed at, "Destroying a window while a popup opened from it is
+      still up" under "Audit against the reference implementations", is fixed; this entry is kept only so the
+      old reasoning is not rediscovered and believed.
 - [x] `LockScreen`, over `SurfaceConfig.lockScreen()`: `Layer.Overlay` with `KeyboardInteractivity.Exclusive`,
       anchored to all four edges with `ExclusiveZone.Overlap`. Not a real lock: kortex binds no
       `ext-session-lock-v1`. (`PresetTest`, `SurfacePresetTest`)
@@ -414,12 +414,14 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       silently undecorated window would not. Reopen it the day a compositor that has the layer shell and no
       decoration manager becomes a target, which would also be the day the branch above stops being covered
       by reading alone.
-- [x] **Content reads a window's states and asks the compositor for none of them.** `WindowState` publishes the
-      `maximized`, `fullscreen`, `tiled` and `activated` every `xdg_toplevel.configure` carries, and there is no
-      call to maximize, fullscreen or minimize a window, none to move or resize one, and none to raise it. Every
-      setting a kortex surface has is one its caller states and kortex sends. Open: a request back is a different
-      shape, one the compositor answers when it likes and may refuse, and whether kortex takes that on is
-      undecided.
+- [x] **Content reads a window's states and asks the compositor for them too.** `WindowState` publishes the
+      `maximized`, `fullscreen`, `tiled` and `activated` every `xdg_toplevel.configure` carries. It began with
+      no call to ask for any of them, because every other setting a kortex surface has is one its caller
+      states and kortex sends, while a request back is a different shape: one the compositor answers when it
+      likes and may refuse. Whether kortex should take that on was the question, and it was taken on.
+      `askMaximized`, `askFullscreen` and `askMinimized` came first, with `wm_capabilities` saying which of
+      them a compositor will honour, then `askMove`, `askResize`, `askWindowMenu`, `askMinSize` and
+      `askMaxSize`. Every one of them is an ask rather than a setting, and the docs say so at each.
 
 ## Raising and changing a surface while the host runs
 
@@ -689,7 +691,7 @@ where on the monitor the compositor put it.
       was asked for from one that ended as `NoInputSerial`, `NoClipboard` or `TooLarge`: the only answer it gets,
       Compose's `isTransferStarted`, ends the traversal of nested drag sources and promises nothing, and
       `Modifier.dragAndDropSource` has returned by the time any of the three is known. It is documented on
-      `KortexDragSource` as a limitation. Open: which channel. Compose's own is
+      `KortexDragSource` as a limitation. The question was which channel. Compose's own is
       `DragAndDropTransferData.onTransferCompleted`, an `((DragAndDropTransferAction?) -> Unit)?` whose null
       argument means the gesture did not complete (`DragAndDrop.desktop.kt:55`); honouring it means keeping each
       transfer's data from the request until `wl_data_source.dnd_finished` or `cancelled` says how the drag ended,
@@ -727,12 +729,20 @@ where on the monitor the compositor put it.
       on. `dnd_finished` says a drop happened, so content is told the action it offered rather than null, which
       would say its gesture never completed. Copy wherever content offered it: reporting a move that was not one
       has content delete what nobody took, and the opposite mistake leaves the same thing in two places.
-      Open: `ask`, which means answering the compositor mid-drag once the user has picked out of a menu it
-      drives, and which a destination must not name unless it answers it.
+      `ask`, the third action, is an entry of its own below.
       **Both compositor findings are confirmed against a third-party source**, not only against kortex talking
       to itself: a file dragged out of Dolphin 26.08.1 by hand arrives with `source_actions(3)` and
       `action(2)`, a move settled before kortex has answered anything. `LiveDropProbe` is how that was read.
       (`KortexSceneTest`, `DragAndDropTest`, `DragWireTest`)
+- [ ] **A drag that settles on `ask` is one kortex can neither offer nor answer.** `DndAction.Ask` is the
+      third `wl_data_device_manager.dnd_action`. It means the compositor puts a menu to the user mid-drag and
+      tells both sides what they chose. `TAKEABLE` leaves it out, and `asCompletedAction` and `asDragAction`
+      both read it as no action at all, which is the right answer while nothing answers the menu: a
+      destination that names `ask` without answering stalls the drop, because the source waits for a
+      `set_actions` naming the choice and none comes.
+      Open: whether to answer it at all. Nothing kortex is used for asks for it, and Hyprland 0.56.2 settles
+      an action before this side has spoken, so there is no compositor here to develop it against. Left as a
+      decision rather than work, so the three actions are not mistaken for two by someone reading the enum.
 - [x] **A drag out of a file manager lands on kortex, which reads `text/uri-list` now.** `UriListMime` is a
       third `Mime` family beside `TextMime` and `ImageMime`, ahead of both in `Mime.all`, because an
       application offering a file list and a text sends the same files under each and only the list says that
@@ -748,12 +758,18 @@ where on the monitor the compositor put it.
       `accept(serial, "text/uri-list")` where it used to be `accept(serial, nil)`, opens exactly one
       `receive("text/uri-list", fd)` and no other, and reaches content as `Ok([file:///tmp/test-file.txt])`.
       The file is untouched afterwards.
-      Open: the clipboard has no reader for it, so a file copied rather than dragged is still out of reach,
-      and `application/vnd.portal.filetransfer` stays unread, which is what a sandboxed source offers in
-      place of a path. kortex also has no file-list drag *source*, which is why nothing automated reaches
-      `Drag.uriListType` or its drain: every drag test here is kortex to kortex, so a hand-driven
-      `LiveDropProbe` run against a file manager is the only cover those two have.
+      What a drag can carry a paste still cannot, which is an entry of its own below.
       (`UriListTest`, `DragAndDropTest`, `LiveDropProbe`)
+- [ ] **Files can be dragged onto kortex but not pasted into it, and a sandboxed source can do neither.**
+      `Mime.all` knows `text/uri-list` now, but `readUris` is on `KortexDragOffer` alone: `KortexClipboard`
+      reads text and images, so a file copied in a file manager rather than dragged is out of reach.
+      `application/vnd.portal.filetransfer` stays unread as well, which is what a sandboxed source offers in
+      place of a path. Its bytes are a key for `org.freedesktop.portal.FileTransfer.RetrieveFiles()` over
+      D-Bus, so reading it is a D-Bus call rather than another `Mime`.
+      kortex also has no file-list drag *source*, which is why nothing automated reaches `Drag.uriListType`
+      or its drain: every drag test here is kortex to kortex, so a hand-driven `LiveDropProbe` run against a
+      file manager is the only cover those two have.
+      Open: three sizes of work, and only the clipboard reader is small.
 - [x] **A drop no longer tells content the drag was a move kortex never offered.** Hyprland 0.56.2 sends
       `wl_data_offer.action(2)` before the destination has answered anything and never sends another, so
       `DataOffer.settledAction` stayed `Move` through all 91 `set_actions(1, 1)` of a drag out of Dolphin
@@ -779,8 +795,8 @@ where on the monitor the compositor put it.
       end it. `XdgToplevelSurface` and `XdgPopupSurface` take a sliced dispatch against a four second budget
       instead, and break out when the dispatch reports a dead connection, which is what makes a test mutation
       that removes the configure fail rather than hang. The layer role predates that and was left alone while
-      spec C added the other two. Open: give it the same bounded wait, which is the shape `awaitXdgConfigure`
-      already holds.
+      spec C added the other two. It has that bounded wait now: `waitForConfigure` calls the shared
+      `awaitConfigure`, the same one the other two roles take.
 
 - [x] **No test carries a drag across the wire, and one attempt got most of the way.** `DragAndDropTest` drives
       the scene directly and never lets a compositor introduce an offer, so `wl_data_device`'s own side has no
@@ -798,8 +814,8 @@ where on the monitor the compositor put it.
       (`DataDevice.cpp:574`), which is the default threshold (`Logger.cpp:10-12`), so either the log was read
       where that line could not appear or `start_drag` never reached `initiateDrag`. The real cause is
       `decline` destroying the live offer; see the first entry under "Audit against the reference
-      implementations". Open: the test itself, once that is fixed. The attempt is kept at
-      `.superpowers/sdd/run/LiveDragTest.kt.attempt`.
+      implementations". `DragWireTest` carries one across the wire now and reads the whole session off it,
+      so the attempt kept at `.superpowers/sdd/run/LiveDragTest.kt.attempt` is superseded.
 - [x] **A bare test surface silently swallowed a drag out.** `bareSurface` built its `KortexSurface` without an
       `onStartDrag`, and the default was `{ _, _ -> Ok(Unit) }`: a no-op that *reports success*. Content that
       asked to drag out of such a surface was told its drag had started while nothing was ever sent, so neither
@@ -1042,10 +1058,9 @@ references and stays actionable on its own once the reports are gone.
       false and the drag dies before the pointer moves: this is why `start_drag` succeeds and no destination
       is ever entered. The second manifestation is live today, and is the worse one: any other application's
       drag over a kortex surface is cancelled globally whenever kortex declines it, and `text/uri-list` is
-      absent from the whole module, so a file dragged from a file manager over the bar dies. Open: refuse
-      with `accept(serial, null)` and, at v3+, `set_actions(0, 0)`, and destroy the offer at
-      `wl_data_device.leave` instead, as `window.c:3795-3856` does. Delete `decline`'s comment rather than
-      rewording it: "which leaves the drag's source cancelled" states the bug as if it were the contract.
+      absent from the whole module, so a file dragged from a file manager over the bar dies. Fixed as
+      `window.c:3795-3856` does it: `decline` accepts nothing, sets no actions, and keeps the offer until
+      `wl_data_device.leave`, and the comment that stated the bug as if it were the contract is gone.
       **Confirmed live against a source kortex did not write**, which is the only way this one can be: a file
       dragged out of Dolphin over the bar draws `accept(serial, nil)` and `set_actions(0, 0)` at the enter and
       `destroy` only at the leave, and the drag survives to be dropped elsewhere. The `text/uri-list` clause
@@ -1057,42 +1072,49 @@ references and stays actionable on its own once the reports are gone.
       `:215-220`) use plain `LibWayland.marshal`; they are the only two versioned requests in the module not
       routed through `marshalIfSince`. libwayland-server answers a request below the negotiated version with
       `wl_display.error(invalid_method)` (`wayland-server.c:451-471`). wlroots capped `LAYER_SHELL_VERSION` at
-      4 through 0.18.3 and only reached 5 in 0.19.0. Hyprland advertises 5, so nothing fires here. Open: route
-      both through `marshalIfSince`, and delete the three KDoc claims that made the guards look optional --
-      `LibWayland.kt:272-276` and `:234` both say libwayland refuses a marshal past a proxy's version and
-      kills the connection with EINVAL, and it does no such check at all; `ProtocolVersionTest.kt:55-58`
-      repeats it as the justification for a test's existence.
+      4 through 0.18.3 and only reached 5 in 0.19.0. Hyprland advertises 5, so nothing fires here. Fixed, and
+      in a wider shape than routing those two: `LibWayland.marshal` reads each request's own `since` off the
+      interface table and skips one the negotiated version cannot carry, so no call site names a version by
+      hand and `marshalIfSince` is gone. The three KDoc claims that made the guards look optional went with
+      it.
 - [x] **Destroying a window while a popup opened from it is still up disconnects the client on GNOME.**
       `KortexShell.takeDown` (`:512-521`) closes a slot's surface without ending the popups under it;
       `endPopupsUnder` (`:492-497`) already does exactly the right thing and its only caller is `rebuild`
       (`:365`). `reconcileSlots` walks `placed` parent-before-child, so the parent's `xdg_toplevel.destroy`
       reaches the wire first. mutter connects `on_parent_surface_unmapped` to the parent surface
       (`meta-wayland-xdg-shell.c:679-695`) **outside** the `if (seat)` block, so it fires for non-grabbing
-      popups, which is all kortex has, and posts `not_the_topmost_popup`. Open: one `endPopupsUnder(slot)`
-      call at the top of `takeDown`.
+      popups, which is all kortex has, and posts `not_the_topmost_popup`. Fixed: `KortexShell.takeDown` calls
+      `endPopupsUnder(slot)` before it takes the surface down.
 - [x] **No test reaches the `wl_data_device` destination path at all, so the drag defect had nothing to catch it.**
       Nothing in the repository constructs a `DataDevice` or calls `onEnter`, `onMotion`, `onLeave` or
       `onDrop`; `DragAndDropTest` drives `KortexScene.sendDragEnter/Move/Leave/Drop`, the Compose seam one
       layer beneath, and its `withDropTarget` fixture always accepts, which negates all three routes into
       `decline`. Replacing `decline`'s whole body with `= Unit`, deleting `finish`'s `actionSelected` guard,
-      or making `onEnter` accept nothing each leave the suite green. Open: a test that builds a `DataDevice`
-      against a real manager as `ClipboardTest` already does, installs a `dragDestinations` lambda, calls
-      `onDataOffer` then `onEnter` for a surface whose scene has no drop target, and asserts the offer proxy
-      is still alive; or a `WAYLAND_DEBUG` assertion that no `wl_data_offer.destroy` precedes a `leave`.
+      or making `onEnter` accept nothing each leave the suite green. Covered by the second of the two shapes
+      this proposed: `DragWireTest` asserts on the wire that no `wl_data_offer.destroy` precedes the `leave`,
+      and that one does follow it.
 - [x] **`PopupTest` performs the fatal parent-destroy sequence on every run and reports green.** Four of its
       six tests leave a popup on screen at block end; only the teardown test at `:92` sets
       `showing.value = false`. `onApplication`'s `useOrFail` then calls `KortexShell.close()`, which runs
       `reconcileSlots()` and `takeDown` parent-first. The test at `:126` has a `Window` parent, the exact
       shape mutter kills. Applying the `endPopupsUnder` fix above changes no test's colour either way, which
-      is the proof in reverse that nothing pins it. Open: a test that opens a popup from a window, ends the
-      window while the popup is up, and asserts the wire order of the two destroys.
+      is the proof in reverse that nothing pins it. Covered by `PopupTeardownWireTest`, which does exactly
+      that.
 - [x] **No test binds a global below what kortex asks for, so a missing `since` guard cannot be observed.**
       Every version assertion in the suite passes the maximum (`ProtocolVersionTest.kt:45,63,80`,
       `ClipboardTest.kt:389`, `OutputGeometryTest.kt:38,41`, `BoundOutput.kt:14`, `SurfaceScaleTest.kt:60`).
       Replacing the one guard the layer-shell path has, `marshalIfSince` at `LayerShell.kt:247`, with a plain
       `marshal` leaves everything green. Both requests in the second entry above already have a green test
-      driving them. Open: a test that binds a global at a forced-low version and asserts the connection
-      survives, which would cover the whole class rather than two instances of it.
+      driving them. The test that would cover the whole class is an entry of its own below.
+- [ ] **No test binds a global below what kortex asks for, so the `since` guard is never exercised.**
+      `LibWayland.marshal` reads each request's own `since` off the interface table and skips one the
+      negotiated version cannot carry, which is what keeps a client alive on a compositor older than the
+      request it was about to send. Nothing drives it: every compositor this suite runs against advertises
+      versions at or above what kortex asks for, so the guard is dead code from the suite's point of view and
+      a change that broke it would go unnoticed until someone ran kortex on an older desktop.
+      Open: a test that binds a global at a forced-low version and asserts the connection survives a request
+      newer than that version, which covers the whole class rather than the two requests that prompted the
+      guard.
 - [x] **kortex requires `zwlr_layer_shell_v1`, and says so rather than working around it.** Decided: no
       xdg-shell-only mode. `KortexShell.createApplication` calls `requireSurfaceGlobals` before anything else
       and that list holds `zwlr_layer_shell_v1`, so a compositor without it fails with
@@ -1139,8 +1161,8 @@ references and stays actionable on its own once the reports are gone.
       `XdgShell.kt:114-115` gives the wrong reason why its NULL type-table entries are safe. A defect stated
       as a contract: `DataDevice.kt:206`. Correct, specific, names its own remedy, and ignored at five call
       sites: `KortexApplication.kt:49-51` against `bar/Main.kt`'s crash-log effects. Checked and found
-      trustworthy: `WlOutput.kt:98-101`. Open: delete the false ones rather than rewording them, since text
-      that exists to explain a defect has nothing to say once the defect is gone.
+      trustworthy: `WlOutput.kt:98-101`. Done, by deleting rather than rewording: none of the false claims
+      above is in the source any more.
 - [x] **The test suite exercised a frame context the shipping host never uses.** `onScene` passed
       `Dispatchers.Unconfined`, which reports that it needs no dispatch, so work content launched ran at the
       point that launched it rather than off a queue. It now has the shape `SurfaceScene` gives its own
@@ -1191,8 +1213,8 @@ references and stays actionable on its own once the reports are gone.
       rect tracking gets a negative window. Nothing in kortex or `bar` currently uses `Popup`,
       `DropdownMenu`, `TooltipBox`, `Modifier.shadow`, `Surface(` or elevation, so it cannot fire today --
       and a dropdown in third-party content is the ordinary case, not an exotic one. Compose's own headless
-      host sets it (`ImageComposeScene.skiko.kt:160-161`), so a windowless scene is not exempt. Open: one
-      line, since the scene already knows its size (`KortexScene.kt:95`).
+      host sets it (`ImageComposeScene.skiko.kt:160-161`), so a windowless scene is not exempt. Fixed:
+      `KortexScene` sets `windowInfo.containerSize` as its size changes.
 - [x] **`acceptDragAndDropTransfer`'s boolean is read as a verdict on the session, and it is neither.** It is a
       verdict on the session, correctly, and it was being read as one on the position. The entry's own reading of
       the Compose source holds: the traversal never consults the event's position, and `hasEligibleDropTarget` is
@@ -1205,8 +1227,17 @@ references and stays actionable on its own once the reports are gone.
       source dragging a move delete what it sent. It is also a protocol error after an accept of no type, and
       `DataOffer.finish` now holds to both halves of that rule rather than to the action alone. The
       `getOrElse { false }` at the enter stays and is right there: a scene that has failed takes nothing more,
-      which is a refusal. Open: nothing on the positive side, but no test drives a drop content *refuses*, since
-      that needs a second client dragging onto kortex. (`DragAndDropTest`, `DragWireTest`)
+      which is a refusal. Nothing is open on the positive side; the refusing side is an entry of its own
+      below. (`DragAndDropTest`, `DragWireTest`)
+- [ ] **No test drives a drop that content refuses.** `DataDevice.completeDrop` finishes the compositor's
+      offer only where content took what arrived, and gives it back unfinished where content did not. Only
+      the first of those is covered. That matters because a finish is what lets a source dragging a move
+      delete what it sent, so the branch with no cover is the one that would destroy another application's
+      file if it ever sent a finish it should not.
+      It needs a second client dragging onto kortex: a refusal has to come from content while a real
+      compositor holds a real offer, and every drag test here is kortex to kortex, which is also why the
+      `text/uri-list` gap went unseen for so long. `LiveDropProbe` is the shape that could do it, with a
+      target that returns false and an assertion that no `wl_data_offer.finish` follows the drop.
 
 - [x] **The crash logger does blocking file I/O on the loop thread, at five sites.** `bar/Main.kt:233-236`,
       `:278-281`, `:333-336`, `:380` and `:384-387` each call `logIfCrashed` inside a `LaunchedEffect`, and
@@ -1215,8 +1246,8 @@ references and stays actionable on its own once the reports are gone.
       the caller's stack, and that caller is the one thread pumping Wayland and drawing every surface.
       `KortexApplication.kt:49-51` documents exactly this hazard and names `withContext(Dispatchers.IO)` as
       the remedy. It fires when a surface has just crashed, and on a wedged `$XDG_STATE_HOME` mount it
-      freezes every surface on every monitor, including ones that never crashed. Open: wrap the
-      `appendCrash` call, as the KDoc already prescribes.
+      freezes every surface on every monitor, including ones that never crashed. Fixed: `bar/Main.kt` runs
+      `appendCrash` under `withContext(NonCancellable + Dispatchers.IO)`.
 - [x] **`wl_pointer.frame` is a no-op, and after checking, that is the right answer.**
       `SeatInput.kt:92` is `= Unit`. `wl_pointer.frame` is `since="5"` against an advertised 9, so it arrives
       on every pointer event group, and `wayland.xml`'s own words are the contract: "A client is expected to
@@ -1224,8 +1255,9 @@ references and stays actionable on its own once the reports are gone.
       worked example. Nothing anywhere in the suite asserts anything about event grouping. Hyprland can
       synthesise the case through `zwlr_virtual_pointer_v1`, which already exposes `axis` and `frame`, so the
       test is writable: `axis(VERTICAL, d)`, `axis(HORIZONTAL, d)`, `frame()`, assert one Scroll event
-      carrying both. Open: accumulate on `frame`, and take `axis_source`, `axis_stop` and `axis_value120`
-      with it -- all three are `= Unit` today, and `axis_value120` is the only detent signal a v8+ client gets.
+      carrying both. Done: `onFrame` delivers what a frame group collected, `onAxisSource` records whether the
+      device scrolls by distance, and `onAxisValue120` accumulates detents. `onAxisStop` stays `= Unit`, which
+      is the right answer: it says a kinetic scroll came to rest, and Compose has nothing to do with that.
 - [x] **`bar` is the only module that pins no `jvmToolchain`, and it is the one that ships.**
       `compose/build.gradle.kts:13` and `wayland/build.gradle.kts:13` both carry
       `jvmToolchain(libs.versions.jdk.get().toInt())` with `jdk = "25"`; `bar/build.gradle.kts` has no
@@ -1233,7 +1265,7 @@ references and stays actionable on its own once the reports are gone.
       `compose.desktop.application`'s `jpackage` step bundles a runtime chosen by whatever JDK is ambient for
       the Gradle daemon, for the one module whose output reaches a user machine. FFM is stable only from JDK
       22, and `--enable-native-access=ALL-UNNAMED` (`bar/build.gradle.kts:20`) means nothing if the bundled
-      JRE predates it. Open: add the same `jvmToolchain` line its two siblings have.
+      JRE predates it. Done: `bar/build.gradle.kts` pins the same `jvmToolchain` line its two siblings have.
 
 - [x] **Wheel scroll reaches Compose about fifteen times too fast, and worse on a HiDPI surface.** One detent
       from Hyprland is an `axis` value of 15.0 (`InputManager.cpp`, `delta = 15.0 * discrete * factor`, with
@@ -1246,10 +1278,11 @@ references and stays actionable on its own once the reports are gone.
       empty companion handlers are good for; it needs `wl_pointer.frame` to pair a value120 with its axis
       event, a separate decision for `finger` and `continuous` sources whose deltas are pixel distances, and
       a decision on whether a detent should be multiplied by the buffer scale at all (it should not: a detent
-      is not a distance). Open: that, plus a field on `KortexScene.sendPointerEvent` for the axis source,
-      which would also stop trackpad scrolling getting Compose's smooth-scroll animation
-      (`isPreciseWheelScroll` is false for kortex, always). One agent needs both `SeatInput.kt` and
-      `KortexScene.kt` to do it.
+      is not a distance). Done, all of it: `SeatInput.sendScroll` takes `axis_value120 / 120` for a wheel and
+      the pixel delta for a device that scrolls by distance, and `KortexScene.sendPointerEvent` carries
+      `preciseScroll` for the axis source. The parenthesis above was wrong as well. `isPreciseWheelScroll`
+      reads true for a precise scroll, because the AWT event kortex builds carries the delta as its precise
+      rotation against a `wheelRotation` of 0, which the entry on covering `preciseScroll` sets out.
 - [x] **Nothing bounded a hand-built `wl_interface` against the XML it was copied from.** The tables kortex
       builds itself carry the version `WlVersion` asks for, so `ProtocolVersionTest` comparing the constant
       against the table it built compared the constant against itself, and nothing caught `LAYER_SHELL = 9`.
