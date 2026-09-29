@@ -838,17 +838,21 @@ survives on its own.
 - **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
   `PopupTeardownWireTest`, `DragWireTest` and `PointerReleaseOrderTest` take focus, re-tile open windows
   and drive the pointer, so they want a session kept free. Ask before starting a run.
-- **`DragWireTest` now fails every run, and it is not understood.** Ten consecutive passes of
-  `:wayland:jvmTest`, same failure each time: `no wl_data_device.start_drag left the client while the
-  pointer dragged; wire: (no wl_data_device or wl_data_offer or wl_data_source traffic at all)`. It
-  passed once earlier in the same session, on the same code, in a whole-project run, so it is not a
-  clean regression either. What is known: the probe exits 0 and both wire markers are present and in
-  order, which the test asserts ahead of that line, so the child placed its surfaces and drove the
-  pointer; `hyprctl layers` shows no leftover kortex surface holding the screen; and
-  `wl_data_device_interface` is libwayland's own symbol, not a hand-built table, so `start_drag`'s
-  since is 1 and `marshal`'s version gate cannot be silently skipping it. Open: whether the child
-  captures the `WAYLAND_DEBUG` stream at all on this path, since an empty capture and a drag that
-  never happened fail identically here, and the message names only the second.
+- **`DragWireTest` failed eleven runs in a row and then passed four, with no code change between
+  them.** The failure was always `no wl_data_device.start_drag left the client while the pointer
+  dragged`. Three things are now settled and one is not. The capture works: the probe's slice held
+  1137 wire lines, so nothing was lost between the child and the test. The data device is real: a
+  drag from Dolphin into the running bar demo shows `wl_data_device_manager#3.get_data_device` at
+  start-up and a whole clean drag afterwards, so nothing about the device or its manager is missing;
+  the probe's slice simply begins after the device is made. And the test was reporting the wrong
+  thing: `startDrag` answers a missing grab serial with `NoInputSerial` and sends nothing, which on
+  the wire is what a refused drag looks like too, and the press check that separates them sat after
+  the `start_drag` assertion, so it never ran. It runs first now.
+
+  What is still unknown is what made those eleven fail. They ran back to back over about 25 minutes,
+  straight after 30 iterations of another pointer-driving test, and across a stretch when the machine
+  was in use; this test needs uninterrupted control of the pointer for roughly twenty steps, which its
+  own KDoc says. That is a candidate, not a finding. The next failure will name which half it is.
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
