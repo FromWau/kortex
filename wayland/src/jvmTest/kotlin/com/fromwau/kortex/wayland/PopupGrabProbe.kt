@@ -119,7 +119,6 @@ private fun withClicks(shell: KortexShell, bar: LayerGeometry, block: ((x: Int, 
 }
 
 private const val NAMESPACE = "kortex-popup-grab-probe"
-private const val BTN_LEFT = 0x110
 private val BAR_THICKNESS = 64.dp
 private const val MENU_W = 160
 private const val MENU_H = 48

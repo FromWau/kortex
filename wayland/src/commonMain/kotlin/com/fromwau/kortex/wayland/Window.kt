@@ -241,7 +241,7 @@ public class WindowState {
      * pass. Until the window is on screen, and once it has ended, it does nothing.
      */
     public fun askMaximized(maximized: Boolean) {
-        ask { window -> window.askMaximized(maximized) }
+        ask { _, toplevel -> toplevel.askMaximized(maximized) }
     }
 
     /**
@@ -251,7 +251,7 @@ public class WindowState {
      * Which monitor that is, the compositor chooses.
      */
     public fun askFullscreen(fullscreen: Boolean) {
-        ask { window -> window.askFullscreen(fullscreen) }
+        ask { _, toplevel -> toplevel.askFullscreen(fullscreen) }
     }
 
     /**
@@ -260,10 +260,62 @@ public class WindowState {
      * the window, and nothing here brings it back, which is the user's to do.
      */
     public fun askMinimized() {
-        ask { window -> window.askMinimized() }
+        ask { _, toplevel -> toplevel.askMinimized() }
     }
 
-    private fun ask(request: (XdgToplevelSurface) -> Unit) {
+    /**
+     * Hands the window to the compositor to move with the pointer, until the user lets go of the button they
+     * are holding.
+     *
+     * Call it from a press on whatever your content offers to drag the window by, a strip across its top say.
+     * The compositor takes the gesture from there, so your content hears nothing more of it: no movement, no
+     * release, and no report of where the window came to rest. Read [WindowStatus] for the size it ends at.
+     *
+     * ```kotlin
+     * val state = rememberWindowState()
+     *
+     * Box(
+     *     Modifier
+     *         .fillMaxWidth()
+     *         .height(28.dp)
+     *         .pointerInput(Unit) { detectTapGestures(onPress = { state.askMove() }) },
+     * )
+     * ```
+     *
+     * It quotes the newest press this window's pointer took, which is the serial a compositor checks the ask
+     * against, and sends nothing at all before the user has pressed anything. Asking is not getting, as
+     * [askMaximized] describes: a compositor refuses a move by ignoring it, and there is no answer to read
+     * either way.
+     *
+     * Call it from any thread. Until the window is on screen, and once it has ended, it does nothing.
+     */
+    public fun askMove() {
+        ask { window, _ -> window.askMove() }
+    }
+
+    /**
+     * Hands the window to the compositor to resize by [edge], on the terms [askMove] describes.
+     *
+     * [ResizeEdge] has one entry for each of the eight resize cursors, so whatever decides which cursor the
+     * pointer is under decides what to pass here.
+     *
+     * ```kotlin
+     * Box(
+     *     Modifier
+     *         .align(Alignment.BottomEnd)
+     *         .size(12.dp)
+     *         .pointerHoverIcon(PointerIcon(Cursor(Cursor.SE_RESIZE_CURSOR)))
+     *         .pointerInput(Unit) {
+     *             detectTapGestures(onPress = { state.askResize(ResizeEdge.BottomRight) })
+     *         },
+     * )
+     * ```
+     */
+    public fun askResize(edge: ResizeEdge) {
+        ask { window, _ -> window.askResize(edge) }
+    }
+
+    private fun ask(request: (KortexSurface, XdgToplevelSurface) -> Unit) {
         published.boundTo?.askWindow(request)
     }
 }
@@ -275,6 +327,23 @@ public class WindowState {
  */
 @Composable
 public fun rememberWindowState(): WindowState = remember { WindowState() }
+
+/**
+ * Which edge or corner of a window a resize drags, numbered as `xdg_toplevel.resize_edge` numbers them.
+ *
+ * One for each of the eight resize cursors, so whatever picks the cursor under the pointer picks the edge to
+ * hand [WindowState.askResize].
+ */
+public enum class ResizeEdge(internal val wireValue: Int) {
+    Top(1),
+    Bottom(2),
+    Left(4),
+    Right(8),
+    TopLeft(5),
+    TopRight(9),
+    BottomLeft(6),
+    BottomRight(10),
+}
 
 /** The app id a window whose caller named none carries, and the one every dialog carries. */
 internal const val DEFAULT_APP_ID = "kortex"

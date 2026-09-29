@@ -31,8 +31,8 @@ internal fun VirtualPointer.clickAt(monitor: HyprMonitor, x: Int, y: Int) {
     frame()
 }
 
-// linux/input-event-codes.h
-private const val BTN_LEFT = 0x110
+/** `linux/input-event-codes.h`, beside the pointer helpers above that every caller of it drives. */
+internal const val BTN_LEFT = 0x110
 
 /**
  * Where the compositor placed a layer surface, and which monitor and [Layer] it landed on.

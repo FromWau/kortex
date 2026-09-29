@@ -182,7 +182,6 @@ class InputDeliveryTest {
     private companion object {
         val NULL: MemorySegment = MemorySegment.NULL
         const val SIDE = 64
-        const val BTN_LEFT = 0x110
         const val PRESSED = 1
         const val RELEASED = 0
         const val SETTLE_MILLIS = 300L

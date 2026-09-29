@@ -20,7 +20,6 @@ import kotlin.test.assertTrue
  *
  * Needs no compositor: a `wl_array` built here stands in for the one the event carries.
  */
-
 class XdgToplevelCapabilityTest {
     @Test
     fun `a window honours every ask until the compositor has said which it takes`() {

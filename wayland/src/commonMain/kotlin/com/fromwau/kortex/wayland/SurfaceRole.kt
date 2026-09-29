@@ -84,6 +84,15 @@ internal interface SurfaceRole : AutoCloseable {
     fun takeGrab(seat: Seat, serial: Int)
 
     /**
+     * Asks the compositor to move this surface with the pointer until the user lets go, quoting [serial], the
+     * press that began the gesture. Only a window moves this way; every other role does nothing.
+     */
+    fun askMove(seat: Seat, serial: Int)
+
+    /** As [askMove], dragging [edge] rather than the whole surface. */
+    fun askResize(seat: Seat, serial: Int, edge: ResizeEdge)
+
+    /**
      * Blocks until the compositor has configured this surface, acknowledging the serial it sent.
      *
      * @return `Ok` once configured, else why it never was.

@@ -23,3 +23,11 @@ internal fun List<String>.traceOf(vararg interfaces: String): String =
     filter { line -> interfaces.any { line.contains("$it#") } }
         .joinToString("\n")
         .ifEmpty { "(none of ${interfaces.joinToString(" or ")} among $size wire lines)" }
+
+/**
+ * The serial of a `wl_pointer.button` press, out of `button(serial, time, button, state)`.
+ *
+ * State 1 is a press, and only a press begins the implicit grab that `start_drag`, `xdg_popup.grab`,
+ * `xdg_toplevel.move` and `xdg_toplevel.resize` all name.
+ */
+internal val BUTTON_PRESS_SERIAL = Regex("\\.button\\((\\d+),\\s*\\d+,\\s*\\d+,\\s*1\\)")

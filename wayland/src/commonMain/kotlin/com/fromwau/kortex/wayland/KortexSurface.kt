@@ -88,6 +88,10 @@ internal class KortexSurface private constructor(
     @Volatile
     private var pointerInput: PointerInput? = null
 
+    // Kept here as well as handed on, because move and resize must quote a press on this surface rather than
+    // the newest one anywhere: a compositor checks the serial against the implicit grab that press began.
+    private var grabSerial: Int? = null
+
     // Null when the config asks for no interactivity, when the seat announced no keyboard, and once released.
     // Settable here so a test can hand one to a surface without keyboard interactivity, since Hyprland gives an
     // interactive surface the user's focus as it maps.
@@ -163,7 +167,7 @@ internal class KortexSurface private constructor(
         scene.drawOn(this)
         pointerInput =
             seat.attachPointer(
-                scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial, onPointerGrab,
+                scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial, ::recordGrab,
             )
         if (role.wantsKeyboard) keyboardInput = takeKeyboard()
         display.roundtrip()
@@ -203,6 +207,26 @@ internal class KortexSurface private constructor(
      * dragging, and `start_drag` names the implicit grab that very event took. A compositor that checks the grab
      * refuses the request once the button is up, so anything queued or encoded in between can lose the drag.
      */
+    private fun recordGrab(serial: Int) {
+        grabSerial = serial
+        onPointerGrab(serial)
+    }
+
+    /**
+     * Hands this window to the compositor to move with the pointer until the user lets go.
+     *
+     * Quotes the newest press this surface's pointer took, which is the serial a compositor checks the ask
+     * against, and sends nothing at all before the user has pressed anything.
+     */
+    fun askMove() {
+        grabSerial?.let { serial -> role.askMove(seat, serial) }
+    }
+
+    /** As [askMove], dragging [edge] rather than the whole window. */
+    fun askResize(edge: ResizeEdge) {
+        grabSerial?.let { serial -> role.askResize(seat, serial, edge) }
+    }
+
     internal fun startDrag(drag: KortexDrag): EmptyResult<ClipboardError> = onStartDrag(
         DragOut(
             clip = drag.dragged.asClip(),

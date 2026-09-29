@@ -96,7 +96,7 @@ internal class SurfaceSlot(
     private val closeDeclined = AtomicBoolean(false)
 
     // Asks made from content's thread and sent on the loop's, which is the only one that may marshal.
-    private val windowAsks = ConcurrentLinkedQueue<(XdgToplevelSurface) -> Unit>()
+    private val windowAsks = ConcurrentLinkedQueue<(KortexSurface, XdgToplevelSurface) -> Unit>()
 
     /** What content sees as its own `this`, and as `LocalKortexSurface`, for as long as its call composes. */
     val scope: SurfaceScope = object : SurfaceScope {
@@ -124,7 +124,7 @@ internal class SurfaceSlot(
      * Queues an ask for this window's state, from any thread; the shell sends it in its next pass, and a call
      * holding anything but a window on screen sends none.
      */
-    fun askWindow(request: (XdgToplevelSurface) -> Unit) {
+    fun askWindow(request: (KortexSurface, XdgToplevelSurface) -> Unit) {
         windowAsks += request
         wake()
     }
@@ -175,8 +175,9 @@ internal class SurfaceSlot(
 
     /** Publishes what the window this call holds reports about itself; a call holding anything else has none. */
     fun followWindow() {
-        val toplevel = surface?.role as? XdgToplevelSurface
-        if (toplevel == null) {
+        val window = surface
+        val toplevel = window?.role as? XdgToplevelSurface
+        if (window == null || toplevel == null) {
             // A window still being placed, or one that has ended, takes no ask, as WindowState's own docs say.
             windowAsks.clear()
             return
@@ -184,7 +185,7 @@ internal class SurfaceSlot(
         // Taken back here, where the window is read: a decline acted on anywhere else is republished away below.
         if (closeDeclined.getAndSet(false)) toplevel.declineClose()
         // Before the publish below, so a state the compositor answers with is read in the pass that follows.
-        generateSequence(windowAsks::poll).forEach { request -> request(toplevel) }
+        generateSequence(windowAsks::poll).forEach { request -> request(window, toplevel) }
         publish(
             WindowStates(
                 closeRequested = toplevel.closeRequested,

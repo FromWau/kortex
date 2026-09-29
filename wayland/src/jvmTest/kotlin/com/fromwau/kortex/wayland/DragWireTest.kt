@@ -190,9 +190,6 @@ class DragWireTest {
 // start_drag(source, origin, icon, serial): the serial is its last argument.
 private val START_DRAG_SERIAL = Regex("\\.start_drag\\([^)]*,\\s*(\\d+)\\s*\\)")
 
-// button(serial, time, button, state): state 1 is a press, and only a press begins a grab.
-private val BUTTON_PRESS_SERIAL = Regex("\\.button\\((\\d+),\\s*\\d+,\\s*\\d+,\\s*1\\)")
-
 // wl_data_device_manager.dnd_action is a bitfield: copy is 1 and move is 2, so both together are 3.
 private val COPY_AND_MOVE = Regex("\\.set_actions\\(3\\)")
 private val COPY_ALONE = Regex("\\.set_actions\\(1,\\s*1\\)")

@@ -202,7 +202,6 @@ private const val STEPS = 8
 private const val INSIDE_STEPS = 3
 private const val INSIDE_STEP = 8
 
-private const val BTN_LEFT = 0x110
 private const val PLACE_MILLIS = 4_000L
 private const val SETTLE_MILLIS = 250L
 private const val DROP_MILLIS = 3_000L

@@ -344,24 +344,24 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       than the one surface it asked for, which is the application for a call in its own content and the surface
       holding the call otherwise, where every popup's lands.
       (`LayerGeometryTest`, `SurfaceTest`, `SurfaceSizeGuardTest`)
-- [ ] **A window offers all eight resize cursors and can act on none of them.** `KortexCursor` carries
-      `ResizeNorth` through `ResizeNorthWest` and `KortexScene` maps each one off `Modifier.pointerHoverIcon`,
-      so content on a `Window` can put a resize cursor on an edge today and nothing can answer the drag that
-      follows. `XdgShellProtocol` declares `destroy`, `set_parent`, `set_title`, `set_app_id`, the four
-      maximize and fullscreen requests and `set_minimized`, and none of `move` (5), `resize` (6),
-      `show_window_menu` (4), `set_max_size` (7) or `set_min_size` (8). The cursor is a promise the protocol
-      side cannot keep.
-      Reachable now, and nothing to do with decoration: Hyprland 0.56.2 decorates server side, and a window
-      there may still want a drag handle inside its own content, or a resize grip in a corner. Both requests
-      quote a seat and an input serial, which is the pair `xdg_popup.grab` already quotes and
-      `WaylandClipboard` already tracks as `inputSerial` and `grabSerial`, so the plumbing is there.
-      `resize` also takes an `xdg_toplevel.resize_edge`, which maps one for one onto the eight cursors, so
-      whatever names the cursor can name the edge.
-      Open: `move` and `resize` as two marshal calls and the public calls that reach them. `show_window_menu`
-      is the compositor's own menu for the window and belongs with them; `set_max_size` and `set_min_size` are
-      a separate question about what a window will let the compositor do to it.
-      Split out of the entry below, where it had been counted as part of drawing a title bar. It is not: it
-      is useful on a compositor that decorates for you.
+- [x] **A window's own content can move and resize it now.** `KortexCursor` carried `ResizeNorth` through
+      `ResizeNorthWest` and `KortexScene` mapped each one off `Modifier.pointerHoverIcon`, so content on a
+      `Window` could put a resize cursor on an edge and nothing could answer the drag that followed: the
+      cursor was a promise the protocol side could not keep. `WindowState.askMove` and `WindowState.askResize`
+      send `xdg_toplevel.move` and `.resize`. Their entries were already in the hand-built `xdg_toplevel`
+      table with the right signatures, `"ou"` and `"ouu"`, so only the opcodes and the calls were missing.
+      `ResizeEdge` carries the eight `resize_edge` values, one for each cursor.
+      **Each quotes a press on the surface it moves**, which `KortexSurface` keeps for itself as presses pass
+      through it rather than reading the shell-wide serial the clipboard holds: a compositor checks the serial
+      against the implicit grab that press began, so a press on another surface is the wrong one to name.
+      Before the user has pressed anything neither request leaves the client at all, which the wire test reads
+      as its own leg, because a compositor refuses one naming no grab by ignoring it and that is invisible
+      from this side.
+      Nothing to do with decoration, and reachable where kortex already runs: Hyprland 0.56.2 decorates server
+      side and a window there can still carry a drag handle in its own content.
+      Still absent and so far unasked for: `show_window_menu` (4), which is the compositor's own menu for the
+      window, and `set_max_size` (7) and `set_min_size` (8), which are a question about what a window will let
+      the compositor do to it rather than about dragging one. (`WindowDragWireTest`)
 - [x] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
       A window asks `zxdg_decoration_manager_v1` for server side and reads the answer; a compositor that answers
       client side, or says nothing, or advertises no decoration manager at all, ends the window with
