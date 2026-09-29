@@ -359,9 +359,25 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       from this side.
       Nothing to do with decoration, and reachable where kortex already runs: Hyprland 0.56.2 decorates server
       side and a window there can still carry a drag handle in its own content.
-      Still absent and so far unasked for: `show_window_menu` (4), which is the compositor's own menu for the
-      window, and `set_max_size` (7) and `set_min_size` (8), which are a question about what a window will let
-      the compositor do to it rather than about dragging one. (`WindowDragWireTest`)
+      What `xdg_toplevel` still has no opcode for is the entry below. (`WindowDragWireTest`)
+- [ ] **Three `xdg_toplevel` requests have no opcode and no caller, and one event is read and dropped.**
+      With `move` and `resize` in, kortex speaks all of `xdg_toplevel` except `show_window_menu` (4),
+      `set_max_size` (7) and `set_min_size` (8). All three are already in the hand-built table with their
+      signatures, `"ouii"` and `"ii"` twice, so each is an opcode and a call, the way `move` and `resize`
+      turned out to be.
+      They are two different things under one absence. `show_window_menu` belongs beside the two just added:
+      it quotes a seat and a press like they do, hands the gesture to the compositor like they do, and is
+      what a right-click on a drag handle should raise, since the menu it opens is the compositor's own and
+      matches the desktop rather than the application.
+      `set_max_size` and `set_min_size` are unlike all of those. They carry no serial, they are
+      double-buffered and take effect on the next commit, and `XdgToplevelSurface.send` says in a comment that
+      none of the requests it sends is double-buffered, which these would make untrue. They also have a reader
+      already: `xdg_toplevel.configure_bounds` arrives and `XdgToplevelListener.onConfigureBounds` is `= Unit`,
+      so the compositor already tells kortex the largest size it suggests and kortex drops it. A window that
+      answered it would set its max size from what it was told.
+      Open: `show_window_menu` on its own terms, and the two size bounds with `configure_bounds` as the half
+      that makes them worth having. Split out of the entry above rather than left in its prose, which is where
+      a gap goes to be forgotten.
 - [x] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
       A window asks `zxdg_decoration_manager_v1` for server side and reads the answer; a compositor that answers
       client side, or says nothing, or advertises no decoration manager at all, ends the window with
