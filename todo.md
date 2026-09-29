@@ -1109,6 +1109,18 @@ references and stays actionable on its own once the reports are gone.
       refused rather than skipped, because a skipped one hands back a null proxy: kortex declares one such
       request, `create_virtual_pointer_with_output` at `"2?o?on"`, and nothing calls it, so the exemption it
       used to enjoy held by luck rather than by rule.
+- [ ] **Every event the virtual pointer sends carries a timestamp of zero.**
+      `VirtualPointer.motionAbsolute`, `button` and `axis` each default `timeMillis = 0`, and every call
+      site takes the default: `Screen.moveTo`, `DragWireProbe`'s press and release,
+      `ProtocolVersionTest`'s wheel. Hyprland passes it straight through, so
+      `-> zwlr_virtual_pointer_v1#4.button(0, 272, 1)` arrives at the client as
+      `wl_pointer#23.button(60313, 0, 272, 1)`. `KortexScene.sendPointerEvent` states the contract this
+      breaks on its own parameter: the origin does not matter, only that it advances, and a constant zero
+      never advances. Compose reads those timestamps for double click, long press and fling velocity, so
+      every gesture a test drives is timed against a clock that has stopped. This is not what broke the
+      drag, which was geometry, and it was found while reading that wire rather than by any failure: no
+      test asserts on event time, so nothing here would notice. Open: give the virtual pointer a monotonic
+      clock and see which gesture tests were passing for the wrong reason.
 - [ ] **`bareSurface` still swallows a drag out, and two of this stretch's fixes have no test of their own.**
       `bareSurface` builds its `KortexSurface` without an `onStartDrag`, so a drag asked for on that harness
       is answered by nothing; any drag test written on it passes vacuously, which is recorded separately
