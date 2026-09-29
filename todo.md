@@ -667,7 +667,24 @@ where on the monitor the compositor put it.
       has content delete what nobody took, and the opposite mistake leaves the same thing in two places.
       Open: `ask`, which means answering the compositor mid-drag once the user has picked out of a menu it
       drives, and which a destination must not name unless it answers it.
+      **Both compositor findings are confirmed against a third-party source**, not only against kortex talking
+      to itself: a file dragged out of Dolphin 26.08.1 by hand arrives with `source_actions(3)` and
+      `action(2)`, a move settled before kortex has answered anything. `LiveDropProbe` is how that was read.
       (`KortexSceneTest`, `DragAndDropTest`, `DragWireTest`)
+- [ ] **No drag out of a file manager can land on kortex, because it knows no `text/uri-list`.** A file
+      dragged out of Dolphin 26.08.1 offers exactly four types, and kortex reads none of them:
+      `text/uri-list`, `application/x-kde4-urilist`, `application/vnd.portal.filetransfer` and
+      `application/x-kde-source-id`. `Mime.all` holds the five text flavours and PNG and JPEG, so
+      `DataDevice.onEnter` finds `types.isEmpty()` and declines the offer with `accept(serial, nil)` before
+      `sendDragEnter` is ever called. Content sees nothing at all, and no test could have caught it: every
+      drag test here is kortex to kortex, so both sides always agreed on the types.
+      Read off `LiveDropProbe` with `WAYLAND_DEBUG=client`, dragging `/tmp/test-file.txt` out of Dolphin by
+      hand. The assumption it corrected is that KIO offers `text/plain` beside its URI list; it does not.
+      Open: a `UriListMime` beside `TextMime` and `ImageMime`, and what content reads it back as. The bytes
+      are a `\r\n`-separated list of percent-encoded URIs per RFC 2483, so it is neither a text nor an image
+      in the sense the two present types carry, and `KortexDragOffer` would need a third reader for it.
+      Dropping files is the commonest drag a desktop has, so this is the gap that matters most of the three.
+
 
 
 - [x] **A layer surface can wait for its first configure forever.** `LayerShellSurface.waitForConfigure` spins on
