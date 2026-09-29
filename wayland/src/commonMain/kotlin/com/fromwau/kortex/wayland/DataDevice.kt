@@ -133,6 +133,7 @@ internal class DataDevice private constructor(
         // slowly would hold every surface up for as long as it took.
         val textPipe = dropped.textType?.let(dropped.offer::openTransfer)
         val imagePipe = dropped.imageType?.let(dropped.offer::openTransfer)
+        val uriListPipe = dropped.uriListType?.let(dropped.offer::openTransfer)
         display.flush()
         val io = Dispatchers.IO.asExecutor()
         io.execute {
@@ -142,6 +143,7 @@ internal class DataDevice private constructor(
                 carried = dropped.types,
                 text = Err(ClipboardError.PipeFailed),
                 image = Err(ClipboardError.PipeFailed),
+                uris = Err(ClipboardError.PipeFailed),
             )
             try {
                 // A task each: a source writing the image first blocks on its full pipe until something reads it, so
@@ -152,16 +154,15 @@ internal class DataDevice private constructor(
                     { drain(imagePipe, MAX_IMAGE_BYTES, ClipboardError.NoImage).flatMap(::decodeImage) },
                     io,
                 )
+                val uris = CompletableFuture.supplyAsync(
+                    { drain(uriListPipe, MAX_TEXT_BYTES, ClipboardError.NoUris).map(::decodeUriList) },
+                    io,
+                )
                 carried = KortexDragOffer(
                     carried = dropped.types,
                     text = drain(textPipe, MAX_TEXT_BYTES, ClipboardError.NoText).map(ByteArray::decodeToString),
-                    // readPipeToEnd's own deadline starts only once the pool schedules this task; joined with a
-                    // bound of its own so scheduling delay alone cannot hang the drop.
-                    image = try {
-                        image.get(IMAGE_JOIN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
-                    } catch (_: TimeoutException) {
-                        Err(ClipboardError.ReadTimedOut)
-                    },
+                    image = joinDrain(image),
+                    uris = joinDrain(uris),
                 )
             } finally {
                 // However a drain ended: left unposted, the drag would hover for good and its offer never be freed.
@@ -327,6 +328,9 @@ internal class DataDevice private constructor(
         /** The one image type a drop reads, out of [types]; null where the drag offers no image. */
         val imageType: ImageMime? = types.filterIsInstance<ImageMime>().firstOrNull()
 
+        /** The one list-of-files type a drop reads, out of [types]; null where the drag offers no file list. */
+        val uriListType: UriListMime? = types.filterIsInstance<UriListMime>().firstOrNull()
+
         /** Set as the drop's transfers open, since the compositor follows a drop with a leave of its own. */
         var dropping = false
 
@@ -368,10 +372,24 @@ internal class DataDevice private constructor(
             }
         }
 
-        // Slack over the image drain's own TRANSFER_TIMEOUT_MILLIS, for the wait to be scheduled on Dispatchers.IO
-        // that deadline does not cover.
-        private const val IMAGE_JOIN_SLACK_MILLIS = 1_000L
-        private const val IMAGE_JOIN_TIMEOUT_MILLIS = TRANSFER_TIMEOUT_MILLIS + IMAGE_JOIN_SLACK_MILLIS
+        /**
+         * What [pending] drained, or [ClipboardError.ReadTimedOut] where the pool has not finished it in time.
+         *
+         * [readPipeToEnd]'s own deadline starts only once the pool schedules the task, so a bound of its own
+         * here is what keeps scheduling delay alone from hanging the drop.
+         */
+        private fun <T> joinDrain(
+            pending: CompletableFuture<Result<T, ClipboardError>>,
+        ): Result<T, ClipboardError> = try {
+            pending.get(DRAIN_JOIN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            Err(ClipboardError.ReadTimedOut)
+        }
+
+        // Slack over a drain's own TRANSFER_TIMEOUT_MILLIS, for the wait to be scheduled on Dispatchers.IO that
+        // deadline does not cover.
+        private const val DRAIN_JOIN_SLACK_MILLIS = 1_000L
+        private const val DRAIN_JOIN_TIMEOUT_MILLIS = TRANSFER_TIMEOUT_MILLIS + DRAIN_JOIN_SLACK_MILLIS
 
         /**
          * What a drag arriving here may do, which is a copy and nothing else, because a destination cannot

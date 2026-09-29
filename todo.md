@@ -671,23 +671,42 @@ where on the monitor the compositor put it.
       to itself: a file dragged out of Dolphin 26.08.1 by hand arrives with `source_actions(3)` and
       `action(2)`, a move settled before kortex has answered anything. `LiveDropProbe` is how that was read.
       (`KortexSceneTest`, `DragAndDropTest`, `DragWireTest`)
-- [ ] **No drag out of a file manager can land on kortex, because it knows no `text/uri-list`.** A file
-      dragged out of Dolphin 26.08.1 offers exactly four types, and kortex reads none of them:
-      `text/uri-list`, `application/x-kde4-urilist`, `application/vnd.portal.filetransfer` and
-      `application/x-kde-source-id`. `Mime.all` holds the five text flavours and PNG and JPEG, so
-      `DataDevice.onEnter` finds `types.isEmpty()` and declines the offer with `accept(serial, nil)` before
-      `sendDragEnter` is ever called. Content sees nothing at all, and no test could have caught it: every
-      drag test here is kortex to kortex, so both sides always agreed on the types.
-      Read off `LiveDropProbe` with `WAYLAND_DEBUG=client`, dragging `/tmp/test-file.txt` out of Dolphin by
-      hand. The assumption it corrected is that KIO offers `text/plain` beside its URI list; it does not.
-      Open: a `UriListMime` beside `TextMime` and `ImageMime`, and what content reads it back as. The bytes
-      are a `\r\n`-separated list of percent-encoded URIs per RFC 2483, so it is neither a text nor an image
-      in the sense the two present types carry, and `KortexDragOffer` would need a third reader for it.
-      Dropping files is the commonest drag a desktop has, so this is the gap that matters most of the three.
-      Noted in passing by the audit, inside "A drag kortex declines destroys the compositor's live offer"
-      under "Audit against the reference implementations", and given an entry of its own here because that
-      one's own defect is fixed while this one is untouched. The refusal itself is correct now: kortex keeps
-      the offer until the leave, so declining costs the other application nothing.
+- [x] **A drag out of a file manager lands on kortex, which reads `text/uri-list` now.** `UriListMime` is a
+      third `Mime` family beside `TextMime` and `ImageMime`, ahead of both in `Mime.all`, because an
+      application offering a file list and a text sends the same files under each and only the list says that
+      they are files. No `Clip` offers it, so nothing this client copies is advertised as a list of files:
+      putting `text/uri-list` into `TextMime` instead, which is the cheap version of this fix, would have had
+      every plain-text copy claim to carry files. `decodeUriList` reads RFC 2483's framing and nothing else,
+      so a URI reaches content percent-encoded and under whatever scheme it arrived with, since only the
+      application that sent it knows what anything other than a `file` points at. `KortexDragOffer.readUris()`
+      hands them over, `ClipboardError` gained `NoUris`, and a drop opens a third transfer drained on a task
+      of its own beside the text and the image, with the two bounded joins folded into one `joinDrain`.
+      **Confirmed live against the source that found the defect**: `/tmp/test-file.txt` dragged out of
+      Dolphin 26.08.1 by hand arrives as `offer("text/uri-list")`, is answered
+      `accept(serial, "text/uri-list")` where it used to be `accept(serial, nil)`, opens exactly one
+      `receive("text/uri-list", fd)` and no other, and reaches content as `Ok([file:///tmp/test-file.txt])`.
+      The file is untouched afterwards.
+      Open: the clipboard has no reader for it, so a file copied rather than dragged is still out of reach,
+      and `application/vnd.portal.filetransfer` stays unread, which is what a sandboxed source offers in
+      place of a path. kortex also has no file-list drag *source*, which is why nothing automated reaches
+      `Drag.uriListType` or its drain: every drag test here is kortex to kortex, so a hand-driven
+      `LiveDropProbe` run against a file manager is the only cover those two have.
+      (`UriListTest`, `DragAndDropTest`, `LiveDropProbe`)
+- [ ] **A file drop tells content the drag was a move, though kortex asked the compositor for a copy alone.**
+      Hyprland 0.56.2 sends `wl_data_offer.action(2)` before the destination has answered anything and never
+      sends another, so `DataOffer.settledAction` stays `Move` through all 91 `set_actions(1, 1)` of the drag,
+      each naming copy and preferring copy, and `Drag.action` hands content
+      `DragAndDropTransferAction.Move`. That cost nothing while no drag out of a file manager could land. It
+      does now, because a move is the destination's cue to delete what it took the files from, so content
+      honouring what it is told would delete the file it was just handed.
+      Read off the same Dolphin drop that confirmed the entry above: `source_actions(3)`, `action(2)`, and
+      then no further `action` for the rest of the drag.
+      `wl_data_offer.set_actions` says the settled action is the intersection of what the two sides offer, so
+      a `Move` left standing after kortex named copy alone is a value the compositor owed an update on.
+      Open: either clamp what content is told to what kortex actually offered, so `asDragAction` cannot
+      report an action `TAKEABLE` does not hold, or pass the compositor's word on unaltered and say so in
+      `KortexDragOffer`'s own contract. Not settled here, because it changes what a drop means to content
+      rather than only what kortex reads off the wire.
 
 
 

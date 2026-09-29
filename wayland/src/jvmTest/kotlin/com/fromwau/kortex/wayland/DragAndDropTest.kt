@@ -95,6 +95,29 @@ class DragAndDropTest {
     }
 
     @Test
+    fun `a drag offering a file manager's uri list and nothing else reaches content, with its files`() {
+        val dropped = AtomicReference<KortexDragOffer?>(null)
+
+        withDropTarget(onDropped = dropped::set) { scene ->
+            // What Dolphin 26.08.1 offers, minus the three KDE types kortex reads nothing of, so the file
+            // list is the only type here a drop target could be given anything under.
+            val offer = uriDragOffer(URI_LIST_TYPES, DRAGGED_URI_LIST)
+            val taken = scene.sendDragEnter(CENTRE, offer)
+                .getOrElse { failure -> fail("content failed as the file drag arrived: $failure") }
+
+            assertTrue(taken, "content refused a drag carrying files alone")
+            scene.sendDrop(CENTRE, offer)
+        }
+
+        val carried = assertNotNull(dropped.get(), "a drag carrying files alone never reached content")
+        assertEquals(
+            URI_LIST_TYPES, carried.types,
+            "content was told the file drag offered other types than the source advertised",
+        )
+        assertEquals(DRAGGED_URIS, carried.readUris(), "the dragged files did not reach content")
+    }
+
+    @Test
     fun `a leave with no drop ends the drag and drops nothing on the target`() {
         val seen = CopyOnWriteArrayList<String>()
 
@@ -321,6 +344,14 @@ class DragAndDropTest {
             KortexDragOffer(offer.offeredTypes, text = Ok(text))
         }
 
+    /** The same, for a drag out of a file manager: [uriList] is the `text/uri-list` bytes it would send. */
+    private fun uriDragOffer(advertised: List<String>, uriList: String): KortexDragOffer =
+        Arena.ofShared().use { arena ->
+            val offer = DataOffer(arena)
+            advertised.forEach { offer.onOffer(NULL, NULL, arena.allocateFrom(it)) }
+            KortexDragOffer(offer.offeredTypes, uris = Ok(decodeUriList(uriList.encodeToByteArray())))
+        }
+
     /**
      * Runs [block] on a scene whose content is one drop target of [targetSide] a side, in its top-left corner,
      * which records every event it is sent in [seen].
@@ -395,6 +426,10 @@ class DragAndDropTest {
 
         val TEXT_TYPES = listOf("text/plain;charset=utf-8", "text/plain")
         const val DRAGGED_TEXT = "dragged"
+
+        val URI_LIST_TYPES = listOf("text/uri-list")
+        const val DRAGGED_URI_LIST = "file:///tmp/test-file.txt\r\n"
+        val DRAGGED_URIS = Ok(listOf("file:///tmp/test-file.txt"))
 
         val DRAG_OUT_TEXT_TYPES =
             listOf("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT")

@@ -19,9 +19,9 @@ import com.fromwau.kern.result.Result
  * )
  * ```
  *
- * [readText] and [readImage] answer from memory and never block: everything the drag carries has arrived before
- * your content is told of the drop. Until the user lets go there is nothing to read, because the application
- * dragging sends what it holds only then; [types] says what is coming.
+ * [readText], [readImage] and [readUris] answer from memory and never block: everything the drag carries has
+ * arrived before your content is told of the drop. Until the user lets go there is nothing to read, because the
+ * application dragging sends what it holds only then; [types] says what is coming.
  *
  * Whether a drop copies or moves what was dragged is the compositor's to settle, so a drop reaching you is no
  * promise that the application dragging still holds it.
@@ -30,11 +30,12 @@ public class KortexDragOffer internal constructor(
     private val carried: List<Mime>,
     private val text: Result<String, ClipboardError> = Err(ClipboardError.NoText),
     private val image: Result<ImageBitmap, ClipboardError> = Err(ClipboardError.NoImage),
+    private val uris: Result<List<String>, ClipboardError> = Err(ClipboardError.NoUris),
 ) {
     /**
      * The types this drag is offered under that kortex can hand you, most preferred first, such as
-     * `text/plain;charset=utf-8` or `image/png`. A type kortex carries nothing of, a list of files say, is not
-     * here, and a drag offering only those never reaches your content at all.
+     * `text/uri-list`, `text/plain;charset=utf-8` or `image/png`. A type kortex carries nothing of, a PDF say,
+     * is not here, and a drag offering only those never reaches your content at all.
      */
     public val types: List<String> get() = carried.map(Mime::wireName)
 
@@ -54,4 +55,15 @@ public class KortexDragOffer internal constructor(
      *   [ClipboardError.ReadTimedOut] or [ClipboardError.TooLarge].
      */
     public fun readImage(): Result<ImageBitmap, ClipboardError> = image
+
+    /**
+     * The files this drag carries, as the URIs the application dragging named them by, such as
+     * `file:///home/you/notes.txt`. They arrive percent-encoded and under any scheme, so turn one into a path
+     * yourself, with `Path.of(URI(uri))` for a `file` and your own handling for the rest.
+     *
+     * @return the URIs, or why there are none: [ClipboardError.NoUris] where the drag offers no list of files or
+     *   has not been dropped yet, [ClipboardError.PipeFailed], [ClipboardError.ReadTimedOut] or
+     *   [ClipboardError.TooLarge].
+     */
+    public fun readUris(): Result<List<String>, ClipboardError> = uris
 }

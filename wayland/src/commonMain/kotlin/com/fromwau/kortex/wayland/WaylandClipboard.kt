@@ -262,12 +262,21 @@ internal sealed interface Mime {
     val wireName: String
 
     companion object {
-        /** Every type a copy of this client's offers and a paste or a drop of it asks for, most preferred first. */
-        val all: List<Mime> = TextMime.entries + ImageMime.entries
+        /** Every type a paste or a drop of this client's asks for, most preferred first. */
+        val all: List<Mime> = UriListMime.entries + TextMime.entries + ImageMime.entries
 
         /** The entry named [wireName], or null for a type this client neither offers nor asks for. */
         fun fromWireNameOrNull(wireName: String): Mime? = all.firstOrNull { it.wireName == wireName }
     }
+}
+
+/**
+ * The list-of-files types, which only a drag brings in: no [Clip] offers one, so nothing this client copies is
+ * advertised as a list of files. Ahead of the text types in [Mime.all], because an application offering both
+ * sends the same files under each and only this one says that they are files.
+ */
+internal enum class UriListMime(override val wireName: String) : Mime {
+    TextUriList("text/uri-list"),
 }
 
 /** The text types, in the order a paste prefers them. */
@@ -365,6 +374,20 @@ private fun encodeImage(image: ImageBitmap, type: ImageMime): Result<ByteArray, 
     }
     return if (encoded.size > MAX_IMAGE_BYTES) Err(ClipboardError.TooLarge) else Ok(encoded)
 }
+
+/**
+ * [encoded] as the URIs it lists, per RFC 2483: lines separated by CRLF, of which the blank ones and those
+ * beginning with `#` are not URIs.
+ *
+ * Each URI is handed on as it arrived, percent-encoding and scheme and all, since only the application that
+ * sent it knows what anything other than a `file` points at.
+ */
+internal fun decodeUriList(encoded: ByteArray): List<String> = encoded
+    .decodeToString()
+    .lineSequence()
+    .map(String::trim)
+    .filter { it.isNotEmpty() && !it.startsWith("#") }
+    .toList()
 
 /** [encoded] as an image, or [ClipboardError.NoImage] where it is in no format skia decodes. */
 internal fun decodeImage(encoded: ByteArray): Result<ImageBitmap, ClipboardError> = try {

@@ -107,7 +107,7 @@ public sealed interface KortexClipboard {
 public val LocalKortexClipboard: ProvidableCompositionLocal<KortexClipboard> =
     staticCompositionLocalOf { error("LocalKortexClipboard is provided only in a surface's content") }
 
-/** Why a [KortexClipboard] call failed. */
+/** Why a [KortexClipboard] call, or a read off a [KortexDragOffer], failed. */
 public sealed interface ClipboardError : IError {
     /** The compositor has no clipboard to offer, so every call fails this way. */
     public data object NoClipboard : ClipboardError
@@ -126,6 +126,12 @@ public sealed interface ClipboardError : IError {
      * [KortexClipboard.readImage] decodes.
      */
     public data object NoImage : ClipboardError
+
+    /**
+     * What a drag carries is not a list of files or other URIs. No clipboard call answers this: only a drag is
+     * ever read for URIs.
+     */
+    public data object NoUris : ClipboardError
 
     /**
      * The user has not yet pressed a key, clicked, or given keyboard focus to any of your surfaces. The

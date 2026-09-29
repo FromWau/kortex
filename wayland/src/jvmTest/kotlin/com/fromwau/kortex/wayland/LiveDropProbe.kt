@@ -12,6 +12,7 @@ import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.map
 
 /**
  * Puts one square on screen that takes anything dropped on it and prints what arrived, so a drag out of
@@ -78,7 +79,9 @@ private fun DropSquare() {
                         System.err.println("$MARKER_DROPPED${event.action}")
                         System.err.println("$MARKER_TYPES${offer?.types}")
                         System.err.println("$MARKER_TEXT${offer?.readText()}")
-                        System.err.println("$MARKER_IMAGE${offer?.readImage()?.let { "<image>" }}")
+                        // map, not let: the result is never null, so let reports an image for a drag with none.
+                        System.err.println("$MARKER_IMAGE${offer?.readImage()?.map { "<image>" }}")
+                        System.err.println("$MARKER_URIS${offer?.readUris()}")
                         return true
                     }
                 },
@@ -93,6 +96,7 @@ private const val MARKER_DROPPED = "LIVE-DROP dropped-action="
 private const val MARKER_TYPES = "LIVE-DROP dropped-types="
 private const val MARKER_TEXT = "LIVE-DROP dropped-text="
 private const val MARKER_IMAGE = "LIVE-DROP dropped-image="
+private const val MARKER_URIS = "LIVE-DROP dropped-uris="
 private const val MARKER_DONE = "LIVE-DROP done"
 private const val NAMESPACE = "kortex-live-drop"
 private const val BOX = 260
