@@ -1045,17 +1045,24 @@ references and stays actionable on its own once the reports are gone.
       which would also stop trackpad scrolling getting Compose's smooth-scroll animation
       (`isPreciseWheelScroll` is false for kortex, always). One agent needs both `SeatInput.kt` and
       `KortexScene.kt` to do it.
-- [ ] **Nothing bounds a hand-built `wl_interface`'s own version against the XML it was copied from.**
-      Two of the tables kortex builds itself, `zwlr_layer_shell_v1` and `zwlr_virtual_pointer_manager_v1`,
-      carry the version `WlVersion` asks for, so `ProtocolVersionTest` comparing the constant against the
-      table it built compares the constant against itself. Nothing catches `LAYER_SHELL = 9`. Since the
-      marshal guard now reads each request's own version out of the table, the consequence is narrower than
-      it was: a request above the negotiated version is skipped or refused rather than sent. What is left is
-      binding a proxy at a version the table does not describe, whose events then arrive with opcodes the
-      table has no entry for, which `queue_event` answers by killing the connection. The only independent
-      statement is the protocol XML: `/usr/share/wlr-protocols/unstable/` declares 5 and 2, both matching
-      today. I wrote that test and deleted it along with the version-specific code it sat beside; it should
-      come back on its own. Open: read those two files in a test.
+- [x] **Nothing bounded a hand-built `wl_interface` against the XML it was copied from.** The tables kortex
+      builds itself carry the version `WlVersion` asks for, so `ProtocolVersionTest` comparing the constant
+      against the table it built compared the constant against itself, and nothing caught `LAYER_SHELL = 9`.
+      Since the marshal guard reads each request's own version out of the table, a request above the
+      negotiated version is skipped rather than sent; what was left is binding a proxy at a version the table
+      does not describe, whose events then arrive with opcodes the table has no entry for, which
+      `queue_event` answers by killing the connection. This entry said two tables. There are **thirteen**:
+      `XdgShell.kt` builds seven, `XdgOutput.kt` two, and only the two named here were ever marked
+      `handBuilt` in `ProtocolVersionTest`, so the eleven with the most events in them were the ones nobody
+      was looking at. `HandBuiltTableTest` now reads each one's name back out of the table it built and holds
+      the whole table against the `<interface>` of that name in the XML the protocol packages ship, found
+      through `pkg-config --variable=pkgdatadir`: the declared version against the version kortex binds at,
+      and every request and event name and signature in opcode order, with the signature derived from the
+      XML the way `wayland-scanner` derives it. `LibWayland.interfaceRequests`/`interfaceEvents` read a built
+      table back, and `readRequestSince` now walks the same reader instead of a second copy of the struct
+      offsets. All thirteen match today. Proved by mutation: `LAYER_SHELL = 9` fails the version leg naming
+      the file, swapping two requests fails the request leg, and dropping the `closed` event fails the event
+      leg.
 - [ ] **A drag quotes a grab serial that may no longer be live by the time it is sent.** The serial itself
       is now right and `DragWireTest` pins it: `start_drag`'s argument is asserted against the `wl_pointer`
       button press it came from, read off the same wire the request left on. The grab may not still be held. `KortexSurface.startDrag` encodes the payload on `Dispatchers.Default` and

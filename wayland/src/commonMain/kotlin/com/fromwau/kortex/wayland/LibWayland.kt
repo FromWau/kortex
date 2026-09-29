@@ -27,6 +27,14 @@ internal data class WlMessage(
     val types: List<MemorySegment> = emptyList(),
 )
 
+/**
+ * A `wl_message` as it reads back out of a built table.
+ *
+ * Its third field, `types`, is a table of pointers that say nothing once read back, so only the two
+ * libwayland derives behaviour from are carried.
+ */
+internal data class WlMessageHeader(val name: String, val signature: String)
+
 /** Raw `wl_display_get_protocol_error` result; `iface` may be NULL. */
 internal data class ProtocolError(val code: Int, val iface: MemorySegment, val id: Int)
 
@@ -260,14 +268,31 @@ internal object LibWayland {
     }
 
     private fun readRequestSince(iface: MemorySegment): IntArray {
+        val requests = interfaceRequests(iface)
+        return IntArray(requests.size) { opcode ->
+            requests[opcode].signature.takeWhile(Char::isDigit).toIntOrNull() ?: FIRST_VERSION
+        }
+    }
+
+    /** Every request in [iface]'s own table, in the opcode order libwayland indexes it by. */
+    fun interfaceRequests(iface: MemorySegment): List<WlMessageHeader> =
+        readMessages(iface, METHOD_COUNT_OFFSET, METHODS_OFFSET)
+
+    /** Every event in [iface]'s own table, in the opcode order `queue_event` indexes it by. */
+    fun interfaceEvents(iface: MemorySegment): List<WlMessageHeader> =
+        readMessages(iface, EVENT_COUNT_OFFSET, EVENTS_OFFSET)
+
+    private fun readMessages(iface: MemorySegment, countOffset: Long, tableOffset: Long): List<WlMessageHeader> {
         val header = iface.reinterpret(INTERFACE.byteSize())
-        val count = header.get(JAVA_INT, METHOD_COUNT_OFFSET)
-        if (count <= 0) return IntArray(0)
-        val methods = header.get(ADDRESS, METHODS_OFFSET).reinterpret(MESSAGE.byteSize() * count)
-        return IntArray(count) { opcode ->
-            val entry = methods.asSlice(opcode * MESSAGE.byteSize(), MESSAGE.byteSize())
-            val signature = entry.get(ADDRESS, MESSAGE_SIGNATURE_OFFSET).reinterpret(Long.MAX_VALUE).getString(0)
-            signature.takeWhile(Char::isDigit).toIntOrNull() ?: FIRST_VERSION
+        val count = header.get(JAVA_INT, countOffset)
+        if (count <= 0) return emptyList()
+        val table = header.get(ADDRESS, tableOffset).reinterpret(MESSAGE.byteSize() * count)
+        return List(count) { opcode ->
+            val entry = table.asSlice(opcode * MESSAGE.byteSize(), MESSAGE.byteSize())
+            WlMessageHeader(
+                name = entry.get(ADDRESS, MESSAGE_NAME_OFFSET).reinterpret(Long.MAX_VALUE).getString(0),
+                signature = entry.get(ADDRESS, MESSAGE_SIGNATURE_OFFSET).reinterpret(Long.MAX_VALUE).getString(0),
+            )
         }
     }
 
