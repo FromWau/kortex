@@ -194,6 +194,7 @@ internal class SurfaceSlot(
                 tiled = toplevel.tiled,
                 activated = toplevel.activated,
                 capabilities = toplevel.capabilities,
+                recommendedMaxSize = toplevel.recommendedMaxSize,
             ),
         )
     }

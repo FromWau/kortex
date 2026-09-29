@@ -1,6 +1,7 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -158,6 +159,8 @@ internal object XdgShellProtocol {
     const val SET_TITLE = 2
     const val SET_APP_ID = 3
     const val SHOW_WINDOW_MENU = 4
+    const val SET_MAX_SIZE = 7
+    const val SET_MIN_SIZE = 8
     const val MOVE = 5
     const val RESIZE = 6
     const val SET_MAXIMIZED = 9
@@ -462,7 +465,18 @@ internal class XdgToplevelListener(width: Int, height: Int) {
         closeRequested = false
     }
 
-    fun onConfigureBounds(data: MemorySegment, proxy: MemorySegment, width: Int, height: Int) = Unit
+    fun onConfigureBounds(data: MemorySegment, proxy: MemorySegment, width: Int, height: Int) {
+        recommendedMaxSize = IntSize(width, height)
+    }
+
+    /**
+     * The largest size the compositor recommends for this window, and null until it recommends one.
+     *
+     * A 0 on either axis is the protocol's way of saying it recommends nothing on that axis, which is not the
+     * same as never having said anything, so both survive to the window that reads them.
+     */
+    var recommendedMaxSize: IntSize? = null
+        private set
 
     fun onWmCapabilities(data: MemorySegment, proxy: MemorySegment, capabilities: MemorySegment) {
         this.capabilities = capabilitiesIn(capabilities)
@@ -588,6 +602,19 @@ internal class XdgToplevelSurface private constructor(
     /** As [askMaximized], except that the protocol carries no state for it and no request back. */
     fun askMinimized() = send(XdgShellProtocol.SET_MINIMIZED)
 
+    /**
+     * `xdg_toplevel.set_min_size`: the smallest the compositor should make this window, 0 for no bound.
+     *
+     * Committed, because this state is double-buffered; [sendBuffered] says why that cannot wait for a frame.
+     */
+    fun askMinSize(width: Int, height: Int) = sendSize(XdgShellProtocol.SET_MIN_SIZE, width, height)
+
+    /** `xdg_toplevel.set_max_size`: the largest, on the same terms as [askMinSize]. */
+    fun askMaxSize(width: Int, height: Int) = sendSize(XdgShellProtocol.SET_MAX_SIZE, width, height)
+
+    /** The largest size the compositor recommends for this window, and null until it recommends one. */
+    val recommendedMaxSize: IntSize? get() = toplevelListener.recommendedMaxSize
+
     /** `xdg_toplevel.move`: the compositor takes the pointer and moves the window until the user lets go. */
     override fun askMove(seat: Seat, serial: Int) =
         send(XdgShellProtocol.MOVE, listOf(WlArg.Ptr(seat.proxy), WlArg.Num(serial)))
@@ -673,7 +700,26 @@ internal class XdgToplevelSurface private constructor(
         args: List<WlArg> = emptyList(),
     ) {
         LibWayland.marshal(toplevel, opcode, args = args)
-        // None of these requests is double-buffered, so none waits for a commit the window may never make again.
+        // Nothing sent through here is double-buffered; the two requests that are go through sendBuffered.
+        display.flush()
+    }
+
+    /**
+     * Sends [opcode] and commits, for the two requests whose state is double-buffered.
+     *
+     * They apply on the next commit rather than when sent, and a window drawing nothing may not make one for
+     * a long time, so waiting for a frame would leave a bound asked for and never in force.
+     */
+    private fun sendSize(opcode: Int, width: Int, height: Int) = sendBuffered(
+        opcode,
+        // A negative is xdg_toplevel.invalid_size, which ends the connection rather than becoming a value
+        // anything here could hand back, so it reads as the 0 that means no bound.
+        listOf(WlArg.Num(width.coerceAtLeast(0)), WlArg.Num(height.coerceAtLeast(0))),
+    )
+
+    private fun sendBuffered(opcode: Int, args: List<WlArg>) {
+        LibWayland.marshal(toplevel, opcode, args = args)
+        commit()
         display.flush()
     }
 

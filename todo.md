@@ -371,20 +371,26 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       Read off the wire beside the other two, including the position: a menu asked for at the transposed point
       is still inside the window, so `PROBE_MENU_AT` is an asymmetric pair and both axes are asserted.
       (`WindowDragWireTest`)
-- [ ] **A window tells the compositor no size bounds, and drops the bounds it is told.**
-      `set_max_size` (7) and `set_min_size` (8) are the last two `xdg_toplevel` requests with no opcode and no
-      caller. Both are in the hand-built table already, as `"ii"` twice.
-      They are unlike every other window ask. They carry no serial, and they are double-buffered: they take
-      effect on the next commit rather than when sent, which `XdgToplevelSurface.send` says outright is true
-      of none of the requests it sends. So they need either a send that waits for a commit or a corrected
-      comment, and which of those is the real question here.
-      The other half is already arriving and being thrown away. `xdg_toplevel.configure_bounds` is in the
-      table and in the listener, and `XdgToplevelListener.onConfigureBounds` is `= Unit`, so the compositor
-      tells kortex the largest size it suggests for this window and kortex reads it and drops it. A window
-      that answered would set its max size from what it was told, which is what makes the pair worth having
-      rather than an API for completeness.
-      Open: the two requests, the commit question, and `configure_bounds` as the reader that gives them a
-      reason.
+- [x] **A window can ask for size bounds, and reads the bounds it is told.** `WindowState.askMinSize` and
+      `askMaxSize` send `set_min_size` (8) and `set_max_size` (7), the last two `xdg_toplevel` requests that
+      had no opcode. Their table entries were already there, as `"ii"` twice, as every one of these turned
+      out to be.
+      **They are the only double-buffered requests kortex sends**, so `sendBuffered` commits the surface where
+      it sends them rather than leaving them to apply whenever the window next draws. A window drawing nothing
+      may not commit for a long time, and a bound left pending reads exactly like one never asked for.
+      `XdgToplevelSurface.send` carried a comment saying none of its requests was double-buffered, which these
+      made untrue; it now says so and names the path the two take. The wire test asserts that the request
+      immediately after each bound is the commit, because that is the whole of the risk.
+      A negative size is clamped to 0. `xdg_toplevel.invalid_size` ends the connection rather than becoming a
+      value an ask that returns nothing could hand back, which is the one kind of refusal a caller does not
+      get to override.
+      `configure_bounds` is read now and reaches `WindowState.recommendedMaxSize`. A 0 on one axis stays a 0,
+      since the protocol distinguishes "nothing recommended on this axis" from "nothing recommended at all".
+      **Hyprland 0.56.2 sends none of them**, confirmed rather than assumed: a probe run under
+      `WAYLAND_DEBUG=client` carries no `configure_bounds` in the window's whole life and reads
+      `recommendedMaxSize=null`. So the reader has a desktop-free test, which is the reasoning
+      `wm_capabilities` needed too, and the probe prints what it was recommended so that stays checked rather
+      than remembered. (`WindowSizeBoundsWireTest`, `ConfigureBoundsTest`)
 - [x] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
       A window asks `zxdg_decoration_manager_v1` for server side and reads the answer; a compositor that answers
       client side, or says nothing, or advertises no decoration manager at all, ends the window with

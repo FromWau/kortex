@@ -218,6 +218,19 @@ public class WindowState {
     /** Whether the compositor will honour [askMinimized], on the terms [canMaximize] describes. */
     public val canMinimize: Boolean get() = honours(XdgToplevelCapability.Minimize)
 
+    /**
+     * The largest size the compositor recommends for this window, in logical pixels, and null until it has
+     * recommended one.
+     *
+     * A desktop sends it so a window can size itself to the screen it will open on, with whatever panels and
+     * docks reserve already taken off. Hand it to [askMaxSize] to hold the window to it, or read it to choose
+     * a size of your own. A 0 on either axis means it recommends nothing on that axis.
+     *
+     * Not every compositor sends it, and Hyprland 0.56.2 sends none at all, so content that needs a bound
+     * needs one of its own as well.
+     */
+    public val recommendedMaxSize: IntSize? get() = published.windowStates.recommendedMaxSize
+
     private fun honours(capability: XdgToplevelCapability): Boolean =
         capability in published.windowStates.capabilities
 
@@ -330,6 +343,38 @@ public class WindowState {
      */
     public fun askWindowMenu(at: IntOffset) {
         ask { window, _ -> window.askWindowMenu(at) }
+    }
+
+    /**
+     * Asks the compositor to make this window no smaller than [width] by [height], and reports nothing back:
+     * the size it settles on arrives through [SurfaceState.status] like any other.
+     *
+     * Call it where content stops being usable below a size, a form whose fields would overlap say. 0 on an
+     * axis leaves that axis unbounded, which is what a window that never asks has, so `askMinSize()` on its
+     * own gives the bound back.
+     *
+     * ```kotlin
+     * val state = rememberWindowState()
+     *
+     * LaunchedEffect(Unit) { state.askMinSize(320.dp, 240.dp) }
+     * ```
+     *
+     * Unlike every other ask here this one is double-buffered, so kortex commits the window as it sends,
+     * rather than leaving the bound to take effect whenever the window next draws. A negative size is a
+     * protocol error rather than anything this could report, so it is read as 0.
+     *
+     * Call it from any thread. Until the window is on screen, and once it has ended, it does nothing.
+     */
+    public fun askMinSize(width: Dp = 0.dp, height: Dp = 0.dp) {
+        ask { _, toplevel -> toplevel.askMinSize(width.toLogicalPx(), height.toLogicalPx()) }
+    }
+
+    /**
+     * Asks the compositor to make this window no larger than [width] by [height], on the terms [askMinSize]
+     * describes; [recommendedMaxSize] is what the compositor suggests for it, where it suggests anything.
+     */
+    public fun askMaxSize(width: Dp = 0.dp, height: Dp = 0.dp) {
+        ask { _, toplevel -> toplevel.askMaxSize(width.toLogicalPx(), height.toLogicalPx()) }
     }
 
     private fun ask(request: (KortexSurface, XdgToplevelSurface) -> Unit) {
