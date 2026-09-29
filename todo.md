@@ -1522,10 +1522,6 @@ references and stays actionable on its own once the reports are gone.
 - Placing a menu ourselves. `SurfaceConfig.contextMenu` flipped a layer surface to whichever corner kept a menu
   on screen, which is the compositor's own job once a menu is an `xdg_popup` and it solves the positioner.
   Deleted with `MenuAnchor` and its nine test cases rather than given a caller.
-- A `:weather` provider. Every other provider carries something a Linux desktop has: a tray, a player, a
-  compositor's workspaces, a battery. Weather is something a person chose, and choosing it brings a provider,
-  an API key, a rate limit and a caching policy with it, every one of which is the application's decision
-  rather than the desktop's. A bar that wants weather writes its own HTTP against whatever it signed up to.
 - A title bar and a theme for it. kortex draws no decoration and refuses a window the compositor will not
   decorate, with `KortexError.ClientSideDecorationRequired`. Every compositor kortex can start on decorates
   server side, because GNOME is the one mainstream compositor that refuses to and it has no layer shell to
