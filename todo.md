@@ -838,13 +838,17 @@ survives on its own.
 - **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
   `PopupTeardownWireTest`, `DragWireTest` and `PointerReleaseOrderTest` take focus, re-tile open windows
   and drive the pointer, so they want a session kept free. Ask before starting a run.
-- **`DragWireTest` flakes on desktop state, and its failure does not look like one.** Seen once, in a
-  run started straight after another pointer-driving test: `no wl_data_device.start_drag left the
-  client while the pointer dragged; wire: (no wl_data_device or wl_data_offer or wl_data_source
-  traffic at all)`. That reads like a drag regression and is not one. The probe exited 0 and both of
-  its markers were present and in order, which the test asserts before that line, so the child placed
-  its surfaces and drove the pointer and the compositor simply started no drag. Read it as the cursor
-  not being where the gesture needed it, and re-run in a free session before believing it.
+- **`DragWireTest` now fails every run, and it is not understood.** Ten consecutive passes of
+  `:wayland:jvmTest`, same failure each time: `no wl_data_device.start_drag left the client while the
+  pointer dragged; wire: (no wl_data_device or wl_data_offer or wl_data_source traffic at all)`. It
+  passed once earlier in the same session, on the same code, in a whole-project run, so it is not a
+  clean regression either. What is known: the probe exits 0 and both wire markers are present and in
+  order, which the test asserts ahead of that line, so the child placed its surfaces and drove the
+  pointer; `hyprctl layers` shows no leftover kortex surface holding the screen; and
+  `wl_data_device_interface` is libwayland's own symbol, not a hand-built table, so `start_drag`'s
+  since is 1 and `marshal`'s version gate cannot be silently skipping it. Open: whether the child
+  captures the `WAYLAND_DEBUG` stream at all on this path, since an empty capture and a drag that
+  never happened fail identically here, and the message names only the second.
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
