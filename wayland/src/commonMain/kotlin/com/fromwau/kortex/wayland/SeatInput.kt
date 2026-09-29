@@ -373,7 +373,7 @@ internal class Seat private constructor(
 
     companion object {
         fun bind(display: WaylandDisplay): Result<Seat, KortexError> =
-            display.require("wl_seat", LibWayland.seatInterface, WlVersion.SEAT).map { seat ->
+            display.require(WaylandInterface.Seat, LibWayland.seatInterface, WlVersion.SEAT).map { seat ->
                 val capabilities = SeatCapabilities().also { it.install(seat) }
                 display.roundtrip()
                 Seat(seat, capabilities)

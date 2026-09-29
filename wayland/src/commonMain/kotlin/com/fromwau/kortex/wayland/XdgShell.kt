@@ -671,10 +671,11 @@ internal class XdgToplevelSurface private constructor(
             height: Int,
             parent: MemorySegment = MemorySegment.NULL,
         ): Result<XdgToplevelSurface, KortexError> {
-            val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
+            val compositor = display
+                .require(WaylandInterface.Compositor, LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
             val wmBase = display
-                .require("xdg_wm_base", XdgShellProtocol.xdgWmBaseInterface, WlVersion.XDG_SHELL)
+                .require(WaylandInterface.XdgWmBase, XdgShellProtocol.xdgWmBaseInterface, WlVersion.XDG_SHELL)
                 .getOrElse {
                     releaseCompositor(compositor)
                     return Err(it)
@@ -1005,10 +1006,11 @@ internal class XdgPopupSurface private constructor(
             height: Int,
             grabs: Boolean,
         ): Result<XdgPopupSurface, KortexError> {
-            val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
+            val compositor = display
+                .require(WaylandInterface.Compositor, LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
             val wmBase = display
-                .require("xdg_wm_base", XdgShellProtocol.xdgWmBaseInterface, WlVersion.XDG_SHELL)
+                .require(WaylandInterface.XdgWmBase, XdgShellProtocol.xdgWmBaseInterface, WlVersion.XDG_SHELL)
                 .getOrElse {
                     releaseCompositor(compositor)
                     return Err(it)

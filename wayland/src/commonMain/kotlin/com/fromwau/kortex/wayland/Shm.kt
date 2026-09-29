@@ -320,7 +320,7 @@ internal class Shm(private val shm: MemorySegment) : AutoCloseable {
 
     companion object {
         fun bind(display: WaylandDisplay): Result<Shm, KortexError> =
-            display.require("wl_shm", LibWayland.shmInterface, WlVersion.SHM).map { Shm(it) }
+            display.require(WaylandInterface.Shm, LibWayland.shmInterface, WlVersion.SHM).map { Shm(it) }
 
         private const val WL_SHM_CREATE_POOL = 0
         private const val WL_SHM_POOL_CREATE_BUFFER = 0

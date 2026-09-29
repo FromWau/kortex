@@ -610,15 +610,16 @@ internal class KortexShell private constructor(
         /** Checks that [globals] has every global a surface binds as it is placed, failing with the first it lacks. */
         internal fun requireSurfaceGlobals(globals: List<WaylandGlobal>): EmptyResult<KortexError.MissingGlobal> =
             SURFACE_GLOBALS
-                .firstOrNull { interfaceName -> globals.none { it.interfaceName == interfaceName } }
+                .firstOrNull { wanted -> globals.none { it.interfaceName == wanted.wireName } }
                 ?.let { Err(KortexError.MissingGlobal(it)) }
                 ?: Ok(Unit)
 
         // What LayerShellSurface, Shm and WlCursorTheme bind for each surface. wl_seat is not here: the clipboard binds
         // it as the shell is created, which fails without it.
-        private val SURFACE_GLOBALS = listOf("wl_compositor", "wl_shm", "zwlr_layer_shell_v1")
+        private val SURFACE_GLOBALS =
+            listOf(WaylandInterface.Compositor, WaylandInterface.Shm, WaylandInterface.LayerShell)
 
-        private const val WL_OUTPUT = "wl_output"
+        private val WL_OUTPUT = WaylandInterface.Output.wireName
 
         private const val NANOS_PER_MILLI = 1_000_000L
         private const val PUMP_INTERVAL_MILLIS = 16L

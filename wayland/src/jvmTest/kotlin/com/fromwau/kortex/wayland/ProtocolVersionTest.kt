@@ -35,18 +35,19 @@ class ProtocolVersionTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            BINDINGS.forEach { (interfaceName, iface, asked) ->
+            BINDINGS.forEach { (global, iface, asked) ->
+                val name = global.wireName
                 val advertised = assertNotNull(
-                    wayland.global(interfaceName)?.version,
-                    "the compositor did not advertise $interfaceName",
+                    wayland.global(name)?.version,
+                    "the compositor did not advertise $name",
                 )
-                val proxy = wayland.require(interfaceName, iface, asked)
-                    .getOrElse { error -> fail("$interfaceName bind failed: $error") }
+                val proxy = wayland.require(global, iface, asked)
+                    .getOrElse { error -> fail("$name bind failed: $error") }
                 val bound = LibWayland.proxyGetVersion(proxy)
-                println("BOUND $interfaceName v$bound (kortex asks v$asked, compositor offers v$advertised)")
+                println("BOUND $name v$bound (kortex asks v$asked, compositor offers v$advertised)")
                 assertEquals(
                     minOf(advertised, asked), bound,
-                    "$interfaceName must bind at the lower of v$asked and the advertised v$advertised",
+                    "$name must bind at the lower of v$asked and the advertised v$advertised",
                 )
             }
             // A bind past what the compositor advertises leaves the local proxy at the clamped version
@@ -68,11 +69,11 @@ class ProtocolVersionTest {
      */
     @Test
     fun `every version kortex asks for is one libwayland's own table declares`() {
-        BINDINGS.filterNot { it.handBuilt }.forEach { (interfaceName, iface, asked) ->
+        BINDINGS.filterNot { it.handBuilt }.forEach { (global, iface, asked) ->
             val declared = LibWayland.interfaceVersion(iface)
             assertTrue(
                 asked <= declared,
-                "$interfaceName asks for v$asked, past the v$declared its wl_interface declares",
+                "${global.wireName} asks for v$asked, past the v$declared its wl_interface declares",
             )
         }
     }
@@ -83,7 +84,7 @@ class ProtocolVersionTest {
 
         display.use { wayland ->
             val advertised = assertNotNull(
-                wayland.global("wl_seat")?.version,
+                wayland.global(WaylandInterface.Seat.wireName)?.version,
                 "the compositor did not advertise wl_seat",
             )
             val negotiated = minOf(advertised, WlVersion.SEAT)
@@ -215,7 +216,7 @@ class ProtocolVersionTest {
 
     /** One global kortex binds, with the version it asks for. */
     private data class Binding(
-        val interfaceName: String,
+        val global: WaylandInterface,
         val iface: MemorySegment,
         val asked: Int,
         /** Whether [iface] is a table kortex builds itself rather than one libwayland exports. */
@@ -224,19 +225,23 @@ class ProtocolVersionTest {
 
     private companion object {
         val BINDINGS = listOf(
-            Binding("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR),
-            Binding("wl_shm", LibWayland.shmInterface, WlVersion.SHM),
-            Binding("wl_seat", LibWayland.seatInterface, WlVersion.SEAT),
-            Binding("wl_output", LibWayland.outputInterface, WlVersion.OUTPUT),
-            Binding("wl_data_device_manager", LibWayland.dataDeviceManagerInterface, WlVersion.DATA_DEVICE_MANAGER),
+            Binding(WaylandInterface.Compositor, LibWayland.compositorInterface, WlVersion.COMPOSITOR),
+            Binding(WaylandInterface.Shm, LibWayland.shmInterface, WlVersion.SHM),
+            Binding(WaylandInterface.Seat, LibWayland.seatInterface, WlVersion.SEAT),
+            Binding(WaylandInterface.Output, LibWayland.outputInterface, WlVersion.OUTPUT),
             Binding(
-                "zwlr_layer_shell_v1",
+                WaylandInterface.DataDeviceManager,
+                LibWayland.dataDeviceManagerInterface,
+                WlVersion.DATA_DEVICE_MANAGER,
+            ),
+            Binding(
+                WaylandInterface.LayerShell,
                 LayerShellProtocol.layerShellInterface,
                 WlVersion.LAYER_SHELL,
                 handBuilt = true,
             ),
             Binding(
-                "zwlr_virtual_pointer_manager_v1",
+                WaylandInterface.VirtualPointerManager,
                 VirtualPointerProtocol.virtualPointerManagerInterface,
                 WlVersion.VIRTUAL_POINTER,
                 handBuilt = true,

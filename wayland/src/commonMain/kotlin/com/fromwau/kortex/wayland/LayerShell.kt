@@ -259,10 +259,11 @@ internal class LayerShellSurface(
             val namespace = config.namespace
             val anchor = config.anchor
 
-            val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
+            val compositor = display
+                .require(WaylandInterface.Compositor, LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
             val shell = display
-                .require("zwlr_layer_shell_v1", LayerShellProtocol.layerShellInterface, WlVersion.LAYER_SHELL)
+                .require(WaylandInterface.LayerShell, LayerShellProtocol.layerShellInterface, WlVersion.LAYER_SHELL)
                 .getOrElse {
                     releaseCompositor(compositor)
                     return Err(it)

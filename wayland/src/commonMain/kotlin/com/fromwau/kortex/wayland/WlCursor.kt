@@ -196,7 +196,7 @@ internal class WlCursorTheme private constructor(
     companion object {
         /** Honours `XCURSOR_THEME`/`XCURSOR_SIZE`, falling back to the compositor's default theme at size 24. */
         fun load(display: WaylandDisplay, scale: Int): Result<WlCursorTheme, KortexError> =
-            display.require("wl_shm", LibWayland.shmInterface, WlVersion.SHM).map { shm ->
+            display.require(WaylandInterface.Shm, LibWayland.shmInterface, WlVersion.SHM).map { shm ->
                 val themeName = System.getenv("XCURSOR_THEME")
                 val baseSize = System.getenv("XCURSOR_SIZE")?.toIntOrNull() ?: DEFAULT_SIZE
                 WlCursorTheme(shm, themeName, baseSize).also { it.rescale(scale) }
@@ -247,7 +247,9 @@ internal class WlCursorSurface private constructor(
 
     companion object {
         fun create(display: WaylandDisplay): Result<WlCursorSurface, KortexError> =
-            display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR).map { compositor ->
+            display
+                .require(WaylandInterface.Compositor, LibWayland.compositorInterface, WlVersion.COMPOSITOR)
+                .map { compositor ->
                 val surface = LibWayland.marshal(
                     compositor, WL_COMPOSITOR_CREATE_SURFACE, LibWayland.surfaceInterface,
                     LibWayland.proxyGetVersion(compositor), listOf(WlArg.Ptr(MemorySegment.NULL)),

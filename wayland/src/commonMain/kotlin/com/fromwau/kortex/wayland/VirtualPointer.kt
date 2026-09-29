@@ -129,7 +129,7 @@ internal class VirtualPointerManager private constructor(private val manager: Me
     companion object {
         fun bind(display: WaylandDisplay): Result<VirtualPointerManager, KortexError> =
             display.require(
-                "zwlr_virtual_pointer_manager_v1",
+                WaylandInterface.VirtualPointerManager,
                 VirtualPointerProtocol.virtualPointerManagerInterface,
                 WlVersion.VIRTUAL_POINTER,
             ).map { manager -> VirtualPointerManager(manager) }

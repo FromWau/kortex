@@ -788,9 +788,13 @@ class SurfaceTest {
 
     @Test
     fun `an application needs wl_compositor, wl_shm and zwlr_layer_shell_v1 from the compositor`() {
-        val all = listOf("wl_compositor", "wl_shm", "zwlr_layer_shell_v1", "wl_seat")
-            .mapIndexed { name, interfaceName -> WaylandGlobal(name, interfaceName, version = 1) }
-        fun lacking(interfaceName: String) = all.filterNot { it.interfaceName == interfaceName }
+        val all = listOf(
+            WaylandInterface.Compositor,
+            WaylandInterface.Shm,
+            WaylandInterface.LayerShell,
+            WaylandInterface.Seat,
+        ).mapIndexed { name, wanted -> WaylandGlobal(name, wanted.wireName, version = 1) }
+        fun lacking(wanted: WaylandInterface) = all.filterNot { it.interfaceName == wanted.wireName }
 
         assertEquals(
             Ok(Unit),
@@ -798,18 +802,18 @@ class SurfaceTest {
             "a compositor advertising every global was found lacking one",
         )
         assertEquals(
-            Err(KortexError.MissingGlobal("wl_compositor")),
-            KortexShell.requireSurfaceGlobals(lacking("wl_compositor")),
+            Err(KortexError.MissingGlobal(WaylandInterface.Compositor)),
+            KortexShell.requireSurfaceGlobals(lacking(WaylandInterface.Compositor)),
             "a compositor without wl_compositor was not found lacking it",
         )
         assertEquals(
-            Err(KortexError.MissingGlobal("wl_shm")),
-            KortexShell.requireSurfaceGlobals(lacking("wl_shm")),
+            Err(KortexError.MissingGlobal(WaylandInterface.Shm)),
+            KortexShell.requireSurfaceGlobals(lacking(WaylandInterface.Shm)),
             "a compositor without wl_shm was not found lacking it",
         )
         assertEquals(
-            Err(KortexError.MissingGlobal("zwlr_layer_shell_v1")),
-            KortexShell.requireSurfaceGlobals(lacking("zwlr_layer_shell_v1")),
+            Err(KortexError.MissingGlobal(WaylandInterface.LayerShell)),
+            KortexShell.requireSurfaceGlobals(lacking(WaylandInterface.LayerShell)),
             "a compositor without zwlr_layer_shell_v1 was not found lacking it",
         )
     }

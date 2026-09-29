@@ -26,11 +26,11 @@ class WaylandDisplayTest {
             val names = globals.map(WaylandGlobal::interfaceName)
             assertTrue(globals.isNotEmpty(), "the registry advertised nothing at all")
             REQUIRED.forEach { required ->
-                assertTrue(required in names, "compositor did not advertise $required")
+                assertTrue(required.wireName in names, "compositor did not advertise ${required.wireName}")
             }
             assertTrue(
-                names.count { name -> name == "wl_output" } >= 1,
-                "expected at least one wl_output",
+                names.count { name -> name == WaylandInterface.Output.wireName } >= 1,
+                "expected at least one ${WaylandInterface.Output.wireName}",
             )
         }
     }
@@ -124,7 +124,13 @@ class WaylandDisplayTest {
 
     private companion object {
         val WAYLAND_DISPLAY: String = System.getenv("WAYLAND_DISPLAY") ?: "<unset>"
-        val REQUIRED = listOf("wl_compositor", "wl_shm", "wl_seat", "wl_output", "zwlr_layer_shell_v1")
+        val REQUIRED = listOf(
+            WaylandInterface.Compositor,
+            WaylandInterface.Shm,
+            WaylandInterface.Seat,
+            WaylandInterface.Output,
+            WaylandInterface.LayerShell,
+        )
         const val NO_SUCH_DISPLAY = "kortex-no-such-display"
 
         // Well inside the safety wake, which only a wait that slept through its cue would last until.

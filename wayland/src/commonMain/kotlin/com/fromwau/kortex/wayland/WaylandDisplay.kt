@@ -171,14 +171,14 @@ internal class WaylandDisplay private constructor(
     }
 
     internal fun require(
-        interfaceName: String,
+        wanted: WaylandInterface,
         iface: MemorySegment,
         maxVersion: Int,
     ): Result<MemorySegment, KortexError> {
-        val global = global(interfaceName)
+        val advertised = global(wanted.wireName)
             // A dead connection surfaces first as a missing global; the connection itself knows the real cause.
-            ?: return requireAlive().flatMap { Err(KortexError.MissingGlobal(interfaceName)) }
-        return Ok(bind(global, iface, maxVersion))
+            ?: return requireAlive().flatMap { Err(KortexError.MissingGlobal(wanted)) }
+        return Ok(bind(advertised, iface, maxVersion))
     }
 
     override fun close() {

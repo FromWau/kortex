@@ -27,7 +27,10 @@ class SurfaceCreateFailureTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
 
         display.use { wayland ->
-            val seat = assertNotNull(wayland.global(WL_SEAT), "the compositor advertised no $WL_SEAT")
+            val seat = assertNotNull(
+                wayland.global(WaylandInterface.Seat.wireName),
+                "the compositor advertised no ${WaylandInterface.Seat.wireName}",
+            )
             // Exactly what the registry listener does on global_remove; no shell is listening to react to it.
             wayland.removeGlobal(seat.name)
 
@@ -37,7 +40,7 @@ class SurfaceCreateFailureTest {
             // libwayland holds a duplicate of each descriptor it sends until the next flush, which is no leak.
             wayland.roundtrip()
 
-            assertEquals(Err(KortexError.MissingGlobal(WL_SEAT)), failed)
+            assertEquals(Err(KortexError.MissingGlobal(WaylandInterface.Seat)), failed)
             assertEquals(memfdsBefore, openMemfds(), "a failed create left memfd-backed descriptors open")
             assertEquals(
                 emptySet(), Recomposer.runningRecomposers.value - recomposersBefore,
@@ -83,7 +86,6 @@ class SurfaceCreateFailureTest {
         }
 
     private companion object {
-        const val WL_SEAT = "wl_seat"
         const val NAMESPACE = "kortex-create-failure"
         const val SHM_MEMFD = "/memfd:kortex-shm"
         const val SIDE = 64

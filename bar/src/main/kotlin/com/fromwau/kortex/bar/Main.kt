@@ -46,6 +46,7 @@ import com.fromwau.kortex.wayland.Osd
 import com.fromwau.kortex.wayland.SurfaceEnd
 import com.fromwau.kortex.wayland.SurfaceState
 import com.fromwau.kortex.wayland.SurfaceStatus
+import com.fromwau.kortex.wayland.WaylandInterface
 import com.fromwau.kortex.wayland.Window
 import com.fromwau.kortex.wayland.WindowStatus
 import com.fromwau.kortex.wayland.kortexApplication
@@ -82,9 +83,26 @@ fun main() {
             }
         }
     }.onError { error ->
-        System.err.println("kortex: $error")
+        System.err.println("kortex: ${error.saidPlainly()}")
         exitProcess(1)
     }
+}
+
+/**
+ * What to print for [this] on the way out, where a person reads it off a terminal.
+ *
+ * Only the failures a person can do something about are worded. Everything else is a defect or a connection
+ * that went away, and there the data class's own fields are what helps, so it prints as itself.
+ */
+internal fun KortexError.saidPlainly(): String = when {
+    this is KortexError.MissingGlobal && global == WaylandInterface.LayerShell ->
+        "this compositor does not support ${global.wireName}, which kortex needs for bars, docks and every " +
+            "other layer surface. It runs on wlroots compositors, Hyprland and sway among them, and on KWin."
+
+    this is KortexError.MissingGlobal ->
+        "this compositor does not support ${global.wireName}, which kortex needs."
+
+    else -> toString()
 }
 
 /** Whether a monitor's bar has stopped, and what it stopped with. */

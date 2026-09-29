@@ -25,7 +25,7 @@ class SinceFromTableTest {
 
         display.use { wayland ->
             val compositor = wayland
-                .require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
+                .require(WaylandInterface.Compositor, LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { error -> fail("no wl_compositor: $error") }
 
             // Whatever the compositor offers: below 7 the release must be skipped, at 7 it must be sent, and

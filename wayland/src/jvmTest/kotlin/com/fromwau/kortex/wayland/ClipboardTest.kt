@@ -436,7 +436,7 @@ class ClipboardTest {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use { wayland ->
             // Forgotten on this side only, as global_remove does; nothing ever binds it.
-            wayland.global(DATA_DEVICE_MANAGER)?.let { wayland.removeGlobal(it.name) }
+            wayland.global(WaylandInterface.DataDeviceManager.wireName)?.let { wayland.removeGlobal(it.name) }
             block(wayland)
         }
     }
@@ -569,7 +569,6 @@ class ClipboardTest {
 
         const val NANOS_PER_MILLI = 1_000_000L
         const val POLLERR = 0x008
-        const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
         const val EARLIER_SERIAL = 3
         const val LATEST_SERIAL = 7
     }

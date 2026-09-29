@@ -46,6 +46,11 @@ public interface KortexApplicationScope {
  * }
  * ```
  *
+ * kortex needs `zwlr_layer_shell_v1`, the protocol every [LayerSurface] is built on, and asks for it before it
+ * opens anything. A compositor without it fails here with [KortexError.MissingGlobal] naming that protocol, and
+ * no surface of any kind opens, [Window] included. That is the wlroots compositors, Hyprland and sway among
+ * them, and KWin; Weston and GNOME implement no layer shell and cannot run a kortex application.
+ *
  * Blocks the calling thread until the application ends. [content] and every surface's content run on that thread,
  * which also draws, so blocking inside an effect stalls every surface; move blocking work off it, e.g. with
  * `withContext(Dispatchers.IO)`.

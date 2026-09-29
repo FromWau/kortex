@@ -10,13 +10,30 @@ public enum class SeatDevice { Pointer, Keyboard }
 /** Which step of allocating a shared-memory buffer failed. */
 public enum class ShmStep { MemfdCreate, Ftruncate, Mmap }
 
+/**
+ * A Wayland global kortex binds, under the name a compositor advertises it as.
+ *
+ * Only these: a compositor advertises many more, and kortex asks for none of them. [LayerShell] is the one a
+ * compositor is most likely to be without, and kortex opens nothing at all without it.
+ */
+public enum class WaylandInterface(public val wireName: String) {
+    Compositor("wl_compositor"),
+    Shm("wl_shm"),
+    Seat("wl_seat"),
+    Output("wl_output"),
+    DataDeviceManager("wl_data_device_manager"),
+    LayerShell("zwlr_layer_shell_v1"),
+    XdgWmBase("xdg_wm_base"),
+    VirtualPointerManager("zwlr_virtual_pointer_manager_v1"),
+}
+
 /** Failures a caller of `:wayland`'s public entry points can distinguish and act on. */
 public sealed interface KortexError : IError {
     /** Connecting found no compositor, or the initial roundtrip died with no protocol error to explain it. */
     public data object NoCompositorResponse : KortexError
 
-    /** The compositor never advertised [interfaceName] as a global. */
-    public data class MissingGlobal(public val interfaceName: String) : KortexError
+    /** The compositor never advertised [global], so nothing kortex builds on it can be bound. */
+    public data class MissingGlobal(public val global: WaylandInterface) : KortexError
 
     /** The seat exists but never announced [device] among its capabilities. */
     public data class MissingSeatDevice(public val device: SeatDevice) : KortexError

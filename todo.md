@@ -1031,19 +1031,32 @@ references and stays actionable on its own once the reports are gone.
       `marshal` leaves everything green. Both requests in the second entry above already have a green test
       driving them. Open: a test that binds a global at a forced-low version and asserts the connection
       survives, which would cover the whole class rather than two instances of it.
-- [ ] **kortex cannot run on Weston or GNOME at all, which narrows what "portability defect" can mean here.**
-      `KortexShell.createApplication` (`:582`) calls `requireSurfaceGlobals` before anything else, and that
-      list (`:617`) holds `zwlr_layer_shell_v1`, so a compositor without it fails with
-      `Err(MissingGlobal("zwlr_layer_shell_v1"))` and nothing runs. Weston has no layer shell (a repo-wide
-      grep of its tree for `wlr-layer-shell` and `zwlr_layer_shell` returns nothing) and neither does mutter.
-      So kortex runs on the wlroots family (Hyprland, sway, river, labwc, Wayfire) and on KWin, which does
-      implement it (`src/wayland/layershell_v1.cpp:22`, `s_version = 5`), and nowhere else. This corrects a
-      recommendation made four times during the audit, including in `SUMMARY.md`: **running the existing E2E
-      suite under nested Weston is not possible.** Weston also lacks `zwlr_virtual_pointer_v1`, which is how
-      the suite synthesises input, and the harness drives `hyprctl` throughout. Reaching Weston would take an
-      xdg-shell-only mode for `Window`, `Dialog` and `Popup`, which is a feature rather than a test change.
-      Open: decide whether that mode is wanted. It would buy GNOME and Weston support and, with them, a
-      reference compositor to test conformance against, which nothing currently provides.
+- [x] **kortex requires `zwlr_layer_shell_v1`, and says so rather than working around it.** Decided: no
+      xdg-shell-only mode. `KortexShell.createApplication` calls `requireSurfaceGlobals` before anything else
+      and that list holds `zwlr_layer_shell_v1`, so a compositor without it fails with
+      `Err(MissingGlobal("zwlr_layer_shell_v1"))` and nothing opens, `Window` included, even though `Window`,
+      `Dialog`, `Popup` and `ContextMenu` speak nothing but `xdg_shell` and would work there. Dropping the
+      global from that gate is one line, and the decision is to keep it: a shell toolkit whose bars, docks
+      and wallpapers cannot open is not a smaller kortex, it is a different one, and a half-running
+      application is worse to diagnose than one that refuses with a reason.
+      So the refusal is the feature, and what was missing was saying it. `kortexApplication`'s own docs name
+      the requirement and the compositors it rules out, and `:bar` turns the error into a sentence naming the
+      protocol rather than printing a data class at a person.
+      **`MissingGlobal` carries a `WaylandInterface` now, not an interface name.** It held a `String`, so
+      every side that cared which global was missing compared against a literal: `:bar` would have, and
+      `WaylandClipboard` already did, to tell a compositor with no `wl_data_device_manager` from any other
+      failure. The enum names the seven globals kortex binds with the wire name each is advertised under, and
+      `WaylandDisplay.require` takes one, so a typo is a compile error rather than a branch that never runs.
+      `WaylandGlobal` stays a `String`, because that one is the compositor's own advertisement and the set of
+      those is open. The string a person reads still belongs to the host that prints it, not to `:wayland`.
+      Which compositors: the wlroots family (Hyprland, sway, river, labwc, Wayfire) and KWin, which
+      implements it (`src/wayland/layershell_v1.cpp:22`, `s_version = 5`). Weston has no layer shell (a
+      repo-wide grep of its tree for `wlr-layer-shell` and `zwlr_layer_shell` returns nothing) and neither
+      does mutter. This corrects a recommendation made four times during the audit, including in
+      `SUMMARY.md`: **running the existing E2E suite under nested Weston is not possible**, and no longer for
+      want of a decision. Weston also lacks `zwlr_virtual_pointer_v1`, which is how the suite synthesises
+      input, and the harness drives `hyprctl` throughout, so a second compositor stays out of reach on the
+      test side whatever the shell side does. (`ExitMessageTest`)
 - [x] **Re-rank what each latent finding can still reach, now that the compositor set is known.** Of the five
       the audit called latent on Hyprland, two are unreachable everywhere kortex runs and one is live on KWin.
       Destroy-order `not_the_topmost_popup`: Hyprland does not implement it, KWin has it as a literal

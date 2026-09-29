@@ -229,9 +229,13 @@ internal class WaylandClipboard private constructor(
          */
         fun bind(display: WaylandDisplay, loop: CoroutineDispatcher): Result<WaylandClipboard, KortexError> {
             val manager = display
-                .require(DATA_DEVICE_MANAGER, LibWayland.dataDeviceManagerInterface, WlVersion.DATA_DEVICE_MANAGER)
+                .require(
+                    WaylandInterface.DataDeviceManager,
+                    LibWayland.dataDeviceManagerInterface,
+                    WlVersion.DATA_DEVICE_MANAGER,
+                )
                 .getOrElse { failure ->
-                    if (failure == KortexError.MissingGlobal(DATA_DEVICE_MANAGER)) {
+                    if (failure == KortexError.MissingGlobal(WaylandInterface.DataDeviceManager)) {
                         return Ok(WaylandClipboard(display, loop, bound = null))
                     }
                     return Err(failure)
@@ -249,7 +253,6 @@ internal class WaylandClipboard private constructor(
             LibWayland.proxyDestroy(manager)
         }
 
-        private const val DATA_DEVICE_MANAGER = "wl_data_device_manager"
         private const val WL_DATA_DEVICE_MANAGER_RELEASE = 2
     }
 }
