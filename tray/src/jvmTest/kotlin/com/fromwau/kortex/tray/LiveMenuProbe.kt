@@ -40,7 +40,11 @@ fun main(): Unit = runBlocking {
                 iface = "com.canonical.dbusmenu",
                 member = "GetLayout",
                 // Every depth, and every property, which is the widest answer the interface gives.
-                args = listOf(DBusValue.I32(0), DBusValue.I32(-1), DBusValue.Sequence(DBusType.Basic.Text, emptyList())),
+                args = listOf(
+                    DBusValue.I32(0),
+                    DBusValue.I32(-1),
+                    DBusValue.Sequence(DBusType.Basic.Text, emptyList()),
+                ),
             ).getOrElse { error -> return@forEach println("  GetLayout failed: $error") }
 
             println("  revision ${(layout[0] as DBusValue.U32).value}")
