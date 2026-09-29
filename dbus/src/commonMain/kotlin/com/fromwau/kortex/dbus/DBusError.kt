@@ -33,4 +33,33 @@ public sealed interface DBusError : IError {
 
     /** A message declared a kind byte that is none of call, return, error or signal. */
     public data class UnknownMessageKind(public val kind: Byte) : DBusError
+
+    /** Neither `DBUS_SESSION_BUS_ADDRESS` nor `XDG_RUNTIME_DIR` is set, so there is nowhere to look. */
+    public data object NoSessionBus : DBusError
+
+    /**
+     * [address] names no socket a JVM can open.
+     *
+     * `unix:abstract=` is the one a Linux desktop may still hand out: the abstract namespace needs a
+     * leading NUL in the address, and [java.net.UnixDomainSocketAddress] cannot write one.
+     */
+    public data class UnreachableBusAddress(public val address: String) : DBusError
+
+    /** This process's own uid could not be read, so `EXTERNAL` has nothing to send. */
+    public data class NoCredentials(public val detail: String) : DBusError
+
+    /** The bus refused the connection; [answer] is the line it refused with. */
+    public data class AuthenticationRejected(public val answer: String) : DBusError
+
+    /** The socket failed for a reason outside the protocol. */
+    public data class SocketFailed(public val detail: String) : DBusError
+
+    /** The connection is closed, whether by [DBusConnection.close] or by the bus hanging up. */
+    public data object Disconnected : DBusError
+
+    /** The peer answered with an error of its own; [name] is the error's bus name. */
+    public data class CallFailed(public val name: String, public val message: String?) : DBusError
+
+    /** Nothing answered inside the reply budget. */
+    public data object ReplyTimedOut : DBusError
 }
