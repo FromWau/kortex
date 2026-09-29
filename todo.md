@@ -824,10 +824,12 @@ where on the monitor the compositor put it.
 Written down because the rest of it lives in a conversation and in a git-ignored directory, and neither
 survives on its own.
 
-- **Branch `windows-and-input`, 152 commits ahead of `master`, nothing pushed, working tree clean.**
-  375 tests green across `:wayland`, `:compose` and `:bar`. The three `@Hotplug` classes are excluded
-  and have never run here; changing an output on this machine crashes the installed GTK about one run
-  in 256.
+- **Branch `windows-and-input`, 160 commits ahead of `master`, nothing pushed, working tree clean.**
+  376 tests across `:wayland`, `:compose` and `:bar`, of which 375 pass and `DragWireTest`
+  intermittently does not; the entry below says what is known about it. Do not read a green run as
+  proof there, or a red one as a drag defect, without reading which assertion failed. The three
+  `@Hotplug` classes are excluded and have never run here; changing an output on this machine
+  crashes the installed GTK about one run in 256.
 - **It sits on `reactive-surfaces`, which is itself not merged into `master`.** Merging that first keeps
   the history straight. That decision has been open since before the audit and is still nobody's but
   yours.
@@ -849,10 +851,14 @@ survives on its own.
   the wire is what a refused drag looks like too, and the press check that separates them sat after
   the `start_drag` assertion, so it never ran. It runs first now.
 
-  What is still unknown is what made those eleven fail. They ran back to back over about 25 minutes,
-  straight after 30 iterations of another pointer-driving test, and across a stretch when the machine
-  was in use; this test needs uninterrupted control of the pointer for roughly twenty steps, which its
-  own KDoc says. That is a candidate, not a finding. The next failure will name which half it is.
+  It is intermittent, not broken: eleven failures, then four passes, then a failure again on the next
+  whole-project run. That last one is the useful one, because the reordered check ran in it and
+  passed: a `wl_pointer.button` press did reach the client, among 1148 wire lines, and `start_drag`
+  still never left. So the half where the pointer never arrives at the source surface is out, and
+  what is left is between the press landing and the request going: either Compose's own drag
+  detection never asked the host to carry the payload, or `startDrag` was asked and answered with a
+  typed error nobody prints. The probe can tell those apart by saying what `startDrag` returned,
+  which it does not say today.
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
@@ -1107,6 +1113,14 @@ references and stays actionable on its own once the reports are gone.
       `PopupTeardownWireTest` read theirs. Open: the `askMinimized` one, and a decision to stop trying on
       `preciseScroll` rather than leaving it looking like an oversight.
 
+- [x] **A request sent on a proxy that is not there fails here, rather than in libwayland.** `marshal`
+      handed its proxy straight to `wl_proxy_marshal_flags`, which reads the interface pointer at offset
+      zero before anything else, so a null one was a SIGSEGV that took the process and named nobody: two of
+      the three crash dumps in `wayland/` are exactly that, both `wl_data_source.destroy` on a source the
+      clipboard was left holding after an assertion failed, faulting at `mov (%r11),%rsi` with `R11` zero.
+      `7983b24` fixed the test that left it there in September; the request path itself stayed able to kill
+      the JVM for any other caller, `proxyGetVersion` dereferencing the same null a line earlier.
+      `NullProxyRequestTest` pins the refusal.
 - [ ] **A live `wl_pointer`'s listener was called after its arena closed, and only one of the three dumps is
       that.** The three `hs_err_pid*.log` files in `wayland/` have now been read. They are two separate
       faults, not one.
