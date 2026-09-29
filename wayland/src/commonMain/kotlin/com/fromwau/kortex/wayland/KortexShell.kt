@@ -440,6 +440,11 @@ internal class KortexShell private constructor(
                 onPointerGrab = clipboard::recordPointerGrab,
                 onKeyboardFocus = clipboard::recordKeyboardFocus,
                 onStartDrag = clipboard::startDrag,
+                // The newest pointer press the shell has seen, which is where it keeps one for start_drag:
+                // both requests name the implicit grab a press took, and a compositor checking either
+                // refuses any other serial. Null before the user has pressed anything, and a grab quoting
+                // no press is denied, which dismisses the popup as it opens.
+                grabSerial = clipboard.grabSerial,
             )
         }
         return built.flatMap { surface ->

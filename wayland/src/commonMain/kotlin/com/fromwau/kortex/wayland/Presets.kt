@@ -256,7 +256,17 @@ public fun AppMenu(
 /**
  * A menu of size [menuSize], opened at [at] over the surface this call's content is on, and stacked above it. It
  * opens down and to the right of [at], unless it would then run past the screen's right or bottom edge: it opens
- * to the left of [at] instead, or upwards from it, each direction decided on its own. It takes no keyboard focus.
+ * to the left of [at] instead, or upwards from it, each direction decided on its own.
+ *
+ * A menu takes the desktop's grab while it is up, as a menu does everywhere: it holds the keyboard, so typing
+ * reaches its content rather than whatever had focus, and the desktop dismisses it when the user clicks away
+ * from it, presses a key that leaves it, or the screen locks. A dismissal reaches you as
+ * `Ok(SurfaceEnd.ClosedByCompositor)` in [state], and the menu is gone by then, so take the call out of
+ * composition on it. That is the whole difference from [Popup], which holds no grab and stays up until its call
+ * leaves composition.
+ *
+ * Open it from a click. The grab names the pointer press that opened the menu, so a menu opened with no press
+ * behind it, from an effect as the surface appears say, is refused the grab and dismissed as it arrives.
  *
  * Call it in a surface's content, never in [kortexApplication]'s own: the menu belongs to the surface it opens
  * over, and both a bar and a window can hold one.
@@ -273,7 +283,7 @@ public fun AppMenu(
  * }
  * ```
  *
- * It is a [Popup] with a menu's size given as one value; every other setting is this call's own.
+ * It is a [Popup] that takes a grab, with a menu's size given as one value; every other setting is this call's own.
  *
  * @param at where the menu opens, in logical pixels from the top-left corner of the surface this call's content
  *   is on.
@@ -292,10 +302,11 @@ public fun ContextMenu(
     state: SurfaceState = rememberSurfaceState(),
     content: @Composable SurfaceScope.() -> Unit,
 ) {
-    Popup(
+    PopupCall(
         at = at,
         width = menuSize.width.dp,
         height = menuSize.height.dp,
+        grab = true,
         state = state,
         content = content,
     )

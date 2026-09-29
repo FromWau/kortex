@@ -122,6 +122,9 @@ internal class LayerShellSurface(
 
     override val wantsKeyboard: Boolean get() = config.keyboard != KeyboardInteractivity.None
 
+    /** Only a popup takes an explicit grab; a layer surface says what keyboard it wants through its config. */
+    override fun takeGrab(seat: Seat, serial: Int) = Unit
+
     /** A layer surface takes a popup the client made without one, which is how a bar shows a menu. */
     override val popupParent: PopupParent get() = PopupParent.Layer(this)
 

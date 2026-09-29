@@ -74,6 +74,16 @@ internal interface SurfaceRole : AutoCloseable {
     val wantsKeyboard: Boolean
 
     /**
+     * Takes an explicit grab on [seat], quoting [serial] of the user action that opened this surface, so the
+     * compositor dismisses it when the user clicks away or presses a key. Only a popup can take one, and only
+     * one that asked to; every other role answers by doing nothing.
+     *
+     * Called before the first buffer reaches the surface, since `xdg_popup`'s own `invalid_grab` error is
+     * "tried to grab after being mapped" and a surface committed with no buffer is not yet mapped.
+     */
+    fun takeGrab(seat: Seat, serial: Int)
+
+    /**
      * Blocks until the compositor has configured this surface, acknowledging the serial it sent.
      *
      * @return `Ok` once configured, else why it never was.

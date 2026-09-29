@@ -36,7 +36,8 @@ import androidx.compose.ui.unit.IntOffset
  *
  * A popup takes no keyboard focus, so typing goes on reaching whatever had it, and a click outside it, on another
  * application or on the desktop, leaves it open. Dismiss it by taking the call out of composition, from a click on
- * one of its own items, say, or from a click elsewhere in your own content.
+ * one of its own items, say, or from a click elsewhere in your own content. That is what a tooltip or a popover
+ * wants; for a menu, which the desktop should dismiss on a click away from it, call [ContextMenu] instead.
  *
  * A popup belongs to the surface it opened over for as long as it lives, and cannot be moved to another. So it also
  * ends with `Ok(SurfaceEnd.LeftComposition)` when that surface is moved to another monitor or namespace, while this
@@ -70,12 +71,28 @@ public fun Popup(
     state: SurfaceState = rememberSurfaceState(),
     content: @Composable SurfaceScope.() -> Unit,
 ) {
+    PopupCall(at = at, width = width, height = height, grab = false, state = state, content = content)
+}
+
+/**
+ * Both popup calls, which differ only in whether the popup takes an explicit grab: a menu does, and is
+ * dismissed by a click away from it; a tooltip or a popover does not, and stays until its call leaves.
+ */
+@Composable
+internal fun PopupCall(
+    at: IntOffset,
+    width: Dp,
+    height: Dp,
+    grab: Boolean,
+    state: SurfaceState,
+    content: @Composable SurfaceScope.() -> Unit,
+) {
     checkNotNull(LocalSurfaceSlot.current) { POPUP_WITHOUT_PARENT }
     require(width.toLogicalPx() > 0 && height.toLogicalPx() > 0) {
         "a popup is drawn at a size of at least one pixel on each axis, not $width by $height"
     }
     SurfaceCall(
-        settings = PopupSettings(at = at, width = width, height = height),
+        settings = PopupSettings(at = at, width = width, height = height, grab = grab),
         published = state.published,
         content = content,
     )
@@ -86,7 +103,10 @@ internal data class PopupSettings(
     val at: IntOffset,
     val width: Dp,
     val height: Dp,
+    /** Whether to take `xdg_popup.grab`, which gives the popup the keyboard and the click that dismisses it. */
+    val grab: Boolean = false,
 ) : SurfaceSettings() {
+
     /** All of it lives in a positioner the compositor copies as the popup is created, so a change is a new one. */
     override fun rebuildsOverSameKind(placed: SurfaceSettings): Boolean = this != placed
 }

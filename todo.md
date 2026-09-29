@@ -281,11 +281,25 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       rather than from the monitor, and a menu near the screen's right or bottom edge opens the other way on that
       axis instead, each decided on its own. Called outside a surface's content it fails the application, saying
       where a menu belongs. (`PopupTest`)
-- [ ] **A popup takes no grab, so only its call leaving composition dismisses it.** kortex never sends
-      `xdg_popup.grab`, and `Popup`'s KDoc says a click outside it does not close it. Open: a grab needs a
-      `wl_seat` and the serial of the input that opened the popup, both new in `Popup`'s public signature, and
-      taking one gives the popup the user's keyboard for as long as it is up, which would put every popup test
-      in a session kept free for it.
+- [x] **A popup takes no grab, so only its call leaving composition dismisses it.** `ContextMenu` takes one now;
+      `Popup` still does not, and that split is the fix rather than a compromise. `xdg_popup`'s own description
+      names menus, popovers and tooltips together, and only the first of those should hold the user's keyboard,
+      so the grab belongs to the call that says "menu" and not to the one that says "popup". A menu is now
+      dismissed by a click away from it, by a key that leaves it, or by the screen locking, and content reads
+      that as `Ok(SurfaceEnd.ClosedByCompositor)`.
+      **The entry's cost estimate was wrong on the API and right on the keyboard.** No public signature changed:
+      the shell already binds a `Seat` per surface and already records every pointer press for `start_drag`,
+      whose argument answers the same "the implicit grab a press took" question, so the grab quotes what was
+      already there. `XdgPopupSurface.wantsKeyboard` follows the grab, since a grabbing popup is handed the
+      keyboard and would otherwise have nowhere to deliver it. The grab is sent after the seat is bound and
+      before the first buffer: `xdg_popup.invalid_grab` is "tried to grab after being mapped", and a surface
+      committed with no buffer is not yet mapped, so no role had to be built differently.
+      A menu opened with no pointer press behind it sends no grab at all, because a denied grab dismisses the
+      popup as it arrives, which is worse than the menu that stays up. That is why `PopupTest`'s existing
+      `ContextMenu` case, which opens one without a click, still passes unchanged.
+      (`PopupGrabWireTest`, which reads the grab off the wire, watches a click away dismiss the menu, and holds
+      a plain `Popup` against the same gesture to show it does neither)
+
 - [x] **Nested popups are taken down outermost first.** The code defect is real and the fix is the one below:
       `KortexShell.takeDown` closes a slot's surface without ending the popups under it, and both the reconcile
       that ends slots and the shell's own close walk `placed` parent-before-child. The *reason* first recorded
@@ -846,10 +860,11 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **394 tests green on `master`: 363 in `:wayland`, 24 in `:compose`, 7 in `:bar`.**
+- **395 tests green on `master`: 364 in `:wayland`, 24 in `:compose`, 7 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
   The three `@Hotplug` classes are excluded and have never run here; changing an output on this machine
-  crashes the installed GTK about one run in 256, so that number is 394 of a slightly larger whole.
+  crashes the installed GTK about one run in 256, so that number is 395 of a slightly larger whole.
+
 
 
 - **The audit's own reports are in `.superpowers/sdd/protocol-audit/`, nineteen files, and that path is
@@ -857,8 +872,10 @@ survives on its own.
   `git clean -fdx` takes all of it. Every entry below carries its own evidence for that reason, but the
   reports hold the roughly 190 items that were checked and found correct, which nothing else records.
 - **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
-  `PopupTeardownWireTest`, `DragWireTest`, `MinimizeWireTest` and `PointerReleaseOrderTest` take focus,
-  re-tile open windows and drive the pointer, so they want a session kept free. Ask before starting a run.
+  `PopupTeardownWireTest`, `DragWireTest`, `MinimizeWireTest`, `PopupGrabWireTest` and
+  `PointerReleaseOrderTest` take focus, re-tile open windows and drive the pointer, so they want a session
+  kept free. Ask before starting a run.
+
 
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in

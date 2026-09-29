@@ -419,6 +419,9 @@ internal class KortexSurface private constructor(
             // Handed what content drags out of the surface, and the wl_surface it is dragged from; answers
             // why the compositor could not be asked, where it could not.
             onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
+            // The newest pointer press the shell has seen, for a role that takes an explicit grab to quote,
+            // and null where the user has pressed nothing yet for one to name.
+            grabSerial: Int? = null,
             // Makes what the surface is built on, which the surface owns from the moment it is handed over.
             buildRole: () -> Result<SurfaceRole, KortexError>,
         ): Result<KortexSurface, KortexError> {
@@ -457,6 +460,9 @@ internal class KortexSurface private constructor(
                     // A dead connection surfaces first as a seat with no devices; prefer the real cause.
                     return display.requireAlive().flatMap { Err(KortexError.MissingSeatDevice(SeatDevice.Pointer)) }
                 }
+                // Here and not later: the grab is an error once the surface is mapped, and the first buffer
+                // reaches it only when something renders into the scene attached below.
+                grabSerial?.let { serial -> role.takeGrab(seat, serial) }
                 val surface = KortexSurface(
                     display = display,
                     role = role,

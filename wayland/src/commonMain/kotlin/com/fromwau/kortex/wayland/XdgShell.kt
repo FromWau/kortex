@@ -171,6 +171,7 @@ internal object XdgShellProtocol {
     const val SET_CONSTRAINT_ADJUSTMENT = 5
 
     const val POPUP_DESTROY = 0
+    const val POPUP_GRAB = 1
 }
 
 /** The `xdg_decoration` tables, from `wayland-scanner private-code xdg-decoration-unstable-v1.xml`. */
@@ -535,6 +536,9 @@ internal class XdgToplevelSurface private constructor(
 
     /** A window takes the keyboard whenever the compositor gives it focus. */
     override val wantsKeyboard: Boolean get() = true
+
+    /** A window is never dismissed by a click elsewhere, so it takes no grab. */
+    override fun takeGrab(seat: Seat, serial: Int) = Unit
 
     override val popupParent: PopupParent get() = PopupParent.Xdg(xdgSurface)
 
@@ -904,6 +908,8 @@ internal class XdgPopupSurface private constructor(
     private val surfaceListener: WlSurfaceListener,
     private val xdgSurfaceListener: XdgSurfaceListener,
     private val popupListener: XdgPopupListener,
+    /** Whether this popup asked for an explicit grab, which is what [takeGrab] sends and what a menu wants. */
+    private val grabs: Boolean,
     // Holds the stubs of every listener above, since one close() gives back every proxy they hang off.
     private val arena: Arena,
 ) : SurfaceRole {
@@ -911,11 +917,21 @@ internal class XdgPopupSurface private constructor(
     // Paired with closed, which says the surface must be torn down rather than that it has been.
     private var disposed = false
 
-    /** A popup takes no keyboard: kortex asks for none of the explicit grab that would give it one. */
-    override val wantsKeyboard: Boolean get() = false
+    // A grabbing popup is given the user's keyboard, so it needs somewhere to deliver it; one that takes no
+    // grab is never sent a key, and attaching a keyboard to it would take focus from whatever holds it.
+    override val wantsKeyboard: Boolean get() = grabs
 
     /** A popup of a popup is how menus nest, and the protocol parents one to the other's `xdg_surface`. */
     override val popupParent: PopupParent get() = PopupParent.Xdg(xdgSurface)
+
+    override fun takeGrab(seat: Seat, serial: Int) {
+        if (!grabs) return
+        LibWayland.marshal(
+            popup, XdgShellProtocol.POPUP_GRAB,
+            args = listOf(WlArg.Ptr(seat.proxy), WlArg.Num(serial)),
+        )
+        display.flush()
+    }
 
     override val logicalWidth: Int get() = popupListener.width
     override val logicalHeight: Int get() = popupListener.height
@@ -987,6 +1003,7 @@ internal class XdgPopupSurface private constructor(
             at: IntOffset,
             width: Int,
             height: Int,
+            grabs: Boolean,
         ): Result<XdgPopupSurface, KortexError> {
             val compositor = display.require("wl_compositor", LibWayland.compositorInterface, WlVersion.COMPOSITOR)
                 .getOrElse { return Err(it) }
@@ -1043,7 +1060,7 @@ internal class XdgPopupSurface private constructor(
 
             val result = XdgPopupSurface(
                 display, surface, xdgSurface, popup, wmBase, compositor, wmBaseListener,
-                surfaceListener, xdgSurfaceListener, popupListener, arena,
+                surfaceListener, xdgSurfaceListener, popupListener, grabs, arena,
             )
             result.commit()
             return Ok(result)
@@ -1118,6 +1135,7 @@ internal fun KortexSurface.Companion.createOnPopup(
     onPointerGrab: (Int) -> Unit = {},
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
     onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
+    grabSerial: Int? = null,
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
     loopQueue = loopQueue,
@@ -1125,6 +1143,7 @@ internal fun KortexSurface.Companion.createOnPopup(
     onPointerGrab = onPointerGrab,
     onKeyboardFocus = onKeyboardFocus,
     onStartDrag = onStartDrag,
+    grabSerial = grabSerial,
 ) {
     XdgPopupSurface.create(
         display,
@@ -1132,5 +1151,6 @@ internal fun KortexSurface.Companion.createOnPopup(
         at = settings.at,
         width = settings.width.toLogicalPx(),
         height = settings.height.toLogicalPx(),
+        grabs = settings.grab,
     )
 }
