@@ -1,5 +1,7 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draganddrop.DragAndDropTransferAction
 import androidx.compose.ui.geometry.Offset
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -24,6 +26,7 @@ import kotlinx.coroutines.asExecutor
  * The clipboard's `wl_data_device`: follows which offer is the selection, gives back every other offer the
  * compositor introduces, and carries a drag over one of this client's surfaces to the content drawn there.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 internal class DataDevice private constructor(
     private val proxy: MemorySegment,
     private val display: WaylandDisplay,
@@ -83,7 +86,10 @@ internal class DataDevice private constructor(
         if (destination == null || types.isEmpty()) return decline(brought, serial)
         val arrival = Drag(brought, destination, types, destination.scenePosition(x, y), serial)
         // Content that has already failed takes nothing more, this drag included.
-        val taken = destination.scene.sendDragEnter(arrival.position, arrival.announced).getOrElse { false }
+        val taken = destination.scene
+            .sendDragEnter(arrival.position, arrival.announced, arrival.action)
+            .getOrElse { false }
+
         if (!taken) return decline(brought, serial)
         drag = arrival
         answerDrag(arrival)
@@ -98,7 +104,7 @@ internal class DataDevice private constructor(
     fun onMotion(data: MemorySegment, device: MemorySegment, time: Int, x: Int, y: Int) {
         val moving = drag?.takeUnless { it.dropping } ?: return
         moving.position = moving.destination.scenePosition(x, y)
-        moving.destination.scene.sendDragMove(moving.position, moving.announced)
+        moving.destination.scene.sendDragMove(moving.position, moving.announced, moving.action)
         answerDrag(moving)
     }
 
@@ -113,8 +119,10 @@ internal class DataDevice private constructor(
     private fun answerDrag(moving: Drag) {
         val wanted = moving.destination.scene.dragOverTarget
         moving.offer.accept(moving.serial, moving.types.first().takeIf { wanted })
-        val action = if (wanted) DndAction.Copy else DndAction.None
-        moving.offer.setActions(action.wire, action.wire)
+        val offered = if (wanted) TAKEABLE else emptySet()
+
+        val preferred = if (wanted) DndAction.Copy else DndAction.None
+        moving.offer.setActions(DndAction.mask(offered), preferred.wire)
         display.flush()
     }
 
@@ -239,7 +247,10 @@ internal class DataDevice private constructor(
     private fun completeDrop(dropped: Drag, carried: KortexDragOffer) {
         // The device can have been given back, or another drag begun, while the transfers drained.
         if (drag !== dropped) return
-        val taken = dropped.destination.scene.sendDrop(dropped.position, carried).getOrElse { false }
+        val taken = dropped.destination.scene
+            .sendDrop(dropped.position, carried, dropped.action)
+            .getOrElse { false }
+
         // A finish says the drop succeeded, and a source dragging a move may delete what it sent as soon as it
         // hears that, so only content actually taking what arrived earns one. A drop over no target of its own,
         // or into content that has failed, is given back unfinished instead.
@@ -259,7 +270,8 @@ internal class DataDevice private constructor(
 
     // Tells content the drag is over with nothing dropped, and gives its offer back.
     private fun leaveDrag(leaving: Drag) {
-        leaving.destination.scene.sendDragLeave(leaving.position, leaving.announced)
+        leaving.destination.scene.sendDragLeave(leaving.position, leaving.announced, leaving.action)
+
         endDrag(leaving)
     }
 
@@ -317,6 +329,15 @@ internal class DataDevice private constructor(
 
         /** Set as the drop's transfers open, since the compositor follows a drop with a leave of its own. */
         var dropping = false
+
+        /**
+         * What a drop would do to what this carries, as content reads it off the drag event.
+         *
+         * The compositor settles it from both sides' actions and the modifiers the user holds, so it changes
+         * while the drag is up. Nothing settled yet reads as a copy, which is what a drag that carries no
+         * action does when it lands.
+         */
+        val action: DragAndDropTransferAction get() = offer.settledAction.asDragAction()
     }
 
     companion object {
@@ -352,7 +373,21 @@ internal class DataDevice private constructor(
         private const val IMAGE_JOIN_SLACK_MILLIS = 1_000L
         private const val IMAGE_JOIN_TIMEOUT_MILLIS = TRANSFER_TIMEOUT_MILLIS + IMAGE_JOIN_SLACK_MILLIS
 
+        /**
+         * What a drag arriving here may do, which is a copy and nothing else, because a destination cannot
+         * steer the choice on Hyprland 0.56.2 and a drag that lands as a move deletes what it came from.
+         *
+         * Read off the wire: the compositor answers a drag's enter with `wl_data_offer.action(2)`, a move,
+         * before this side has said anything, and re-sends nothing after four `set_actions(3, 1)` naming both
+         * and preferring copy. So naming move here means every drag in is a move, whatever the user held.
+         * `ask` is left out for a second reason: answering it means putting the compositor's own menu to the
+         * user and sending one last `set_actions` for what they picked, and a destination that names it
+         * without answering it stalls the drop.
+         */
+        private val TAKEABLE = setOf(DndAction.Copy)
+
         private const val WL_DATA_DEVICE_MANAGER_GET_DATA_DEVICE = 1
+
         private const val WL_DATA_DEVICE_START_DRAG = 0
         private const val WL_DATA_DEVICE_SET_SELECTION = 1
         private const val WL_DATA_DEVICE_RELEASE = 2
@@ -442,7 +477,6 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
      * nothing where [type] is null. Answered again as the drag moves; the last answer before the drop is the one
      * that settles it, and a source left with null there is cancelled.
      */
-
     fun accept(serial: Int, type: Mime?) {
         accepting = type != null
         Arena.ofConfined().use { request ->
@@ -451,6 +485,9 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
             LibWayland.marshal(proxy, WL_DATA_OFFER_ACCEPT, args = listOf(WlArg.Num(serial), WlArg.Ptr(name)))
         }
     }
+
+    /** What the compositor last matched this offer's two sides to; the drop happens under it. */
+    val settledAction: DndAction get() = settled
 
     /** `wl_data_offer.set_actions`: the drag actions this client supports, and the one it would rather have. */
     fun setActions(actions: Int, preferred: Int) {
@@ -521,13 +558,28 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
  *
  * @param arena holds its listener's stubs; [destroy] closes it.
  */
-internal class DataSource(private val clip: Clip, private val arena: Arena = Arena.ofShared()) {
+internal class DataSource(
+    private val clip: Clip,
+    private val arena: Arena = Arena.ofShared(),
+    /** What a drag of this may do, and empty for a selection, which negotiates no action at all. */
+    private val actions: Set<DndAction> = emptySet(),
+) {
+
     // Set on the loop thread; ownedText reads it from any.
     @Volatile
     private var cancelled = false
 
     /** Called on the loop thread once the compositor ends the drag this carries, for its owner to give it back. */
     var onDragEnded: () -> Unit = {}
+
+    /**
+     * Called on the loop thread with what the drag this carries settled on, and [DndAction.None] where it ended
+     * without a drop. Content reads it to undo what a move took away, which nothing else reports.
+     */
+    var onDragCompleted: (DndAction) -> Unit = {}
+
+    // What the compositor last matched the two sides' actions to, which the drop is finished under.
+    private var settled = DndAction.None
 
     // What it holds until the compositor cancels it, as it does once another selection or a clear replaces it.
     private val ownedClip: Clip? get() = clip.takeUnless { cancelled }
@@ -559,17 +611,36 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
     // event, which runs in one of the stubs that would free.
     fun onCancelled(data: MemorySegment, source: MemorySegment) {
         cancelled = true
+        // No drop happened, whatever was settled on the way: a cancel is how a drag released over nothing ends.
+        onDragCompleted(DndAction.None)
         onDragEnded()
     }
 
     fun onDndDropPerformed(data: MemorySegment, source: MemorySegment) = Unit
 
+    /**
+     * What the drop is taken to have been where the compositor never said, which on Hyprland 0.56.2 is always:
+     * it sends no `wl_data_source.action` at all, and `dnd_finished` says only that the drop happened.
+     *
+     * Copy wherever content offered it. Reporting a move that was not one has content delete what nobody took,
+     * and reporting a copy that was really a move leaves the same thing in two places, which is the one of the
+     * two mistakes that can be undone.
+     */
+    private val assumedAction: DndAction
+        get() = if (DndAction.Copy in actions) DndAction.Copy else DndAction.Move
+
     // The destination is done with what this offered, so nothing will be asked of it again.
     fun onDndFinished(data: MemorySegment, source: MemorySegment) {
+        // Never None here: a finished drop did happen, and null would tell content its gesture never completed.
+        onDragCompleted(settled.takeUnless { it == DndAction.None } ?: assumedAction)
         onDragEnded()
     }
 
-    fun onAction(data: MemorySegment, source: MemorySegment, dndAction: Int) = Unit
+    // The compositor's own match of what this source offers against what the destination will take. It arrives
+    // again as either side changes, and the last one before dnd_finished is what the drop was.
+    fun onAction(data: MemorySegment, source: MemorySegment, dndAction: Int) {
+        settled = DndAction.fromWire(dndAction)
+    }
 
     /** Gives the source back, which clears the selection if it still is one, and frees its stubs. */
     fun destroy() {
@@ -599,29 +670,32 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
         }
     }
 
-    /** `wl_data_source.set_actions`: kortex drags as a copy and asks for nothing else. */
-    private fun offerAsCopy() {
+    /** `wl_data_source.set_actions`: what content will let a drop of this do. */
+    private fun offerActions() {
         LibWayland.marshal(proxy, WL_DATA_SOURCE_SET_ACTIONS,
-            args = listOf(WlArg.Num(DndAction.Copy.wire)),
+            args = listOf(WlArg.Num(DndAction.mask(actions))),
         )
     }
 
     companion object {
         /**
-         * Creates a source for [clip] that a drag offers, declaring copy as the one action it supports.
+         * Creates a source for [clip] that a drag offers, declaring [actions] as what a drop of it may do.
          *
-         * Declared rather than left empty: a source that names neither move nor copy is dragged as a move.
+         * Declared rather than left empty: a source that names no action at all is dragged as a move, and the
+         * protocol allows `set_actions` only before `start_drag` and only once.
          */
-        fun createForDrag(manager: MemorySegment, clip: Clip): DataSource =
-            create(manager, clip).also { it.offerAsCopy() }
+        fun createForDrag(manager: MemorySegment, clip: Clip, actions: Set<DndAction>): DataSource =
+            create(manager, clip, actions).also { it.offerActions() }
 
         /** Creates a source for [clip] and offers it under every type [clip] holds. */
-        fun create(manager: MemorySegment, clip: Clip): DataSource {
+        fun create(manager: MemorySegment, clip: Clip, actions: Set<DndAction> = emptySet()): DataSource {
+
             val proxy = LibWayland.marshal(
                 manager, WL_DATA_DEVICE_MANAGER_CREATE_DATA_SOURCE, LibWayland.dataSourceInterface,
                 LibWayland.proxyGetVersion(manager), listOf(WlArg.Ptr(MemorySegment.NULL)),
             )
-            val source = DataSource(clip).also { it.install(proxy) }
+            val source = DataSource(clip, actions = actions).also { it.install(proxy) }
+
             // wl_proxy_marshal copies each string into the message it builds, so they are only borrowed for the calls.
             Arena.ofConfined().use { request ->
                 clip.offeredTypes.forEach { type ->
@@ -659,7 +733,7 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
 }
 
 /** A `wl_data_device_manager.dnd_action`: how a drag is carried out. Copy is the only one kortex asks for. */
-private enum class DndAction(val wire: Int) {
+internal enum class DndAction(val wire: Int) {
     None(0),
     Copy(1),
     Move(2),
@@ -669,7 +743,40 @@ private enum class DndAction(val wire: Int) {
     companion object {
         /** The action [wire] names, and [None] for a value the protocol gives no meaning to. */
         fun fromWire(wire: Int): DndAction = DndAction.entries.firstOrNull { it.wire == wire } ?: None
+
+        /** The bits [actions] set together, which is how both `set_actions` requests carry a set of them. */
+        fun mask(actions: Set<DndAction>): Int = actions.fold(0) { bits, action -> bits or action.wire }
     }
+}
+
+/**
+ * What the protocol calls [this], for a drag this client carries out. Anything but a move is carried as a copy:
+ * `:compose` refuses a drag before this whose actions it can express none of, so the only one that can arrive
+ * here unnamed is one a newer Compose added.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+internal fun DragAndDropTransferAction.asDndAction(): DndAction =
+    if (this == DragAndDropTransferAction.Move) DndAction.Move else DndAction.Copy
+
+/**
+ * What Compose calls the action a drag ended under, and null where it ended under none, which is Compose's own
+ * way of saying the gesture did not complete.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+internal fun DndAction.asCompletedAction(): DragAndDropTransferAction? = when (this) {
+    DndAction.Copy -> DragAndDropTransferAction.Copy
+    DndAction.Move -> DragAndDropTransferAction.Move
+    DndAction.None, DndAction.Ask -> null
+}
+
+/**
+ * What Compose calls the action a drag is carrying as it crosses content, which unlike [asCompletedAction] has
+ * no way to say "none": a drag event carries one action, and a copy is the one that takes nothing away.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+internal fun DndAction.asDragAction(): DragAndDropTransferAction = when (this) {
+    DndAction.Move -> DragAndDropTransferAction.Move
+    DndAction.Copy, DndAction.None, DndAction.Ask -> DragAndDropTransferAction.Copy
 }
 
 /** Where a drag over one of this client's surfaces goes: the content drawn on it, at the scale it is drawn at. */

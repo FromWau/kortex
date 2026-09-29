@@ -8,6 +8,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.DragAndDropTransferAction
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
@@ -16,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kortex.compose.KortexDrag
 import com.fromwau.kortex.compose.KortexDragSource
 import com.fromwau.kortex.compose.KortexScene
 import kotlinx.coroutines.Dispatchers
@@ -43,7 +45,6 @@ import kotlin.test.fail
  * No test here starts a drag on the desktop. Of the three that connect, two are refusals, one by a clipboard that
  * has been handed no input serial and one by a surface with no clipboard behind it, so each fails before a source
  * is made; the third stands a recorder in for the clipboard, so nothing reaches the compositor there either.
-
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class DragAndDropTest {
@@ -120,6 +121,52 @@ class DragAndDropTest {
     }
 
     /**
+     * The two questions a settled action answers, which need different answers for the same value.
+     *
+     * A drag event carries exactly one action, so nothing settled has to read as something: a copy, which
+     * takes nothing away. A drag that has *ended* under nothing is a drag that did not complete, which
+     * Compose spells as null, and a copy there would tell content a drop happened that did not.
+     */
+    @Test
+    fun `an action nothing settled reads as a copy while a drag is up and as no completion once it has ended`() {
+        assertEquals(DragAndDropTransferAction.Copy, DndAction.Copy.asDragAction(), "a settled copy")
+        assertEquals(DragAndDropTransferAction.Move, DndAction.Move.asDragAction(), "a settled move")
+        assertEquals(DragAndDropTransferAction.Copy, DndAction.None.asDragAction(), "nothing settled yet")
+        assertEquals(DragAndDropTransferAction.Copy, DndAction.Ask.asDragAction(), "an ask kortex never answers")
+
+        assertEquals(DragAndDropTransferAction.Copy, DndAction.Copy.asCompletedAction(), "a drop that copied")
+        assertEquals(DragAndDropTransferAction.Move, DndAction.Move.asCompletedAction(), "a drop that moved")
+        assertNull(DndAction.None.asCompletedAction(), "a drag that ended under no action at all")
+        assertNull(DndAction.Ask.asCompletedAction(), "an ask kortex never answers")
+    }
+
+    /**
+     * That a drop carries whatever action it was given, which is how the destination side of a move reaches
+     * content: what a drop does to what it carries is the source's to undo, and content here can only know
+     * which by reading the event.
+     *
+     * kortex used to build every drag event as a copy whatever the compositor had settled, so a move arrived
+     * indistinguishable from a copy and a drop target that treats the two differently could not.
+     */
+    @Test
+    fun `a drop carries the action the desktop settled it under`() {
+
+        val droppedAs = AtomicReference<DragAndDropTransferAction?>(null)
+
+        withDropTarget(onDroppedAs = { action -> droppedAs.set(action) }) { scene ->
+
+            val offer = dragOffer(TEXT_TYPES, DRAGGED_TEXT)
+            scene.sendDragEnter(CENTRE, offer, DragAndDropTransferAction.Move)
+            scene.sendDrop(CENTRE, offer, DragAndDropTransferAction.Move)
+        }
+
+        assertEquals(
+            DragAndDropTransferAction.Move, droppedAs.get(),
+            "a drop the desktop settled as a move reached content as something else",
+        )
+    }
+
+    /**
      * That taking a drag and lying under it are two different answers.
      *
      * [KortexScene.sendDragEnter] answers the first: Compose asks every drop target in the composition whether it
@@ -163,7 +210,8 @@ class DragAndDropTest {
         withUnfocusedClipboard { clipboard ->
             assertEquals(
                 Err(ClipboardError.NoInputSerial),
-                clipboard.startDrag(Clip.Text(DRAGGED_TEXT), origin = NULL),
+                clipboard.startDrag(dragOut(Clip.Text(DRAGGED_TEXT))),
+
                 "a drag with no input serial must fail before a source is made or start_drag sent",
             )
             assertNull(
@@ -189,7 +237,8 @@ class DragAndDropTest {
             onBareSurface(wayland, REFUSAL_CONFIG) { surface, _ ->
                 assertEquals(
                     Err(ClipboardError.NoClipboard),
-                    surface.startDrag(KortexDragSource.Text(DRAGGED_TEXT)),
+                    surface.startDrag(copyDrag(KortexDragSource.Text(DRAGGED_TEXT))),
+
                     "a drag out of a surface with nowhere to send it must be refused, not reported as started",
                 )
             }
@@ -210,14 +259,16 @@ class DragAndDropTest {
         val askedOn = AtomicReference<Thread?>(null)
 
         display.use { wayland ->
-            val asking = { _: Clip, _: MemorySegment ->
+            val asking = { _: DragOut ->
                 askedOn.set(Thread.currentThread())
                 Ok(Unit)
             }
+
             onBareSurface(wayland, REFUSAL_CONFIG, onStartDrag = asking) { surface, _ ->
                 assertEquals(
                     Ok(Unit),
-                    surface.startDrag(KortexDragSource.Image(opaqueImage())),
+                    surface.startDrag(copyDrag(KortexDragSource.Image(opaqueImage()))),
+
                     "the surface refused a drag the clipboard behind it took",
                 )
                 assertSame(
@@ -227,6 +278,14 @@ class DragAndDropTest {
             }
         }
     }
+
+    /** [dragged] as a drag that offers a copy and reports nothing, which every leg here starts. */
+    private fun copyDrag(dragged: KortexDragSource): KortexDrag =
+        KortexDrag(dragged, setOf(DragAndDropTransferAction.Copy)) {}
+
+    /** [clip] as a drag out of nowhere, which is all the clipboard's own refusals need. */
+    private fun dragOut(clip: Clip): DragOut =
+        DragOut(clip, origin = NULL, actions = setOf(DndAction.Copy)) {}
 
     /** What a drag of [dragged] offers. */
     private fun offeredTypesOf(dragged: KortexDragSource): List<String> =
@@ -269,7 +328,9 @@ class DragAndDropTest {
     private fun withDropTarget(
         seen: MutableList<String> = CopyOnWriteArrayList(),
         onDropped: (KortexDragOffer) -> Unit = {},
+        onDroppedAs: (DragAndDropTransferAction?) -> Unit = {},
         targetSide: Int = SIDE,
+
         block: (KortexScene) -> Unit,
     ) {
         val target = object : DragAndDropTarget {
@@ -295,6 +356,7 @@ class DragAndDropTest {
 
             override fun onDrop(event: DragAndDropEvent): Boolean {
                 seen += DROP
+                onDroppedAs(event.action)
                 onDropped(event.nativeEvent as KortexDragOffer)
                 return true
             }
@@ -351,7 +413,6 @@ class DragAndDropTest {
         const val REFUSAL_NAMESPACE = "kortex-drag-refusal"
         const val REFUSAL_OSD_DP = 64
         val REFUSAL_CONFIG =
-
             SurfaceConfig.osd(REFUSAL_OSD_DP.dp, REFUSAL_OSD_DP.dp).copy(namespace = REFUSAL_NAMESPACE)
     }
 }

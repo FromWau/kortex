@@ -423,7 +423,7 @@ internal fun KortexSurface.Companion.createOnLayer(
     onInputSerial: (Int) -> Unit = {},
     onPointerGrab: (Int) -> Unit = {},
     onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
-    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
+    onStartDrag: (drag: DragOut) -> EmptyResult<ClipboardError> = ::refuseDrag,
 ): Result<KortexSurface, KortexError> = KortexSurface.create(
     display = display,
     loopQueue = loopQueue,

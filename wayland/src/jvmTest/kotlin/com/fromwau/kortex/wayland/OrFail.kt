@@ -65,7 +65,7 @@ internal fun bareSurface(
     config: SurfaceConfig,
     output: MemorySegment = MemorySegment.NULL,
     platform: KortexPlatform = KortexPlatform.None,
-    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
+    onStartDrag: (drag: DragOut) -> EmptyResult<ClipboardError> = ::refuseDrag,
 ): Pair<KortexSurface, SurfaceScene> {
     val loop = LoopQueue(display::wake)
     val scene = SurfaceScene(config.namespace, loop, platform, onCrash = {})
@@ -86,7 +86,7 @@ internal fun onBareSurface(
     config: SurfaceConfig,
     output: MemorySegment = MemorySegment.NULL,
     platform: KortexPlatform = KortexPlatform.None,
-    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
+    onStartDrag: (drag: DragOut) -> EmptyResult<ClipboardError> = ::refuseDrag,
     block: (surface: KortexSurface, scene: SurfaceScene) -> Unit,
 ) {
     val (surface, scene) = bareSurface(display, config, output, platform, onStartDrag)

@@ -140,9 +140,30 @@ class DragWireTest {
             "the target took the drop and its source was never told; wire:\n$dataTraffic",
         )
 
-        // And the end of it: the text the source offered reached the target's content.
-        assertTrue(
+        // What each side told the compositor a drop could do. The source names both, since content listed
+        // both and the application it drags to decides between them. The destination names only a copy,
+        // because Hyprland settles the action before this side has spoken and never revisits it, so naming a
+        // move here would make every drag in a move whatever the user held.
 
+        assertTrue(
+            wire.any { it.isRequest("wl_data_source", "set_actions") && COPY_AND_MOVE.containsMatchIn(it) },
+            "the source did not offer both a copy and a move; wire:\n$dataTraffic",
+        )
+        assertTrue(
+            wire.any { it.isRequest("wl_data_offer", "set_actions") && COPY_ALONE.containsMatchIn(it) },
+            "the destination named an action other than a copy, which it cannot steer the choice between; " +
+                "wire:\n$dataTraffic",
+        )
+
+        // And back to the content that dragged, which is the only place a move would be told to undo itself.
+        assertTrue(
+            output.any { it == PROBE_MARKER_COMPLETED + "Copy" },
+            "the content that dragged was never told the drag completed as a copy; output:\n$raw",
+        )
+
+        // And the end of it: the text the source offered reached the target's content.
+
+        assertTrue(
             output.any { it == PROBE_MARKER_DROPPED + PROBE_DRAGGED_TEXT },
             "the dragged text never reached the target's content; output:\n$raw",
         )
@@ -154,3 +175,7 @@ private val START_DRAG_SERIAL = Regex("\\.start_drag\\([^)]*,\\s*(\\d+)\\s*\\)")
 
 // button(serial, time, button, state): state 1 is a press, and only a press begins a grab.
 private val BUTTON_PRESS_SERIAL = Regex("\\.button\\((\\d+),\\s*\\d+,\\s*\\d+,\\s*1\\)")
+
+// wl_data_device_manager.dnd_action is a bitfield: copy is 1 and move is 2, so both together are 3.
+private val COPY_AND_MOVE = Regex("\\.set_actions\\(3\\)")
+private val COPY_ALONE = Regex("\\.set_actions\\(1,\\s*1\\)")

@@ -114,14 +114,15 @@ internal class WaylandClipboard private constructor(
      *   press has reached the shell for the drag to name its grab by, or [ClipboardError.NoClipboard] on a
      *   compositor that offers none.
      */
-    fun startDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> {
+    fun startDrag(drag: DragOut): EmptyResult<ClipboardError> {
         checkOpen()
         val bound = bound ?: return Err(ClipboardError.NoClipboard)
         // The grab's own serial, never the last input's: start_drag names one grab and the last key is not it.
         val serial = grabSerial ?: return Err(ClipboardError.NoInputSerial)
         // Named rather than passed inline: set_actions is part of making the source and must precede start_drag.
-        val source = DataSource.createForDrag(bound.manager, clip)
-        bound.device.startDrag(source, origin, serial)
+        val source = DataSource.createForDrag(bound.manager, drag.clip, drag.actions)
+        source.onDragCompleted = drag.onEnded
+        bound.device.startDrag(source, drag.origin, serial)
         display.flush()
         return Ok(Unit)
     }

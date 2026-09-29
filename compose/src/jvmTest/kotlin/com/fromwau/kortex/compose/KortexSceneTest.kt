@@ -473,8 +473,8 @@ class KortexSceneTest {
         val carried = AtomicReference<KortexDragSource?>(null)
         val asked = CountDownLatch(1)
         val host = object : KortexPlatform {
-            override fun startDrag(dragged: KortexDragSource): Boolean {
-                carried.set(dragged)
+            override fun startDrag(drag: KortexDrag): Boolean {
+                carried.set(drag.dragged)
                 asked.countDown()
                 return true
             }
@@ -513,7 +513,7 @@ class KortexSceneTest {
         val told = CountDownLatch(1)
         val asked = CountDownLatch(1)
         val host = object : KortexPlatform {
-            override fun startDrag(dragged: KortexDragSource): Boolean {
+            override fun startDrag(drag: KortexDrag): Boolean {
                 asked.countDown()
                 return false
             }
@@ -548,6 +548,106 @@ class KortexSceneTest {
     }
 
     /**
+     * What content listed as the drop's options reaches the host, and what the desktop settled on comes back.
+     *
+     * The way back is the only way content hears a drop happened at all, and it is what a move needs: the
+     * source is the side that removes what left it, and nothing else tells it to.
+     */
+    @Test
+    @OptIn(ExperimentalComposeUiApi::class)
+    fun `the actions content offered reach the host, and the one it settled on reaches content`() {
+        val offered = AtomicReference<Set<DragAndDropTransferAction>?>(null)
+        val completedWith = AtomicReference<DragAndDropTransferAction?>(null)
+        val told = CountDownLatch(1)
+        val asked = CountDownLatch(1)
+        val host = object : KortexPlatform {
+            override fun startDrag(drag: KortexDrag): Boolean {
+                offered.set(drag.actions)
+                // As the real host does once the desktop has settled the drag, from its own loop.
+                drag.onEnded(DragAndDropTransferAction.Move)
+                asked.countDown()
+                return true
+            }
+        }
+
+        withScene(platform = host) {
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .dragAndDropSource(drawDragDecoration = {}) {
+                            DragAndDropTransferData(
+                                KortexDragSource.Text(DRAGGED_TEXT),
+                                listOf(DragAndDropTransferAction.Copy, DragAndDropTransferAction.Move),
+                                onTransferCompleted = { action ->
+                                    completedWith.set(action)
+                                    told.countDown()
+                                },
+                            )
+                        },
+                )
+            }
+            tick(0L)
+
+            assertTrue(dragUntilAsked(asked), "dragging content never asked the host to carry it")
+            assertTrue(passUntil(told, TOLD_MILLIS), "content was never told how the drag ended")
+        }
+
+        assertEquals(
+            setOf(DragAndDropTransferAction.Copy, DragAndDropTransferAction.Move), offered.get(),
+            "the host was offered other actions than content listed",
+        )
+        assertEquals(
+            DragAndDropTransferAction.Move, completedWith.get(),
+            "content was told the drag ended under an action the host never settled on",
+        )
+    }
+
+    /**
+     * A link is the one action Compose names that no Wayland drag can be, so a drag offered as nothing else
+     * never starts. Refused here rather than carried as a copy, which would take what content said it would
+     * not let a drop do and do it anyway.
+     */
+    @Test
+    @OptIn(ExperimentalComposeUiApi::class)
+    fun `a drag content offers only as a link never reaches the host`() {
+        val askedWith = AtomicReference<KortexDrag?>(null)
+        val completedWith = AtomicReference<DragAndDropTransferAction?>(null)
+        val told = CountDownLatch(1)
+        val host = object : KortexPlatform {
+            override fun startDrag(drag: KortexDrag): Boolean {
+                askedWith.set(drag)
+                return true
+            }
+        }
+
+        withScene(platform = host) {
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .dragAndDropSource(drawDragDecoration = {}) {
+                            DragAndDropTransferData(
+                                KortexDragSource.Text(DRAGGED_TEXT),
+                                listOf(DragAndDropTransferAction.Link),
+                                onTransferCompleted = { action ->
+                                    completedWith.set(action)
+                                    told.countDown()
+                                },
+                            )
+                        },
+                )
+            }
+            tick(0L)
+
+            assertTrue(dragUntilAsked(told), "content was never told its link-only drag did not complete")
+        }
+
+        assertNull(askedWith.get(), "a link-only drag was handed to the host, which cannot carry one")
+        assertNull(completedWith.get(), "content was told a link-only drag completed, with ${completedWith.get()}")
+    }
+
+    /**
      * That the same channel runs inside this scene's own gate: content's code runs in it, so a throw out of it
      * stops the scene running any more content, as a throw out of any other content call does.
      *
@@ -561,7 +661,7 @@ class KortexSceneTest {
         val asked = CountDownLatch(1)
         val failed = CountDownLatch(1)
         val host = object : KortexPlatform {
-            override fun startDrag(dragged: KortexDragSource): Boolean {
+            override fun startDrag(drag: KortexDrag): Boolean {
                 asked.countDown()
                 return false
             }
@@ -804,7 +904,6 @@ class KortexSceneTest {
         const val ERROR_FAILURE = "content threw an Error"
         const val REFUSED_DRAG_FAILURE = "content threw as it was told the drag did not start"
         const val CLEANUP_FAILURE = "cleanup threw as the scene closed"
-
     }
 }
 

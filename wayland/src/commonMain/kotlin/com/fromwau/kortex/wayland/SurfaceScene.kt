@@ -14,7 +14,7 @@ import com.fromwau.kern.result.fold
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexCursor
-import com.fromwau.kortex.compose.KortexDragSource
+import com.fromwau.kortex.compose.KortexDrag
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexSurfaceHandle
@@ -78,11 +78,11 @@ internal class SurfaceScene(
         }
 
         // One drag, so the surface drawing this scene carries it where there is one, and the host otherwise.
-        override fun startDrag(dragged: KortexDragSource): Boolean {
-            val surface = surface ?: return platform.startDrag(dragged)
+        override fun startDrag(drag: KortexDrag): Boolean {
+            val surface = surface ?: return platform.startDrag(drag)
             // The reason stops here: ClipboardError is this module's, and Compose's own channel for a drag that
             // did not start carries no reason either, only that the gesture did not complete.
-            return surface.startDrag(dragged).fold(onSuccess = { true }, onError = { false })
+            return surface.startDrag(drag).fold(onSuccess = { true }, onError = { false })
         }
     }
 

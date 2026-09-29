@@ -1,6 +1,7 @@
 package com.fromwau.kortex.compose
 
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draganddrop.DragAndDropTransferAction
 import androidx.compose.ui.draganddrop.DragAndDropTransferable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
@@ -88,6 +89,24 @@ public sealed interface KortexDragSource : DragAndDropTransferable {
 }
 
 /**
+ * One drag out of a scene: what it carries, what may be done with it, and where its outcome is reported.
+ *
+ * @param dragged what the drag carries, which content named as its transferable.
+ * @param actions what content will let the drop do, out of [DragAndDropTransferAction.Copy] and
+ *   [DragAndDropTransferAction.Move]; never empty. The desktop settles on one of them, usually from the
+ *   modifier keys the user holds.
+ * @param onEnded called once the drag is over, with the action it settled on, or null where it did not
+ *   complete. A [DragAndDropTransferAction.Move] is where content removes what left it, and it is told only
+ *   here: nothing else reports that a drop happened.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+public class KortexDrag(
+    public val dragged: KortexDragSource,
+    public val actions: Set<DragAndDropTransferAction>,
+    public val onEnded: (DragAndDropTransferAction?) -> Unit,
+)
+
+/**
  * The capabilities you supply that a windowless scene cannot answer for itself.
  *
  * Every member has a default, so override only what you can actually do; [None] answers nothing.
@@ -103,7 +122,7 @@ public interface KortexPlatform {
     public fun onTextInputStopped(): Unit = Unit
 
     /**
-     * Called when content asks to drag [dragged] out, e.g. through `Modifier.dragAndDropSource`.
+     * Called when content asks to drag something out, e.g. through `Modifier.dragAndDropSource`.
      *
      * Answer from the call itself, and leave whatever the payload costs to encode to the transfer that asks for
      * it: a desktop hands a drag the input the user is still holding, so one asked for a moment later is one it
@@ -113,7 +132,7 @@ public interface KortexPlatform {
      *   drag to the desktop; content is then told its gesture did not complete, and Compose offers the same drag
      *   to the next `dragAndDropSource` above the one that asked.
      */
-    public fun startDrag(dragged: KortexDragSource): Boolean = false
+    public fun startDrag(drag: KortexDrag): Boolean = false
 
     public companion object {
         public val None: KortexPlatform = object : KortexPlatform {}

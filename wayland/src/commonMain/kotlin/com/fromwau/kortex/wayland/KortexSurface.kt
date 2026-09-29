@@ -9,8 +9,9 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
+import androidx.compose.ui.ExperimentalComposeUiApi
 import com.fromwau.kortex.compose.KortexCursor
-import com.fromwau.kortex.compose.KortexDragSource
+import com.fromwau.kortex.compose.KortexDrag
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
 import org.jetbrains.skia.ColorAlphaType
@@ -19,14 +20,30 @@ import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
 
 /**
+ * One drag out of a surface, as the surface hands it to whatever carries drags for the shell.
+ *
+ * @param clip what the drag offers, whose image is encoded only once a transfer asks for it.
+ * @param origin the `wl_surface` it is dragged out of.
+ * @param actions what content will let the drop do; never empty, since a source naming no action at all is
+ *   dragged as a move.
+ * @param onEnded called on the loop thread with what the drag settled on once it is over, which is
+ *   [DndAction.None] where it ended with no drop.
+ */
+internal class DragOut(
+    val clip: Clip,
+    val origin: MemorySegment,
+    val actions: Set<DndAction>,
+    val onEnded: (DndAction) -> Unit,
+)
+
+/**
  * What a surface built with nowhere to send a drag answers one with: there is no clipboard behind it.
  *
  * Deliberately not `Ok(Unit)`: a no-op reporting success tells content its drag started while nothing was ever
  * sent, and a test on such a surface then sees no failure on either side and passes on that silence. One
  * definition, shared by every factory and harness below, because two copies of the rule drift apart unobserved.
  */
-internal fun refuseDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> =
-    Err(ClipboardError.NoClipboard)
+internal fun refuseDrag(drag: DragOut): EmptyResult<ClipboardError> = Err(ClipboardError.NoClipboard)
 
 /**
  * The engine behind a surface: the [SurfaceRole] it is built on, the buffers drawn into it, its frame pacing, its
@@ -35,6 +52,7 @@ internal fun refuseDrag(clip: Clip, origin: MemorySegment): EmptyResult<Clipboar
  * A [SurfaceScene] is drawn here for as long as it is attached. Frames are paced off `wl_surface.frame` and drawn
  * only when that scene asks for one, so an idle surface costs nothing.
  */
+@OptIn(ExperimentalComposeUiApi::class)
 internal class KortexSurface private constructor(
     private val display: WaylandDisplay,
     /** What this surface is built on; the loop thread only, another thread uses [requestClose] or [invalidate]. */
@@ -54,7 +72,7 @@ internal class KortexSurface private constructor(
     private val onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit,
     // Handed what content drags out of this surface, and the wl_surface it is dragged from; answers why the
     // compositor could not be asked, where it could not.
-    private val onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError>,
+    private val onStartDrag: (drag: DragOut) -> EmptyResult<ClipboardError>,
 ) : AutoCloseable {
 
     // Filled through post() from any thread and drained only on the loop thread, which is the one thread
@@ -185,8 +203,14 @@ internal class KortexSurface private constructor(
      * dragging, and `start_drag` names the implicit grab that very event took. A compositor that checks the grab
      * refuses the request once the button is up, so anything queued or encoded in between can lose the drag.
      */
-    internal fun startDrag(dragged: KortexDragSource): EmptyResult<ClipboardError> =
-        onStartDrag(dragged.asClip(), role.surface)
+    internal fun startDrag(drag: KortexDrag): EmptyResult<ClipboardError> = onStartDrag(
+        DragOut(
+            clip = drag.dragged.asClip(),
+            origin = role.surface,
+            actions = drag.actions.mapTo(mutableSetOf()) { it.asDndAction() },
+            onEnded = { settled -> drag.onEnded(settled.asCompletedAction()) },
+        ),
+    )
 
     /** Marks the surface closed, as the compositor closing it would; what content's own handle asks for. */
     internal fun requestClose() {
@@ -418,7 +442,7 @@ internal class KortexSurface private constructor(
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
             // Handed what content drags out of the surface, and the wl_surface it is dragged from; answers
             // why the compositor could not be asked, where it could not.
-            onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
+            onStartDrag: (drag: DragOut) -> EmptyResult<ClipboardError> = ::refuseDrag,
             // The newest pointer press the shell has seen, for a role that takes an explicit grab to quote,
             // and null where the user has pressed nothing yet for one to name.
             grabSerial: Int? = null,

@@ -218,15 +218,21 @@ public class KortexScene(
      * @param position where the drag is, in logical pixels relative to the content; convert physical pixels
      *   yourself, as the scene is never told the output scale.
      * @param payload what the drag carries, which content reads as the drag event's native event.
+     * @param action what a drop would do to what the drag carries, which content reads off the drag event and
+     *   a drop target may refuse on. Send the newest the desktop has settled on: it changes while the drag is
+     *   up, usually from the modifier keys the user holds.
      * @return whether anything in this composition takes what the drag carries, wherever in it that is. Send
      *   nothing further of a drag content refused, and end it with neither [sendDragLeave] nor [sendDrop].
      *   Whether a drop at [position] itself would reach content is the separate question [dragOverTarget]
      *   answers, and the one to pass on as the drag moves.
      */
-    public fun sendDragEnter(position: Offset, payload: Any?): Result<Boolean, ContentFailure> =
-
+    public fun sendDragEnter(
+        position: Offset,
+        payload: Any?,
+        action: DragAndDropTransferAction = DragAndDropTransferAction.Copy,
+    ): Result<Boolean, ContentFailure> =
         runContent(ContentFailure::PointerInput) {
-            val event = dragEvent(position, payload)
+            val event = dragEvent(position, payload, action)
             val taken = dragTarget.acceptDragAndDropTransfer(event)
             if (taken) {
                 dragTarget.onStarted(event)
@@ -238,11 +244,16 @@ public class KortexScene(
         }
 
     /**
-     * Moves a drag content took to [position], carrying the same [payload] its arrival did. Read
-     * [dragOverTarget] once it returns for what the drag is over now.
+     * Moves a drag content took to [position], carrying the same [payload] its arrival did and whatever
+     * [action] the desktop has settled on by now. Read [dragOverTarget] once it returns for what the drag is
+     * over.
      */
-    public fun sendDragMove(position: Offset, payload: Any?): EmptyResult<ContentFailure> =
-        runContent(ContentFailure::PointerInput) { dragTarget.onMoved(dragEvent(position, payload)) }
+    public fun sendDragMove(
+        position: Offset,
+        payload: Any?,
+        action: DragAndDropTransferAction = DragAndDropTransferAction.Copy,
+    ): EmptyResult<ContentFailure> =
+        runContent(ContentFailure::PointerInput) { dragTarget.onMoved(dragEvent(position, payload, action)) }
 
     /**
      * Whether a drop where the drag is now would reach content, as of the last [sendDragEnter] or [sendDragMove],
@@ -255,10 +266,14 @@ public class KortexScene(
      */
     public val dragOverTarget: Boolean get() = failure == null && dragTarget.hasEligibleDropTarget
 
-    /** Ends a drag content took without dropping it, leaving content nothing. */
-    public fun sendDragLeave(position: Offset, payload: Any?): EmptyResult<ContentFailure> =
+    /** Ends a drag content took without dropping it, leaving content nothing; [action] as [sendDragMove] takes it. */
+    public fun sendDragLeave(
+        position: Offset,
+        payload: Any?,
+        action: DragAndDropTransferAction = DragAndDropTransferAction.Copy,
+    ): EmptyResult<ContentFailure> =
         runContent(ContentFailure::PointerInput) {
-            val event = dragEvent(position, payload)
+            val event = dragEvent(position, payload, action)
             dragTarget.onExited(event)
             dragTarget.onEnded(event)
         }
@@ -266,11 +281,17 @@ public class KortexScene(
     /**
      * Drops on content a drag it took, at [position] and carrying [payload], and ends the drag.
      *
+     * @param action what the desktop settled the drop on, which is the last thing it said and what content
+     *   acts on: a [DragAndDropTransferAction.Move] is the source's to undo once you report the drop taken.
      * @return whether content took what was dropped.
      */
-    public fun sendDrop(position: Offset, payload: Any?): Result<Boolean, ContentFailure> =
+    public fun sendDrop(
+        position: Offset,
+        payload: Any?,
+        action: DragAndDropTransferAction = DragAndDropTransferAction.Copy,
+    ): Result<Boolean, ContentFailure> =
         runContent(ContentFailure::PointerInput) {
-            val event = dragEvent(position, payload)
+            val event = dragEvent(position, payload, action)
             val dropped = dragTarget.onDrop(event)
             dragTarget.onEnded(event)
             dropped
@@ -295,9 +316,8 @@ public class KortexScene(
 
     private val dragTarget get() = scene.rootDragAndDropNode
 
-    // A drag delivered here is always a copy: it takes nothing away from where it came from.
-    private fun dragEvent(position: Offset, payload: Any?) = DragAndDropEvent(
-        action = DragAndDropTransferAction.Copy,
+    private fun dragEvent(position: Offset, payload: Any?, action: DragAndDropTransferAction) = DragAndDropEvent(
+        action = action,
         nativeEvent = payload,
         positionInRootImpl = position,
     )
@@ -369,7 +389,7 @@ private class KortexPlatformContext(
 /** Hands content's own request to drag something out to [startDrag], and refuses a payload kortex cannot carry. */
 @OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
 private class KortexDragAndDropManager(
-    private val startDrag: (dragged: KortexDragSource) -> Boolean,
+    private val startDrag: (drag: KortexDrag) -> Boolean,
 ) : PlatformDragAndDropManager {
     // Without this Compose waits for a drag the desktop starts on its own, which no Wayland compositor does.
     override val isRequestDragAndDropTransferRequired: Boolean get() = true
@@ -382,8 +402,10 @@ private class KortexDragAndDropManager(
                 decorationSize: Size,
                 drawDragDecoration: DrawScope.() -> Unit,
             ): Boolean {
-                val dragged = transferData.transferable as? KortexDragSource ?: return false
-                started = startDrag(dragged)
+                val dragged = transferData.transferable as? KortexDragSource
+                val actions = transferData.supportedActions.filterTo(mutableSetOf(), DRAGGABLE_ACTIONS::contains)
+                started = dragged != null && actions.isNotEmpty() &&
+                    startDrag(KortexDrag(dragged, actions) { action -> completed(transferData, action) })
                 // Compose's own channel for a gesture that did not complete, which is what a drag the host
                 // would not start is. Content's own code, and it runs inside the pointer event that dragged,
                 // so a throw out of it is this scene's failure like any other content throws.
@@ -393,7 +415,21 @@ private class KortexDragAndDropManager(
         }
         with(source) { transfers.startDragAndDropTransfer(offset) { started } }
     }
+
+    // On whichever thread the drag ended, which is the host's loop rather than the one that dragged.
+    private fun completed(transferData: DragAndDropTransferData, action: DragAndDropTransferAction?) {
+        transferData.onTransferCompleted?.invoke(action)
+    }
 }
+
+/**
+ * The actions a Wayland drag can settle on, which is every one `wl_data_device_manager.dnd_action` names bar
+ * `ask`. A drag content offers none of these is refused rather than carried as something it did not ask for:
+ * [DragAndDropTransferAction.Link] has no counterpart at all, and a desktop given no action cancels the drag.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+private val DRAGGABLE_ACTIONS =
+    setOf(DragAndDropTransferAction.Copy, DragAndDropTransferAction.Move)
 
 // java.awt.event.MouseEvent refuses a null source, and this one is never shown, drawn into or delivered to.
 private val WHEEL_EVENT_SOURCE = AwtCanvas()

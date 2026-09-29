@@ -27,6 +27,9 @@ internal const val PROBE_MARKER_DROPPED = "KORTEX-PROBE dropped="
 internal const val PROBE_MARKER_ASKED = "KORTEX-PROBE compose-asked"
 internal const val PROBE_MARKER_NOT_STARTED = "KORTEX-PROBE not-started"
 
+/** What the drag settled on, which reaches the source only through Compose's own completion channel. */
+internal const val PROBE_MARKER_COMPLETED = "KORTEX-PROBE completed="
+
 /** The text the source offers, which the target must read back byte for byte. */
 internal const val PROBE_DRAGGED_TEXT = "carried over the wire"
 
@@ -149,13 +152,17 @@ private fun DraggableBox() {
                 System.err.println(PROBE_MARKER_ASKED)
                 DragAndDropTransferData(
                     KortexDragSource.Text(PROBE_DRAGGED_TEXT),
-                    listOf(DragAndDropTransferAction.Copy),
-                    // Null is Compose's own way of saying the gesture did not complete, which is what the
-                    // host answers with when it took the drag on and then could not start it.
+                    // Both, so the wire carries a source that would let a drop move what it holds as well as
+                    // copy it, and the compositor has two to match the destination's own against.
+                    listOf(DragAndDropTransferAction.Copy, DragAndDropTransferAction.Move),
                     onTransferCompleted = { action ->
+                        // Null is Compose's own way of saying the gesture did not complete, which is what the
+                        // host answers with when it would not start the drag at all.
                         if (action == null) System.err.println(PROBE_MARKER_NOT_STARTED)
+                        System.err.println(PROBE_MARKER_COMPLETED + action)
                     },
                 )
+
             },
     )
 }

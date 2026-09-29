@@ -648,11 +648,27 @@ where on the monitor the compositor put it.
       added without noticing. The teardown was never the problem and is unchanged.
       (`KortexSceneTest`, which goes red when that channel is called from a thread of its own instead)
 
-- [ ] **A drag out of kortex is a copy and nothing else.** `copy` is the one action kortex declares on a
-      `wl_data_source`, and the one it asks for on an offer it takes (`DataDevice.kt`), so content can neither
-      drag something out as a move nor let the user choose. Open: `move` means telling the content that dragged
-      that the drop happened, so it can remove what left, which is the channel the entry above wants; `ask` means
-      answering the compositor mid-drag, once the user has picked an action out of a menu the compositor drives.
+- [x] **A drag out of kortex is a copy and nothing else.** A drag out now declares whatever content listed, and
+      the action it settled on reaches the content that dragged, which is what a move needs: the source is the
+      side that removes what left it, and nothing else tells it to. `KortexPlatform.startDrag` takes a
+      `KortexDrag` carrying the payload, the actions and an `onEnded`; Compose's own `DragAndDropTransferData`
+      already had all three, so content writes no kortex-specific code for it. A drag offered only as a
+      `Link` never starts: Wayland has no such action, and carrying it as a copy would do what content said it
+      would not allow.
+      **A drag arriving here is still only ever a copy, and the reason is the compositor.** Read off
+      `DragWireTest`'s own trace on Hyprland 0.56.2: it answers a drag's enter with `wl_data_offer.action(2)`,
+      a move, before this side has said anything, and sends nothing further after four
+      `set_actions(3, 1)` naming both and preferring copy. So a destination that names move gets move, whatever
+      the user held, and a picture dragged out of a file manager would be deleted from it on a plain drag.
+      `TAKEABLE` is copy alone until a compositor is shown to honour the preference, which is one line to flip.
+      **Hyprland also sends no `wl_data_source.action` at all**, so the source cannot learn what a drop settled
+      on. `dnd_finished` says a drop happened, so content is told the action it offered rather than null, which
+      would say its gesture never completed. Copy wherever content offered it: reporting a move that was not one
+      has content delete what nobody took, and the opposite mistake leaves the same thing in two places.
+      Open: `ask`, which means answering the compositor mid-drag once the user has picked out of a menu it
+      drives, and which a destination must not name unless it answers it.
+      (`KortexSceneTest`, `DragAndDropTest`, `DragWireTest`)
+
 
 - [x] **A layer surface can wait for its first configure forever.** `LayerShellSurface.waitForConfigure` spins on
       a blocking `display.dispatch()`, so a compositor that never answers leaves the call there with nothing to
@@ -860,10 +876,11 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **395 tests green on `master`: 364 in `:wayland`, 24 in `:compose`, 7 in `:bar`.**
+- **399 tests green on `master`: 366 in `:wayland`, 26 in `:compose`, 7 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
   The three `@Hotplug` classes are excluded and have never run here; changing an output on this machine
-  crashes the installed GTK about one run in 256, so that number is 395 of a slightly larger whole.
+  crashes the installed GTK about one run in 256, so that number is 399 of a slightly larger whole.
+
 
 
 
