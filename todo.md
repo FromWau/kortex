@@ -1021,13 +1021,29 @@ Modules that carry a desktop's own state to whatever draws it. A provider gives 
 widget is where a toolkit starts having opinions about what a bar should look like, and kortex has none. The
 caller builds its own.
 
-**None of this is built, and building it will correct it.** What is settled is the reasoning: data and no UI,
-one flow carrying a `Result` rather than data beside a status, typed errors on `IError`, nothing running
-while nobody is watching, and no Compose or `:wayland` anywhere. What is draft is every shape under it: the
-names, the signatures, how the errors divide, and whether a rule survives contact with a real D-Bus client at
-all. Where the code and this section disagree once `:dbus` and `:tray` exist, the code is right and this is
-what gets rewritten. The only claims here checked against anything are the bus signatures, which were read
-off a running desktop rather than remembered, and each says so where it appears.
+**`:dbus` and `:tray` now exist, and building them corrected this in four places**, which is what the draft
+note said would happen. Every rule survived; what changed is underneath them.
+
+- **There is no FFI.** D-Bus is a wire protocol on a unix socket, not a library, so the sd_bus against
+  libdbus-1 question below is moot and `:dbus` is pure Kotlin on `java.net.UnixDomainSocketAddress`. The
+  reasoning that made sd_bus look cheap, that it is far less code, holds from C and not through FFM: all of
+  that terseness is in variadic format strings, and only the non-variadic subset is reachable, which is the
+  same shape and size as libdbus-1's iterators. It also makes the "a socket can be faked" claim below true,
+  since it is only true while kortex owns the socket.
+- **`SCM_RIGHTS` is unreachable**, because `SocketChannel` exposes no ancillary data. A provider that needs a
+  file descriptor cannot be written on this client, and kortex must never negotiate `UNIX_FD`. Nothing in
+  `:tray`, `:mpris` or `:notification` passes one.
+- **A provider sees signals it never subscribed to.** `NameAcquired` and `NameLost` are addressed to the
+  connection and arrive with no match rule at all, found by a test that assumed the opposite. A provider must
+  filter rather than trust that everything arriving is its own. `:notification` gets told it has stopped
+  being the server for free.
+- **A fake bus was written and thrown away.** It reimplemented the protocol, so it agreed with whatever
+  kortex had got wrong about it, which is the one thing a test here has to catch. Every test talks to the
+  session bus that is running, as every `:wayland` test talks to a live compositor.
+
+What was settled stayed settled: data and no UI, one flow carrying a `Result`, typed errors on `IError`,
+nothing running while nobody is watching, and no Compose or `:wayland` anywhere. What is still draft is
+everything `:notification` and the server side turn on, none of which is built.
 
 What every one of them keeps to:
 
@@ -1079,13 +1095,27 @@ at all.
       answers. `:notification` does: it takes a bus name exclusively, exports an object, dispatches method
       calls made to it and returns their values. A `:dbus` designed against `:tray` alone would have no
       server side at all, so the two together are what the client has to survive.
-      One thing to settle inside `:tray` and then copy everywhere: whether `NotConnected` covers "still
-      connecting", or whether a caller ever needs to tell that from "there is no tray daemon". If it does,
-      that is a second error variant and never a second flow.
-      Open: the module, the client, the answer to that, and which client it is. FFM into `sd_bus` is much
-      less code and ties kortex to systemd; FFM into `libdbus-1` is portable and costs hand-rolled message
-      marshalling. Both are on the test desktop. That choice belongs here rather than to the portal's one
-      method call, because `:tray` is what will live with it.
+      **Done: the client, the module, and the reading half of `:tray`.** 70 tests, all against the running
+      session bus and a live tray. `:dbus` carries the codec, the four message shapes, the connection with
+      one coroutine owning the socket, match rules and name ownership. `:tray` reads items, decodes them and
+      passes on activation, secondary activation, context menu and scroll. `./gradlew :tray:probe
+      -Pprobe=com.fromwau.kortex.tray.LiveTrayProbeKt` prints the live tray and watches it change.
+      **`NotConnected` needed a second variant, and it is `NoWatcher`.** One passes on its own and a bar
+      should draw nothing; the other will not pass and means the session has no tray at all. Both on the one
+      flow, which is the rule the question was really testing.
+      **Three things the specification gets wrong about reality**, each found by running against the live
+      bus and each already in the code: `org.freedesktop.StatusNotifierItem` does not exist on this desktop
+      and kdeconnect rejects the interface outright, so KDE's names are tried first; the watcher hands back
+      one string holding a connection and a path and watchers disagree about which parts it holds; and
+      `NameOwnerChanged` has to be watched beside the watcher's own signal, because an application that
+      dies may take its item with it unannounced.
+      Open: `DBusMenu`, which is the other half of `:tray`. An item's `Menu` property names a
+      `com.canonical.dbusmenu` object and kortex reads no further than the path. That interface has its own
+      layout tree, its own change signals and its own activation calls, and it is what a bar needs before it
+      can draw a tray menu rather than asking the item to draw one.
+      Open: the server side of `:dbus`, which `:tray` cannot prove because a host only ever calls. Exporting
+      an object, dispatching a call made to it and returning a value are all unwritten, and an incoming
+      `Message.Call` is currently ignored.
 - [ ] **`:notification` makes kortex the notification server, not a client.** `org.freedesktop.Notifications`
       at `/org/freedesktop/Notifications` is what `notify-send` calls, and a shell that shows notifications is
       what answers it. Read off the running bus rather than remembered: `Notify(susssasa{sv}i)` answering a
@@ -1109,12 +1139,11 @@ at all.
       icons or inline images are supported depends on what the content drawing them can render, and only the
       caller knows that.
       Open: the module itself.
-- [ ] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
+- [x] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
       `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
-      while every module depends on Compose. A provider must not, so the first Compose-free module ends that
-      freeride.
-      Open: an explicit `kotlinx-coroutines-core` entry in `gradle/libs.versions.toml`, taken as an `api`
-      dependency wherever a module's own public surface is a `StateFlow`.
+      while every module depends on Compose. A provider must not, so the first Compose-free module ended that
+      freeride. `kotlinxCoroutines = "1.11.0"` is in the catalog and `:dbus` takes it as `api`, its own
+      surface being a `SharedFlow`. Compose supplies 1.9.0 transitively and no module now relies on that.
 
 ## Where the work stands
 
