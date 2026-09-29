@@ -54,8 +54,8 @@ class TrayItemTest {
 
         assertTrue(item.icon.pixmaps.isEmpty())
         assertEquals(false, item.icon.isEmpty, "an icon with a name is not an empty icon")
-        assertEquals(TrayIcon.NONE, item.overlayIcon)
-        assertEquals(TrayIcon.NONE, item.attentionIcon)
+        assertEquals(TrayIcon(), item.overlayIcon)
+        assertEquals(TrayIcon(), item.attentionIcon)
         assertTrue(item.overlayIcon.isEmpty)
     }
 
@@ -67,7 +67,7 @@ class TrayItemTest {
         assertEquals("", item.title)
         assertEquals(TrayCategory.ApplicationStatus, item.category, "the specification's own default")
         assertEquals(TrayStatus.Active, item.status)
-        assertEquals(TrayIcon.NONE, item.icon)
+        assertEquals(TrayIcon(), item.icon)
         assertNull(item.toolTip)
         assertNull(item.menuPath)
     }

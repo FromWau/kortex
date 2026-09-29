@@ -301,4 +301,3 @@ private typealias Known = Map<ItemAddress, Map<String, DBusValue>>
 
 private fun Known.asItems(): List<TrayItem> = map { (address, properties) -> trayItemFrom(address, properties) }
 
-private val DBusValue.text: String? get() = (unwrapped as? DBusValue.Text)?.value

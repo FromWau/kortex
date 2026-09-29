@@ -16,7 +16,7 @@ kotlin {
         commonMain {
             dependencies {
                 api(libs.kern.result)
-                // api, not implementation: a signal arrives as a Flow, so this is part of the surface.
+                // api, not implementation: signals are a SharedFlow, so these types are in the surface.
                 api(libs.kotlinx.coroutines.core)
             }
         }

@@ -1,6 +1,7 @@
 package com.fromwau.kortex.tray
 
 import com.fromwau.kortex.dbus.DBusValue
+import com.fromwau.kortex.dbus.unwrapped
 
 /** Where an item lives: the connection that exports it, and the object on that connection. */
 public data class ItemAddress(public val service: String, public val path: String) {
@@ -103,9 +104,6 @@ public data class TrayIcon(
 ) {
     public val isEmpty: Boolean get() = name == null && pixmaps.isEmpty()
 
-    internal companion object {
-        val NONE = TrayIcon()
-    }
 }
 
 /** The hover text an item offers, which no host is obliged to draw. */
@@ -159,7 +157,7 @@ private fun Map<String, DBusValue>.icon(name: String, pixmap: String, themePath:
 )
 
 private fun Map<String, DBusValue>.toolTip(themePath: String?): TrayToolTip? {
-    val fields = (this["ToolTip"] as? DBusValue.Struct)?.fields ?: return null
+    val fields = (this["ToolTip"]?.unwrapped as? DBusValue.Struct)?.fields ?: return null
     if (fields.size != TOOLTIP_FIELDS) return null
 
     val tip = TrayToolTip(
@@ -175,17 +173,27 @@ private fun Map<String, DBusValue>.toolTip(themePath: String?): TrayToolTip? {
     return tip.takeUnless { it.icon.isEmpty && it.title.isEmpty() && it.description.isEmpty() }
 }
 
-internal fun Map<String, DBusValue>.text(key: String): String? = (this[key] as? DBusValue.Text)?.value
+/**
+ * A value as a string, looking through a variant on the way.
+ *
+ * Every accessor here does, because the same property reaches this both already unwrapped, out of a
+ * `GetAll`, and still boxed, out of a `PropertiesChanged`. Unwrapping in one place rather than at each
+ * caller is what stops a boxed value reading as a property the item never sent.
+ */
+internal val DBusValue.text: String? get() = (unwrapped as? DBusValue.Text)?.value
+
+internal fun Map<String, DBusValue>.text(key: String): String? = this[key]?.text
 
 internal fun Map<String, DBusValue>.objectPath(key: String): String? =
-    (this[key] as? DBusValue.ObjectPath)?.value?.takeUnless { it == "/" }
+    (this[key]?.unwrapped as? DBusValue.ObjectPath)?.value?.takeUnless { it == "/" }
 
-internal fun Map<String, DBusValue>.flag(key: String): Boolean = (this[key] as? DBusValue.Bool)?.value == true
+internal fun Map<String, DBusValue>.flag(key: String): Boolean =
+    (this[key]?.unwrapped as? DBusValue.Bool)?.value == true
 
 private fun Map<String, DBusValue>.images(key: String): List<TrayImage> = imagesIn(this[key])
 
 /** An `a(iiay)`, where each struct is a width, a height and the pixels. */
-private fun imagesIn(value: DBusValue?): List<TrayImage> = (value as? DBusValue.Sequence)
+private fun imagesIn(value: DBusValue?): List<TrayImage> = (value?.unwrapped as? DBusValue.Sequence)
     ?.values
     ?.mapNotNull { entry ->
         val fields = (entry as? DBusValue.Struct)?.fields ?: return@mapNotNull null

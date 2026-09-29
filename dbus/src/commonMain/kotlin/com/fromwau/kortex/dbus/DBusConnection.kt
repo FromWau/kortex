@@ -275,8 +275,6 @@ public class DBusConnection private constructor(
 
     private suspend fun deliver(message: Message) {
         when (message) {
-            // Completed before a signal is offered anywhere, so a subscriber cannot delay a reply that has
-            // already arrived.
             is Message.Return -> pending[message.replySerial]?.complete(Ok(message))
             is Message.Failure -> pending[message.replySerial]?.complete(Ok(message))
             is Message.Signal -> received.emit(message)
@@ -365,8 +363,8 @@ public class DBusConnection private constructor(
     }
 
     private fun handshake(uid: Int): EmptyResult<DBusError> {
-        // The leading NUL is the protocol's, not the line's: it marks the start of the stream and carries
-        // the credentials on the platforms where the kernel attaches them to a byte.
+        // Not part of the line: the protocol opens with a zero byte, which is what carries credentials on
+        // the platforms that attach them to one.
         writeAscii("\u0000").getOrElse { return Err(it) }
         writeAscii("AUTH EXTERNAL ${uid.toString().hexed()}\r\n").getOrElse { return Err(it) }
 

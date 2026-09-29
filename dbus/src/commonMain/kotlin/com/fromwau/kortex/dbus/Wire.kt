@@ -154,8 +154,6 @@ internal class WireWriter(order: ByteOrder, capacity: Int = 256) {
  * rules are written against, rather than one into a slice that has to be reasoned about separately.
  */
 internal class WireReader(private val bytes: ByteBuffer) {
-    val offset: Int get() = bytes.position()
-
     fun seek(to: Int) {
         bytes.position(to)
     }

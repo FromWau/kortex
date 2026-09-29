@@ -1142,8 +1142,8 @@ at all.
 - [x] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
       `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
       while every module depends on Compose. A provider must not, so the first Compose-free module ended that
-      freeride. `kotlinxCoroutines = "1.11.0"` is in the catalog and `:dbus` takes it as `api`, its own
-      surface being a `SharedFlow`. Compose supplies 1.9.0 transitively and no module now relies on that.
+      freeride. `kotlinx-coroutines-core` is in the catalog now and `:dbus` takes it as `api`, its own surface
+      being a `SharedFlow`. Nothing relies on the older one Compose supplies transitively any more.
 
 ## Where the work stands
 
