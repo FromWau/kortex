@@ -986,16 +986,19 @@ references and stays actionable on its own once the reports are gone.
       `KortexScene.render` does turn a test red: `:compose`'s `KortexSceneTest > a draw that invalidates
       itself asks for the next frame`. The line is covered, just not by an `onScene` test, and the entry read
       as a coverage gap where there is none. Checked by deleting it and running everything.
-- [ ] **`:compose`'s own scene harness renders from one thread while composing on another.** `withScene`
-      (`KortexSceneTest.kt`) gives the scene a single-thread executor as its frame context and then drives
-      `setContent` and `render` from the JUnit thread, so `measureAndLayout` and `draw` can run concurrently
-      with a recomposition. It is deliberate as far as it goes, and the comment there says why: `Unconfined`
-      satisfies `FrameRecomposer`'s check for a `ContinuationInterceptor` while never delivering
-      `onInvalidate`, so only a real dispatcher exercises the contract. But production is single-threaded on
-      `loop + work`, and a queue drained by the caller delivers `onInvalidate` just as well without the
-      second thread, which is what `onScene` now does. `:compose` cannot use `LoopQueue`, which lives in
-      `:wayland`, so it needs its own. Open: the queue, and drain points in the helpers that currently wait
-      on a latch for the executor thread to make progress, `dragUntilAsked` and `awaitFailure` among them.
+- [x] **`:compose`'s own scene harness rendered from one thread while composing on another.** `withScene`
+      gave the scene a single-thread executor as its frame context and drove `setContent` and `render` from
+      the JUnit thread, so `measureAndLayout` and `draw` could run against a recomposition on the executor's:
+      a shape no host is allowed to take, since a Compose scene is single-threaded. The reason it was not
+      `Unconfined` is real and is kept: `FrameRecomposer` rejects a context with no `ContinuationInterceptor`,
+      and `Unconfined` satisfies that check while never delivering `onInvalidate` at all. A `SceneLoop` is
+      both at once, a dispatcher that must be dispatched to and one only the rendering thread runs, which is
+      what `loop + work` is in the host. The block is a `SceneDriver` receiver now, so every `scene.` and
+      `surface.` line stands as it was; 32 renders became `tick`, six latch waits became `passUntil`, and
+      `awaitFailure` passes by default, since an effect that fails after a `delay` resumes on this loop and
+      nowhere else. The trap was `stays silent while idle`, which asserts an absence: a window that ran
+      nothing would have reported every composition idle. It runs passes now, and a state change landing
+      part-way through that window is caught, which is how that was checked.
 - [x] **A `@Hotplug` test left no trace in the results, so missing coverage reported as covered.** An excluded
       test writes no `<skipped/>` and no result file at all: `SurfaceScaleTest` recorded `tests="1"` for a
       two-`@Test` file and three whole classes produced no XML, so the run read as complete. `HotplugCoverageTest`
