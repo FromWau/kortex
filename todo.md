@@ -1348,6 +1348,16 @@ references and stays actionable on its own once the reports are gone.
 - Replacing Skiko's `MainUIDispatcher`. It is what runs Compose's debounced layout-rect callbacks on Swing's event
   queue, which is what starts AWT's toolkit in any scene with a text field; the dispatcher is Skiko's, not
   kortex's, and swapping it is a fork of somebody else's frame scheduling.
+- An xdg-shell-only mode, and with it Weston and GNOME. `Window`, `Dialog`, `Popup` and `ContextMenu` speak
+  nothing but `xdg_shell` and would run there if the startup gate let them, and dropping `zwlr_layer_shell_v1`
+  from `SURFACE_GLOBALS` is one line. A shell toolkit whose bars, docks and wallpapers cannot open is a
+  different toolkit rather than a smaller one, and a half-running application is worse to diagnose than one
+  that refuses with a reason. kortex requires the layer shell and says so instead: the entry under "Audit
+  against the reference implementations" holds the working, and the cost this gives up is a second compositor
+  to test conformance against.
+- Placing a menu ourselves. `SurfaceConfig.contextMenu` flipped a layer surface to whichever corner kept a menu
+  on screen, which is the compositor's own job once a menu is an `xdg_popup` and it solves the positioner.
+  Deleted with `MenuAnchor` and its nine test cases rather than given a caller.
 
 ## Archived
 
