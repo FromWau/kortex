@@ -361,6 +361,16 @@ internal sealed interface Clip {
         }
     }
 
+    /** Files, sent as the RFC 2483 list every [UriListMime] carries. */
+    class Uris(uris: List<String>) : Clip {
+        private val encoded = encodeUriList(uris)
+
+        override val offeredTypes: List<Mime> = UriListMime.entries
+
+        override fun bytesFor(type: Mime): Result<ByteArray, ClipboardError> =
+            if (type is UriListMime) Ok(encoded) else Err(ClipboardError.NoUris)
+    }
+
     /**
      * An image a drag offers, encoded only once a transfer asks for it.
      *
@@ -380,6 +390,7 @@ internal sealed interface Clip {
 internal fun KortexDragSource.asClip(): Clip = when (this) {
     is KortexDragSource.Text -> Clip.Text(text)
     is KortexDragSource.Image -> Clip.DeferredImage(image)
+    is KortexDragSource.Files -> Clip.Uris(uris)
 }
 
 /** [image] as [type] carries it, or [ClipboardError.TooLarge] where that is more than [MAX_IMAGE_BYTES]. */
@@ -391,6 +402,15 @@ private fun encodeImage(image: ImageBitmap, type: ImageMime): Result<ByteArray, 
     }
     return if (encoded.size > MAX_IMAGE_BYTES) Err(ClipboardError.TooLarge) else Ok(encoded)
 }
+
+/**
+ * [uris] as RFC 2483 writes them: one per line, each line ended by a CRLF, including the last.
+ *
+ * The terminator on the last line is what makes this and [decodeUriList] each other's inverse, since a
+ * decode drops the empty line a trailing CRLF leaves behind.
+ */
+internal fun encodeUriList(uris: List<String>): ByteArray =
+    uris.joinToString(separator = "") { "$it\r\n" }.encodeToByteArray()
 
 /**
  * [encoded] as the URIs it lists, per RFC 2483: lines separated by CRLF, of which the blank ones and those

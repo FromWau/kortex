@@ -54,4 +54,29 @@ class UriListTest {
     fun `an empty transfer carries no uris rather than one empty uri`() {
         assertEquals(emptyList(), decodeUriList(ByteArray(0)), "an empty uri list read as a file")
     }
+
+    @Test
+    fun `a list kortex writes puts each uri on its own line, ended by a CRLF`() {
+        val written = encodeUriList(listOf("file:///tmp/one.txt", "file:///tmp/two.txt"))
+
+        assertEquals(
+            "file:///tmp/one.txt\r\nfile:///tmp/two.txt\r\n", written.decodeToString(),
+            "a file manager reading this would not find the lines where RFC 2483 puts them",
+        )
+    }
+
+    @Test
+    fun `a list kortex writes reads back as the uris it was given`() {
+        val uris = listOf("file:///tmp/one.txt", "file:///tmp/a%20file.txt", "https://example.org/x?y=1")
+
+        assertEquals(uris, decodeUriList(encodeUriList(uris)), "a list did not survive its own round trip")
+    }
+
+    @Test
+    fun `an empty list is written as no bytes at all`() {
+        assertEquals(
+            0, encodeUriList(emptyList()).size,
+            "an empty list wrote bytes a reader would then have to know to skip",
+        )
+    }
 }

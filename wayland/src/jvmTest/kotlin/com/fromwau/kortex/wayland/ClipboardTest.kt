@@ -88,6 +88,10 @@ class ClipboardTest {
     fun `a copy offers an image as PNG and JPEG, and a text under the five text types`() {
         assertEquals(IMAGE_OFFER, imageClipOrFail().offeredTypes.map { it.wireName }, "an image copy's offer")
         assertEquals(PASTE_PREFERENCE, Clip.Text(COPIED).offeredTypes.map { it.wireName }, "a text copy's offer")
+        assertEquals(
+            URI_LIST_OFFER, Clip.Uris(listOf("file:///tmp/one.txt")).offeredTypes.map { it.wireName },
+            "a file copy's offer",
+        )
     }
 
     @Test

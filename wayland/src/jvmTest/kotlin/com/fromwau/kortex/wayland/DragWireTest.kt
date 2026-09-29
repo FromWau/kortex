@@ -185,6 +185,50 @@ class DragWireTest {
             "the dragged text never reached the target's content; output:\n$raw",
         )
     }
+
+    /**
+     * The same drag carrying files instead of a text, which is the only way anything automated reaches
+     * `Drag.uriListType` and the third transfer a drop opens.
+     *
+     * Every other drag here carries a text, and no test can make a file manager drag on demand, so before
+     * kortex could offer a file list itself the whole of that path was covered by a probe waiting on a hand.
+     */
+    @Test
+    fun `a drag carrying files offers a uri list alone, and lands as the uris it carried`() {
+        val (exitCode, output) = runProbe(
+            "com.fromwau.kortex.wayland.DragWireProbeKt",
+            environment = mapOf(
+                "WAYLAND_DEBUG" to "client",
+                PROBE_PAYLOAD_VAR to PROBE_PAYLOAD_FILES,
+            ),
+        )
+        val raw = output.joinToString("\n")
+        assertEquals(0, exitCode, "the file drag probe exited $exitCode; output:\n$raw")
+
+        val dataTraffic = output.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")
+        assertTrue(
+            output.any { it.isRequest("wl_data_source", "offer") && URI_LIST.containsMatchIn(it) },
+            "a drag carrying files did not offer a uri list; wire:\n$dataTraffic",
+        )
+        // And nothing else: a file list offered beside the text types would be a source announcing a text it
+        // has no bytes for, which a destination is entitled to ask for and would read as empty.
+        assertEquals(
+            emptyList(),
+            output.filter { it.isRequest("wl_data_source", "offer") && !URI_LIST.containsMatchIn(it) },
+            "a drag carrying files offered types it holds nothing for; wire:\n$dataTraffic",
+        )
+
+        // The destination's own side: picking the type is what Drag.uriListType does, and opening the
+        // transfer for it is the third drain a drop starts.
+        assertTrue(
+            output.any { it.isRequest("wl_data_offer", "receive") && URI_LIST.containsMatchIn(it) },
+            "the drop opened no transfer for the uri list it was offered; wire:\n$dataTraffic",
+        )
+        assertTrue(
+            output.any { it == PROBE_MARKER_DROPPED + PROBE_DRAGGED_URIS.toString() },
+            "the dragged files never reached the target's content as themselves; output:\n$raw",
+        )
+    }
 }
 
 // start_drag(source, origin, icon, serial): the serial is its last argument.
@@ -196,3 +240,6 @@ private val COPY_ALONE = Regex("\\.set_actions\\(1,\\s*1\\)")
 
 // wl_data_offer.action carries the one action settled on, so 2 alone is a move.
 private val SETTLED_MOVE = Regex("\\.action\\(2\\)")
+
+// The one type a file drag names, in an offer or a receive.
+private val URI_LIST = Regex("\"text/uri-list\"")

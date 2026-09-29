@@ -86,6 +86,15 @@ public sealed interface KortexDragSource : DragAndDropTransferable {
 
     /** An image, offered as both a PNG and a JPEG. */
     public data class Image(public val image: ImageBitmap) : KortexDragSource
+
+    /**
+     * Files, offered as the `text/uri-list` a file manager reads.
+     *
+     * Name each by its URI and not its path, percent-encoded, as `file:///home/you/my%20notes.txt`. Nothing
+     * here checks that: what a destination makes of a URI is its own business, and a bare path sent where one
+     * belongs simply fails to resolve wherever it lands.
+     */
+    public data class Files(public val uris: List<String>) : KortexDragSource
 }
 
 /**

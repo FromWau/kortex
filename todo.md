@@ -760,20 +760,26 @@ where on the monitor the compositor put it.
       The file is untouched afterwards.
       What a drag can carry a paste still cannot, which is an entry of its own below.
       (`UriListTest`, `DragAndDropTest`, `LiveDropProbe`)
-- [ ] **A sandboxed source's files cannot be read, and kortex can drag none out.** The clipboard reads a
-      file list now: `KortexClipboard.readUris` answers what a file manager copied, on the terms `readText`
-      answers a text, except that nothing comes from memory because no `Clip` carries one.
+- [ ] **A sandboxed source's files cannot be read, and no file copy can be made.** kortex reads a file list
+      off the clipboard and off a drag, and drags one out: `KortexDragSource.Files` offers files as the
+      `text/uri-list` a file manager reads, `Clip.Uris` writes RFC 2483 with a CRLF after every line
+      including the last, and that last terminator is what makes `encodeUriList` and `decodeUriList` each
+      other's inverse.
+      **The drag half of this entry is closed, cover and all.** `DragWireTest` drags files from kortex to
+      kortex and reads the path off the wire: the source offers a uri list and nothing else, the destination
+      opens the transfer for it, which is `Drag.uriListType` picking the type, and the uris reach content as
+      themselves. None of that had automated cover before, because no test could make a file manager drag on
+      demand.
       `application/vnd.portal.filetransfer` stays unread, which is what a sandboxed source offers in place of
       a path. Its bytes are a key for `org.freedesktop.portal.FileTransfer.RetrieveFiles()` over D-Bus, so
       reading it is a D-Bus call rather than another `Mime`.
-      kortex has no file-list drag *source* either, and that absence is what keeps two paths uncovered.
-      Nothing automated reaches `Drag.uriListType` or its drain, and nothing reaches the type `receiveUris`
-      picks: `receiveSelection` answers `NoSelection` before it calls the pick at all, so pointing
-      `receiveUris` at `preferredText` leaves the suite green. That was read off a mutation rather than
-      reasoned about, after the reasoning said it would be caught and was wrong.
-      Both need a selection or a drag carrying a file list, which only another application can make, so a
-      hand-driven `LiveDropProbe` run against a file manager is the only cover either has.
-      Open: the portal, a source, and the cover a source would make possible.
+      The clipboard side is untouched, and with it the gap a source looked likely to close.
+      `KortexClipboard` has no `setUris`, so nothing reaches the type `receiveUris` picks, and adding one
+      would not reach it either: `receiveSelection` answers `NoSelection` before it calls the pick, and
+      getting past that needs keyboard focus, which only the class that takes the desktop's own clipboard may
+      have.
+      Open: the portal, a file copy, and a way to drive a selection read that does not take the user's
+      clipboard with it.
 - [x] **A drop no longer tells content the drag was a move kortex never offered.** Hyprland 0.56.2 sends
       `wl_data_offer.action(2)` before the destination has answered anything and never sends another, so
       `DataOffer.settledAction` stayed `Move` through all 91 `set_actions(1, 1)` of a drag out of Dolphin

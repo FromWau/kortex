@@ -33,6 +33,16 @@ internal const val PROBE_MARKER_COMPLETED = "KORTEX-PROBE completed="
 /** What the destination told its content the drop would do, which is not always what the compositor settled. */
 internal const val PROBE_MARKER_TOOK_AS = "KORTEX-PROBE took-as="
 
+/** Set to [PROBE_PAYLOAD_FILES] to drag files rather than the text every other leg carries. */
+internal const val PROBE_PAYLOAD_VAR = "KORTEX_DRAG_PAYLOAD"
+internal const val PROBE_PAYLOAD_FILES = "files"
+
+/** What a file drag carries: two, and one with a percent-encoded space, so a mangled list cannot read right. */
+internal val PROBE_DRAGGED_URIS = listOf("file:///tmp/one.txt", "file:///tmp/a%20file.txt")
+
+// Read once here rather than per composition, since the payload is fixed for the life of the probe.
+private val dragsFiles = System.getenv(PROBE_PAYLOAD_VAR) == PROBE_PAYLOAD_FILES
+
 /** The text the source offers, which the target must read back byte for byte. */
 internal const val PROBE_DRAGGED_TEXT = "carried over the wire"
 
@@ -154,7 +164,8 @@ private fun DraggableBox() {
                 // whether the gesture was ever recognised or whether the host was asked and could not.
                 System.err.println(PROBE_MARKER_ASKED)
                 DragAndDropTransferData(
-                    KortexDragSource.Text(PROBE_DRAGGED_TEXT),
+                    if (dragsFiles) KortexDragSource.Files(PROBE_DRAGGED_URIS)
+                    else KortexDragSource.Text(PROBE_DRAGGED_TEXT),
                     // Both, so the wire carries a source that would let a drop move what it holds as well as
                     // copy it, and the compositor has two to match the destination's own against.
                     listOf(DragAndDropTransferAction.Copy, DragAndDropTransferAction.Move),
@@ -165,7 +176,6 @@ private fun DraggableBox() {
                         System.err.println(PROBE_MARKER_COMPLETED + action)
                     },
                 )
-
             },
     )
 }
@@ -182,7 +192,10 @@ private fun DropTarget(dropped: AtomicReference<String?>) {
                     override fun onDrop(event: DragAndDropEvent): Boolean {
                         val offer = event.nativeEvent as? KortexDragOffer ?: return false
                         System.err.println(PROBE_MARKER_TOOK_AS + event.action)
-                        dropped.set(offer.readText().getOrElse { null })
+                        dropped.set(
+                            if (dragsFiles) offer.readUris().getOrElse { null }?.toString()
+                            else offer.readText().getOrElse { null },
+                        )
                         return true
                     }
                 },
