@@ -16,6 +16,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -78,8 +80,14 @@ public class DBusConnection private constructor(
     /** The unique name the bus gave this connection, such as `:1.31`. */
     public val uniqueName: String get() = checkNotNull(name) { "the connection was used before Hello answered" }
 
-    /** Every signal the bus has routed here, whatever asked for it. */
-    public val allSignals: Flow<Message.Signal> get() = received
+    /**
+     * Every signal the bus has routed here, whatever asked for it.
+     *
+     * A [SharedFlow] rather than a plain one so that a collector can act on `onSubscription`: nothing is
+     * replayed, so a subscriber that reads its starting state before it is subscribed loses whatever
+     * arrived in between.
+     */
+    public val allSignals: SharedFlow<Message.Signal> get() = received.asSharedFlow()
 
     /** The signals [rule] asked for, picked out of everything the bus routes to this one socket. */
     public fun signals(rule: MatchRule): Flow<Message.Signal> = received.filter(rule::matches)
