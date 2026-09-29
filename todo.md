@@ -1095,11 +1095,12 @@ at all.
       answers. `:notification` does: it takes a bus name exclusively, exports an object, dispatches method
       calls made to it and returns their values. A `:dbus` designed against `:tray` alone would have no
       server side at all, so the two together are what the client has to survive.
-      **Done: the client, the module, and the reading half of `:tray`.** 70 tests, all against the running
+      **Done: the client, the module, and all of `:tray`'s reading side.** 88 tests, against the running
       session bus and a live tray. `:dbus` carries the codec, the four message shapes, the connection with
       one coroutine owning the socket, match rules and name ownership. `:tray` reads items, decodes them and
-      passes on activation, secondary activation, context menu and scroll. `./gradlew :tray:probe
-      -Pprobe=com.fromwau.kortex.tray.LiveTrayProbeKt` prints the live tray and watches it change.
+      passes on activation, secondary activation, context menu and scroll. Two probes print the live tray
+      and the live menus and watch them change: `./gradlew :tray:probe -Pprobe=<main>` with
+      `com.fromwau.kortex.tray.LiveTrayProbeKt` or `LiveMenuProbeKt`.
       **`NotConnected` needed a second variant, and it is `NoWatcher`.** One passes on its own and a bar
       should draw nothing; the other will not pass and means the session has no tray at all. Both on the one
       flow, which is the rule the question was really testing.
@@ -1109,13 +1110,19 @@ at all.
       one string holding a connection and a path and watchers disagree about which parts it holds; and
       `NameOwnerChanged` has to be watched beside the watcher's own signal, because an application that
       dies may take its item with it unannounced.
-      Open: `DBusMenu`, which is the other half of `:tray`. An item's `Menu` property names a
-      `com.canonical.dbusmenu` object and kortex reads no further than the path. That interface has its own
-      layout tree, its own change signals and its own activation calls, and it is what a bar needs before it
-      can draw a tray menu rather than asking the item to draw one.
-      Open: the server side of `:dbus`, which `:tray` cannot prove because a host only ever calls. Exporting
-      an object, dispatching a call made to it and returning a value are all unwritten, and an incoming
-      `Message.Call` is currently ignored.
+      **Done: `DBusMenu` as well.** `Tray.menu(item)` hands back a `Menu` for an item that exports one, its
+      own provider rather than a field on the item, because an application may build its menu only when
+      asked. `GetLayout` answers `u(ia{sv}av)`, the one recursive type either module meets, and the capture
+      pinning it came off the socket by a separate client with its expected values read by a separate
+      parser again.
+      Two things the reference implementation settled that the interface XML does not say: an entry's
+      `icon-data` is an encoded image file rather than the raw ARGB a tray icon carries, and it arrives
+      either as bytes or base64 into a string; and `enabled` and `visible` default to true when absent,
+      which is the opposite of how a missing flag usually reads.
+      Open: the server side of `:dbus`, which is all that is left of this entry. `:tray` cannot prove it,
+      because a host only ever calls. Exporting an object, dispatching a call made to it and returning a
+      value are all unwritten, and an incoming `Message.Call` is currently ignored. `:notification` is what
+      turns it on.
 - [ ] **`:notification` makes kortex the notification server, not a client.** `org.freedesktop.Notifications`
       at `/org/freedesktop/Notifications` is what `notify-send` calls, and a shell that shows notifications is
       what answers it. Read off the running bus rather than remembered: `Notify(susssasa{sv}i)` answering a
