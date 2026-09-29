@@ -8,7 +8,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -75,7 +74,7 @@ class KeymapFailureTest {
     private fun withKeyboard(block: (Keyboard) -> Unit) {
         val received = CopyOnWriteArrayList<KeyEvent>()
 
-        onScene(IntSize(SIDE, SIDE)) { scene, surface ->
+        onScene(IntSize(SIDE, SIDE)) { scene, _, tick ->
             scene.setContent {
                 val requester = remember { FocusRequester() }
                 Box(
@@ -92,7 +91,7 @@ class KeymapFailureTest {
             }
             // A few frames so the LaunchedEffect runs and focus settles.
             repeat(FOCUS_FRAMES) { frame ->
-                scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
+                tick(frame.toLong())
                 Thread.sleep(FRAME_MILLIS)
             }
 

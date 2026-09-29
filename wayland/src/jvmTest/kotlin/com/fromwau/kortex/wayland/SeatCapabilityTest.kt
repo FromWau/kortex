@@ -34,7 +34,7 @@ class SeatCapabilityTest {
         display.use { wayland ->
             val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
             // No surface behind the scene: this test only exercises which devices the seat announces.
-            onScene(IntSize(SIDE, SIDE)) { scene, _ ->
+            onScene(IntSize(SIDE, SIDE)) { scene, _, _ ->
                 if (!seat.hasPointer) assertNull(seat.attachPointer(scene, scale = 1f))
                 if (!seat.hasKeyboard) assertNull(seat.attachKeyboard(scene))
                 // Whatever this machine announces, the guard has to agree with it.

@@ -9,7 +9,6 @@ import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -243,7 +242,7 @@ class DragAndDropTest {
                 return true
             }
         }
-        onScene(IntSize(SIDE, SIDE)) { scene, surface ->
+        onScene(IntSize(SIDE, SIDE)) { scene, _, tick ->
             scene.setContent {
                 Box(
                     Modifier
@@ -257,7 +256,7 @@ class DragAndDropTest {
                 )
             }
             // A drop is routed by where it is, which needs the target laid out and its bounds known.
-            scene.render(surface.canvas.asComposeCanvas(), 0L)
+            tick(0L)
             block(scene)
         }
     }

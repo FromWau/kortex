@@ -3,7 +3,6 @@ package com.fromwau.kortex.wayland
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
@@ -90,9 +89,9 @@ class PointerReleaseOrderTest {
         val buttons = CopyOnWriteArrayList<Int>()
         val seat = Seat.bind(display).getOrElse { error -> fail("seat bind failed: $error") }
         try {
-            onScene(IntSize(SIDE, SIDE)) { scene, raster ->
+            onScene(IntSize(SIDE, SIDE)) { scene, _, tick ->
                 scene.setContent { Box(Modifier.fillMaxSize()) }
-                scene.render(raster.canvas.asComposeCanvas(), 0L)
+                tick(0L)
                 val pointer = assertNotNull(
                     seat.attachPointer(scene, scale = 1f, onInputSerial = { buttons += it }),
                     "the seat announced no pointer",

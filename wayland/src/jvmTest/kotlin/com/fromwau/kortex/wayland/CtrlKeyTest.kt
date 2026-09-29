@@ -10,12 +10,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
-import org.jetbrains.skia.Surface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
@@ -114,7 +112,7 @@ class CtrlKeyTest {
             override fun onTextInputStopped() = open.set(null)
         }
 
-        onScene(IntSize(SIDE, SIDE), platform = platform) { scene, surface ->
+        onScene(IntSize(SIDE, SIDE), platform = platform) { scene, _, tick ->
             scene.setContent {
                 val requester = remember { FocusRequester() }
                 RecordingTextField(Modifier.focusRequester(requester), typed)
@@ -122,11 +120,11 @@ class CtrlKeyTest {
             }
             // A few frames so the LaunchedEffect runs and focus settles.
             repeat(FOCUS_FRAMES) { frame ->
-                scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
+                tick(frame.toLong())
                 Thread.sleep(FRAME_MILLIS)
             }
 
-            block(Typist(KeyboardInput(scene, textInput = { open.get() }), scene, surface, typed))
+            block(Typist(KeyboardInput(scene, textInput = { open.get() }), scene, tick, typed))
         }
     }
 
@@ -149,7 +147,7 @@ class CtrlKeyTest {
     private class Typist(
         private val keyboard: KeyboardInput,
         private val scene: KortexScene,
-        private val surface: Surface,
+        private val tick: SceneTick,
         private val fieldText: AtomicReference<String>,
     ) {
         private var serial = 0
@@ -163,7 +161,7 @@ class CtrlKeyTest {
         fun tap(code: Int) {
             keyboard.onKey(NULL, NULL, ++serial, 0, code, PRESSED)
             keyboard.onKey(NULL, NULL, ++serial, 1, code, RELEASED)
-            scene.render(surface.canvas.asComposeCanvas(), RENDER_NANOS)
+            tick(RENDER_NANOS)
             Thread.sleep(FRAME_MILLIS)
         }
 

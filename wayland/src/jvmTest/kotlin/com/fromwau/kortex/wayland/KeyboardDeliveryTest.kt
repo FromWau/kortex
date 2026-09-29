@@ -14,7 +14,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -32,7 +31,6 @@ import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
 import com.fromwau.kortex.compose.KortexTextInput
-import org.jetbrains.skia.Surface
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
@@ -350,7 +348,7 @@ class KeyboardDeliveryTest {
         }
 
         display.use { wayland ->
-            onScene(IntSize(SIDE, SIDE), platform = platform) { scene, surface ->
+            onScene(IntSize(SIDE, SIDE), platform = platform) { scene, _, tick ->
                 scene.setContent {
                     val requester = remember { FocusRequester() }
                     content(Modifier.focusRequester(requester))
@@ -358,7 +356,7 @@ class KeyboardDeliveryTest {
                 }
                 // A few frames so the LaunchedEffect runs and focus settles.
                 repeat(FOCUS_FRAMES) { frame ->
-                    scene.render(surface.canvas.asComposeCanvas(), frame.toLong())
+                    tick(frame.toLong())
                     Thread.sleep(FRAME_MILLIS)
                 }
 
@@ -371,7 +369,7 @@ class KeyboardDeliveryTest {
                 wayland.roundtrip()
                 assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
 
-                block(Typist(keyboard, scene, surface))
+                block(Typist(keyboard, scene, tick))
             }
         }
     }
@@ -380,7 +378,7 @@ class KeyboardDeliveryTest {
     private class Typist(
         private val keyboard: KeyboardInput,
         private val scene: KortexScene,
-        private val surface: Surface,
+        private val tick: SceneTick,
     ) {
         private var serial = 0
 
@@ -392,7 +390,7 @@ class KeyboardDeliveryTest {
         fun tap(code: Int) {
             keyboard.onKey(NULL, NULL, ++serial, 0, code, PRESSED)
             keyboard.onKey(NULL, NULL, ++serial, 1, code, RELEASED)
-            scene.render(surface.canvas.asComposeCanvas(), 100L)
+            tick(100L)
             Thread.sleep(FRAME_MILLIS)
         }
 

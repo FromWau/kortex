@@ -1,35 +1,62 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import com.fromwau.kern.result.EmptyResult
+import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexPlatform
 import com.fromwau.kortex.compose.KortexScene
-import kotlinx.coroutines.Dispatchers
 import org.jetbrains.skia.Surface
 
 /**
- * Runs [block] on a scene of [size] and a raster to render it into; the scene and the raster close after.
+ * One pass of the loop driving a scene: the work content queued, then a frame at [frameTimeNanos].
  *
- * The scene's work stays on the calling thread, as a shell's stays on its loop thread. A scene handed a
- * dispatcher of its own instead runs content's effects there while the caller renders here, and a
- * `BasicTextField(TextFieldState)` put through that fails as multithreaded access to `SnapshotStateObserver`.
+ * The order is `KortexShell.serviceSurfaces`'s own, which runs `loopQueue.runPass()` before it services a
+ * surface. A render without the pass before it draws a composition whose effects have not run.
+ */
+internal typealias SceneTick = (frameTimeNanos: Long) -> EmptyResult<ContentFailure>
+
+/**
+ * Runs [block] on a scene of [size], a raster to render it into and a [SceneTick] to drive it; all three go
+ * when it returns.
+ *
+ * Built the way [SurfaceScene] builds one: the frame context is a real [LoopQueue] under a [SurfaceWork],
+ * and the thread that calls [block] is the only one that ever runs what lands there, as a shell's loop
+ * thread is. `Dispatchers.Unconfined`, which this used instead, needs no dispatch at all, so every effect
+ * and recomposition content queued ran inline at whatever point queued it: an ordering the shipping host
+ * never takes, and one in which a test cannot tell that it depends on a frame having happened.
  */
 internal fun onScene(
     size: IntSize,
     platform: KortexPlatform = KortexPlatform.None,
-    block: (scene: KortexScene, surface: Surface) -> Unit,
+    block: (scene: KortexScene, raster: Surface, tick: SceneTick) -> Unit,
 ) {
-    Surface.makeRasterN32Premul(size.width, size.height).use { surface ->
-        KortexScene(
-            size = size,
-            density = Density(1f),
-            layoutDirection = LayoutDirection.Ltr,
-            // Unconfined needs no dispatch, so Compose registers no snapshot pump for it and FrameRecomposer
-            // sends the apply notifications itself, inside the render this thread drives.
-            frameContext = Dispatchers.Unconfined,
-            onInvalidate = {},
-            platform = platform,
-        ).use { scene -> block(scene, surface) }
+    // Nothing to wake: the caller below is this loop's only thread, and it runs a pass whenever it ticks.
+    val loop = LoopQueue { }
+    val work = SurfaceWork()
+
+    Surface.makeRasterN32Premul(size.width, size.height).use { raster ->
+        try {
+            KortexScene(
+                size = size,
+                density = Density(1f),
+                layoutDirection = LayoutDirection.Ltr,
+                frameContext = loop + work,
+                onInvalidate = {},
+                platform = platform,
+            ).use { scene ->
+                block(scene, raster) { frameTimeNanos ->
+                    loop.runPass()
+                    scene.render(raster.canvas.asComposeCanvas(), frameTimeNanos)
+                }
+            }
+        } finally {
+            // As SurfaceScene's own close does: the recomposer leaves Compose's global snapshot observers
+            // only once its cancelled run loop resumes, and that resumption is queued work like any other.
+            loop.drain(work)
+            work.close()
+        }
     }
 }

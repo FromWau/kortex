@@ -10,7 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.KortexPlatform
@@ -25,7 +24,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
-import org.jetbrains.skia.Surface
 
 /**
  * A client cannot make a real compositor hold a key down, so this drives [KeyboardInput]'s listener
@@ -36,19 +34,19 @@ import org.jetbrains.skia.Surface
 class KeyRepeatTest {
     @Test
     fun `a held key repeats only after the delay, at roughly the requested rate, and stops on release`() {
-        withKeyboardSession { keyboard, scene, surface, typed ->
+        withKeyboardSession { keyboard, _, tick, typed ->
             keyboard.onRepeatInfo(NULL, NULL, RATE, DELAY_MILLIS)
             val pressedAt = System.nanoTime()
             keyboard.onKey(NULL, NULL, 1, 0, KEY_A, PRESSED)
-            render(scene, surface)
+            tick(System.nanoTime())
             assertEquals("a", typed.get(), "the initial press did not reach the text field")
 
             // Comfortably inside the delay: several ticks pass, but the delay itself never does.
-            pollFor(DELAY_MILLIS - MARGIN_MILLIS, keyboard, scene, surface)
+            pollFor(DELAY_MILLIS - MARGIN_MILLIS, keyboard, tick)
             assertEquals("a", typed.get(), "a repeat arrived before repeat_info's delay had elapsed")
 
             // Well past the delay: several intervals' worth of repeats should have landed by now.
-            pollFor(EXTRA_MILLIS, keyboard, scene, surface)
+            pollFor(EXTRA_MILLIS, keyboard, tick)
             val elapsedNanos = System.nanoTime() - pressedAt
             val expectedRepeats = ((elapsedNanos - DELAY_MILLIS * NANOS_PER_MILLI) / (NANOS_PER_SECOND / RATE))
                 .coerceAtLeast(0L)
@@ -63,21 +61,21 @@ class KeyRepeatTest {
 
             val atRelease = typed.get()
             keyboard.onKey(NULL, NULL, 2, 0, KEY_A, RELEASED)
-            render(scene, surface)
-            pollFor(EXTRA_MILLIS, keyboard, scene, surface)
+            tick(System.nanoTime())
+            pollFor(EXTRA_MILLIS, keyboard, tick)
             assertEquals(atRelease, typed.get(), "repeats continued after the held key was released")
         }
     }
 
     @Test
     fun `rate 0 disables repeat, and only the most recently pressed key repeats`() {
-        withKeyboardSession { keyboard, scene, surface, typed ->
+        withKeyboardSession { keyboard, _, tick, typed ->
             keyboard.onRepeatInfo(NULL, NULL, 0, DELAY_MILLIS)
             keyboard.onKey(NULL, NULL, 1, 0, KEY_A, PRESSED)
-            render(scene, surface)
+            tick(System.nanoTime())
             val afterPress = typed.get()
 
-            pollFor(NO_REPEAT_WINDOW_MILLIS, keyboard, scene, surface)
+            pollFor(NO_REPEAT_WINDOW_MILLIS, keyboard, tick)
             assertEquals(afterPress, typed.get(), "rate 0 still produced a repeat")
 
             keyboard.onKey(NULL, NULL, 2, 0, KEY_A, RELEASED)
@@ -87,12 +85,12 @@ class KeyRepeatTest {
             keyboard.onRepeatInfo(NULL, NULL, REPLACE_RATE, REPLACE_DELAY_MILLIS)
             keyboard.onKey(NULL, NULL, 3, 0, KEY_S, PRESSED)
             keyboard.onKey(NULL, NULL, 4, 0, KEY_A, PRESSED)
-            render(scene, surface)
+            tick(System.nanoTime())
             val beforeStaleRelease = typed.get()
 
             keyboard.onKey(NULL, NULL, 5, 0, KEY_S, RELEASED)
             keyboard.checkRepeat(nowNanos = System.nanoTime() + FAR_FUTURE_NANOS)
-            render(scene, surface)
+            tick(System.nanoTime())
 
             assertEquals(
                 beforeStaleRelease + "a", typed.get(),
@@ -103,15 +101,15 @@ class KeyRepeatTest {
 
     @Test
     fun `a modifier held down neither repeats itself nor displaces the key that does`() {
-        withKeyboardSession { keyboard, scene, surface, typed ->
+        withKeyboardSession { keyboard, _, tick, typed ->
             keyboard.onRepeatInfo(NULL, NULL, RATE, DELAY_MILLIS)
             keyboard.onKey(NULL, NULL, 1, 0, KEY_A, PRESSED)
             keyboard.onKey(NULL, NULL, 2, 0, KEY_LEFTSHIFT, PRESSED)
-            render(scene, surface)
+            tick(System.nanoTime())
             val beforeRepeat = typed.get()
 
             keyboard.checkRepeat(nowNanos = System.nanoTime() + FAR_FUTURE_NANOS)
-            render(scene, surface)
+            tick(System.nanoTime())
 
             // Shift produces no character, so a repeating Shift shows up as A's repeat going missing.
             assertEquals(
@@ -203,7 +201,7 @@ class KeyRepeatTest {
     private fun withShellKeyboards(block: (shell: KortexShell, first: KeyboardInput, second: KeyboardInput) -> Unit) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         display.use {
-            onScene(IntSize(SIDE, SIDE)) { scene, _ ->
+            onScene(IntSize(SIDE, SIDE)) { scene, _, _ ->
                 val seat = Seat.bind(display).getOrElse { error -> fail("seat bind failed: $error") }
                 try {
                     val content: @Composable KortexApplicationScope.() -> Unit = {
@@ -230,22 +228,18 @@ class KeyRepeatTest {
         }
     }
 
-    private fun render(scene: KortexScene, surface: Surface) {
-        scene.render(surface.canvas.asComposeCanvas(), System.nanoTime())
-    }
-
-    /** Mirrors [KortexSurface.pump]: check for a due repeat, then render, once per [TICK_MILLIS]. */
-    private fun pollFor(durationMillis: Long, keyboard: KeyboardInput, scene: KortexScene, surface: Surface) {
+    /** Mirrors [KortexSurface.pump]: check for a due repeat, then tick the loop, once per [TICK_MILLIS]. */
+    private fun pollFor(durationMillis: Long, keyboard: KeyboardInput, tick: SceneTick) {
         val deadline = System.nanoTime() + durationMillis * NANOS_PER_MILLI
         while (System.nanoTime() < deadline) {
             keyboard.checkRepeat()
-            render(scene, surface)
+            tick(System.nanoTime())
             Thread.sleep(TICK_MILLIS)
         }
     }
 
     private fun withKeyboardSession(
-        block: (keyboard: KeyboardInput, scene: KortexScene, surface: Surface, typed: AtomicReference<String>) -> Unit,
+        block: (keyboard: KeyboardInput, scene: KortexScene, tick: SceneTick, typed: AtomicReference<String>) -> Unit,
     ) {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
         val typed = AtomicReference("")
@@ -256,7 +250,7 @@ class KeyRepeatTest {
         }
 
         display.use { wayland ->
-            onScene(IntSize(SIDE, SIDE), platform = platform) { scene, surface ->
+            onScene(IntSize(SIDE, SIDE), platform = platform) { scene, _, tick ->
                 scene.setContent {
                     val requester = remember { FocusRequester() }
                     // The field has to be driven by Compose state, not by the AtomicReference: an
@@ -271,7 +265,7 @@ class KeyRepeatTest {
                 }
                 // A few frames so the LaunchedEffect runs and focus settles.
                 repeat(FOCUS_FRAMES) {
-                    render(scene, surface)
+                    tick(System.nanoTime())
                     Thread.sleep(FRAME_MILLIS)
                 }
 
@@ -284,7 +278,7 @@ class KeyRepeatTest {
                 wayland.roundtrip()
                 assertTrue(keyboard.hasKeymap, "the compositor never delivered a keymap")
 
-                block(keyboard, scene, surface, typed)
+                block(keyboard, scene, tick, typed)
             }
         }
     }

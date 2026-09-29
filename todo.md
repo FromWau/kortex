@@ -970,16 +970,32 @@ references and stays actionable on its own once the reports are gone.
       sites: `KortexApplication.kt:49-51` against `bar/Main.kt`'s crash-log effects. Checked and found
       trustworthy: `WlOutput.kt:98-101`. Open: delete the false ones rather than rewording them, since text
       that exists to explain a defect has nothing to say once the defect is gone.
-- [ ] **The test suite exercises a frame context the shipping host never uses.** `onScene`
-      (`DrivenScene.kt:24-33`) passes `Dispatchers.Unconfined`, whose `isDispatchNeeded` is `false`, so
-      `GlobalSnapshotManager.register` returns null, **no snapshot write observer is installed at all**, and
-      Compose's coroutine work runs inline instead of queued. `:compose`'s `withScene`
-      (`KortexSceneTest.kt:571-588`) has the opposite problem: it drives one scene from the JUnit thread
-      while `frameContext` is a different executor, so `measureAndLayout`/`draw` can run concurrently with a
-      recomposition. Production is single-threaded on `loop + work`, which neither reproduces. Deleting
-      `if (scene.hasInvalidations()) onInvalidate()` from `KortexScene.render` turns no `onScene` test red.
-      Open: give `onScene` the shape `bareSurface` (`OrFail.kt:57-76`) already uses, a real `LoopQueue` and
-      `SurfaceScene` drained from the calling thread, which is both single-threaded and production-faithful.
+- [x] **The test suite exercised a frame context the shipping host never uses.** `onScene` passed
+      `Dispatchers.Unconfined`, which reports that it needs no dispatch, so work content launched ran at the
+      point that launched it rather than off a queue. It now has the shape `SurfaceScene` gives its own
+      composition, a real `LoopQueue` under a `SurfaceWork`, drained only by the thread that calls the block
+      and closed the way `SurfaceScene.close` closes its own. The block is handed a `tick(frameTimeNanos)`
+      that runs the queued work and then the frame, in `KortexShell.serviceSurfaces`'s order; nine call sites
+      and eighteen renders moved onto it, `KeyRepeatTest`'s `pollFor` and both `Typist` helpers now drive the
+      tick instead of holding a raster. All 352 stayed green, so nothing had been leaning on inline effects.
+      `DrivenSceneTest` pins the harness itself and needs no compositor: putting `Unconfined` back fails it.
+      The discriminator is a launch into the scope content holds, not a `LaunchedEffect`, whose body Compose
+      starts undispatched and which therefore runs inline under either context.
+
+      **This entry's last sentence was wrong.** Deleting `if (scene.hasInvalidations()) onInvalidate()` from
+      `KortexScene.render` does turn a test red: `:compose`'s `KortexSceneTest > a draw that invalidates
+      itself asks for the next frame`. The line is covered, just not by an `onScene` test, and the entry read
+      as a coverage gap where there is none. Checked by deleting it and running everything.
+- [ ] **`:compose`'s own scene harness renders from one thread while composing on another.** `withScene`
+      (`KortexSceneTest.kt`) gives the scene a single-thread executor as its frame context and then drives
+      `setContent` and `render` from the JUnit thread, so `measureAndLayout` and `draw` can run concurrently
+      with a recomposition. It is deliberate as far as it goes, and the comment there says why: `Unconfined`
+      satisfies `FrameRecomposer`'s check for a `ContinuationInterceptor` while never delivering
+      `onInvalidate`, so only a real dispatcher exercises the contract. But production is single-threaded on
+      `loop + work`, and a queue drained by the caller delivers `onInvalidate` just as well without the
+      second thread, which is what `onScene` now does. `:compose` cannot use `LoopQueue`, which lives in
+      `:wayland`, so it needs its own. Open: the queue, and drain points in the helpers that currently wait
+      on a latch for the executor thread to make progress, `dragUntilAsked` and `awaitFailure` among them.
 - [x] **A `@Hotplug` test left no trace in the results, so missing coverage reported as covered.** An excluded
       test writes no `<skipped/>` and no result file at all: `SurfaceScaleTest` recorded `tests="1"` for a
       two-`@Test` file and three whole classes produced no XML, so the run read as complete. `HotplugCoverageTest`

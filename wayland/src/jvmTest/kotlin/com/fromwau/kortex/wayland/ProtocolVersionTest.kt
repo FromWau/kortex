@@ -210,7 +210,7 @@ class ProtocolVersionTest {
 
     /** No surface behind it: the seat leg only needs somewhere for its devices to deliver into. */
     private fun withScene(block: (KortexScene) -> Unit) {
-        onScene(IntSize(SIDE, SIDE)) { scene, _ -> block(scene) }
+        onScene(IntSize(SIDE, SIDE)) { scene, _, _ -> block(scene) }
     }
 
     /** One global kortex binds, with the version it asks for. */
