@@ -15,8 +15,11 @@ internal fun String.isEvent(interfaceName: String, name: String): Boolean =
 /**
  * Only the lines naming one of [interfaces], for a failure message: a whole trace is mostly frame callbacks
  * and helps nobody, and an empty one says more than a blank does.
+ *
+ * The empty case counts what it searched, because nothing captured and nothing matched read the same
+ * otherwise, and they mean opposite things: a trace that never reached the test, or a request never sent.
  */
 internal fun List<String>.traceOf(vararg interfaces: String): String =
     filter { line -> interfaces.any { line.contains("$it#") } }
         .joinToString("\n")
-        .ifEmpty { "(no ${interfaces.joinToString(" or ")} traffic at all)" }
+        .ifEmpty { "(none of ${interfaces.joinToString(" or ")} among $size wire lines)" }

@@ -39,6 +39,19 @@ class DragWireTest {
         val wire = output.subList(placedAt + 1, drivenAt)
         val dataTraffic = wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")
 
+        // The gesture before the drag, because start_drag has nothing to quote without a press: startDrag
+        // answers a missing grab serial with NoInputSerial and sends nothing, which on the wire is
+        // indistinguishable from a drag that was asked for and refused. Asserted the other way round, a
+        // pointer that never reached the source surface reads as a drag defect.
+        val pressSerials = wire
+            .filter { it.isEvent("wl_pointer", "button") }
+            .mapNotNull { BUTTON_PRESS_SERIAL.find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        assertTrue(
+            pressSerials.isNotEmpty(),
+            "no wl_pointer.button press reached the client at all, so no drag could start; wire:\n" +
+                wire.traceOf("wl_pointer"),
+        )
+
         // The request itself, which answers the first question: did the gesture reach the compositor at all.
         assertTrue(
             wire.any { it.isRequest("wl_data_device", "start_drag") },
@@ -82,13 +95,6 @@ class DragWireTest {
         val quoted = assertNotNull(
             START_DRAG_SERIAL.find(startDrag)?.groupValues?.get(1)?.toIntOrNull(),
             "could not read start_drag's serial from: $startDrag",
-        )
-        val pressSerials = wire
-            .filter { it.isEvent("wl_pointer", "button") }
-            .mapNotNull { BUTTON_PRESS_SERIAL.find(it)?.groupValues?.get(1)?.toIntOrNull() }
-        assertTrue(
-            pressSerials.isNotEmpty(),
-            "no wl_pointer.button press reached the client at all; wire:\n" + wire.traceOf("wl_pointer"),
         )
         assertTrue(
             quoted in pressSerials,
