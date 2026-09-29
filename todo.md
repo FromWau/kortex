@@ -832,10 +832,10 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **376 tests across `:wayland`, `:compose` and `:bar`.** `:wayland`'s 346 went green twice in a row
-  after the drag fix below; the other 30 have not been re-run since and were green before it. The three
-  `@Hotplug` classes are excluded and have never run here; changing an output on this machine crashes
-  the installed GTK about one run in 256.
+- **376 tests green on `master` after the merge: 346 in `:wayland`, 23 in `:compose`, 7 in `:bar`.**
+  No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
+  The three `@Hotplug` classes are excluded and have never run here; changing an output on this machine
+  crashes the installed GTK about one run in 256, so that number is 376 of a slightly larger whole.
 - **The audit's own reports are in `.superpowers/sdd/protocol-audit/`, nineteen files, and that path is
   git-ignored.** `SUMMARY.md` is the way in; each `report-*.md` quotes both sides of every finding. A
   `git clean -fdx` takes all of it. Every entry below carries its own evidence for that reason, but the
