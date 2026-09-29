@@ -1,8 +1,6 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 
 /**
@@ -42,18 +40,6 @@ public enum class KeyboardInteractivity(internal val wireValue: Int) {
     None(0),
     Exclusive(1),
     OnDemand(2),
-}
-
-/**
- * Which corner of a floating menu sits at its anchor point. [TopLeft] means the menu's top-left corner
- * is at the point and it opens down and to the right; the other three name their corner and opening
- * direction the same way.
- */
-internal enum class MenuAnchor {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
 }
 
 /**
@@ -205,49 +191,5 @@ internal data class SurfaceConfig(
          */
         fun appMenu(width: Dp, height: Dp): SurfaceConfig =
             osd(width, height).copy(keyboard = KeyboardInteractivity.OnDemand)
-
-        /**
-         * Places a menu of [menuSize] so its top-left corner sits at [at], opening down and to the
-         * right. It flips to whichever corner keeps the menu inside an output of [outputSize],
-         * independently per axis: a point near one edge flips only that axis, a point near a corner both.
-         *
-         * A pure function of its three inputs: nothing here reads a compositor, so a caller supplies
-         * both sizes in the logical (surface-local) space `configure` and [OutputGeometry] report.
-         *
-         * [ExclusiveZone.Overlap] is what makes [at] and [outputSize] output coordinates: yielding would
-         * measure them from whatever the surfaces that reserve space happen to leave over instead.
-         *
-         * A [menuSize] wider or taller than [outputSize] still flips on that axis: the anchored corner
-         * sits at [at] and the excess runs off the opposite edge, so the answer stays one consistent
-         * corner rather than a special case.
-         */
-        fun contextMenu(at: IntOffset, menuSize: IntSize, outputSize: IntSize): SurfaceConfig {
-            val overflowsRight = at.x + menuSize.width > outputSize.width
-            val overflowsBottom = at.y + menuSize.height > outputSize.height
-            val anchor = when {
-                overflowsRight && overflowsBottom -> MenuAnchor.BottomRight
-                overflowsRight -> MenuAnchor.TopRight
-                overflowsBottom -> MenuAnchor.BottomLeft
-                else -> MenuAnchor.TopLeft
-            }
-            val (edges, margins) = when (anchor) {
-                MenuAnchor.TopLeft -> setOf(Edge.Top, Edge.Left) to
-                    Margins(top = at.y.dp, left = at.x.dp)
-                MenuAnchor.TopRight -> setOf(Edge.Top, Edge.Right) to
-                    Margins(top = at.y.dp, right = (outputSize.width - at.x).dp)
-                MenuAnchor.BottomLeft -> setOf(Edge.Bottom, Edge.Left) to
-                    Margins(bottom = (outputSize.height - at.y).dp, left = at.x.dp)
-                MenuAnchor.BottomRight -> setOf(Edge.Bottom, Edge.Right) to
-                    Margins(bottom = (outputSize.height - at.y).dp, right = (outputSize.width - at.x).dp)
-            }
-            return SurfaceConfig(
-                layer = Layer.Overlay,
-                anchor = edges,
-                width = menuSize.width.dp,
-                height = menuSize.height.dp,
-                margins = margins,
-                exclusiveZone = ExclusiveZone.Overlap,
-            )
-        }
     }
 }

@@ -897,12 +897,13 @@ where on the monitor the compositor put it.
       dispatch, and Compose keeps a registration only for a dispatcher that does; the shell itself always kept
       every registration on its loop thread. The warning is a `println`, so a class's `system-out` is where its
       absence shows, and none has been read since. (`KeyRepeatTest`)
-- [ ] **`SurfaceConfig.contextMenu` and `MenuAnchor` have no caller.** `ContextMenu` opens an `xdg_popup`, whose
-      positioner the compositor solves, so nothing in `:wayland`, `:compose` or `:bar` asks for the layer-shell
-      corner flip; `MenuAnchorTest`'s eight cases and one of `SurfacePresetTest`'s are all that reach either.
-      `OutputGeometry.logicalWidth` and `logicalHeight` are unaffected: they are public API a host reads for its
-      own layout, and the flip was only one reader of them. Open: delete the flip, its enum and the nine cases,
-      or give it a caller. (`MenuAnchorTest`, `SurfacePresetTest`)
+- [x] **`SurfaceConfig.contextMenu` and `MenuAnchor` are gone.** `ContextMenu` opens an `xdg_popup`, whose
+      positioner the compositor solves, so the layer-shell corner flip had no caller in `:wayland`, `:compose`
+      or `:bar` and could not be given one without undoing that. Deleted with its enum, `MenuAnchorTest`'s
+      eight cases and the one in `SurfacePresetTest` that took the desktop to place a menu nothing ships,
+      along with the seven constants and two imports that went with them. `OutputGeometry.logicalWidth` and
+      `logicalHeight` stay: they are public API a host reads for its own layout, and the flip was only one
+      reader of them. `awaitReserved` stays too, since the panel and dock cases still use it.
 
 ## Where the work stands
 
