@@ -104,9 +104,8 @@ internal class VirtualPointer internal constructor(private val pointer: MemorySe
      *
      * The protocol leaves the base undefined and nothing reads it as a wall clock. What content reads it
      * for is double click, long press and fling velocity, so the only property that matters is that it
-     * advances; a constant, which this sent for every event until it had a clock, stops that clock for
-     * every gesture a test drives. Truncating to the protocol's `uint` is what a real device's stamp does
-     * too, and [PointerInput] reads it back unsigned.
+     * advances: a constant here stops that clock for every gesture a test drives. Truncating to the
+     * protocol's `uint` is what a real device's stamp does too, and [PointerInput] reads it back unsigned.
      */
     private fun now(): Int = (System.nanoTime() / NANOS_PER_MILLI).toInt()
 

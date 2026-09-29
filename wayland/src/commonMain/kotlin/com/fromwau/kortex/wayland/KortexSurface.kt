@@ -32,10 +32,10 @@ import org.jetbrains.skia.Surface
 /**
  * What a surface built with nowhere to send a drag answers one with: there is no clipboard behind it.
  *
- * Deliberately not `Ok(Unit)`, which is what this was. A no-op that reports success tells content its drag
- * started while nothing was ever sent, so a drag test written on such a surface sees no failure on either
- * side and passes on that silence. Every factory below and every test harness that builds a surface without
- * a clipboard shares this one, because two copies of the rule would drift apart unobserved.
+ * Deliberately not `Ok(Unit)`: a no-op that reports success tells content its drag started while nothing
+ * was ever sent, so a drag test on such a surface sees no failure on either side and passes on that
+ * silence. Every factory below and every test harness that builds a surface without a clipboard shares this
+ * one, because two copies of the rule drift apart unobserved.
  */
 internal fun refuseDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> =
     Err(ClipboardError.NoClipboard)

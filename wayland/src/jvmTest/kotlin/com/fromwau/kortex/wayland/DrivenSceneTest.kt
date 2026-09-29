@@ -14,10 +14,10 @@ import kotlinx.coroutines.launch
  * That [onScene], which every scene test in this module is written on, runs content's work off a queue the
  * way the shipping host does rather than inline.
  *
- * It used to build its scene on `Dispatchers.Unconfined`, which reports that it needs no dispatch at all, so
- * a coroutine content launched ran at the point that launched it. Nothing failed and nothing could: a test
- * whose content depends on a frame having happened passes without one, and then passes for the wrong reason
- * against a host where the frame is the only thing that runs it.
+ * A scene built on `Dispatchers.Unconfined` reports that it needs no dispatch at all, so a coroutine
+ * content launches runs at the point that launched it. Nothing fails and nothing can: a test whose content
+ * depends on a frame having happened passes without one, and then passes for the wrong reason against a
+ * host where the frame is the only thing that runs it.
  *
  * Launching into the scope content itself holds is the discriminator, since Compose starts a
  * `LaunchedEffect` body undispatched and that one runs inline whatever the context is.

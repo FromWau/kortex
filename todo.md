@@ -976,7 +976,7 @@ references and stays actionable on its own once the reports are gone.
       composition, a real `LoopQueue` under a `SurfaceWork`, drained only by the thread that calls the block
       and closed the way `SurfaceScene.close` closes its own. The block is handed a `tick(frameTimeNanos)`
       that runs the queued work and then the frame, in `KortexShell.serviceSurfaces`'s order; nine call sites
-      and eighteen renders moved onto it, `KeyRepeatTest`'s `pollFor` and both `Typist` helpers now drive the
+      and seventeen renders moved onto it, `KeyRepeatTest`'s `pollFor` and both `Typist` helpers now drive the
       tick instead of holding a raster. All 352 stayed green, so nothing had been leaning on inline effects.
       `DrivenSceneTest` pins the harness itself and needs no compositor: putting `Unconfined` back fails it.
       The discriminator is a launch into the scope content holds, not a `LaunchedEffect`, whose body Compose
@@ -994,7 +994,7 @@ references and stays actionable on its own once the reports are gone.
       and `Unconfined` satisfies that check while never delivering `onInvalidate` at all. A `SceneLoop` is
       both at once, a dispatcher that must be dispatched to and one only the rendering thread runs, which is
       what `loop + work` is in the host. The block is a `SceneDriver` receiver now, so every `scene.` and
-      `surface.` line stands as it was; 32 renders became `tick`, six latch waits became `passUntil`, and
+      `surface.` line stands as it was; 32 renders became `tick`, seven waits became `passUntil`, and
       `awaitFailure` passes by default, since an effect that fails after a `delay` resumes on this loop and
       nowhere else. The trap was `stays silent while idle`, which asserts an absence: a window that ran
       nothing would have reported every composition idle. It runs passes now, and a state change landing

@@ -24,9 +24,9 @@ internal typealias SceneTick = (frameTimeNanos: Long) -> EmptyResult<ContentFail
  *
  * Built the way [SurfaceScene] builds one: the frame context is a real [LoopQueue] under a [SurfaceWork],
  * and the thread that calls [block] is the only one that ever runs what lands there, as a shell's loop
- * thread is. `Dispatchers.Unconfined`, which this used instead, needs no dispatch at all, so every effect
- * and recomposition content queued ran inline at whatever point queued it: an ordering the shipping host
- * never takes, and one in which a test cannot tell that it depends on a frame having happened.
+ * thread is. A scene handed `Dispatchers.Unconfined` needs no dispatch at all, so everything content queues
+ * runs at whatever point queued it: an ordering the shipping host never takes, and one in which a test
+ * cannot tell that it depends on a frame having happened.
  */
 internal fun onScene(
     size: IntSize,

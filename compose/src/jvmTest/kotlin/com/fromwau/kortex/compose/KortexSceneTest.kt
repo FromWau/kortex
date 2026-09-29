@@ -48,7 +48,6 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.errorOrNull
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.delay
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Surface
@@ -622,10 +621,10 @@ class KortexSceneTest {
      * `Dispatchers.Unconfined` will not do: `FrameRecomposer` rejects a context with no
      * `ContinuationInterceptor`, and Unconfined satisfies that check while never delivering `onInvalidate`
      * at all, since recomposition runs inline and the recomposer never awaits a frame. A real dispatcher
-     * does exercise the contract, but an executor's own thread is not where a host renders: this used one,
-     * and `measureAndLayout` and `draw` on the JUnit thread could run against a recomposition on the
-     * executor's, which is not a shape any host is allowed to take. A [SceneLoop] is both, a dispatcher
-     * that has to be dispatched to and one the rendering thread is the only one to run.
+     * does exercise the contract, but an executor's own thread is not where a host renders: `measureAndLayout`
+     * and `draw` on this thread would run against a recomposition on the executor's, which is a shape no
+     * host is allowed to take. A [SceneLoop] is both, a dispatcher that has to be dispatched to and one the
+     * rendering thread is the only one to run.
      */
     private fun withScene(
         size: IntSize = IntSize(SIDE, SIDE),

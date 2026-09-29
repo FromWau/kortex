@@ -59,9 +59,8 @@ internal class PointerInput(
     private var enterSerial = 0
     private var shownCursor: KortexCursor? = null
 
-    // The newest stamp this pointer has been handed. enter and leave carry none of their own, and Compose
-    // reads a time off every event it gets, so stamping those two with a constant walks the clock backwards
-    // between the motions around them, which is what a velocity tracker reads as a jump.
+    // The newest stamp this pointer has been handed: enter and leave carry none of their own, and a
+    // constant there walks the clock backwards between the motions around them, which reads as a jump.
     private var latestTimeMillis = 0L
 
     fun onEnter(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment, x: Int, y: Int) {
@@ -112,7 +111,7 @@ internal class PointerInput(
         scrollsByDistance = axisSource == AXIS_SOURCE_FINGER || axisSource == AXIS_SOURCE_CONTINUOUS
     }
 
-    /** The wire's `uint` stamp on the scene's timeline, kept so [onEnter] and [onLeave] can carry it too. */
+    /** The wire's `uint` stamp on the scene's timeline, and the newest this pointer has seen from here on. */
     private fun sceneTime(time: Int): Long = time.toUInt().toLong().also { latestTimeMillis = it }
 
     fun onAxisStop(data: MemorySegment, proxy: MemorySegment, time: Int, axis: Int) = Unit
