@@ -1,6 +1,7 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
@@ -125,10 +126,12 @@ internal class LayerShellSurface(
     /** Only a popup takes an explicit grab; a layer surface says what keyboard it wants through its config. */
     override fun takeGrab(seat: Seat, serial: Int) = Unit
 
-    /** The compositor pins a layer surface to the edges it anchored, so neither ask reaches it. */
+    /** A layer surface is pinned by its anchors and is no window, so none of these three reaches it. */
     override fun askMove(seat: Seat, serial: Int) = Unit
 
     override fun askResize(seat: Seat, serial: Int, edge: ResizeEdge) = Unit
+
+    override fun askWindowMenu(seat: Seat, serial: Int, at: IntOffset) = Unit
 
     /** A layer surface takes a popup the client made without one, which is how a bar shows a menu. */
     override val popupParent: PopupParent get() = PopupParent.Layer(this)

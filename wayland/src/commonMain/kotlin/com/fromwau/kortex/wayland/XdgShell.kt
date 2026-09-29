@@ -157,6 +157,7 @@ internal object XdgShellProtocol {
     const val SET_PARENT = 1
     const val SET_TITLE = 2
     const val SET_APP_ID = 3
+    const val SHOW_WINDOW_MENU = 4
     const val MOVE = 5
     const val RESIZE = 6
     const val SET_MAXIMIZED = 9
@@ -598,6 +599,17 @@ internal class XdgToplevelSurface private constructor(
     )
 
     /**
+     * `xdg_toplevel.show_window_menu`: the compositor opens its own menu for this window at [at].
+     *
+     * [at] is relative to the window geometry, which is the whole surface here, since nothing sends
+     * `set_window_geometry`.
+     */
+    override fun askWindowMenu(seat: Seat, serial: Int, at: IntOffset) = send(
+        XdgShellProtocol.SHOW_WINDOW_MENU,
+        listOf(WlArg.Ptr(seat.proxy), WlArg.Num(serial), WlArg.Num(at.x), WlArg.Num(at.y)),
+    )
+
+    /**
      * Dispatches until `xdg_surface.configure` has arrived and been acknowledged, and gives up if the compositor
      * closes the window first, then settles which side draws the decoration.
      *
@@ -937,10 +949,12 @@ internal class XdgPopupSurface private constructor(
     /** A popup of a popup is how menus nest, and the protocol parents one to the other's `xdg_surface`. */
     override val popupParent: PopupParent get() = PopupParent.Xdg(xdgSurface)
 
-    /** A popup is placed by its positioner and never dragged, so neither ask reaches the compositor. */
+    /** A popup is placed by its positioner and is no window, so none of these three reaches the compositor. */
     override fun askMove(seat: Seat, serial: Int) = Unit
 
     override fun askResize(seat: Seat, serial: Int, edge: ResizeEdge) = Unit
+
+    override fun askWindowMenu(seat: Seat, serial: Int, at: IntOffset) = Unit
 
     override fun takeGrab(seat: Seat, serial: Int) {
         if (!grabs) return

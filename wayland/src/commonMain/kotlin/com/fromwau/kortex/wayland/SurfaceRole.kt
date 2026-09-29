@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.IntOffset
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -91,6 +92,12 @@ internal interface SurfaceRole : AutoCloseable {
 
     /** As [askMove], dragging [edge] rather than the whole surface. */
     fun askResize(seat: Seat, serial: Int, edge: ResizeEdge)
+
+    /**
+     * Asks the compositor to open its own menu for this surface at [at], relative to the surface's top-left
+     * corner. Only a window has such a menu; every other role does nothing.
+     */
+    fun askWindowMenu(seat: Seat, serial: Int, at: IntOffset)
 
     /**
      * Blocks until the compositor has configured this surface, acknowledging the serial it sent.

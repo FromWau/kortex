@@ -6,19 +6,19 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * That [WindowState.askMove] and [WindowState.askResize] reach the compositor quoting the press the user is
- * holding, which only the wire shows.
+ * That [WindowState.askMove], [WindowState.askResize] and [WindowState.askWindowMenu] reach the compositor
+ * quoting the press the user is holding, which only the wire shows.
  *
- * Both hand the gesture to the compositor, which takes the pointer for the rest of it, so neither the window's
- * own state nor `hyprctl` can say whether the ask arrived: a compositor that ignored one and a client that
- * never sent it leave the same window in the same place.
+ * Each hands the gesture to the compositor, which takes the pointer for the rest of it, so neither the
+ * window's own state nor `hyprctl` can say whether the ask arrived: a compositor that ignored one and a client
+ * that never sent it leave the same window in the same place.
  *
  * Drives the user's pointer and hands the compositor a window to move, so like the other window tests this
  * runs only in a session kept free for it.
  */
 class WindowDragWireTest {
     @Test
-    fun `a window asked to move and to resize sends each one quoting a press, and neither without one`() {
+    fun `a window asked to move, resize or show its menu sends each quoting a press, and none without one`() {
         val (exitCode, output) = runProbe(
             "com.fromwau.kortex.wayland.WindowDragProbeKt",
             environment = mapOf("WAYLAND_DEBUG" to "client"),
@@ -41,7 +41,11 @@ class WindowDragWireTest {
         val unpressed = output.subList(upAt + 1, unpressedAt)
         assertEquals(
             emptyList(),
-            unpressed.filter { it.isRequest("xdg_toplevel", "move") || it.isRequest("xdg_toplevel", "resize") },
+            unpressed.filter {
+                it.isRequest("xdg_toplevel", "move") ||
+                    it.isRequest("xdg_toplevel", "resize") ||
+                    it.isRequest("xdg_toplevel", "show_window_menu")
+            },
             "a window asked before the user pressed anything sent the ask anyway; traffic:\n" +
                 unpressed.traceOf("xdg_toplevel"),
         )
@@ -90,6 +94,26 @@ class WindowDragWireTest {
             PROBE_RESIZE_EDGE.wireValue, resized.groupValues[2].toIntOrNull(),
             "the window was asked to resize by $PROBE_RESIZE_EDGE and some other edge left the client: $resize",
         )
+
+        val menu = assertNotNull(
+            pressed.firstOrNull { it.isRequest("xdg_toplevel", "show_window_menu") },
+            "the window was asked to show its menu and no show_window_menu left the client; traffic:\n$traffic",
+        )
+        val shown = assertNotNull(
+            MENU_ARGS.find(menu),
+            "could not read show_window_menu's serial and position from: $menu",
+        )
+        assertTrue(
+            shown.groupValues[1].toIntOrNull() in presses,
+            "show_window_menu quoted ${shown.groupValues[1]}, which is no press's serial (presses: $presses)",
+        )
+        // Both axes, since a menu opened at the transposed point is in the window either way and only a
+        // distinctive pair tells the two apart.
+        assertEquals(
+            listOf(PROBE_MENU_AT.x, PROBE_MENU_AT.y),
+            listOf(shown.groupValues[2].toIntOrNull(), shown.groupValues[3].toIntOrNull()),
+            "the window asked for its menu at $PROBE_MENU_AT and some other point left the client: $menu",
+        )
     }
 }
 
@@ -98,3 +122,6 @@ private val MOVE_SERIAL = Regex("\\.move\\([^)]*,\\s*(\\d+)\\s*\\)")
 
 // resize(seat, serial, edges): the serial, then the xdg_toplevel.resize_edge it drags.
 private val RESIZE_ARGS = Regex("\\.resize\\([^,]*,\\s*(\\d+),\\s*(\\d+)\\s*\\)")
+
+// show_window_menu(seat, serial, x, y): the serial, then where the menu opens in the window.
+private val MENU_ARGS = Regex("\\.show_window_menu\\([^,]*,\\s*(\\d+),\\s*(-?\\d+),\\s*(-?\\d+)\\s*\\)")

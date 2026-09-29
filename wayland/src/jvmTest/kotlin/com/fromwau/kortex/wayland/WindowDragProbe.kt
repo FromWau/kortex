@@ -1,5 +1,6 @@
 package com.fromwau.kortex.wayland
 
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
 
@@ -12,16 +13,19 @@ internal const val PROBE_MARKER_ASKED_PRESSED = "KORTEX-PROBE asked-pressed"
 /** The corner [WindowState.askResize] is asked for, which the test reads back off the wire. */
 internal val PROBE_RESIZE_EDGE = ResizeEdge.BottomRight
 
+/** Where [WindowState.askWindowMenu] is asked to open, distinctive so a dropped or swapped axis shows. */
+internal val PROBE_MENU_AT = IntOffset(37, 53)
+
 /**
- * Asks a window to move and to resize, once before the user has pressed anything and once under a press, which
- * are the two requests [WindowDragWireTest] reads.
+ * Asks a window to move, to resize and to show its menu, once before the user has pressed anything and once
+ * under a press, which are the three requests [WindowDragWireTest] reads.
  *
  * The wire is the only place either shows. Both hand the gesture to the compositor, which takes the pointer
  * for the rest of it, so the window's own state is told nothing and `hyprctl` reports a position the
  * compositor may have chosen for its own reasons.
  *
- * Both asks go out under one press rather than a press each. The serial is what the test reads, and one press
- * gives a valid one to both; pressing twice would need the window's geometry read again in between, since the
+ * All three go out under one press rather than a press each. The serial is what the test reads, and one press
+ * gives a valid one to all of them; pressing again would need the window's geometry read afresh, since the
  * first ask hands the window to the compositor to move where it likes.
  */
 public fun main() {
@@ -42,9 +46,10 @@ public fun main() {
             val placed = checkNotNull(Hyprctl.window(TITLE)) { "probe: hyprctl lost the window" }
             System.err.println(PROBE_MARKER_DRAG_WINDOW_UP)
 
-            // Nothing has been pressed, so neither ask has a serial to quote and neither may reach the wire.
+            // Nothing has been pressed, so no ask has a serial to quote and none may reach the wire.
             state.askMove()
             state.askResize(PROBE_RESIZE_EDGE)
+            state.askWindowMenu(PROBE_MENU_AT)
             shell.pumpOrFail(ASK_MILLIS)
             System.err.println(PROBE_MARKER_ASKED_UNPRESSED)
 
@@ -83,6 +88,8 @@ private fun askUnderPress(shell: KortexShell, state: WindowState, placed: HyprWi
             state.askMove()
             settle()
             state.askResize(PROBE_RESIZE_EDGE)
+            settle()
+            state.askWindowMenu(PROBE_MENU_AT)
             settle()
 
             pointer.button(BTN_LEFT, pressed = false)

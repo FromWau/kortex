@@ -360,24 +360,31 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       Nothing to do with decoration, and reachable where kortex already runs: Hyprland 0.56.2 decorates server
       side and a window there can still carry a drag handle in its own content.
       What `xdg_toplevel` still has no opcode for is the entry below. (`WindowDragWireTest`)
-- [ ] **Three `xdg_toplevel` requests have no opcode and no caller, and one event is read and dropped.**
-      With `move` and `resize` in, kortex speaks all of `xdg_toplevel` except `show_window_menu` (4),
-      `set_max_size` (7) and `set_min_size` (8). All three are already in the hand-built table with their
-      signatures, `"ouii"` and `"ii"` twice, so each is an opcode and a call, the way `move` and `resize`
-      turned out to be.
-      They are two different things under one absence. `show_window_menu` belongs beside the two just added:
-      it quotes a seat and a press like they do, hands the gesture to the compositor like they do, and is
-      what a right-click on a drag handle should raise, since the menu it opens is the compositor's own and
-      matches the desktop rather than the application.
-      `set_max_size` and `set_min_size` are unlike all of those. They carry no serial, they are
-      double-buffered and take effect on the next commit, and `XdgToplevelSurface.send` says in a comment that
-      none of the requests it sends is double-buffered, which these would make untrue. They also have a reader
-      already: `xdg_toplevel.configure_bounds` arrives and `XdgToplevelListener.onConfigureBounds` is `= Unit`,
-      so the compositor already tells kortex the largest size it suggests and kortex drops it. A window that
-      answered it would set its max size from what it was told.
-      Open: `show_window_menu` on its own terms, and the two size bounds with `configure_bounds` as the half
-      that makes them worth having. Split out of the entry above rather than left in its prose, which is where
-      a gap goes to be forgotten.
+- [x] **Content can raise the compositor's own menu for its window.** `WindowState.askWindowMenu` sends
+      `xdg_toplevel.show_window_menu` (4), whose table entry was already there as `"ouii"`, so this was an
+      opcode and a call like `move` and `resize` before it. It quotes a press on the window's own surface on
+      the same terms they do and sends nothing at all before the user has pressed anything.
+      `at` is in logical pixels from the window's top-left, which is the window geometry here because nothing
+      sends `set_window_geometry`, so the geometry is the whole surface. The menu is the compositor's own, so
+      it carries what that desktop offers and matches every other window on screen; a compositor with no such
+      menu ignores the ask and nothing reports that, which the public docs say outright.
+      Read off the wire beside the other two, including the position: a menu asked for at the transposed point
+      is still inside the window, so `PROBE_MENU_AT` is an asymmetric pair and both axes are asserted.
+      (`WindowDragWireTest`)
+- [ ] **A window tells the compositor no size bounds, and drops the bounds it is told.**
+      `set_max_size` (7) and `set_min_size` (8) are the last two `xdg_toplevel` requests with no opcode and no
+      caller. Both are in the hand-built table already, as `"ii"` twice.
+      They are unlike every other window ask. They carry no serial, and they are double-buffered: they take
+      effect on the next commit rather than when sent, which `XdgToplevelSurface.send` says outright is true
+      of none of the requests it sends. So they need either a send that waits for a commit or a corrected
+      comment, and which of those is the real question here.
+      The other half is already arriving and being thrown away. `xdg_toplevel.configure_bounds` is in the
+      table and in the listener, and `XdgToplevelListener.onConfigureBounds` is `= Unit`, so the compositor
+      tells kortex the largest size it suggests for this window and kortex reads it and drops it. A window
+      that answered would set its max size from what it was told, which is what makes the pair worth having
+      rather than an API for completeness.
+      Open: the two requests, the commit question, and `configure_bounds` as the reader that gives them a
+      reason.
 - [x] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
       A window asks `zxdg_decoration_manager_v1` for server side and reads the answer; a compositor that answers
       client side, or says nothing, or advertises no decoration manager at all, ends the window with

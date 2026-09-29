@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Result
@@ -313,6 +314,22 @@ public class WindowState {
      */
     public fun askResize(edge: ResizeEdge) {
         ask { window, _ -> window.askResize(edge) }
+    }
+
+    /**
+     * Asks the compositor to open its own menu for this window at [at], on the terms [askMove] describes.
+     *
+     * The menu is the compositor's rather than yours: it carries whatever that desktop offers for a window,
+     * and it looks and behaves like the one every other window on screen gets. Raise it from a secondary
+     * click on whatever your content offers to drag the window by.
+     *
+     * A compositor that has no such menu ignores the ask, and nothing here reports that, so offer it as
+     * something that may do nothing rather than as a control that must.
+     *
+     * @param at where the menu opens, in logical pixels from this window's top-left corner.
+     */
+    public fun askWindowMenu(at: IntOffset) {
+        ask { window, _ -> window.askWindowMenu(at) }
     }
 
     private fun ask(request: (KortexSurface, XdgToplevelSurface) -> Unit) {

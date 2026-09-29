@@ -2,6 +2,7 @@ package com.fromwau.kortex.wayland
 
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
@@ -225,6 +226,11 @@ internal class KortexSurface private constructor(
     /** As [askMove], dragging [edge] rather than the whole window. */
     fun askResize(edge: ResizeEdge) {
         grabSerial?.let { serial -> role.askResize(seat, serial, edge) }
+    }
+
+    /** As [askMove], opening the compositor's own menu for the window at [at] rather than moving it. */
+    fun askWindowMenu(at: IntOffset) {
+        grabSerial?.let { serial -> role.askWindowMenu(seat, serial, at) }
     }
 
     internal fun startDrag(drag: KortexDrag): EmptyResult<ClipboardError> = onStartDrag(
