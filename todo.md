@@ -362,7 +362,7 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       a separate question about what a window will let the compositor do to it.
       Split out of the entry below, where it had been counted as part of drawing a title bar. It is not: it
       is useful on a compositor that decorates for you.
-- [ ] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
+- [x] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
       A window asks `zxdg_decoration_manager_v1` for server side and reads the answer; a compositor that answers
       client side, or says nothing, or advertises no decoration manager at all, ends the window with
       `Err(KortexError.ClientSideDecorationRequired)` rather than putting a window on screen with no title bar to
@@ -380,8 +380,11 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       `wm_capabilities` says which of them the compositor will honour, so content draws its own control and
       calls one. What is genuinely absent is a title bar, meaning a strip that drags the window, and a theme
       for it, and neither is worth building for a compositor that is not in the supported set.
-      Open: keep the clean refusal and leave this as read, or take it on the day such a compositor becomes a
-      target.
+      Decided: keep the clean refusal and draw nothing. A title bar and a theme built for no compositor in
+      the supported set is code no desktop exercises, and the refusal already names its own reason where a
+      silently undecorated window would not. Reopen it the day a compositor that has the layer shell and no
+      decoration manager becomes a target, which would also be the day the branch above stops being covered
+      by reading alone.
 - [x] **Content reads a window's states and asks the compositor for none of them.** `WindowState` publishes the
       `maximized`, `fullscreen`, `tiled` and `activated` every `xdg_toplevel.configure` carries, and there is no
       call to maximize, fullscreen or minimize a window, none to move or resize one, and none to raise it. Every
@@ -1358,6 +1361,13 @@ references and stays actionable on its own once the reports are gone.
 - Placing a menu ourselves. `SurfaceConfig.contextMenu` flipped a layer surface to whichever corner kept a menu
   on screen, which is the compositor's own job once a menu is an `xdg_popup` and it solves the positioner.
   Deleted with `MenuAnchor` and its nine test cases rather than given a caller.
+- A title bar and a theme for it. kortex draws no decoration and refuses a window the compositor will not
+  decorate, with `KortexError.ClientSideDecorationRequired`. Every compositor kortex can start on decorates
+  server side, because GNOME is the one mainstream compositor that refuses to and it has no layer shell to
+  start on, so the drawn version would be code no supported desktop exercises. The window controls are not
+  part of this and already exist: `askMaximized`, `askFullscreen`, `askMinimized` and `declineClose` are
+  public, `wm_capabilities` says which the compositor will honour, and content draws its own button for each.
+  Moving and resizing a window are not part of it either; they have an entry of their own and are wanted.
 
 ## Archived
 
