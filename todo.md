@@ -838,6 +838,13 @@ survives on its own.
 - **Running the suite takes the desktop.** `WindowTest`, `WindowManipulationTest`, `PopupTest`,
   `PopupTeardownWireTest`, `DragWireTest` and `PointerReleaseOrderTest` take focus, re-tile open windows
   and drive the pointer, so they want a session kept free. Ask before starting a run.
+- **`DragWireTest` flakes on desktop state, and its failure does not look like one.** Seen once, in a
+  run started straight after another pointer-driving test: `no wl_data_device.start_drag left the
+  client while the pointer dragged; wire: (no wl_data_device or wl_data_offer or wl_data_source
+  traffic at all)`. That reads like a drag regression and is not one. The probe exited 0 and both of
+  its markers were present and in order, which the test asserts before that line, so the child placed
+  its surfaces and drove the pointer and the compositor simply started no drag. Read it as the cursor
+  not being where the gesture needed it, and re-run in a free session before believing it.
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
