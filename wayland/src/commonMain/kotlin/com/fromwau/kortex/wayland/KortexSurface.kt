@@ -29,6 +29,17 @@ import org.jetbrains.skia.Surface
  * A [SurfaceScene] is drawn here for as long as it is attached. Frames are paced off `wl_surface.frame` and drawn
  * only when that scene asks for one, so an idle surface costs nothing.
  */
+/**
+ * What a surface built with nowhere to send a drag answers one with: there is no clipboard behind it.
+ *
+ * Deliberately not `Ok(Unit)`, which is what this was. A no-op that reports success tells content its drag
+ * started while nothing was ever sent, so a drag test written on such a surface sees no failure on either
+ * side and passes on that silence. Every factory below and every test harness that builds a surface without
+ * a clipboard shares this one, because two copies of the rule would drift apart unobserved.
+ */
+internal fun refuseDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> =
+    Err(ClipboardError.NoClipboard)
+
 internal class KortexSurface private constructor(
     private val display: WaylandDisplay,
     /** What this surface is built on; the loop thread only, another thread uses [requestClose] or [invalidate]. */
@@ -440,7 +451,7 @@ internal class KortexSurface private constructor(
             onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
             // Handed what content drags out of the surface, and the wl_surface it is dragged from; answers
             // why the compositor could not be asked, where it could not.
-            onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = { _, _ -> Ok(Unit) },
+            onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
             // Makes what the surface is built on, which the surface owns from the moment it is handed over.
             buildRole: () -> Result<SurfaceRole, KortexError>,
         ): Result<KortexSurface, KortexError> {

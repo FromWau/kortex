@@ -1,6 +1,7 @@
 package com.fromwau.kortex.wayland
 
 import androidx.compose.runtime.Composable
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
@@ -55,17 +56,21 @@ internal fun onApplication(
 /**
  * A surface of [config] with a scene attached to it, the pair a shell builds around one surface call; both are the
  * caller's to close, the surface first. A surface that cannot be created or attached fails the test.
+ *
+ * [onStartDrag] is what a drag out of it is answered by. Its default is the refusal a surface with no clipboard
+ * behind it gives, so a drag test written here and never handed a real one fails rather than passing on silence.
  */
 internal fun bareSurface(
     display: WaylandDisplay,
     config: SurfaceConfig,
     output: MemorySegment = MemorySegment.NULL,
     platform: KortexPlatform = KortexPlatform.None,
+    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
 ): Pair<KortexSurface, SurfaceScene> {
     val loop = LoopQueue(display::wake)
     val scene = SurfaceScene(config.namespace, loop, platform, onCrash = {})
     val surface = KortexSurface
-        .createOnLayer(display, config, output = output, loopQueue = loop)
+        .createOnLayer(display, config, output = output, loopQueue = loop, onStartDrag = onStartDrag)
         .getOrElse { error -> fail("the surface was not created: $error") }
     surface.attach(scene).getOrElse { error ->
         surface.close()
@@ -81,9 +86,10 @@ internal fun onBareSurface(
     config: SurfaceConfig,
     output: MemorySegment = MemorySegment.NULL,
     platform: KortexPlatform = KortexPlatform.None,
+    onStartDrag: (clip: Clip, origin: MemorySegment) -> EmptyResult<ClipboardError> = ::refuseDrag,
     block: (surface: KortexSurface, scene: SurfaceScene) -> Unit,
 ) {
-    val (surface, scene) = bareSurface(display, config, output, platform)
+    val (surface, scene) = bareSurface(display, config, output, platform, onStartDrag)
     try {
         block(surface, scene)
     } finally {

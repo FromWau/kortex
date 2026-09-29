@@ -59,22 +59,27 @@ internal class PointerInput(
     private var enterSerial = 0
     private var shownCursor: KortexCursor? = null
 
+    // The newest stamp this pointer has been handed. enter and leave carry none of their own, and Compose
+    // reads a time off every event it gets, so stamping those two with a constant walks the clock backwards
+    // between the motions around them, which is what a velocity tracker reads as a jump.
+    private var latestTimeMillis = 0L
+
     fun onEnter(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment, x: Int, y: Int) {
         // wl_pointer.set_cursor is only valid against the serial of the most recent enter.
         enterSerial = serial
         position = scenePixels(x, y, scale)
-        scene.sendPointerEvent(PointerEventType.Enter, position, timeMillis = 0L, buttons = buttons)
+        scene.sendPointerEvent(PointerEventType.Enter, position, timeMillis = latestTimeMillis, buttons = buttons)
     }
 
     fun onLeave(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment) {
-        scene.sendPointerEvent(PointerEventType.Exit, position, timeMillis = 0L, buttons = buttons)
+        scene.sendPointerEvent(PointerEventType.Exit, position, timeMillis = latestTimeMillis, buttons = buttons)
         // Without this the composition keeps a phantom hover after the pointer is gone.
         scene.cancelPointerInput()
     }
 
     fun onMotion(data: MemorySegment, proxy: MemorySegment, time: Int, x: Int, y: Int) {
         position = scenePixels(x, y, scale)
-        scene.sendPointerEvent(PointerEventType.Move, position, timeMillis = time.toUInt().toLong(), buttons = buttons)
+        scene.sendPointerEvent(PointerEventType.Move, position, timeMillis = sceneTime(time), buttons = buttons)
     }
 
     fun onButton(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, button: Int, state: Int) {
@@ -87,7 +92,7 @@ internal class PointerInput(
         scene.sendPointerEvent(
             eventType = if (pressed) PointerEventType.Press else PointerEventType.Release,
             position = position,
-            timeMillis = time.toUInt().toLong(),
+            timeMillis = sceneTime(time),
             buttons = buttons,
             button = which,
         )
@@ -97,7 +102,7 @@ internal class PointerInput(
         val pending = scrollOn(axis)
         // Summed rather than replaced: the XML makes a frame's several axis events on one axis one motion.
         pending.value = (pending.value ?: 0) + value
-        pending.timeMillis = time.toUInt().toLong()
+        pending.timeMillis = sceneTime(time)
         if (!framesEvents) deliverScroll()
     }
 
@@ -106,6 +111,9 @@ internal class PointerInput(
     fun onAxisSource(data: MemorySegment, proxy: MemorySegment, axisSource: Int) {
         scrollsByDistance = axisSource == AXIS_SOURCE_FINGER || axisSource == AXIS_SOURCE_CONTINUOUS
     }
+
+    /** The wire's `uint` stamp on the scene's timeline, kept so [onEnter] and [onLeave] can carry it too. */
+    private fun sceneTime(time: Int): Long = time.toUInt().toLong().also { latestTimeMillis = it }
 
     fun onAxisStop(data: MemorySegment, proxy: MemorySegment, time: Int, axis: Int) = Unit
 

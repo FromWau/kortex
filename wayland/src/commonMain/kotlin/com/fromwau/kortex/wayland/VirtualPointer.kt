@@ -57,29 +57,29 @@ internal object VirtualPointerProtocol {
 internal class VirtualPointer internal constructor(private val pointer: MemorySegment) : AutoCloseable {
 
     /** Moves to `(x, y)`, both normalised against `(extentWidth, extentHeight)` in compositor space. */
-    fun motionAbsolute(x: Int, y: Int, extentWidth: Int, extentHeight: Int, timeMillis: Int = 0) {
+    fun motionAbsolute(x: Int, y: Int, extentWidth: Int, extentHeight: Int) {
         LibWayland.marshal(
             pointer, VirtualPointerProtocol.MOTION_ABSOLUTE,
             args = listOf(
-                WlArg.Num(timeMillis), WlArg.Num(x), WlArg.Num(y),
+                WlArg.Num(now()), WlArg.Num(x), WlArg.Num(y),
                 WlArg.Num(extentWidth), WlArg.Num(extentHeight),
             ),
         )
     }
 
     /** [code] is a `linux/input-event-codes.h` button code, e.g. `BTN_LEFT` (0x110). */
-    fun button(code: Int, pressed: Boolean, timeMillis: Int = 0) {
+    fun button(code: Int, pressed: Boolean) {
         LibWayland.marshal(
             pointer, VirtualPointerProtocol.BUTTON,
-            args = listOf(WlArg.Num(timeMillis), WlArg.Num(code), WlArg.Num(if (pressed) 1 else 0)),
+            args = listOf(WlArg.Num(now()), WlArg.Num(code), WlArg.Num(if (pressed) 1 else 0)),
         )
     }
 
     /** Scrolls [axis] (`wl_pointer.axis`: 0 vertical, 1 horizontal) by [value], a `wl_fixed_t`. */
-    fun axis(axis: Int, value: Int, timeMillis: Int = 0) {
+    fun axis(axis: Int, value: Int) {
         LibWayland.marshal(
             pointer, VirtualPointerProtocol.AXIS,
-            args = listOf(WlArg.Num(timeMillis), WlArg.Num(axis), WlArg.Num(value)),
+            args = listOf(WlArg.Num(now()), WlArg.Num(axis), WlArg.Num(value)),
         )
     }
 
@@ -96,6 +96,22 @@ internal class VirtualPointer internal constructor(private val pointer: MemorySe
     override fun close() {
         LibWayland.marshal(pointer, VirtualPointerProtocol.POINTER_DESTROY)
         LibWayland.proxyDestroy(pointer)
+    }
+
+    /**
+     * The stamp every timed request carries, which Hyprland hands the client unchanged as `wl_pointer`'s
+     * own `time`.
+     *
+     * The protocol leaves the base undefined and nothing reads it as a wall clock. What content reads it
+     * for is double click, long press and fling velocity, so the only property that matters is that it
+     * advances; a constant, which this sent for every event until it had a clock, stops that clock for
+     * every gesture a test drives. Truncating to the protocol's `uint` is what a real device's stamp does
+     * too, and [PointerInput] reads it back unsigned.
+     */
+    private fun now(): Int = (System.nanoTime() / NANOS_PER_MILLI).toInt()
+
+    private companion object {
+        const val NANOS_PER_MILLI = 1_000_000L
     }
 }
 

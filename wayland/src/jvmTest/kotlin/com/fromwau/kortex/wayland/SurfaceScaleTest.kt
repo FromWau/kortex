@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
+import java.lang.foreign.MemorySegment
 import kotlin.math.ceil
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,6 +37,32 @@ class SurfaceScaleTest {
                 assertRendersAtItsMonitorScale(bar, NAMESPACE)
             }
         }
+    }
+
+    /**
+     * The one link the leg above cannot see, driven straight at the listener that carries it.
+     *
+     * Every assertion up there reads `ceil(reported)`, and this desktop's only monitor reports
+     * 0.9999999999999992, so all of them are satisfied by the scale a surface starts at whether
+     * `preferred_buffer_scale` was ever honoured or not: replacing `preferredBufferScale = factor` with that
+     * default leaves the whole default build green. This is what goes red instead, and it needs no second
+     * output to do it. What stays uncovered here is the delegation behind it, [SurfaceRole]'s own
+     * `preferredBufferScale`, which only an output at another scale can tell from a constant.
+     */
+    @Test
+    fun `the scale a preferred buffer scale event asks for is the one the surface keeps`() {
+        val listener = WlSurfaceListener()
+        assertEquals(
+            UNSCALED, listener.preferredBufferScale,
+            "a surface starts at the scale wl_surface's own default describes",
+        )
+
+        listener.onPreferredBufferScale(MemorySegment.NULL, MemorySegment.NULL, SCALED)
+
+        assertEquals(
+            SCALED, listener.preferredBufferScale,
+            "the scale the compositor asked this surface for was not the one it kept",
+        )
     }
 
     /**
@@ -120,6 +147,10 @@ class SurfaceScaleTest {
         const val WL_OUTPUT = "wl_output"
         const val BAR_HEIGHT = 32
         const val PUMP_MILLIS = 1500L
+
+        // Any two scales that differ: what is being told apart is a kept value from a constant.
+        const val UNSCALED = 1
+        const val SCALED = 2
 
         val CONFIG = SurfaceConfig.panel(edge = Edge.Top, thickness = BAR_HEIGHT.dp).copy(namespace = NAMESPACE)
     }

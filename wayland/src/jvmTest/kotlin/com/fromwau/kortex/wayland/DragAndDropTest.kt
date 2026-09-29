@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
@@ -37,8 +38,9 @@ import kotlin.test.fail
  * [KortexScene]'s own enter, motion, leave and drop through a real composition, where the scale a surface draws at
  * puts a drag on that scene, and what a drag out of content offers.
  *
- * No test here starts a drag on the desktop: the one that connects binds a clipboard that has been handed no input
- * serial, which is what every drag out quotes, so it fails before a source is made.
+ * No test here starts a drag on the desktop: the two that connect are both refusals, one by a clipboard that has
+ * been handed no input serial and one by a surface with no clipboard behind it, so each fails before a source is
+ * made.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class DragAndDropTest {
@@ -138,6 +140,36 @@ class DragAndDropTest {
                 clipboard.dragSource,
                 "a drag with no input serial was carried to the compositor anyway",
             )
+        }
+    }
+
+    /**
+     * The other half of [`a drag with no input to quote fails as NoInputSerial`]: that a surface with no clipboard
+     * behind it at all refuses too, rather than reporting a drag it never sent.
+     *
+     * `onStartDrag` used to default to `Ok(Unit)`, so a surface built without one answered every drag out of it by
+     * saying the drag had started. [bareSurface] builds exactly such a surface, and every drag test written on that
+     * harness therefore passed on silence: nothing reached the compositor, nothing reached the content that asked,
+     * and the test could only see that neither had failed.
+     */
+    @Test
+    fun `a drag out of a surface with no clipboard behind it is told it did not start`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+
+        display.use { wayland ->
+            onBareSurface(wayland, REFUSAL_CONFIG) { surface, _ ->
+                val notStarted = AtomicReference<ClipboardError?>(null)
+                surface.startDrag(KortexDragSource.Text(DRAGGED_TEXT)) { reason -> notStarted.set(reason) }
+
+                assertTrue(
+                    surface.pumpOrFail(REFUSAL_PUMP_MILLIS) { notStarted.get() != null },
+                    "content dragged out of a surface with no clipboard behind it and was told nothing at all",
+                )
+                assertEquals(
+                    ClipboardError.NoClipboard, notStarted.get(),
+                    "why a drag out of a surface with nowhere to send it did not start",
+                )
+            }
         }
     }
 
@@ -249,5 +281,13 @@ class DragAndDropTest {
         const val EXITED = "exited"
         const val ENDED = "ended"
         const val DROP = "drop"
+
+        // The refusal leg's own surface: an OSD, since the smallest preset that maps is enough for a drag that
+        // never leaves the client.
+        const val REFUSAL_NAMESPACE = "kortex-drag-refusal"
+        const val REFUSAL_OSD_DP = 64
+        const val REFUSAL_PUMP_MILLIS = 3000L
+        val REFUSAL_CONFIG =
+            SurfaceConfig.osd(REFUSAL_OSD_DP.dp, REFUSAL_OSD_DP.dp).copy(namespace = REFUSAL_NAMESPACE)
     }
 }

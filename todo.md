@@ -659,11 +659,18 @@ where on the monitor the compositor put it.
       `decline` destroying the live offer; see the first entry under "Audit against the reference
       implementations". Open: the test itself, once that is fixed. The attempt is kept at
       `.superpowers/sdd/run/LiveDragTest.kt.attempt`.
-- [ ] **A bare test surface silently swallows a drag out.** `bareSurface` builds its `KortexSurface` without an
-      `onStartDrag`, which defaults to a no-op (`KortexSurface.kt:418`), so content that asks to drag out of a
-      surface built that way is answered by nothing and the test sees a drag that never happened. Any drag test
-      written on that harness passes vacuously. Open: give `bareSurface` the parameter, or make the default
-      loud enough that a test cannot mistake it for a working path.
+- [x] **A bare test surface silently swallowed a drag out.** `bareSurface` built its `KortexSurface` without an
+      `onStartDrag`, and the default was `{ _, _ -> Ok(Unit) }`: a no-op that *reports success*. Content that
+      asked to drag out of such a surface was told its drag had started while nothing was ever sent, so neither
+      side failed and any drag test written on that harness passed on the silence. The refusal is now one
+      function, `refuseDrag` in `KortexSurface.kt`, answering `ClipboardError.NoClipboard`, which is what a
+      surface with no clipboard behind it honestly is; all four factories and both `bareSurface` and
+      `onBareSurface` default to that one, since a second copy of the rule would drift unobserved. Both
+      harnesses also take the parameter now, so a test that wants a working drag can hand one over.
+      `DragAndDropTest` pins it. Nothing relied on the old default: `DragWireProbe` and `LiveDragProbe` both go
+      through `createApplication`, which passes `clipboard::startDrag`, and `:compose` uses its own fake.
+      Proved by mutation, twice: the first attempt put the refusal in both the factory and the harness, and
+      mutating the factory's copy changed nothing, which is exactly the drift the single definition removes.
 
 ## Housekeeping
 
@@ -973,17 +980,19 @@ references and stays actionable on its own once the reports are gone.
       `if (scene.hasInvalidations()) onInvalidate()` from `KortexScene.render` turns no `onScene` test red.
       Open: give `onScene` the shape `bareSurface` (`OrFail.kt:57-76`) already uses, a real `LoopQueue` and
       `SurfaceScene` drained from the calling thread, which is both single-threaded and production-faithful.
-- [ ] **A `@Hotplug` test leaves no trace in the results, so missing coverage reports as covered.**
-      `TEST-...SurfaceScaleTest.xml` records `tests="1"` for a two-`@Test` file, and `MultiSurfaceTest`
-      `tests="2"` for three; three whole classes (`KortexShellTest`, `NamedOutputTest`, `OutputHotplugTest`)
-      produce no XML at all -- 59 result files for 62 test classes. Not a skip, an absence. Combined with the
-      GTK dmabuf crash that makes output changes unsafe here roughly one run in 256, mixed-DPI behaviour is
-      permanently unverifiable on this desktop and invisible in the report. It compounds:
-      `SurfaceScaleTest`'s only running leg cannot fail, because this monitor is at
-      `scale = 0.9999999999999992`, so `ceil()` is 1 and every assertion is satisfied by
-      `preferredBufferScale`'s initial `DEFAULT_SCALE`. Replacing `preferredBufferScale = factor` with
-      `= DEFAULT_SCALE` leaves the default build entirely green. Open: make the exclusion visible, e.g. a
-      test that counts `@Test` annotations against the recorded results and fails when they disagree.
+- [x] **A `@Hotplug` test left no trace in the results, so missing coverage reported as covered.** An excluded
+      test writes no `<skipped/>` and no result file at all: `SurfaceScaleTest` recorded `tests="1"` for a
+      two-`@Test` file and three whole classes produced no XML, so the run read as complete. `HotplugCoverageTest`
+      now names the set, loading each compiled test class without initialising it and reading the annotation off
+      the class or the method. It is **seven tests across six classes**, one source more than this entry had:
+      `OutputReleaseWireTest` carries a method-level tag nobody had counted. Changing that set is now a
+      deliberate act, and its size is the honest headline of every run. The second half is fixed too:
+      `SurfaceScaleTest`'s running leg could not fail, because this monitor reports a scale of
+      0.9999999999999992 and `ceil()` of that is the value a surface already starts at, so a new leg drives
+      `onPreferredBufferScale` straight at the listener instead and needs no second output. The exact mutation
+      named here, `preferredBufferScale = DEFAULT_SCALE`, goes red on it. What stays uncovered is the
+      delegation behind it, `SurfaceRole.preferredBufferScale`, which only an output at another scale can tell
+      from a constant; that is recorded rather than papered over.
 - [x] **Compose content gets no `WindowInfo.containerSize`, so every popup clips to the surface's top-left.**
       `KortexWindowInfo` (`KortexScene.kt:310-312`) overrides only `isWindowFocused`, leaving `containerSize`
       at its interface default of `IntSize(Int.MIN_VALUE, Int.MIN_VALUE)` (`WindowInfo.kt:43-50`).
@@ -1110,22 +1119,23 @@ references and stays actionable on its own once the reports are gone.
       nothing captured; it counts what it searched now. And the wire was only ever filtered to
       `wl_data_*`, where the whole story sat in `wl_pointer`. The hand drag that proved the product side
       was right used a 160 px box, which is why it worked where the probe could not.
-- [ ] **Every event the virtual pointer sends carries a timestamp of zero.**
-      `VirtualPointer.motionAbsolute`, `button` and `axis` each default `timeMillis = 0`, and every call
-      site takes the default: `Screen.moveTo`, `DragWireProbe`'s press and release,
-      `ProtocolVersionTest`'s wheel. Hyprland passes it straight through, so
-      `-> zwlr_virtual_pointer_v1#4.button(0, 272, 1)` arrives at the client as
-      `wl_pointer#23.button(60313, 0, 272, 1)`. `KortexScene.sendPointerEvent` states the contract this
-      breaks on its own parameter: the origin does not matter, only that it advances, and a constant zero
-      never advances. Compose reads those timestamps for double click, long press and fling velocity, so
-      every gesture a test drives is timed against a clock that has stopped. This is not what broke the
-      drag, which was geometry, and it was found while reading that wire rather than by any failure: no
-      test asserts on event time, so nothing here would notice. Open: give the virtual pointer a monotonic
-      clock and see which gesture tests were passing for the wrong reason.
-- [ ] **`bareSurface` still swallows a drag out, and two of this stretch's fixes have no test of their own.**
-      `bareSurface` builds its `KortexSurface` without an `onStartDrag`, so a drag asked for on that harness
-      is answered by nothing; any drag test written on it passes vacuously, which is recorded separately
-      under "Keyboard and clipboard" and is still true. Beyond it, `preciseScroll` and `askMinimized` have
+- [x] **Every event the virtual pointer sent carried a timestamp of zero.** `motionAbsolute`, `button` and
+      `axis` each defaulted `timeMillis = 0` and every call site took the default, so every gesture a test
+      drove was timed against a clock that had stopped, against the contract
+      `KortexScene.sendPointerEvent` states on its own parameter. The parameters are gone rather than
+      defaulted differently: the pointer stamps from `System.nanoTime()` itself, so nothing can send a
+      constant again. Fixing it exposed a second instance, this one in product code: `SeatInput` sent
+      `Enter` and `Exit` with a hardcoded `0L`, because `wl_pointer.enter` and `leave` carry no time of
+      their own, and a real clock on motion would have made those two jump **backwards** between the
+      motions around them, which is what a velocity tracker reads as a gesture. They now carry the newest
+      stamp the pointer has been handed, converted in one place. `PointerClockTest` drives two motions a
+      real pause apart and asserts the pause survives into the composition; putting the constant back fails
+      it with both stamps printed. Nothing else changed colour, so the answer to "which gesture tests were
+      passing for the wrong reason" is: none that exist. No test drove a double click, a long press or a
+      fling, which is why a stopped clock cost nothing and why it went unseen.
+- [ ] **Two of this stretch's fixes have no test of their own.** The `bareSurface` half of this entry is
+      fixed: the harness takes an `onStartDrag` and its default refuses rather than reporting success, which
+      is recorded under "Keyboard and clipboard". Beyond it, `preciseScroll` and `askMinimized` have
       no cover. `preciseScroll` may not be coverable at all: Compose decides precision from an AWT event
       through `LocalScrollConfig`, which is `internal`, and a finger source and a wheel source deliver the
       same magnitude for the same input, so neither side of the seam can tell them apart. `askMinimized` is
