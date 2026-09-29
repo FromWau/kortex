@@ -56,4 +56,5 @@ gradle.lifecycle.beforeProject {
 rootProject.name = "kortex"
 include("compose")
 include("wayland")
+include("dbus")
 include("bar")
