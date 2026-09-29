@@ -61,6 +61,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertNotEquals
 import kotlin.test.assertSame
@@ -472,7 +473,7 @@ class KortexSceneTest {
         val carried = AtomicReference<KortexDragSource?>(null)
         val asked = CountDownLatch(1)
         val host = object : KortexPlatform {
-            override fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean {
+            override fun startDrag(dragged: KortexDragSource): Boolean {
                 carried.set(dragged)
                 asked.countDown()
                 return true
@@ -502,23 +503,19 @@ class KortexSceneTest {
     }
 
     /**
-     * The other end of the same call. A host takes a drag on before it knows whether it can carry it: the
-     * payload is encoded off the loop thread, so a size it cannot carry is only found once the gesture has
-     * already returned true. Compose keeps a channel for exactly that, and content heard nothing through it
-     * until the host was given one.
+     * The other end of the same call: a host with nowhere to carry the drag answers false, and Compose's own
+     * channel is how the content that asked hears its gesture did not complete.
      */
     @Test
     @OptIn(ExperimentalComposeUiApi::class)
-    fun `a drag the host takes on and then cannot start tells content it did not complete`() {
+    fun `a drag the host will not carry tells content it did not complete`() {
         val completedWith = AtomicReference<DragAndDropTransferAction?>(null)
         val told = CountDownLatch(1)
         val asked = CountDownLatch(1)
         val host = object : KortexPlatform {
-            override fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean {
+            override fun startDrag(dragged: KortexDragSource): Boolean {
                 asked.countDown()
-                // As the real host does: taken on here, found impossible a few loop passes later.
-                onNotStarted()
-                return true
+                return false
             }
         }
 
@@ -548,6 +545,51 @@ class KortexSceneTest {
         // Null is the whole point: Compose reads it as "the gesture did not complete successfully", which is
         // what a drag the host could not start is, and an action would say the opposite.
         assertNull(completedWith.get(), "content was told the drag completed, with ${completedWith.get()}")
+    }
+
+    /**
+     * That the same channel runs inside this scene's own gate: content's code runs in it, so a throw out of it
+     * stops the scene running any more content, as a throw out of any other content call does.
+     *
+     * The drag used to be started off the loop thread and the channel called from a post back onto it, outside
+     * every [KortexScene] call. A throw there was recorded as the surface's crash but never reached the gate, so
+     * the composition went on drawing and taking input on a failure nothing on this side could see.
+     */
+    @Test
+    @OptIn(ExperimentalComposeUiApi::class)
+    fun `content throwing as it is told the drag did not start fails the scene`() {
+        val asked = CountDownLatch(1)
+        val failed = CountDownLatch(1)
+        val host = object : KortexPlatform {
+            override fun startDrag(dragged: KortexDragSource): Boolean {
+                asked.countDown()
+                return false
+            }
+        }
+
+        withScene(platform = host, onFailure = { failed.countDown() }) {
+            scene.setContent {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .dragAndDropSource(drawDragDecoration = {}) {
+                            DragAndDropTransferData(
+                                KortexDragSource.Text(DRAGGED_TEXT),
+                                listOf(DragAndDropTransferAction.Copy),
+                                onTransferCompleted = { error(REFUSED_DRAG_FAILURE) },
+                            )
+                        },
+                )
+            }
+            tick(0L)
+
+            assertTrue(dragUntilAsked(asked), "dragging content never asked the host to carry it")
+            assertTrue(passUntil(failed, FAILURE_WAIT_MILLIS), "content threw as it was told, and nothing noticed")
+
+            val failure = assertNotNull(scene.failure, "the scene runs content that has already thrown")
+            assertEquals(REFUSED_DRAG_FAILURE, failure.cause.message, "the scene recorded some other failure")
+            assertSame(failure, tick(1L).errorOrNull(), "a scene whose content has failed must run none of it")
+        }
     }
 
     /**
@@ -760,7 +802,9 @@ class KortexSceneTest {
         const val POINTER_FAILURE = "a click handler threw"
         const val EFFECT_FAILURE = "an effect threw"
         const val ERROR_FAILURE = "content threw an Error"
+        const val REFUSED_DRAG_FAILURE = "content threw as it was told the drag did not start"
         const val CLEANUP_FAILURE = "cleanup threw as the scene closed"
+
     }
 }
 

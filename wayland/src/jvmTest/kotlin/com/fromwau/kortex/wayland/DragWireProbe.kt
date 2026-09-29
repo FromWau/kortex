@@ -112,17 +112,25 @@ private fun dragAcross(shell: KortexShell, from: LayerGeometry, to: LayerGeometr
                 pointer.moveTo(monitor, from.x + BOX / 2 + SLOP * (step + 1) / SLOP_STEPS, from.y + BOX / 2)
                 settle()
             }
-            // The payload is encoded off the loop and the request posted back to it.
-            settle(ENCODE_SETTLES)
 
             val fromX = from.x + BOX / 2
             val toX = to.x + BOX / 2
             repeat(STEPS) { step ->
+
                 pointer.moveTo(monitor, fromX + (toX - fromX) * (step + 1) / STEPS, to.y + BOX / 2)
                 settle()
             }
 
+            // Moved about inside the target before letting go. The traverse above enters it on its last step,
+            // so a drag that answers the compositor per motion and one that answers once, at the enter, leave
+            // exactly the same wire without these.
+            repeat(INSIDE_STEPS) { step ->
+                pointer.moveTo(monitor, toX, to.y + BOX / 2 + INSIDE_STEP * (step + 1))
+                settle()
+            }
+
             pointer.button(BTN_LEFT, pressed = false)
+
             pointer.frame()
             settle(DROP_SETTLES)
         }
@@ -179,9 +187,12 @@ private const val BOX = 160
 private const val SLOP = 40
 private const val SLOP_STEPS = 4
 private const val STEPS = 8
+// Well inside the box, whose half-height is 80, so every one of these lands on the target.
+private const val INSIDE_STEPS = 3
+private const val INSIDE_STEP = 8
+
 private const val BTN_LEFT = 0x110
 private const val PLACE_MILLIS = 4_000L
 private const val SETTLE_MILLIS = 250L
 private const val DROP_MILLIS = 3_000L
-private const val ENCODE_SETTLES = 5
 private const val DROP_SETTLES = 4

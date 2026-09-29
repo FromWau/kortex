@@ -618,15 +618,22 @@ where on the monitor the compositor put it.
       argument means the gesture did not complete (`DragAndDrop.desktop.kt:55`); honouring it means keeping each
       transfer's data from the request until `wl_data_source.dnd_finished` or `cancelled` says how the drag ended,
       so every drag out needs a session object of its own. A callback on `KortexPlatform` beside `startDrag` is
-      the cheaper shape, but it tells the host rather than the content that asked.
-- [ ] **A drag's own failure does not stop the content that failed.** `KortexScene.runContent` refuses every later
-      call once `firstFailure` is set, and only `record` sets it, from inside the scene. `KortexSurface.startDrag`
-      catches an encoding that threw and hands it to `SurfaceScene.contentFailed`, which sets the crash the shell
-      reads but never reaches `record`, so the composition keeps rendering and taking input until the next loop
-      pass tears the surface down. The teardown is right and bounded to that one pass; what is wrong is that one
-      of the two failure routes into a scene skips the gate the other sets. Open: whether `contentFailed` should
-      be the single door, which means `KortexScene` publishing a way in, or whether the drag path should reach
-      `record` by another route.
+      the cheaper shape, but it tells the host rather than the content that asked. **Settled by the grab-serial
+      entry below**, and by neither of those: `startDrag` answers from the call, so `onTransferCompleted(null)`
+      is called on a refusal without keeping anything, and `TooLarge` left the list because a drag of an image no
+      transfer can carry now starts and delivers nothing. The three reasons still stop at the host; content hears
+      only that the gesture did not complete, as it does on Compose's own desktop.
+
+- [x] **A drag's own failure does not stop the content that failed.** There are no longer two routes to be out of
+      step. The drag path runs no content off the loop at all now: `KortexSurface.startDrag` marshals where it is
+      called, and the one piece of content's own code it runs, the `onTransferCompleted` Compose calls when a drag
+      does not start, runs inside the pointer event that asked for the drag. So `runContent` catches a throw out
+      of it and `record` sets the gate, as for anything else content throws. `SurfaceScene.contentFailed` is gone
+      as a door into the crash: the composition's own `onFailure` is the only way to `firstCrash` now, so a
+      surface cannot end as crashed while the scene behind it still runs content, and no second route can be
+      added without noticing. The teardown was never the problem and is unchanged.
+      (`KortexSceneTest`, which goes red when that channel is called from a thread of its own instead)
+
 - [ ] **A drag out of kortex is a copy and nothing else.** `copy` is the one action kortex declares on a
       `wl_data_source`, and the one it asks for on an offer it takes (`DataDevice.kt`), so content can neither
       drag something out as a move nor let the user choose. Open: `move` means telling the content that dragged
@@ -839,10 +846,11 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **376 tests green on `master` after the merge: 346 in `:wayland`, 23 in `:compose`, 7 in `:bar`.**
+- **387 tests green on `master`: 356 in `:wayland`, 24 in `:compose`, 7 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
   The three `@Hotplug` classes are excluded and have never run here; changing an output on this machine
-  crashes the installed GTK about one run in 256, so that number is 376 of a slightly larger whole.
+  crashes the installed GTK about one run in 256, so that number is 387 of a slightly larger whole.
+
 - **The audit's own reports are in `.superpowers/sdd/protocol-audit/`, nineteen files, and that path is
   git-ignored.** `SUMMARY.md` is the way in; each `report-*.md` quotes both sides of every finding. A
   `git clean -fdx` takes all of it. Every entry below carries its own evidence for that reason, but the
@@ -1022,15 +1030,21 @@ references and stays actionable on its own once the reports are gone.
       and a dropdown in third-party content is the ordinary case, not an exotic one. Compose's own headless
       host sets it (`ImageComposeScene.skiko.kt:160-161`), so a windowless scene is not exempt. Open: one
       line, since the scene already knows its size (`KortexScene.kt:95`).
-- [ ] **`acceptDragAndDropTransfer`'s boolean is read as a verdict on the session, and it is neither.**
-      `DragAndDropNode.kt:328-353` traverses every descendant and never consults the event's position, so the
-      boolean answers "does any drop target anywhere want this data", not "is the drag over a target" --
-      which has its own accessor, `hasEligibleDropTarget`, that kortex never touches. Compose's own AWT host
-      treats `false` as "reject this event, the session continues" and re-decides per move
-      (`AwtDragAndDropManager.desktop.kt:171-201`), where `KortexScene.kt:205-225`'s KDoc turns it into a
-      terminal verdict that the Wayland side acts on by destroying the live offer. `runContent` also collapses
-      three different situations -- content refused, content crashed, the scene is dead -- into one `false`
-      at `DataDevice.kt:80`. Open: this is the Compose half of the first entry and should be fixed with it.
+- [x] **`acceptDragAndDropTransfer`'s boolean is read as a verdict on the session, and it is neither.** It is a
+      verdict on the session, correctly, and it was being read as one on the position. The entry's own reading of
+      the Compose source holds: the traversal never consults the event's position, and `hasEligibleDropTarget` is
+      the accessor for the other question. `KortexScene` now publishes that second question as `dragOverTarget`,
+      which reads `hasEligibleDropTarget` and is false as well once content has failed, so a dead scene is over
+      nothing. `DataDevice.answerDrag` sends the compositor that answer at the enter and again at every motion,
+      which is what `wl_data_offer.set_actions` itself says to do; kortex used to accept a type once at the enter
+      and never revise it, so the cursor said "drop here" across the whole surface. `completeDrop` finishes an
+      offer only where content took the drop, in place of "some transfer carried bytes": a finish is what lets a
+      source dragging a move delete what it sent. It is also a protocol error after an accept of no type, and
+      `DataOffer.finish` now holds to both halves of that rule rather than to the action alone. The
+      `getOrElse { false }` at the enter stays and is right there: a scene that has failed takes nothing more,
+      which is a refusal. Open: nothing on the positive side, but no test drives a drop content *refuses*, since
+      that needs a second client dragging onto kortex. (`DragAndDropTest`, `DragWireTest`)
+
 - [x] **The crash logger does blocking file I/O on the loop thread, at five sites.** `bar/Main.kt:233-236`,
       `:278-281`, `:333-336`, `:380` and `:384-387` each call `logIfCrashed` inside a `LaunchedEffect`, and
       `appendCrash` (`CrashLog.kt:35-42`) does `Files.createDirectories` then `Files.writeString`. There is
@@ -1091,15 +1105,19 @@ references and stays actionable on its own once the reports are gone.
       offsets. All thirteen match today. Proved by mutation: `LAYER_SHELL = 9` fails the version leg naming
       the file, swapping two requests fails the request leg, and dropping the `closed` event fails the event
       leg.
-- [ ] **A drag quotes a grab serial that may no longer be live by the time it is sent.** The serial itself
-      is now right and `DragWireTest` pins it: `start_drag`'s argument is asserted against the `wl_pointer`
-      button press it came from, read off the same wire the request left on. The grab may not still be held. `KortexSurface.startDrag` encodes the payload on `Dispatchers.Default` and
-      posts back, so the button can be up before the request reaches the wire, and Weston additionally
-      requires `button_count == 1` and would refuse it. `grabSerial` is deliberately **not** cleared on
-      release: clearing it would fail every drag on that same race, including on Hyprland, which validates
-      nothing and works today. Open: start the drag on the press path and fill the payload lazily behind
-      `wl_data_source.send`, which would also let `startDragAndDropTransfer`'s own `Boolean` carry the whole
-      answer instead of the callback the encode hop forced.
+- [x] **A drag quotes a grab serial that may no longer be live by the time it is sent.** Nothing runs between the
+      press and the request any more. `KortexSurface.startDrag` marshals on the thread that calls it, which is the
+      loop's, since content asks from inside the pointer event that is dragging; the `Dispatchers.Default` encode
+      and the post back to the loop are both gone. The payload follows it: `Clip.DeferredImage` encodes as
+      `wl_data_source.send` asks for it, on the `Dispatchers.IO` hop that send already took, so an image no
+      transfer can carry answers the transfer rather than stopping the drag, and `Clip.bytesFor` carries that
+      answer as a typed result rather than a null meaning both "not a type I offer" and "could not encode".
+      `KortexPlatform.startDrag` lost its `onNotStarted` callback and answers `Boolean` from the call, which is
+      what `startDragAndDropTransfer`'s own `isTransferStarted` reads and what lets Compose offer a refused drag
+      to the next `dragAndDropSource` up the tree. `grabSerial` is still deliberately **not** cleared on release:
+      clearing it would fail every drag on that same race, including on Hyprland, which validates nothing and
+      works today. (`DragAndDropTest`, which asserts the compositor is asked on the calling thread; `ClipboardTest`)
+
 - [ ] **`wm_capabilities` is still an empty listener slot, and now it would have a reader.**
       `xdg_toplevel.wm_capabilities` (since 5, and Hyprland advertises `xdg_wm_base` 7) tells a client which
       of `askMaximized`, `askFullscreen` and `askMinimized` the compositor will honour at all. Asking for one

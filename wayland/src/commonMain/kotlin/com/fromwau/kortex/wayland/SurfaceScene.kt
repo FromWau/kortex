@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.fold
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexCursor
@@ -45,6 +46,7 @@ internal class SurfaceScene(
 ) : AutoCloseable {
 
     // Rides in the frame context below, so the loop can run this scene's work and leave its siblings' where it is.
+
     private val work = SurfaceWork()
 
     // The surface drawing this scene, which a rebuild exchanges; null before the first attach and after a detach.
@@ -76,12 +78,11 @@ internal class SurfaceScene(
         }
 
         // One drag, so the surface drawing this scene carries it where there is one, and the host otherwise.
-        override fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean {
-            val surface = surface ?: return platform.startDrag(dragged, onNotStarted)
-            // The reason stops here: ClipboardError is this module's, and Compose's own onTransferCompleted
-            // carries no reason either, only that the gesture did not complete.
-            surface.startDrag(dragged) { onNotStarted() }
-            return true
+        override fun startDrag(dragged: KortexDragSource): Boolean {
+            val surface = surface ?: return platform.startDrag(dragged)
+            // The reason stops here: ClipboardError is this module's, and Compose's own channel for a drag that
+            // did not start carries no reason either, only that the gesture did not complete.
+            return surface.startDrag(dragged).fold(onSuccess = { true }, onError = { false })
         }
     }
 
@@ -92,11 +93,12 @@ internal class SurfaceScene(
         frameContext = loop + work,
         onInvalidate = { surface?.invalidate() },
         platform = hostPlatform,
-        onFailure = ::contentFailed,
+        onFailure = ::recordCrash,
     )
 
-    /** Records [failure] as this scene's content failing, wherever what failed was run. */
-    fun contentFailed(failure: ContentFailure) {
+    // Every failure the composition records, wherever what failed was run. The composition is the only way in,
+    // so a surface cannot end as crashed while the scene behind it still runs content.
+    private fun recordCrash(failure: ContentFailure) {
         val crashed = KortexError.SurfaceCrashed(namespace, failure)
         // The first failure recorded here is the one the surface ends with; later ones only wake the loop.
         firstCrash.compareAndSet(null, crashed)

@@ -218,10 +218,13 @@ public class KortexScene(
      * @param position where the drag is, in logical pixels relative to the content; convert physical pixels
      *   yourself, as the scene is never told the output scale.
      * @param payload what the drag carries, which content reads as the drag event's native event.
-     * @return whether content took the drag. Send nothing further of a drag content refused, and end it with
-     *   neither [sendDragLeave] nor [sendDrop].
+     * @return whether anything in this composition takes what the drag carries, wherever in it that is. Send
+     *   nothing further of a drag content refused, and end it with neither [sendDragLeave] nor [sendDrop].
+     *   Whether a drop at [position] itself would reach content is the separate question [dragOverTarget]
+     *   answers, and the one to pass on as the drag moves.
      */
     public fun sendDragEnter(position: Offset, payload: Any?): Result<Boolean, ContentFailure> =
+
         runContent(ContentFailure::PointerInput) {
             val event = dragEvent(position, payload)
             val taken = dragTarget.acceptDragAndDropTransfer(event)
@@ -234,9 +237,23 @@ public class KortexScene(
             taken
         }
 
-    /** Moves a drag content took to [position], carrying the same [payload] its arrival did. */
+    /**
+     * Moves a drag content took to [position], carrying the same [payload] its arrival did. Read
+     * [dragOverTarget] once it returns for what the drag is over now.
+     */
     public fun sendDragMove(position: Offset, payload: Any?): EmptyResult<ContentFailure> =
         runContent(ContentFailure::PointerInput) { dragTarget.onMoved(dragEvent(position, payload)) }
+
+    /**
+     * Whether a drop where the drag is now would reach content, as of the last [sendDragEnter] or [sendDragMove],
+     * and false once content has failed, since a failed scene runs none of it.
+     *
+     * Content taking a drag says only that something in it wants what the drag carries; whether that something
+     * lies under the drag decides whether a drop reaches it, and crossing the content changes the answer. Pass
+     * it on after every move, so the desktop shows the user where a drop lands and tells the source, once it has
+     * landed, whether anything took what it offered.
+     */
+    public val dragOverTarget: Boolean get() = failure == null && dragTarget.hasEligibleDropTarget
 
     /** Ends a drag content took without dropping it, leaving content nothing. */
     public fun sendDragLeave(position: Offset, payload: Any?): EmptyResult<ContentFailure> =
@@ -352,7 +369,7 @@ private class KortexPlatformContext(
 /** Hands content's own request to drag something out to [startDrag], and refuses a payload kortex cannot carry. */
 @OptIn(InternalComposeUiApi::class, ExperimentalComposeUiApi::class)
 private class KortexDragAndDropManager(
-    private val startDrag: (dragged: KortexDragSource, onNotStarted: () -> Unit) -> Boolean,
+    private val startDrag: (dragged: KortexDragSource) -> Boolean,
 ) : PlatformDragAndDropManager {
     // Without this Compose waits for a drag the desktop starts on its own, which no Wayland compositor does.
     override val isRequestDragAndDropTransferRequired: Boolean get() = true
@@ -366,9 +383,11 @@ private class KortexDragAndDropManager(
                 drawDragDecoration: DrawScope.() -> Unit,
             ): Boolean {
                 val dragged = transferData.transferable as? KortexDragSource ?: return false
+                started = startDrag(dragged)
                 // Compose's own channel for a gesture that did not complete, which is what a drag the host
-                // took on and then could not start is; the answer is only known after this has returned true.
-                started = startDrag(dragged) { transferData.onTransferCompleted?.invoke(null) }
+                // would not start is. Content's own code, and it runs inside the pointer event that dragged,
+                // so a throw out of it is this scene's failure like any other content throws.
+                if (!started) transferData.onTransferCompleted?.invoke(null)
                 return started
             }
         }

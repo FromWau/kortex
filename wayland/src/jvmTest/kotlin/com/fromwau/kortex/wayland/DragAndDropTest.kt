@@ -3,6 +3,7 @@ package com.fromwau.kortex.wayland
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
@@ -27,8 +28,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -37,9 +40,10 @@ import kotlin.test.fail
  * [KortexScene]'s own enter, motion, leave and drop through a real composition, where the scale a surface draws at
  * puts a drag on that scene, and what a drag out of content offers.
  *
- * No test here starts a drag on the desktop: the two that connect are both refusals, one by a clipboard that has
- * been handed no input serial and one by a surface with no clipboard behind it, so each fails before a source is
- * made.
+ * No test here starts a drag on the desktop. Of the three that connect, two are refusals, one by a clipboard that
+ * has been handed no input serial and one by a surface with no clipboard behind it, so each fails before a source
+ * is made; the third stands a recorder in for the clipboard, so nothing reaches the compositor there either.
+
  */
 @OptIn(ExperimentalComposeUiApi::class)
 class DragAndDropTest {
@@ -115,6 +119,33 @@ class DragAndDropTest {
         }
     }
 
+    /**
+     * That taking a drag and lying under it are two different answers.
+     *
+     * [KortexScene.sendDragEnter] answers the first: Compose asks every drop target in the composition whether it
+     * wants what the drag carries, wherever in the composition that target is. What the compositor turns into a
+     * cursor, and settles the drop under, is the second, and it changes as the drag crosses the content. Reading
+     * the first as the second tells the user a drop lands anywhere on the surface, and tells the drag's source
+     * its data was taken when the drop fell on nothing.
+     */
+    @Test
+    fun `a drag content took is over a target only where that target is`() {
+        withDropTarget(targetSide = SIDE / 2) { scene ->
+            val offer = dragOffer(TEXT_TYPES, DRAGGED_TEXT)
+            val taken = scene.sendDragEnter(CLEAR_OF_TARGET, offer)
+                .getOrElse { failure -> fail("content failed as the drag arrived: $failure") }
+
+            assertTrue(taken, "content holding a drop target refused a drag that arrived clear of it")
+            assertFalse(scene.dragOverTarget, "a drag that arrived clear of the target was reported as over it")
+
+            scene.sendDragMove(OVER_TARGET, offer)
+            assertTrue(scene.dragOverTarget, "a drag moved onto the target was reported as over nothing")
+
+            scene.sendDragMove(CLEAR_OF_TARGET, offer)
+            assertFalse(scene.dragOverTarget, "a drag moved off the target was still reported as over it")
+        }
+    }
+
     @Test
     fun `a text dragged out is offered under every text type, and an image as PNG and JPEG`() {
         assertEquals(
@@ -143,13 +174,12 @@ class DragAndDropTest {
     }
 
     /**
-     * The other half of [`a drag with no input to quote fails as NoInputSerial`]: that a surface with no clipboard
+     * The other half of [`a drag with no input to quote fails as NoInputSerial`]: a surface with no clipboard
      * behind it at all refuses too, rather than reporting a drag it never sent.
      *
-     * `onStartDrag` used to default to `Ok(Unit)`, so a surface built without one answered every drag out of it by
-     * saying the drag had started. [bareSurface] builds exactly such a surface, and every drag test written on that
-     * harness therefore passed on silence: nothing reached the compositor, nothing reached the content that asked,
-     * and the test could only see that neither had failed.
+     * [bareSurface] builds exactly such a surface. While `onStartDrag` defaulted to `Ok(Unit)`, every drag test
+     * written on that harness passed on silence: nothing reached the compositor, nothing reached the content that
+     * asked, and the test could only see that neither had failed.
      */
     @Test
     fun `a drag out of a surface with no clipboard behind it is told it did not start`() {
@@ -157,27 +187,50 @@ class DragAndDropTest {
 
         display.use { wayland ->
             onBareSurface(wayland, REFUSAL_CONFIG) { surface, _ ->
-                val notStarted = AtomicReference<ClipboardError?>(null)
-                surface.startDrag(KortexDragSource.Text(DRAGGED_TEXT)) { reason -> notStarted.set(reason) }
-
-                assertTrue(
-                    surface.pumpOrFail(REFUSAL_PUMP_MILLIS) { notStarted.get() != null },
-                    "content dragged out of a surface with no clipboard behind it and was told nothing at all",
-                )
                 assertEquals(
-                    ClipboardError.NoClipboard, notStarted.get(),
-                    "why a drag out of a surface with nowhere to send it did not start",
+                    Err(ClipboardError.NoClipboard),
+                    surface.startDrag(KortexDragSource.Text(DRAGGED_TEXT)),
+                    "a drag out of a surface with nowhere to send it must be refused, not reported as started",
                 )
             }
         }
     }
 
-    /** What a drag of [dragged] offers, failing the test rather than returning why it could not be. */
+    /**
+     * That a drag asks the compositor from the call that started it, rather than from a thread behind it.
+     *
+     * The payload used to be encoded on `Dispatchers.Default` and the request posted back, so `start_drag` left
+     * one or more loop passes after the button press whose implicit grab it names. Every compositor that checks
+     * that grab refuses a request that arrives once the button is up, and an image is slow enough to encode for
+     * that to be an ordinary outcome rather than a rare one.
+     */
+    @Test
+    fun `a dragged image asks the compositor before the call that dragged it returns`() {
+        val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
+        val askedOn = AtomicReference<Thread?>(null)
+
+        display.use { wayland ->
+            val asking = { _: Clip, _: MemorySegment ->
+                askedOn.set(Thread.currentThread())
+                Ok(Unit)
+            }
+            onBareSurface(wayland, REFUSAL_CONFIG, onStartDrag = asking) { surface, _ ->
+                assertEquals(
+                    Ok(Unit),
+                    surface.startDrag(KortexDragSource.Image(opaqueImage())),
+                    "the surface refused a drag the clipboard behind it took",
+                )
+                assertSame(
+                    Thread.currentThread(), askedOn.get(),
+                    "an image drag asked the compositor from somewhere other than the call that dragged it",
+                )
+            }
+        }
+    }
+
+    /** What a drag of [dragged] offers. */
     private fun offeredTypesOf(dragged: KortexDragSource): List<String> =
-        dragged.asClip()
-            .getOrElse { failure -> fail("a drag had nothing to offer: $failure") }
-            .offeredTypes
-            .map(Mime::wireName)
+        dragged.asClip().offeredTypes.map(Mime::wireName)
 
     /** A small opaque image, as content dragging a picture out holds one. */
     private fun opaqueImage(): ImageBitmap {
@@ -209,10 +262,14 @@ class DragAndDropTest {
             KortexDragOffer(offer.offeredTypes, text = Ok(text))
         }
 
-    /** Runs [block] on a scene whose content is one drop target, which records every event it is sent in [seen]. */
+    /**
+     * Runs [block] on a scene whose content is one drop target of [targetSide] a side, in its top-left corner,
+     * which records every event it is sent in [seen].
+     */
     private fun withDropTarget(
         seen: MutableList<String> = CopyOnWriteArrayList(),
         onDropped: (KortexDragOffer) -> Unit = {},
+        targetSide: Int = SIDE,
         block: (KortexScene) -> Unit,
     ) {
         val target = object : DragAndDropTarget {
@@ -244,18 +301,21 @@ class DragAndDropTest {
         }
         onScene(IntSize(SIDE, SIDE)) { scene, _, tick ->
             scene.setContent {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .dragAndDropTarget(
-                            shouldStartDragAndDrop = { start ->
-                                (start.nativeEvent as? KortexDragOffer)?.types.orEmpty().isNotEmpty()
-                            },
-                            target = target,
-                        ),
-                )
+                Box(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .size(targetSide.dp)
+                            .dragAndDropTarget(
+                                shouldStartDragAndDrop = { start ->
+                                    (start.nativeEvent as? KortexDragOffer)?.types.orEmpty().isNotEmpty()
+                                },
+                                target = target,
+                            ),
+                    )
+                }
             }
             // A drop is routed by where it is, which needs the target laid out and its bounds known.
+
             tick(0L)
             block(scene)
         }
@@ -265,6 +325,11 @@ class DragAndDropTest {
         val NULL: MemorySegment = MemorySegment.NULL
         const val SIDE = 64
         val CENTRE = Offset(SIDE / 2f, SIDE / 2f)
+
+        // Against a target half the scene's side, anchored in its top-left corner: one well inside it, one well
+        // outside and still on the surface, since a drag off the surface is a leave rather than a miss.
+        val OVER_TARGET = Offset(SIDE / 4f, SIDE / 4f)
+        val CLEAR_OF_TARGET = Offset(SIDE * 3f / 4f, SIDE * 3f / 4f)
 
         val TEXT_TYPES = listOf("text/plain;charset=utf-8", "text/plain")
         const val DRAGGED_TEXT = "dragged"
@@ -281,12 +346,12 @@ class DragAndDropTest {
         const val ENDED = "ended"
         const val DROP = "drop"
 
-        // The refusal leg's own surface: an OSD, since the smallest preset that maps is enough for a drag that
+        // The drag-out legs' own surface: an OSD, since the smallest preset that maps is enough for a drag that
         // never leaves the client.
         const val REFUSAL_NAMESPACE = "kortex-drag-refusal"
         const val REFUSAL_OSD_DP = 64
-        const val REFUSAL_PUMP_MILLIS = 3000L
         val REFUSAL_CONFIG =
+
             SurfaceConfig.osd(REFUSAL_OSD_DP.dp, REFUSAL_OSD_DP.dp).copy(namespace = REFUSAL_NAMESPACE)
     }
 }

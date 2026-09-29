@@ -113,8 +113,36 @@ class DragWireTest {
             "start_drag quoted $quoted, which is no button press's serial (presses: $pressSerials)",
         )
 
+        // Every motion is answered, not only the arrival. Content takes a drag for the whole session, but only
+        // the part of it under the drag would take the drop, so the answer changes as the drag crosses the
+        // surface and the last one before the drop is what the compositor settles on. One answer per motion
+        // plus the arrival's own, so this counts strictly more accepts than motions; kortex used to accept
+        // once, at the enter, and never revise it.
+        val lastEnterAt = wire.indexOfLast { it.isEvent("wl_data_device", "enter") }
+        val dropAt = wire.drop(lastEnterAt).indexOfFirst { it.isEvent("wl_data_device", "drop") }
+        assertTrue(
+            dropAt >= 0,
+            "the drag entered its last surface and was never dropped on it; wire:\n$dataTraffic",
+        )
+        val overTarget = wire.subList(lastEnterAt, lastEnterAt + dropAt)
+        val accepts = overTarget.count { it.isRequest("wl_data_offer", "accept") }
+        val moves = overTarget.count { it.isEvent("wl_data_device", "motion") }
+        assertTrue(
+            accepts > moves,
+            "the drag answered $accepts times over $moves motions, so a move left its answer stale; " +
+                "wire:\n" + overTarget.traceOf("wl_data_device", "wl_data_offer"),
+        )
+
+        // The target took what arrived, so the drag's source is told its drop succeeded. A finish is what lets a
+        // source dragging a move delete what it sent, so only content taking the drop earns one.
+        assertTrue(
+            wire.drop(lastEnterAt + dropAt).any { it.isRequest("wl_data_offer", "finish") },
+            "the target took the drop and its source was never told; wire:\n$dataTraffic",
+        )
+
         // And the end of it: the text the source offered reached the target's content.
         assertTrue(
+
             output.any { it == PROBE_MARKER_DROPPED + PROBE_DRAGGED_TEXT },
             "the dragged text never reached the target's content; output:\n$raw",
         )

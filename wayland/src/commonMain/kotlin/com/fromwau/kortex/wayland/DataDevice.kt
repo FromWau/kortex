@@ -81,14 +81,12 @@ internal class DataDevice private constructor(
         val destination = dragDestinations(surface.address())
         val types = brought.offeredTypes
         if (destination == null || types.isEmpty()) return decline(brought, serial)
-        val arrival = Drag(brought, destination, types, destination.scenePosition(x, y))
+        val arrival = Drag(brought, destination, types, destination.scenePosition(x, y), serial)
         // Content that has already failed takes nothing more, this drag included.
         val taken = destination.scene.sendDragEnter(arrival.position, arrival.announced).getOrElse { false }
         if (!taken) return decline(brought, serial)
-        brought.accept(serial, types.first())
-        brought.setActions(DndAction.Copy.wire, DndAction.Copy.wire)
-        display.flush()
         drag = arrival
+        answerDrag(arrival)
     }
 
     fun onLeave(data: MemorySegment, device: MemorySegment) {
@@ -101,6 +99,23 @@ internal class DataDevice private constructor(
         val moving = drag?.takeUnless { it.dropping } ?: return
         moving.position = moving.destination.scenePosition(x, y)
         moving.destination.scene.sendDragMove(moving.position, moving.announced)
+        answerDrag(moving)
+    }
+
+    /**
+     * Tells the drag's source whether a drop where [moving] is now would be taken, which is what the compositor
+     * turns into the cursor the user sees and what settles the action the drop is finished under.
+     *
+     * Sent again on every motion, as `wl_data_offer.set_actions` says to: content takes a drag for the whole
+     * session, but only the part of it under the drag would take the drop, and that changes as the drag crosses
+     * the surface. The serial stays the enter's, which is the only one a drag is given.
+     */
+    private fun answerDrag(moving: Drag) {
+        val wanted = moving.destination.scene.dragOverTarget
+        moving.offer.accept(moving.serial, moving.types.first().takeIf { wanted })
+        val action = if (wanted) DndAction.Copy else DndAction.None
+        moving.offer.setActions(action.wire, action.wire)
+        display.flush()
     }
 
     fun onDrop(data: MemorySegment, device: MemorySegment) {
@@ -224,10 +239,12 @@ internal class DataDevice private constructor(
     private fun completeDrop(dropped: Drag, carried: KortexDragOffer) {
         // The device can have been given back, or another drag begun, while the transfers drained.
         if (drag !== dropped) return
-        dropped.destination.scene.sendDrop(dropped.position, carried)
+        val taken = dropped.destination.scene.sendDrop(dropped.position, carried).getOrElse { false }
         // A finish says the drop succeeded, and a source dragging a move may delete what it sent as soon as it
-        // hears that, so a drop whose transfers all came back empty is given back unfinished instead.
-        if (carried.readText() is Ok<*> || carried.readImage() is Ok<*>) dropped.offer.finish()
+        // hears that, so only content actually taking what arrived earns one. A drop over no target of its own,
+        // or into content that has failed, is given back unfinished instead.
+        if (taken) dropped.offer.finish()
+
         display.flush()
         endDrag(dropped)
     }
@@ -286,6 +303,8 @@ internal class DataDevice private constructor(
         val types: List<Mime>,
         /** Where content last saw the drag: `wl_data_device.drop` carries no position of its own. */
         var position: Offset,
+        /** The enter's own serial, which every later answer to this drag quotes: it is given no other. */
+        val serial: Int,
     ) {
         /** What content reads the drag through until it is dropped, which is its types and nothing else yet. */
         val announced = KortexDragOffer(types)
@@ -367,6 +386,9 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     private var proxy: MemorySegment = MemorySegment.NULL
     private val offered = mutableSetOf<Mime>()
 
+    // Whether the last accept named a type, which wl_data_offer.finish is an error after it did not.
+    private var accepting = false
+
     // What the compositor last settled this drag on, which stays none against a source older than
     // wl_data_device_manager v3, since such a source names no action for one to be matched against.
     private var settled = DndAction.None
@@ -416,11 +438,15 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
     }
 
     /**
-     * `wl_data_offer.accept`: tells the drag's source that this client takes [type], or takes nothing where it is
-     * null, which cancels the source.
+     * `wl_data_offer.accept`: tells the drag's source that this client would take [type] where the drag is now, or
+     * nothing where [type] is null. Answered again as the drag moves; the last answer before the drop is the one
+     * that settles it, and a source left with null there is cancelled.
      */
+
     fun accept(serial: Int, type: Mime?) {
+        accepting = type != null
         Arena.ofConfined().use { request ->
+
             val name = type?.let { request.allocateFrom(it.wireName) } ?: MemorySegment.NULL
             LibWayland.marshal(proxy, WL_DATA_OFFER_ACCEPT, args = listOf(WlArg.Num(serial), WlArg.Ptr(name)))
         }
@@ -433,13 +459,17 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
         )
     }
 
-    /** `wl_data_offer.finish`: tells the drag's source its drop succeeded, where the compositor settled on how. */
+    /**
+     * `wl_data_offer.finish`: tells the drag's source its drop succeeded.
+     *
+     * Silent where the protocol names saying so an error: after an accept of no type, and before the compositor
+     * has settled an action. An ask is settled only once the destination has answered it with a set_actions of
+     * its own, which kortex never sends.
+     */
     fun finish() {
+        if (!accepting) return
         when (settled) {
-            DndAction.Copy, DndAction.Move ->
-                LibWayland.marshal(proxy, WL_DATA_OFFER_FINISH)
-            // A finish the compositor has settled no action for is a protocol error, and an ask is settled only
-            // once the destination has answered it with a set_actions of its own, which kortex never sends.
+            DndAction.Copy, DndAction.Move -> LibWayland.marshal(proxy, WL_DATA_OFFER_FINISH)
             DndAction.None, DndAction.Ask -> Unit
         }
     }
@@ -514,11 +544,15 @@ internal class DataSource(private val clip: Clip, private val arena: Arena = Are
     fun onTarget(data: MemorySegment, source: MemorySegment, mimeType: MemorySegment) = Unit
 
     fun onSend(data: MemorySegment, source: MemorySegment, mimeType: MemorySegment, fd: Int) {
-        val type = Mime.fromWireNameOrNull(mimeType.reinterpret(Long.MAX_VALUE).getString(0))
+        val asked = Mime.fromWireNameOrNull(mimeType.reinterpret(Long.MAX_VALUE).getString(0))
         // A type this copy never offered leaves the receiver an empty transfer, never another type's bytes.
-        val bytes = type?.let(clip::bytesFor) ?: return LibC.close(fd)
-        // Off the loop thread: a write into a full pipe waits for the receiver to drain it, stalling every surface.
-        Dispatchers.IO.asExecutor().execute { writePipeAndClose(fd, bytes, TRANSFER_TIMEOUT_MILLIS) }
+        val type = asked?.takeIf { it in clip.offeredTypes } ?: return LibC.close(fd)
+        // Off the loop thread: a drag leaves its encoding to here, and a write into a full pipe waits for the
+        // receiver to drain it; either one on the loop stalls every surface for as long as it runs.
+        Dispatchers.IO.asExecutor().execute {
+            val bytes = clip.bytesFor(type).getOrElse { return@execute LibC.close(fd) }
+            writePipeAndClose(fd, bytes, TRANSFER_TIMEOUT_MILLIS)
+        }
     }
 
     // Replaced as the selection, or the drag this carried is over. Destroyed by whoever owns it, never by this

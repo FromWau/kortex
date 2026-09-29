@@ -7,6 +7,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
+import com.fromwau.kortex.compose.KortexDragSource
 import java.io.ByteArrayOutputStream
 import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
@@ -89,6 +90,23 @@ class ClipboardTest {
                 "an image past the cap was not refused before the selection was set",
             )
         }
+    }
+
+    /**
+     * A drag of an image no transfer can carry still starts, and answers the transfer rather than the drag: the
+     * encode that finds the size out runs at the send, since `start_drag` has to leave while the button that
+     * took its grab is still down. A copy of the same image is refused outright, before the selection is set.
+     */
+    @Test
+    fun `a dragged image past the cap still offers its types, and has nothing to send under them`() {
+
+        val dragged = KortexDragSource.Image(oversizedImage()).asClip()
+
+        assertEquals(IMAGE_OFFER, dragged.offeredTypes.map { it.wireName }, "a dragged image's offer")
+        assertEquals(
+            Err(ClipboardError.TooLarge), dragged.bytesFor(ImageMime.Png),
+            "a dragged image past the cap had bytes to send under PNG after all",
+        )
     }
 
     @Test

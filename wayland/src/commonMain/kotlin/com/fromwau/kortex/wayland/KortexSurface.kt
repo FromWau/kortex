@@ -9,18 +9,24 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kern.result.onError
-import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.compose.KortexCursor
 import com.fromwau.kortex.compose.KortexDragSource
 import java.lang.foreign.MemorySegment
 import java.util.concurrent.ConcurrentLinkedQueue
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.asExecutor
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Surface
+
+/**
+ * What a surface built with nowhere to send a drag answers one with: there is no clipboard behind it.
+ *
+ * Deliberately not `Ok(Unit)`: a no-op reporting success tells content its drag started while nothing was ever
+ * sent, and a test on such a surface then sees no failure on either side and passes on that silence. One
+ * definition, shared by every factory and harness below, because two copies of the rule drift apart unobserved.
+ */
+internal fun refuseDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> =
+    Err(ClipboardError.NoClipboard)
 
 /**
  * The engine behind a surface: the [SurfaceRole] it is built on, the buffers drawn into it, its frame pacing, its
@@ -29,17 +35,6 @@ import org.jetbrains.skia.Surface
  * A [SurfaceScene] is drawn here for as long as it is attached. Frames are paced off `wl_surface.frame` and drawn
  * only when that scene asks for one, so an idle surface costs nothing.
  */
-/**
- * What a surface built with nowhere to send a drag answers one with: there is no clipboard behind it.
- *
- * Deliberately not `Ok(Unit)`: a no-op that reports success tells content its drag started while nothing
- * was ever sent, so a drag test on such a surface sees no failure on either side and passes on that
- * silence. Every factory below and every test harness that builds a surface without a clipboard shares this
- * one, because two copies of the rule drift apart unobserved.
- */
-internal fun refuseDrag(clip: Clip, origin: MemorySegment): EmptyResult<ClipboardError> =
-    Err(ClipboardError.NoClipboard)
-
 internal class KortexSurface private constructor(
     private val display: WaylandDisplay,
     /** What this surface is built on; the loop thread only, another thread uses [requestClose] or [invalidate]. */
@@ -63,6 +58,7 @@ internal class KortexSurface private constructor(
 ) : AutoCloseable {
 
     // Filled through post() from any thread and drained only on the loop thread, which is the one thread
+
     // ever allowed to call into libwayland.
     private val queue = ConcurrentLinkedQueue<() -> Unit>()
 
@@ -183,43 +179,14 @@ internal class KortexSurface private constructor(
     }
 
     /**
-     * Drags [dragged] out of this surface, from whichever thread content asked to.
+     * Drags [dragged] out of this surface, answering whether the compositor was asked.
      *
-     * The payload is encoded off the loop thread, so a drag that never starts is known only once the gesture that
-     * asked for it has returned; [onNotStarted] is how that reaches the content that asked, on the loop thread.
+     * Marshals on the calling thread, which is the loop's: content asks from inside the pointer event that is
+     * dragging, and `start_drag` names the implicit grab that very event took. A compositor that checks the grab
+     * refuses the request once the button is up, so anything queued or encoded in between can lose the drag.
      */
-    internal fun startDrag(
-        dragged: KortexDragSource,
-        onNotStarted: (ClipboardError) -> Unit,
-    ) {
-        // Off the loop thread: encoding an image on it would stall every surface for as long as it runs.
-        Dispatchers.Default.asExecutor().execute {
-            val encoded = try {
-                dragged.asClip()
-            } catch (cause: Throwable) {
-                // Left here it would reach this dispatcher's uncaught handler alone, and no surface would report it.
-                post { scene?.contentFailed(ContentFailure.PointerInput(cause)) }
-                return@execute
-            }
-            val clip = encoded.getOrElse { reason ->
-                post { tellNotStarted(reason, onNotStarted) }
-                return@execute
-            }
-            post { onStartDrag(clip, role.surface).onError { reason -> tellNotStarted(reason, onNotStarted) } }
-        }
-    }
-
-    // Content's own code runs here: a throw left to escape would reach the loop, and the whole run would end on it.
-    private fun tellNotStarted(
-        reason: ClipboardError,
-        onNotStarted: (ClipboardError) -> Unit,
-    ) {
-        try {
-            onNotStarted(reason)
-        } catch (cause: Throwable) {
-            scene?.contentFailed(ContentFailure.PointerInput(cause))
-        }
-    }
+    internal fun startDrag(dragged: KortexDragSource): EmptyResult<ClipboardError> =
+        onStartDrag(dragged.asClip(), role.surface)
 
     /** Marks the surface closed, as the compositor closing it would; what content's own handle asks for. */
     internal fun requestClose() {

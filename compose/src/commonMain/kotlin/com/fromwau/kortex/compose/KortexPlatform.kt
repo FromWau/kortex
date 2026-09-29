@@ -73,9 +73,10 @@ public class KortexTextInput internal constructor(
  * A drag is a copy whichever actions you list, so a drop never takes away what you dragged, and the drag
  * decoration you draw is not used: the desktop shows a drag cursor of its own.
  *
- * A drag that cannot be asked for does not start, and you are not told: an image encoding to more than 64 MiB,
- * a scene with nothing behind it to drag from, or a desktop that has sent your application no key, click or
- * keyboard focus to quote yet.
+ * A drag the desktop will not take does not start, and `DragAndDropTransferData`'s own `onTransferCompleted` is
+ * called with null to say so: a scene with nothing behind it to drag from, or a desktop that has sent your
+ * application no click to quote yet. An [Image] larger than one transfer carries, 64 MiB encoded, starts like
+ * any other and delivers nothing when it is dropped, since its size is known only once a receiver asks for it.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 public sealed interface KortexDragSource : DragAndDropTransferable {
@@ -104,13 +105,15 @@ public interface KortexPlatform {
     /**
      * Called when content asks to drag [dragged] out, e.g. through `Modifier.dragAndDropSource`.
      *
-     * @return whether the drag was taken on. Answer false, as the default does, when nothing you host can carry
-     *   a drag to the desktop.
-     * @param onNotStarted called if the drag turns out not to start after all, which is only known once the
-     *   payload has been encoded and offered. Answering true and then calling this is the ordinary case for a
-     *   payload too large to carry.
+     * Answer from the call itself, and leave whatever the payload costs to encode to the transfer that asks for
+     * it: a desktop hands a drag the input the user is still holding, so one asked for a moment later is one it
+     * may refuse.
+     *
+     * @return whether the drag started. Answer false, as the default does, when nothing you host can carry a
+     *   drag to the desktop; content is then told its gesture did not complete, and Compose offers the same drag
+     *   to the next `dragAndDropSource` above the one that asked.
      */
-    public fun startDrag(dragged: KortexDragSource, onNotStarted: () -> Unit): Boolean = false
+    public fun startDrag(dragged: KortexDragSource): Boolean = false
 
     public companion object {
         public val None: KortexPlatform = object : KortexPlatform {}

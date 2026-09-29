@@ -289,8 +289,11 @@ internal sealed interface Clip {
     /** The types a copy of this offers, in the order a paste prefers them. */
     val offeredTypes: List<Mime>
 
-    /** What this sends under [type], or null for a type it does not offer. */
-    fun bytesFor(type: Mime): ByteArray?
+    /**
+     * What this sends under [type], one of [offeredTypes], or why it has nothing to send under it. Blocking
+     * where it encodes, so never called on the loop thread.
+     */
+    fun bytesFor(type: Mime): Result<ByteArray, ClipboardError>
 
     /** A text, sent as the same UTF-8 under every [TextMime]. */
     class Text(val text: String) : Clip {
@@ -298,7 +301,8 @@ internal sealed interface Clip {
 
         override val offeredTypes: List<Mime> = TextMime.entries
 
-        override fun bytesFor(type: Mime): ByteArray? = utf8.takeIf { type is TextMime }
+        override fun bytesFor(type: Mime): Result<ByteArray, ClipboardError> =
+            if (type is TextMime) Ok(utf8) else Err(ClipboardError.NoText)
     }
 
     /**
@@ -311,7 +315,10 @@ internal sealed interface Clip {
 
         override val offeredTypes: List<Mime> = ImageMime.entries
 
-        override fun bytesFor(type: Mime): ByteArray? = encoded[type]
+        override fun bytesFor(type: Mime): Result<ByteArray, ClipboardError> {
+            val bytes = encoded[type] ?: return Err(ClipboardError.NoImage)
+            return Ok(bytes)
+        }
 
         companion object {
             /**
@@ -326,15 +333,26 @@ internal sealed interface Clip {
             }
         }
     }
+
+    /**
+     * An image a drag offers, encoded only once a transfer asks for it.
+     *
+     * `wl_data_device.start_drag` has to reach the compositor while the button that took the implicit grab is
+     * still down, and encoding ahead of it is long enough for the button to come up. The send that asks for
+     * these bytes runs off the loop thread already, so the encode costs nothing where it lands instead.
+     */
+    class DeferredImage(private val image: ImageBitmap) : Clip {
+        override val offeredTypes: List<Mime> = ImageMime.entries
+
+        override fun bytesFor(type: Mime): Result<ByteArray, ClipboardError> =
+            if (type is ImageMime) encodeImage(image, type) else Err(ClipboardError.NoImage)
+    }
 }
 
-/**
- * What a drag of this offers. Blocking where it holds an image, which is encoded here as a copy's is, so never
- * called on the loop thread.
- */
-internal fun KortexDragSource.asClip(): Result<Clip, ClipboardError> = when (this) {
-    is KortexDragSource.Text -> Ok(Clip.Text(text))
-    is KortexDragSource.Image -> Clip.Image.of(image)
+/** What a drag of this offers, encoding nothing here: an image is encoded as each transfer asks for it. */
+internal fun KortexDragSource.asClip(): Clip = when (this) {
+    is KortexDragSource.Text -> Clip.Text(text)
+    is KortexDragSource.Image -> Clip.DeferredImage(image)
 }
 
 /** [image] as [type] carries it, or [ClipboardError.TooLarge] where that is more than [MAX_IMAGE_BYTES]. */
