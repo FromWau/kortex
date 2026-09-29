@@ -1110,15 +1110,22 @@ references and stays actionable on its own once the reports are gone.
       Replacing the one guard the layer-shell path has, `marshalIfSince` at `LayerShell.kt:247`, with a plain
       `marshal` leaves everything green. Both requests in the second entry above already have a green test
       driving them. The test that would cover the whole class is an entry of its own below.
-- [ ] **No test binds a global below what kortex asks for, so the `since` guard is never exercised.**
+- [x] **The `since` guard is driven against a version chosen here, not one a compositor happened to offer.**
       `LibWayland.marshal` reads each request's own `since` off the interface table and skips one the
-      negotiated version cannot carry, which is what keeps a client alive on a compositor older than the
-      request it was about to send. Nothing drives it: every compositor this suite runs against advertises
-      versions at or above what kortex asks for, so the guard is dead code from the suite's point of view and
-      a change that broke it would go unnoticed until someone ran kortex on an older desktop.
-      Open: a test that binds a global at a forced-low version and asserts the connection survives a request
-      newer than that version, which covers the whole class rather than the two requests that prompted the
-      guard.
+      negotiated version cannot carry, which is what keeps the client alive on a compositor older than the
+      request it was about to send.
+      This entry said nothing drove it, and that was wrong. A real registry trace settled it: kortex asks for
+      `wl_compositor` 7, Hyprland advertises 6 and binds at 6, and `wl_compositor.release` is `since=7`, so
+      `SinceFromTableTest`'s original leg does skip a request and does prove the guard runs. It proves it by
+      accident of a compositor lagging, though: the day one offers 7, that leg sends the release legally,
+      passes, and covers nothing.
+      Both halves are answered. A second leg binds `wl_compositor` at 1 on purpose and sends
+      `wl_surface.set_buffer_scale`, which is `since=3`, so it rests on no compositor's version at all, and it
+      asserts the bind took the low version before relying on it. The original leg now asserts the negotiated
+      version is under `release`'s own `since` and names the version it found, so it fails loudly rather than
+      quietly the day a compositor catches up.
+      Taking the guard out of `marshal` kills both legs, which is what says the new one has teeth.
+      (`SinceFromTableTest`)
 - [x] **kortex requires `zwlr_layer_shell_v1`, and says so rather than working around it.** Decided: no
       xdg-shell-only mode. `KortexShell.createApplication` calls `requireSurfaceGlobals` before anything else
       and that list holds `zwlr_layer_shell_v1`, so a compositor without it fails with
