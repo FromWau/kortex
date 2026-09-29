@@ -146,7 +146,7 @@ internal fun trayItemFrom(address: ItemAddress, properties: Map<String, DBusValu
         attentionIcon = properties.icon("AttentionIconName", "AttentionIconPixmap", themePath),
         toolTip = properties.toolTip(themePath),
         menuPath = properties.objectPath("Menu"),
-        isMenu = properties.flag("ItemIsMenu"),
+        isMenu = properties.flagOr("ItemIsMenu", default = false),
     )
 }
 
@@ -187,8 +187,14 @@ internal fun Map<String, DBusValue>.text(key: String): String? = this[key]?.text
 internal fun Map<String, DBusValue>.objectPath(key: String): String? =
     (this[key]?.unwrapped as? DBusValue.ObjectPath)?.value?.takeUnless { it == "/" }
 
-internal fun Map<String, DBusValue>.flag(key: String): Boolean =
-    (this[key]?.unwrapped as? DBusValue.Bool)?.value == true
+/**
+ * A flag, or [default] where the sender left it out.
+ *
+ * The default is a parameter because it is the thing that differs: a tray item's `ItemIsMenu` is false
+ * when absent, and a menu entry's `enabled` and `visible` are true.
+ */
+internal fun Map<String, DBusValue>.flagOr(key: String, default: Boolean): Boolean =
+    (this[key]?.unwrapped as? DBusValue.Bool)?.value ?: default
 
 private fun Map<String, DBusValue>.images(key: String): List<TrayImage> = imagesIn(this[key])
 

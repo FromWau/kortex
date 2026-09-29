@@ -45,7 +45,7 @@ public enum class ScrollOrientation(internal val wireName: String) {
  * Nothing runs while nobody collects [items]. The match rules go up on the first collector and come down
  * with the last one, so an unwatched tray costs the bus no routing.
  */
-public class Tray(private val connection: DBusConnection, scope: CoroutineScope) {
+public class Tray(private val connection: DBusConnection, private val scope: CoroutineScope) {
     /**
      * Every item in the tray, or why there are none.
      *
@@ -82,6 +82,16 @@ public class Tray(private val connection: DBusConnection, scope: CoroutineScope)
         "Scroll",
         listOf(DBusValue.I32(delta), DBusValue.Text(orientation.wireName)),
     )
+
+    /**
+     * The menu [item] exports, or null where it exports none.
+     *
+     * A menu of its own rather than a field on [TrayItem], because an application is allowed to build one
+     * only when somebody asks: reading every item's menu up front would make every tray item do work no
+     * caller had asked for.
+     */
+    public fun menu(item: TrayItem): Menu? =
+        item.menuPath?.let { path -> Menu(connection, item.address.service, path, scope) }
 
     private suspend fun command(address: ItemAddress, member: String, args: List<DBusValue>): EmptyResult<TrayError> =
         onItemInterface(address) { iface ->

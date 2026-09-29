@@ -237,6 +237,42 @@ class SessionBusTest {
     }
 
     /**
+     * The bus counts a rule rather than holding a set of them.
+     *
+     * Two providers on one connection may want the same signals, and each is entitled to put its rule up
+     * and take it down without stopping the other. That only works if the bus counts, which the
+     * specification implies by saying `RemoveMatch` removes the first rule that matches; this checks it.
+     */
+    @Test
+    fun `a rule added twice survives one removal and stops after the second`() = onBus { connection ->
+        val rule = MatchRule(iface = Bus.INTERFACE, member = "NameOwnerChanged")
+        val name = "com.fromwau.kortex.test.Counted"
+        val churn: suspend () -> Unit = {
+            connection.requestName(name)
+            connection.releaseName(name)
+        }
+
+        assertEquals(Ok(Unit), connection.addMatch(rule))
+        assertEquals(Ok(Unit), connection.addMatch(rule))
+        assertEquals(Ok(Unit), connection.removeMatch(rule))
+
+        assertNotNull(
+            collectWhile(connection.signals(rule), churn),
+            "one removal took away a rule that had been added twice",
+        )
+
+        assertEquals(Ok(Unit), connection.removeMatch(rule))
+        val afterBoth = async(Dispatchers.IO) { connection.signals(rule).first() }
+        repeat(5) {
+            churn()
+            delay(50)
+        }
+
+        assertTrue(afterBoth.isActive, "the second removal left the rule in place")
+        afterBoth.cancel()
+    }
+
+    /**
      * Two real connections, because a name being taken needs somebody to have taken it.
      *
      * This is the case `:notification` turns on: only one connection can be the notification server, and

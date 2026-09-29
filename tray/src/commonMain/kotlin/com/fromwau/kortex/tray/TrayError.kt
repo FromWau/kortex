@@ -23,4 +23,12 @@ public sealed interface TrayError : IError {
 
     /** The bus itself failed, and [cause] says how. */
     public data class BusFailed(public val cause: DBusError) : TrayError
+
+    /**
+     * An application answered `GetLayout` with something that is not a menu.
+     *
+     * Its own variant rather than a bus failure, because the message arrived and decoded: what is wrong is
+     * the shape inside it, which is the application's doing and not the connection's.
+     */
+    public data object MenuUnreadable : TrayError
 }
