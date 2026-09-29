@@ -1018,6 +1018,64 @@ where on the monitor the compositor put it.
       `logicalHeight` stay: they are public API a host reads for its own layout, and the flip was only one
       reader of them. `awaitReserved` stays too, since the panel and dock cases still use it.
 
+## Providers
+
+Modules that carry a desktop's own state to whatever draws it. A provider gives the data and no UI, because a
+widget is where a toolkit starts having opinions about what a bar should look like, and kortex has none. The
+caller builds its own.
+
+What every one of them keeps to:
+
+- **One `StateFlow` per thing, carrying a `Result`.** `Tray.items` is a
+  `StateFlow<Result<List<Tray.Item>, TrayError>>`. The error says why there is no data, the way
+  `ClipboardError.NoSelection` already does, so nothing needs a second flow to say whether the first can be
+  trusted and no two flows can disagree.
+- **A `StateFlow` always holds a value, so the first one has to be honest.** `Err(NotConnected)` and not
+  `Ok(emptyList())`, which reads the same as a tray nobody has put anything in.
+- **Typed errors rooted in kern-result's `IError`**, as `KortexError` and `ClipboardError` are. No strings,
+  and no bare `IError` where a caller would have to cast to learn anything.
+- **An instance, not an object.** A connection has a lifetime and can fail, and a global one can be neither
+  faked nor scoped, which throws away the thing providers are for.
+- **Nothing runs while nobody is watching**, through `stateIn(scope, SharingStarted.WhileSubscribed(), ...)`.
+  An unwatched provider should hold no bus match rule, for the same reason an idle bar draws no frames.
+- **No Compose, and no dependency on `:wayland`.** A provider needs neither a compositor nor a composition:
+  `collectAsState()` is already the bridge and kortex ships no helper for it. Tray icons arrive as a width, a
+  height and ARGB bytes and stay that way, so `:tray` never reaches for `ImageBitmap`.
+
+The point of the whole shape is that a provider is testable with no desktop at all. Every hard test in this
+repository is hard because `:wayland` talks to a compositor. A provider talks to a socket, and a socket can
+be faked.
+
+| module | carries | speaks |
+| --- | --- | --- |
+| `:dbus` | the client itself, public so anyone can write a provider of their own | D-Bus |
+| `:tray` | `StatusNotifierItem` and `DBusMenu` | `:dbus` |
+| `:mpris` | what is playing, and the transport | `:dbus` |
+| `:hyprland` | workspaces, the active window | a unix socket, newline protocol, not D-Bus |
+| `:sysinfo` | cpu, memory, temperature, battery | sysfs and procfs |
+
+`:hyprland` is the one to keep straight: its IPC shares nothing with D-Bus but the word socket. Nothing in
+this table depends on `:wayland` or `:compose`, and `:hyprland` and `:sysinfo` depend on nothing of kortex's
+at all.
+
+- [ ] **`:dbus` and `:tray` are built together, and `:tray` is what proves the client.** `:dbus` is public,
+      so its surface has to serve someone writing a provider of their own: a connection, method calls, signal
+      subscriptions, typed errors and a lifetime. Designing that in the abstract would get it wrong, so it is
+      built against `:tray` and published once `:tray` works.
+      `:tray` is the hardest consumer there is. `StatusNotifierItem` is one interface and `DBusMenu` another,
+      it needs signals as much as calls, and icons arrive as `a(iiay)`, a width, a height and ARGB bytes. A
+      client that survives both survives `:mpris`, which is why the rest should follow it easily.
+      One thing to settle inside `:tray` and then copy everywhere: whether `NotConnected` covers "still
+      connecting", or whether a caller ever needs to tell that from "there is no tray daemon". If it does,
+      that is a second error variant and never a second flow.
+      Open: the module, the client, and the answer to that.
+- [ ] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
+      `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
+      while every module depends on Compose. A provider must not, so the first Compose-free module ends that
+      freeride.
+      Open: an explicit `kotlinx-coroutines-core` entry in `gradle/libs.versions.toml`, taken as an `api`
+      dependency wherever a module's own public surface is a `StateFlow`.
+
 ## Where the work stands
 
 Written down because the rest of it lives in a conversation and in a git-ignored directory, and neither
@@ -1464,6 +1522,10 @@ references and stays actionable on its own once the reports are gone.
 - Placing a menu ourselves. `SurfaceConfig.contextMenu` flipped a layer surface to whichever corner kept a menu
   on screen, which is the compositor's own job once a menu is an `xdg_popup` and it solves the positioner.
   Deleted with `MenuAnchor` and its nine test cases rather than given a caller.
+- A `:weather` provider. Every other provider carries something a Linux desktop has: a tray, a player, a
+  compositor's workspaces, a battery. Weather is something a person chose, and choosing it brings a provider,
+  an API key, a rate limit and a caching policy with it, every one of which is the application's decision
+  rather than the desktop's. A bar that wants weather writes its own HTTP against whatever it signed up to.
 - A title bar and a theme for it. kortex draws no decoration and refuses a window the compositor will not
   decorate, with `KortexError.ClientSideDecorationRequired`. Every compositor kortex can start on decorates
   server side, because GNOME is the one mainstream compositor that refuses to and it has no layer shell to
