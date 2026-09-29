@@ -30,6 +30,9 @@ internal const val PROBE_MARKER_NOT_STARTED = "KORTEX-PROBE not-started"
 /** What the drag settled on, which reaches the source only through Compose's own completion channel. */
 internal const val PROBE_MARKER_COMPLETED = "KORTEX-PROBE completed="
 
+/** What the destination told its content the drop would do, which is not always what the compositor settled. */
+internal const val PROBE_MARKER_TOOK_AS = "KORTEX-PROBE took-as="
+
 /** The text the source offers, which the target must read back byte for byte. */
 internal const val PROBE_DRAGGED_TEXT = "carried over the wire"
 
@@ -178,6 +181,7 @@ private fun DropTarget(dropped: AtomicReference<String?>) {
                 target = object : DragAndDropTarget {
                     override fun onDrop(event: DragAndDropEvent): Boolean {
                         val offer = event.nativeEvent as? KortexDragOffer ?: return false
+                        System.err.println(PROBE_MARKER_TOOK_AS + event.action)
                         dropped.set(offer.readText().getOrElse { null })
                         return true
                     }

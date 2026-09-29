@@ -152,15 +152,36 @@ class DragAndDropTest {
      */
     @Test
     fun `an action nothing settled reads as a copy while a drag is up and as no completion once it has ended`() {
-        assertEquals(DragAndDropTransferAction.Copy, DndAction.Copy.asDragAction(), "a settled copy")
-        assertEquals(DragAndDropTransferAction.Move, DndAction.Move.asDragAction(), "a settled move")
-        assertEquals(DragAndDropTransferAction.Copy, DndAction.None.asDragAction(), "nothing settled yet")
-        assertEquals(DragAndDropTransferAction.Copy, DndAction.Ask.asDragAction(), "an ask kortex never answers")
+        assertEquals(DragAndDropTransferAction.Copy, DndAction.Copy.asDragAction(BOTH), "a settled copy")
+        assertEquals(DragAndDropTransferAction.Move, DndAction.Move.asDragAction(BOTH), "a settled move")
+        assertEquals(DragAndDropTransferAction.Copy, DndAction.None.asDragAction(BOTH), "nothing settled yet")
+        assertEquals(
+            DragAndDropTransferAction.Copy, DndAction.Ask.asDragAction(BOTH),
+            "an ask kortex never answers",
+        )
 
         assertEquals(DragAndDropTransferAction.Copy, DndAction.Copy.asCompletedAction(), "a drop that copied")
         assertEquals(DragAndDropTransferAction.Move, DndAction.Move.asCompletedAction(), "a drop that moved")
         assertNull(DndAction.None.asCompletedAction(), "a drag that ended under no action at all")
         assertNull(DndAction.Ask.asCompletedAction(), "an ask kortex never answers")
+    }
+
+    /**
+     * `wl_data_offer.set_actions` settles on what both sides offer, so an action the destination never named
+     * is one the compositor owed an update on. Hyprland 0.56.2 leaves exactly that standing: it sends
+     * `wl_data_offer.action(2)` before this side has answered anything and never sends another, whatever
+     * `set_actions` follows it.
+     */
+    @Test
+    fun `a move the destination never offered reads as a copy, not as the move it was settled as`() {
+        assertEquals(
+            DragAndDropTransferAction.Copy, DndAction.Move.asDragAction(setOf(DndAction.Copy)),
+            "content was told a move it never allowed, which is its cue to delete what it was handed",
+        )
+        assertEquals(
+            DragAndDropTransferAction.Move, DndAction.Move.asDragAction(BOTH),
+            "a move the destination did offer was not passed on",
+        )
     }
 
     /**
@@ -426,6 +447,9 @@ class DragAndDropTest {
 
         val TEXT_TYPES = listOf("text/plain;charset=utf-8", "text/plain")
         const val DRAGGED_TEXT = "dragged"
+
+        /** A destination that allows either, against which the mapping alone is read. */
+        val BOTH = setOf(DndAction.Copy, DndAction.Move)
 
         val URI_LIST_TYPES = listOf("text/uri-list")
         const val DRAGGED_URI_LIST = "file:///tmp/test-file.txt\r\n"

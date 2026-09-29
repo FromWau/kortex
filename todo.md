@@ -692,21 +692,22 @@ where on the monitor the compositor put it.
       `Drag.uriListType` or its drain: every drag test here is kortex to kortex, so a hand-driven
       `LiveDropProbe` run against a file manager is the only cover those two have.
       (`UriListTest`, `DragAndDropTest`, `LiveDropProbe`)
-- [ ] **A file drop tells content the drag was a move, though kortex asked the compositor for a copy alone.**
-      Hyprland 0.56.2 sends `wl_data_offer.action(2)` before the destination has answered anything and never
-      sends another, so `DataOffer.settledAction` stays `Move` through all 91 `set_actions(1, 1)` of the drag,
-      each naming copy and preferring copy, and `Drag.action` hands content
-      `DragAndDropTransferAction.Move`. That cost nothing while no drag out of a file manager could land. It
-      does now, because a move is the destination's cue to delete what it took the files from, so content
-      honouring what it is told would delete the file it was just handed.
-      Read off the same Dolphin drop that confirmed the entry above: `source_actions(3)`, `action(2)`, and
-      then no further `action` for the rest of the drag.
-      `wl_data_offer.set_actions` says the settled action is the intersection of what the two sides offer, so
-      a `Move` left standing after kortex named copy alone is a value the compositor owed an update on.
-      Open: either clamp what content is told to what kortex actually offered, so `asDragAction` cannot
-      report an action `TAKEABLE` does not hold, or pass the compositor's word on unaltered and say so in
-      `KortexDragOffer`'s own contract. Not settled here, because it changes what a drop means to content
-      rather than only what kortex reads off the wire.
+- [x] **A drop no longer tells content the drag was a move kortex never offered.** Hyprland 0.56.2 sends
+      `wl_data_offer.action(2)` before the destination has answered anything and never sends another, so
+      `DataOffer.settledAction` stayed `Move` through all 91 `set_actions(1, 1)` of a drag out of Dolphin
+      26.08.1, each naming copy and preferring copy. That cost nothing while no drag out of a file manager
+      could land, and stopped being free the moment one could, because a move is the destination's cue to
+      delete what it took the files from.
+      `asDragAction` takes the set the destination offered now, and an action outside it reads as a copy, the
+      same as nothing settled at all. `wl_data_offer.set_actions` settles on what both sides offer, so an
+      action outside that set is one the compositor owed an update on, and the two mistakes it leaves open
+      are not symmetric: content told a move it never allowed deletes what nobody moved, where the other way
+      round leaves one thing in two places. That is the call the source half of the same drag already made,
+      recorded two entries above, so both halves answer the question the same way now.
+      Covered live rather than only as a mapping: Hyprland settles the same premature move in a drag from
+      kortex to kortex, so `DragWireTest` asserts both that the wire carried `action(2)` and that content was
+      told a copy. Without the first of those, a run where the compositor settled a copy of its own accord
+      would pass and say nothing at all. (`DragAndDropTest`, `DragWireTest`)
 
 
 

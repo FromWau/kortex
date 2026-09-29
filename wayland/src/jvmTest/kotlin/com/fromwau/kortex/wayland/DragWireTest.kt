@@ -155,6 +155,23 @@ class DragWireTest {
                 "wire:\n$dataTraffic",
         )
 
+        // What the destination told its own content, against what the compositor settled. Hyprland 0.56.2
+        // sends wl_data_offer.action(2), a move, before this side has answered anything and never sends
+        // another, so the settled action stays a move however many set_actions name copy alone. Content is
+        // told the copy it offered: a move it never allowed is its cue to delete what it was just handed.
+        // The move is asserted first, since a run where the compositor settled a copy of its own accord
+        // would say nothing about what content is told about one.
+        assertTrue(
+            wire.any { it.isEvent("wl_data_offer", "action") && SETTLED_MOVE.containsMatchIn(it) },
+            "the compositor settled no move, so this run cannot say what a destination makes of one; " +
+                "wire:\n$dataTraffic",
+        )
+        assertTrue(
+            output.any { it == PROBE_MARKER_TOOK_AS + "Copy" },
+            "the destination told its content the drop was a move, though it offered a copy alone; " +
+                "output:\n$raw",
+        )
+
         // And back to the content that dragged, which is the only place a move would be told to undo itself.
         assertTrue(
             output.any { it == PROBE_MARKER_COMPLETED + "Copy" },
@@ -179,3 +196,6 @@ private val BUTTON_PRESS_SERIAL = Regex("\\.button\\((\\d+),\\s*\\d+,\\s*\\d+,\\
 // wl_data_device_manager.dnd_action is a bitfield: copy is 1 and move is 2, so both together are 3.
 private val COPY_AND_MOVE = Regex("\\.set_actions\\(3\\)")
 private val COPY_ALONE = Regex("\\.set_actions\\(1,\\s*1\\)")
+
+// wl_data_offer.action carries the one action settled on, so 2 alone is a move.
+private val SETTLED_MOVE = Regex("\\.action\\(2\\)")

@@ -339,9 +339,9 @@ internal class DataDevice private constructor(
          *
          * The compositor settles it from both sides' actions and the modifiers the user holds, so it changes
          * while the drag is up. Nothing settled yet reads as a copy, which is what a drag that carries no
-         * action does when it lands.
+         * action does when it lands, and so does anything outside [TAKEABLE].
          */
-        val action: DragAndDropTransferAction get() = offer.settledAction.asDragAction()
+        val action: DragAndDropTransferAction get() = offer.settledAction.asDragAction(TAKEABLE)
     }
 
     companion object {
@@ -788,14 +788,21 @@ internal fun DndAction.asCompletedAction(): DragAndDropTransferAction? = when (t
 }
 
 /**
- * What Compose calls the action a drag is carrying as it crosses content, which unlike [asCompletedAction] has
- * no way to say "none": a drag event carries one action, and a copy is the one that takes nothing away.
+ * What Compose calls the action a drag is carrying as it crosses content, out of the set [offered] the
+ * destination named. Unlike [asCompletedAction] this has no way to say "none": a drag event carries one
+ * action, and a copy is the one that takes nothing away.
+ *
+ * An action outside [offered] reads as a copy as well. `wl_data_offer.set_actions` settles on what both sides
+ * offer, so one outside that is a value the compositor owed an update on, and content is not made to act on
+ * it: told a move it never allowed, content deletes what nobody moved, where the mistake the other way leaves
+ * one thing in two places.
  */
 @OptIn(ExperimentalComposeUiApi::class)
-internal fun DndAction.asDragAction(): DragAndDropTransferAction = when (this) {
-    DndAction.Move -> DragAndDropTransferAction.Move
-    DndAction.Copy, DndAction.None, DndAction.Ask -> DragAndDropTransferAction.Copy
-}
+internal fun DndAction.asDragAction(offered: Set<DndAction>): DragAndDropTransferAction =
+    when (takeIf { it in offered }) {
+        DndAction.Move -> DragAndDropTransferAction.Move
+        DndAction.Copy, DndAction.None, DndAction.Ask, null -> DragAndDropTransferAction.Copy
+    }
 
 /** Where a drag over one of this client's surfaces goes: the content drawn on it, at the scale it is drawn at. */
 internal class DragDestination(val scene: KortexScene, private val scale: Float) {
