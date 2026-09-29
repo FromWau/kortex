@@ -788,22 +788,19 @@ where on the monitor the compositor put it.
       getting past that needs keyboard focus, which only the class that takes the desktop's own clipboard may
       have.
       Open: a file copy, and a way to drive a selection read that does not take the user's clipboard with it.
-- [ ] **D-Bus has no home, and several of the modules kortex wants next need one.** `:tray` is the heaviest:
-      StatusNotifierItem and DBusMenu are both D-Bus, and it would work a client far harder than anything
-      else here. `:mpris` is D-Bus as well, and notifications, UPower, logind, NetworkManager and BlueZ would
-      be if they are ever wanted. `:hyprland` is not: Hyprland's own IPC is a newline protocol on a unix
-      socket, which shares nothing with D-Bus but the word socket. `:weather` is HTTP and `:hardwareinfo`
-      reads sysfs.
+- [x] **D-Bus had no home, and the modules kortex wants next need one.** `:tray` is the heaviest:
+      StatusNotifierItem and DBusMenu are both D-Bus, and it works a client far harder than anything else
+      here. `:mpris` is D-Bus as well, and notifications, UPower, logind, NetworkManager and BlueZ would be
+      if they are ever wanted. `:hyprland` is not: its own IPC is a newline protocol on a unix socket, which
+      shares nothing with D-Bus but the word socket.
       So D-Bus is infrastructure rather than a detail of whichever piece needs it first, and its smallest
-      consumer must not settle its shape: the portal is one method call, and `:tray` is a protocol.
+      consumer must not settle its shape: the portal is one method call and `:tray` is a protocol.
       Decided: a module of its own owns the client, whatever needs it depends on that module, and
       **`:wayland` does not**, which is what keeps "no helper binary, no socket" true of the toolkit. The
       portal already falls along that seam, since a transfer key arrives on the Wayland wire and means
       nothing until a D-Bus call turns it into paths.
-      Open: the module list itself, to be talked through rather than guessed at, and with it whether the
-      client is FFM into `sd_bus`, which is much less code and ties kortex to systemd, or into `libdbus-1`,
-      which is portable and costs hand-rolled message marshalling. Both are on the test desktop, and the
-      choice belongs to `:tray` rather than to the portal.
+      The module list, and the contract every provider keeps to, are under "Providers"; so is the choice of
+      client, which belongs to `:tray`.
 - [x] **A drop no longer tells content the drag was a move kortex never offered.** Hyprland 0.56.2 sends
       `wl_data_offer.action(2)` before the destination has answered anything and never sends another, so
       `DataOffer.settledAction` stayed `Move` through all 91 `set_actions(1, 1)` of a drag out of Dolphin
@@ -1068,7 +1065,10 @@ at all.
       One thing to settle inside `:tray` and then copy everywhere: whether `NotConnected` covers "still
       connecting", or whether a caller ever needs to tell that from "there is no tray daemon". If it does,
       that is a second error variant and never a second flow.
-      Open: the module, the client, and the answer to that.
+      Open: the module, the client, the answer to that, and which client it is. FFM into `sd_bus` is much
+      less code and ties kortex to systemd; FFM into `libdbus-1` is portable and costs hand-rolled message
+      marshalling. Both are on the test desktop. That choice belongs here rather than to the portal's one
+      method call, because `:tray` is what will live with it.
 - [ ] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
       `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
       while every module depends on Compose. A provider must not, so the first Compose-free module ends that
