@@ -1,14 +1,17 @@
 package com.fromwau.kortex.compose
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -693,6 +696,64 @@ class KortexSceneTest {
     }
 
     /**
+     * That [KortexScene.sendPointerEvent]'s `preciseScroll` reaches content as the difference it names: a
+     * device that scrolls by distance moves the whole way on the first frame, where a wheel's detent is
+     * animated toward its target over several.
+     *
+     * Compose settles that on the AWT event the flag puts on the pointer event, not on the magnitude, which
+     * is the same either way. `DesktopScrollConfig.isPreciseWheelScroll` reads
+     * `abs(preciseWheelRotation - wheelRotation) > 0.001`, and the event built here carries the delta as the
+     * precise rotation against a `wheelRotation` of 0, so any delta at all reads as precise. That feeds
+     * `MouseWheelScrollNode`'s `shouldApplyImmediately`, which is what the two pacings come from.
+     */
+    @Test
+    fun `a scroll by distance lands on the first frame, where a wheel's detent animates toward its target`() {
+        val precise = scrollOverFrames(preciseScroll = true)
+        val stepped = scrollOverFrames(preciseScroll = false)
+
+        assertEquals(
+            precise.last(), precise.first(),
+            "a scroll by distance did not land on the first frame after it: $precise",
+        )
+        assertTrue(
+            stepped.first() < stepped.last(),
+            "a wheel's detent landed at once instead of animating toward its target: $stepped",
+        )
+        assertEquals(
+            precise.last(), stepped.last(),
+            "the two settled at different offsets, so this reads their distance and not their pacing: " +
+                "precise $precise, stepped $stepped",
+        )
+    }
+
+    /** The scroll offset after each of [SCROLL_FRAMES] frames following one scroll of [SCROLL_STEPS] steps. */
+    private fun scrollOverFrames(preciseScroll: Boolean): List<Int> {
+        val offsets = mutableListOf<Int>()
+
+        withScene {
+            val scrolled = ScrollState(0)
+            scene.setContent {
+                Column(Modifier.fillMaxSize().verticalScroll(scrolled)) {
+                    Box(Modifier.size(SIDE.dp, (SIDE * SCROLLABLE_SCREENS).dp))
+                }
+            }
+            tick(0L)
+            scene.sendPointerEvent(
+                eventType = PointerEventType.Scroll,
+                position = Offset(SIDE / 2f, SIDE / 2f),
+                timeMillis = 0L,
+                scrollDelta = Offset(0f, SCROLL_STEPS),
+                preciseScroll = preciseScroll,
+            )
+            repeat(SCROLL_FRAMES) { frame ->
+                tick((frame + 1) * FRAME_NANOS)
+                offsets += scrolled.value
+            }
+        }
+        return offsets
+    }
+
+    /**
      * Presses and drags across [scene] until [asked] counts down, giving up after [DRAG_WAIT_MILLIS].
      *
      * Repeated because the gesture that starts a drag runs on the scene's own dispatcher: a press sent before it
@@ -880,10 +941,18 @@ class KortexSceneTest {
         const val IDLE_WINDOW_MILLIS = 250L
         const val FOCUS_FRAMES = 6
         const val FRAME_MILLIS = 60L
+        const val FRAME_NANOS = 16_000_000L
         const val EFFECT_DELAY_MILLIS = 50L
         const val FAILURE_WAIT_MILLIS = 5_000L
         const val DRAG_WAIT_MILLIS = 5_000L
         const val TOLD_MILLIS = 5_000L
+
+        // Tall enough that neither pacing runs out of room to scroll into, so the two settle at one offset.
+        const val SCROLLABLE_SCREENS = 8
+        // What a trackpad sends: axis_value120 of 420, which is 3.5 of the detents a wheel counts in whole.
+        const val SCROLL_STEPS = 3.5f
+        // Well past the three frames the animated one takes, so both lists end at the offset it settles on.
+        const val SCROLL_FRAMES = 12
 
         /** What every wait below is given, and how long it sleeps between the passes it runs. */
         const val WAIT_MILLIS = 5_000L

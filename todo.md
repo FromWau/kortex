@@ -1262,18 +1262,25 @@ references and stays actionable on its own once the reports are gone.
       it with both stamps printed. Nothing else changed colour, so the answer to "which gesture tests were
       passing for the wrong reason" is: none that exist. No test drove a double click, a long press or a
       fling, which is why a stopped clock cost nothing and why it went unseen.
-- [ ] **Two of this stretch's fixes have no test of their own.** The `bareSurface` half of this entry is
-      fixed: the harness takes an `onStartDrag` and its default refuses rather than reporting success, which
-      is recorded under "Keyboard and clipboard". Beyond it, `preciseScroll` and `askMinimized` have
-      no cover. `preciseScroll` may not be coverable at all: Compose decides precision from an AWT event
-      through `LocalScrollConfig`, which is `internal`, and a finger source and a wheel source deliver the
-      same magnitude for the same input, so neither side of the seam can tell them apart. `askMinimized` is
-      coverable on the wire, as `set_minimized` reaching it, the way `DragWireTest` and
-      `PopupTeardownWireTest` read theirs. **`askMinimized` now has that test**: `MinimizeWireTest` reads
-      `set_minimized` off a real drag of the wire and asserts no other window request went with it, which is
-      the only oracle there is, since `xdg_toplevel` carries no minimized state and Hyprland keeps no minimized
-      windows for `hyprctl` to list. Open: a decision to stop trying on `preciseScroll` rather than leaving it
-      looking like an oversight.
+- [x] **All three of this stretch's fixes have a test of their own now.** `bareSurface` is covered by the
+      harness taking an `onStartDrag` whose default refuses rather than reporting success, recorded under
+      "Keyboard and clipboard". `askMinimized` has `MinimizeWireTest`, which reads `set_minimized` off a real
+      drag of the wire and asserts no other window request went with it, the only oracle there is, since
+      `xdg_toplevel` carries no minimized state and Hyprland keeps no minimized windows for `hyprctl` to list.
+      **`preciseScroll` was written down here as possibly uncoverable, and that was wrong.** The claim was
+      that Compose decides precision through `LocalScrollConfig`, which is `internal`, and that a finger
+      source and a wheel source deliver the same magnitude, so neither side of the seam can tell them apart.
+      The magnitude is the same, and it is not what Compose reads.
+      `DesktopScrollConfig.isPreciseWheelScroll` asks `abs(preciseWheelRotation - wheelRotation) > 0.001` of
+      the AWT event, and `preciseWheelEvent` builds one carrying the delta as the precise rotation against a
+      `wheelRotation` of 0, so any delta at all reads as precise. That sets `shouldApplyImmediately` in
+      Compose's `MouseWheelScrollNode`, which decides whether content animates the scroll or applies it at
+      once, and content's own scroll offset is where the two show apart. `LocalScrollConfig` being `internal`
+      never mattered, because nothing has to read it.
+      `KortexSceneTest` scrolls 3.5 steps into a `verticalScroll` and samples the offset over twelve frames:
+      by distance it stands at 28 on the first and stays there, in detents it climbs 6, 22, 28. Both settle
+      on the same offset, so the test reads their pacing rather than their distance, and ignoring the flag in
+      either direction fails it. (`KortexSceneTest`)
 
 
 - [x] **A request sent on a proxy that is not there fails here, rather than in libwayland.** `marshal`
