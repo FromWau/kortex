@@ -22,6 +22,11 @@ internal const val PROBE_MARKER_DRAG_PLACED = "KORTEX-PROBE drag-placed"
 internal const val PROBE_MARKER_DRAG_DRIVEN = "KORTEX-PROBE drag-driven"
 internal const val PROBE_MARKER_DROPPED = "KORTEX-PROBE dropped="
 
+// The two sides of a drag that sends no start_drag, which the wire alone cannot tell apart: Compose never
+// asking the host to carry the payload, and the host being asked and failing to start it.
+internal const val PROBE_MARKER_ASKED = "KORTEX-PROBE compose-asked"
+internal const val PROBE_MARKER_NOT_STARTED = "KORTEX-PROBE not-started"
+
 /** The text the source offers, which the target must read back byte for byte. */
 internal const val PROBE_DRAGGED_TEXT = "carried over the wire"
 
@@ -124,9 +129,17 @@ private fun DraggableBox() {
         Modifier
             .fillMaxSize()
             .dragAndDropSource(drawDragDecoration = {}) {
+                // Printed where Compose decides a drag has begun, so a run that sends no start_drag says
+                // whether the gesture was ever recognised or whether the host was asked and could not.
+                System.err.println(PROBE_MARKER_ASKED)
                 DragAndDropTransferData(
                     KortexDragSource.Text(PROBE_DRAGGED_TEXT),
                     listOf(DragAndDropTransferAction.Copy),
+                    // Null is Compose's own way of saying the gesture did not complete, which is what the
+                    // host answers with when it took the drag on and then could not start it.
+                    onTransferCompleted = { action ->
+                        if (action == null) System.err.println(PROBE_MARKER_NOT_STARTED)
+                    },
                 )
             },
     )

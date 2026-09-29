@@ -53,9 +53,15 @@ class DragWireTest {
         )
 
         // The request itself, which answers the first question: did the gesture reach the compositor at all.
+        // The two markers say which side a missing one is on, since the wire looks the same either way:
+        // Compose never asking the host, or the host being asked and failing to start the drag.
+        val asked = output.any { it == PROBE_MARKER_ASKED }
+        val notStarted = output.any { it == PROBE_MARKER_NOT_STARTED }
         assertTrue(
             wire.any { it.isRequest("wl_data_device", "start_drag") },
-            "no wl_data_device.start_drag left the client while the pointer dragged; wire:\n$dataTraffic",
+            "no wl_data_device.start_drag left the client while the pointer dragged " +
+                "(compose asked for the transfer: $asked; the host reported it did not start: $notStarted); " +
+                "wire:\n$dataTraffic",
         )
 
         // A drag's first enter always names the surface it started from, whose own tree holds no drop target,

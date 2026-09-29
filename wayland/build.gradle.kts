@@ -31,3 +31,17 @@ kotlin {
         }
     }
 }
+
+// A probe under jvmTest that waits for a person rather than driving itself; no test task can run one, since
+// a suite that blocks on a hand never finishes. The test runtime classpath alone, not the main one with the
+// test one appended: that mixes two kotlinx-serialization versions and the generated serializers break.
+tasks.register<JavaExec>("probe") {
+    group = "verification"
+    description = "Runs a jvmTest main by name: -Pprobe=com.fromwau.kortex.wayland.LiveDragProbeKt"
+    val test = kotlin.jvm().compilations.getByName("test")
+    classpath = files(test.output.allOutputs, test.runtimeDependencyFiles)
+    mainClass = providers.gradleProperty("probe")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // Stdin stays connected so a probe can wait on a keypress rather than only on a clock.
+    standardInput = System.`in`
+}
