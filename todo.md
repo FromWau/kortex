@@ -344,14 +344,44 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       than the one surface it asked for, which is the application for a call in its own content and the surface
       holding the call otherwise, where every popup's lands.
       (`LayerGeometryTest`, `SurfaceTest`, `SurfaceSizeGuardTest`)
+- [ ] **A window offers all eight resize cursors and can act on none of them.** `KortexCursor` carries
+      `ResizeNorth` through `ResizeNorthWest` and `KortexScene` maps each one off `Modifier.pointerHoverIcon`,
+      so content on a `Window` can put a resize cursor on an edge today and nothing can answer the drag that
+      follows. `XdgShellProtocol` declares `destroy`, `set_parent`, `set_title`, `set_app_id`, the four
+      maximize and fullscreen requests and `set_minimized`, and none of `move` (5), `resize` (6),
+      `show_window_menu` (4), `set_max_size` (7) or `set_min_size` (8). The cursor is a promise the protocol
+      side cannot keep.
+      Reachable now, and nothing to do with decoration: Hyprland 0.56.2 decorates server side, and a window
+      there may still want a drag handle inside its own content, or a resize grip in a corner. Both requests
+      quote a seat and an input serial, which is the pair `xdg_popup.grab` already quotes and
+      `WaylandClipboard` already tracks as `inputSerial` and `grabSerial`, so the plumbing is there.
+      `resize` also takes an `xdg_toplevel.resize_edge`, which maps one for one onto the eight cursors, so
+      whatever names the cursor can name the edge.
+      Open: `move` and `resize` as two marshal calls and the public calls that reach them. `show_window_menu`
+      is the compositor's own menu for the window and belongs with them; `set_max_size` and `set_min_size` are
+      a separate question about what a window will let the compositor do to it.
+      Split out of the entry below, where it had been counted as part of drawing a title bar. It is not: it
+      is useful on a compositor that decorates for you.
 - [ ] **kortex draws no decoration of its own, so a window a compositor will not decorate does not open.**
       A window asks `zxdg_decoration_manager_v1` for server side and reads the answer; a compositor that answers
       client side, or says nothing, or advertises no decoration manager at all, ends the window with
       `Err(KortexError.ClientSideDecorationRequired)` rather than putting a window on screen with no title bar to
       move it by. Hyprland 0.56.2 answers server side to every ask and to `unset_mode`
       (`XDGDecoration.cpp:19`, `:27`, `:40`), so nothing here can take that branch and it is covered by reading.
-      Open: a title bar, its theme, its buttons and eight resize edges, which is a body of work of its own, for
-      the day a compositor that needs them becomes a target.
+      **Unreachable twice over now.** Every compositor kortex can start on decorates server side, because the
+      layer shell is required and the one mainstream compositor that refuses server-side decoration is GNOME,
+      which has no layer shell to start on. Mutter does not answer `client_side`: it advertises no
+      `zxdg_decoration_manager_v1` at all, which is the third of the three branches above. sway, labwc and
+      KWin advertise it and default to server side; river and Wayfire are unread. So
+      `ClientSideDecorationRequired` can now only fire on a compositor that has the layer shell and no
+      decoration manager, which is no desktop anyone runs kortex on.
+      What is left here is smaller than it was. The eight resize edges are their own entry above. The buttons
+      exist: `askMaximized`, `askFullscreen`, `askMinimized` and `declineClose` are public, and
+      `wm_capabilities` says which of them the compositor will honour, so content draws its own control and
+      calls one. What is genuinely absent is a title bar, meaning a strip that drags the window, and a theme
+      for it, and neither is worth building for a compositor that is not in the supported set.
+      Open: keep the clean refusal and leave this as read, or take it on the day such a compositor becomes a
+      target.
 - [x] **Content reads a window's states and asks the compositor for none of them.** `WindowState` publishes the
       `maximized`, `fullscreen`, `tiled` and `activated` every `xdg_toplevel.configure` carries, and there is no
       call to maximize, fullscreen or minimize a window, none to move or resize one, and none to raise it. Every
