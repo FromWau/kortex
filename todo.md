@@ -851,14 +851,21 @@ survives on its own.
   the wire is what a refused drag looks like too, and the press check that separates them sat after
   the `start_drag` assertion, so it never ran. It runs first now.
 
-  It is intermittent, not broken: eleven failures, then four passes, then a failure again on the next
-  whole-project run. That last one is the useful one, because the reordered check ran in it and
-  passed: a `wl_pointer.button` press did reach the client, among 1148 wire lines, and `start_drag`
-  still never left. So the half where the pointer never arrives at the source surface is out, and
-  what is left is between the press landing and the request going: either Compose's own drag
-  detection never asked the host to carry the payload, or `startDrag` was asked and answered with a
-  typed error nobody prints. The probe can tell those apart by saying what `startDrag` returned,
-  which it does not say today.
+  The reordered check is what makes the failures worth reading: it runs first now, and it passes. A
+  `wl_pointer.button` press does reach the client, among roughly 1145 wire lines, and `start_drag`
+  still never leaves. So the half where the pointer never arrives at the source surface is out. What
+  is left sits between the press landing and the request going: either Compose's own drag detection
+  never asks the host to carry the payload, or `startDrag` is asked and answers with a typed error
+  nobody prints. The probe can tell those apart by saying what `startDrag` returned, which it does
+  not say today, and that is a code change rather than more desktop time.
+
+  Two things it is not. It is not the machine being in use: a run on a deliberately quiet desktop
+  fails the same way, so input contention is not the explanation, whatever part it may once have
+  played. And it is not evenly random. Counting this session, a run of the test on its own passes 4
+  of 5, while a run of it inside the whole suite passes 1 of 13, and in both groups the odd one out
+  is the earliest run. Roughly eighty classes go first in that one JVM and many of them place layer
+  surfaces and drive the pointer, so what they leave behind is the thing to look at next after the
+  probe learns to speak.
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
   `*/build/test-results/*/TEST-*.xml` are the evidence; a run that executes nothing also exits 0.
