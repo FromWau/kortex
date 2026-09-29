@@ -824,14 +824,18 @@ where on the monitor the compositor put it.
 Written down because the rest of it lives in a conversation and in a git-ignored directory, and neither
 survives on its own.
 
-- **Branch `windows-and-input`, nothing pushed, working tree clean.** 376 tests across `:wayland`,
-  `:compose` and `:bar`. `:wayland`'s 346 went green twice in a row after the drag fix below;
-  the other 30 have not been re-run since and were green before it. The three `@Hotplug`
-  classes are excluded and have never run here; changing an output on this machine crashes the
-  installed GTK about one run in 256.
-- **It sits on `reactive-surfaces`, which is itself not merged into `master`.** Merging that first keeps
-  the history straight. That decision has been open since before the audit and is still nobody's but
-  yours.
+- **All of it is on `master` now, 565 commits ahead of `origin/master`, nothing pushed, working tree
+  clean.** `reactive-surfaces` and then `windows-and-input` went in as fast-forwards, so there are no
+  merge commits for either and `master`'s tree is exactly what the branch tip held; both branches are
+  gone. The merge decision this section used to carry is therefore closed.
+- **No commit message carries a `Co-Authored-By: Claude` or `Claude-Session` trailer.** All 1108 of them
+  were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
+  The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
+  keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
+- **376 tests across `:wayland`, `:compose` and `:bar`.** `:wayland`'s 346 went green twice in a row
+  after the drag fix below; the other 30 have not been re-run since and were green before it. The three
+  `@Hotplug` classes are excluded and have never run here; changing an output on this machine crashes
+  the installed GTK about one run in 256.
 - **The audit's own reports are in `.superpowers/sdd/protocol-audit/`, nineteen files, and that path is
   git-ignored.** `SUMMARY.md` is the way in; each `report-*.md` quotes both sides of every finding. A
   `git clean -fdx` takes all of it. Every entry below carries its own evidence for that reason, but the
