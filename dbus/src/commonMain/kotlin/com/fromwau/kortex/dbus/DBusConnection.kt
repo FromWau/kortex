@@ -4,6 +4,7 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.fold
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
 import kotlinx.coroutines.CompletableDeferred
@@ -30,6 +31,8 @@ import java.net.UnixDomainSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.ClosedChannelException
 import java.nio.channels.SocketChannel
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
@@ -67,6 +70,7 @@ public class DBusConnection private constructor(
         onBufferOverflow = BufferOverflow.SUSPEND,
     )
     private var name: String? = null
+    private val exported = ConcurrentHashMap<String, Exported>()
 
     /**
      * Why the connection ended, once it has.
@@ -134,6 +138,39 @@ public class DBusConnection private constructor(
             pending.remove(serial)
         }
     }
+
+    /**
+     * Answers calls made to [path] with [handler], so this connection can be called as well as call.
+     *
+     * `org.freedesktop.DBus.Peer` is answered for every path without reaching [handler], since it is about
+     * the connection rather than the object. `Introspectable.Introspect` is answered from [introspection]
+     * where one is given, and only for this exact path: a caller walking down from the root sees nothing,
+     * which costs the plumbing of intermediate nodes and buys a peer that already knows the path nothing.
+     */
+    public fun export(path: String, introspection: String? = null, handler: ObjectHandler) {
+        exported[path] = Exported(introspection, handler)
+    }
+
+    /** Stops answering calls to [path]; one already being handled still finishes. */
+    public fun unexport(path: String) {
+        exported.remove(path)
+    }
+
+    /** Broadcasts a signal from an object this connection exports. */
+    public suspend fun emit(
+        path: String,
+        iface: String,
+        member: String,
+        args: List<DBusValue> = emptyList(),
+    ): EmptyResult<DBusError> = send(
+        Message.Signal(
+            serial = nextSerial(),
+            path = path,
+            iface = iface,
+            member = member,
+            body = args,
+        ),
+    )
 
     /** Sends [member] without waiting, for a call whose reply carries nothing worth having. */
     public suspend fun post(
@@ -278,9 +315,64 @@ public class DBusConnection private constructor(
             is Message.Return -> pending[message.replySerial]?.complete(Ok(message))
             is Message.Failure -> pending[message.replySerial]?.complete(Ok(message))
             is Message.Signal -> received.emit(message)
-            // A call addressed here has no answer to give until a module exports an object to answer it.
-            is Message.Call -> Unit
+            // Answered off the pump: a handler that takes its time would otherwise stop the socket being
+            // read, and replies are matched by serial, so answering out of order is what the bus expects.
+            is Message.Call -> scope.launch { answer(message) }
         }
+    }
+
+    private suspend fun answer(call: Message.Call) {
+        val outcome = standardAnswer(call) ?: exported[call.path]
+            ?.handler
+            ?.handle(call)
+            ?: Err(CallRejected(CallRejected.UNKNOWN_OBJECT, "nothing is exported at ${call.path}"))
+
+        // A caller that said it wants no reply gets none, not even an error: the flag is a promise not to
+        // wait, and answering anyway leaves a message nobody will ever match to a serial.
+        if (!call.expectsReply) return
+
+        val reply = outcome.fold(
+            { body ->
+                Message.Return(
+                    serial = nextSerial(),
+                    replySerial = call.serial,
+                    destination = call.sender,
+                    body = body,
+                )
+            },
+            { rejected ->
+                Message.Failure(
+                    serial = nextSerial(),
+                    replySerial = call.serial,
+                    name = rejected.name,
+                    destination = call.sender,
+                    body = listOf(DBusValue.Text(rejected.message)),
+                )
+            },
+        )
+        send(reply)
+    }
+
+    /**
+     * The members every connection answers, whatever it exports.
+     *
+     * Null where the call is not one of them, which is the signal to hand it to the object's own handler.
+     */
+    private fun standardAnswer(call: Message.Call): Result<List<DBusValue>, CallRejected>? = when {
+        call.iface == PEER && call.member == "Ping" -> Ok(emptyList())
+        call.iface == PEER && call.member == "GetMachineId" -> machineId()
+        call.iface == INTROSPECTABLE && call.member == "Introspect" -> introspect(call.path)
+        else -> null
+    }
+
+    private fun introspect(path: String): Result<List<DBusValue>, CallRejected>? = exported[path]
+        ?.introspection
+        ?.let { xml -> Ok(listOf(DBusValue.Text(xml))) }
+
+    private fun machineId(): Result<List<DBusValue>, CallRejected> = try {
+        Ok(listOf(DBusValue.Text(Files.readString(MACHINE_ID).trim())))
+    } catch (failure: IOException) {
+        Err(CallRejected(CallRejected.UNKNOWN_METHOD, "this machine has no id to give: ${failure.message}"))
     }
 
     /** Fails everything still waiting, with the reason the connection ended rather than a stand-in. */
@@ -321,6 +413,12 @@ public class DBusConnection private constructor(
          * so by stalling rather than by quietly losing a status change.
          */
         private const val SIGNAL_BUFFER = 256
+
+        private const val PEER: String = "org.freedesktop.DBus.Peer"
+        private const val INTROSPECTABLE: String = "org.freedesktop.DBus.Introspectable"
+
+        /** Where the id every peer reports through `GetMachineId` lives. */
+        private val MACHINE_ID: Path = Path.of("/etc/machine-id")
 
         /** What dbus-daemon itself waits for a reply, so kortex does not give up before the bus would. */
         private val DEFAULT_REPLY_TIMEOUT = 25.seconds

@@ -6,6 +6,7 @@ import com.fromwau.kern.result.getOrElse
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -94,17 +95,19 @@ class SessionBusTest {
     /**
      * A call nothing answers ends as a value.
      *
-     * Addressed to this very connection, which the bus routes here faithfully and which nothing here
-     * answers, because no module has exported an object yet. So the silence is real routing rather than a
-     * peer arranged to be quiet.
+     * The silent peer is this connection itself, exporting an object whose handler never returns. Real
+     * routing through the bus, and a silence that is deliberate rather than an accident of nothing being
+     * exported: once something is, an unhandled path answers `UnknownObject` instead of saying nothing.
      */
     @Test
-    fun `a call routed to a connection that answers nothing times out`() = onBus { connection ->
+    fun `a call routed to a handler that never answers times out`() = onBus { connection ->
+        connection.export(SILENT) { awaitCancellation() }
+
         assertEquals(
             Err(DBusError.ReplyTimedOut),
             connection.call(
                 destination = connection.uniqueName,
-                path = "/com/fromwau/kortex/test",
+                path = SILENT,
                 iface = "com.fromwau.kortex.test.Silent",
                 member = "SaysNothing",
                 timeout = 500.milliseconds,
@@ -121,11 +124,12 @@ class SessionBusTest {
      */
     @Test
     fun `a reply reaches its own call while others are still outstanding`() = onBus { connection ->
+        connection.export(SILENT) { awaitCancellation() }
         val stuck = (1..2).map { index ->
             async(Dispatchers.IO) {
                 connection.call(
                     destination = connection.uniqueName,
-                    path = "/com/fromwau/kortex/test",
+                    path = SILENT,
                     iface = "com.fromwau.kortex.test.Silent",
                     member = "Stuck$index",
                     timeout = 4.seconds,
@@ -349,6 +353,11 @@ class SessionBusTest {
             .session()
             .getOrElse { error -> fail("no session bus answered: $error") }
             .use { connection -> body(connection) }
+    }
+
+    private companion object {
+        /** Where a test exports an object that takes a call and never answers it. */
+        const val SILENT = "/com/fromwau/kortex/test/silent"
     }
 }
 
