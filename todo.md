@@ -1084,7 +1084,7 @@ be faked.
 this table depends on `:wayland` or `:compose`, and `:hyprland` and `:sysinfo` depend on nothing of kortex's
 at all.
 
-- [ ] **`:dbus` and `:tray` are built together, and `:tray` is what proves the client.** `:dbus` is public,
+- [x] **`:dbus` and `:tray` are built together, and `:tray` is what proves the client.** `:dbus` is public,
       so its surface has to serve someone writing a provider of their own: a connection, method calls, signal
       subscriptions, typed errors and a lifetime. Designing that in the abstract would get it wrong, so it is
       built against `:tray` and published once `:tray` works.
@@ -1119,11 +1119,14 @@ at all.
       `icon-data` is an encoded image file rather than the raw ARGB a tray icon carries, and it arrives
       either as bytes or base64 into a string; and `enabled` and `visible` default to true when absent,
       which is the opposite of how a missing flag usually reads.
-      Open: the server side of `:dbus`, which is all that is left of this entry. `:tray` cannot prove it,
-      because a host only ever calls. Exporting an object, dispatching a call made to it and returning a
-      value are all unwritten, and an incoming `Message.Call` is currently ignored. `:notification` is what
-      turns it on.
-- [ ] **`:notification` makes kortex the notification server, not a client.** `org.freedesktop.Notifications`
+      **Done: the server side too.** An object is exported at a path, a call to it reaches a handler, and
+      what the handler returns becomes a reply or an error reply under a name it chose. Answered off the
+      pump, because a handler that takes its time would otherwise stop the socket being read; replies are
+      matched by serial, so answering out of order is what the bus expects anyway. `Peer` is answered for
+      every path without reaching a handler, and `Introspect` from the xml an object was exported with.
+      Two existing tests failed on this and both were right to: they relied on kortex not answering calls
+      addressed to itself, and an unexported path now says `UnknownObject` where it used to say nothing.
+- [x] **`:notification` makes kortex the notification server, not a client.** `org.freedesktop.Notifications`
       at `/org/freedesktop/Notifications` is what `notify-send` calls, and a shell that shows notifications is
       what answers it. Read off the running bus rather than remembered: `Notify(susssasa{sv}i)` answering a
       `u`, with `CloseNotification(u)`, `GetCapabilities()` and `GetServerInformation()` beside it, and
@@ -1135,9 +1138,9 @@ at all.
       that says the name already exists becomes a typed error of its own, so a caller is told it could not
       become the server. Queueing would leave a bar that has started, looks well, and shows no notification
       until a daemon nobody is watching happens to exit, which is the worse of the two to diagnose.
-      Open: whether that error carries who holds the name. `GetNameOwner` answers a unique name and
-      `GetConnectionUnixProcessID` turns that into a pid, which is two more round trips for an error that
-      reads "dunst is already running" rather than "the name is taken".
+      **Decided: it carries who holds the name.** `GetNameOwner`, then `GetConnectionUnixProcessID`, then
+      `/proc/<pid>/comm`, which is what turns `:1.99` into `dunst`. Two round trips and a file read on a
+      path that has already failed, for the difference between a diagnosable message and a riddle.
       Everything `notify-send` can express has to survive the trip: the summary, the body, an app icon,
       actions in pairs, an expiry, and the hints that carry urgency, category, desktop entry, transience and
       inline image data. Image data arrives as raw pixels the way tray icons do, and stays bytes rather than
@@ -1145,7 +1148,20 @@ at all.
       `GetCapabilities` is the caller's to declare and not kortex's to guess: whether body markup, action
       icons or inline images are supported depends on what the content drawing them can render, and only the
       caller knows that.
-      Open: the module itself.
+      **Done.** 28 tests, run with dunst stopped, and one of them posts through `notify-send` itself, which
+      is the only thing that proves libnotify agrees with how kortex reads a `Notify`.
+      **`notifications` carries no `Result`, which is this module's one departure from the rules above.**
+      The error the others carry answers "why is there no data", and here that cannot be a failure: holding
+      a server means `start` already proved the name was taken and the object exported, so an empty list can
+      only mean nothing was posted. The failure that matters is becoming the server at all, and that is what
+      `start` returns.
+      **Nothing here draws or times anything.** A notification carries the `Expiry` its application asked
+      for and stays until a caller closes it, because a caller that animates one away knows when it is gone
+      and kortex does not. That also made the expiry a type rather than the wire's int, where -1 and 0 are
+      two sentinels hiding among ordinary millisecond counts.
+      **Found on the wire, and no document says it:** `notify-send` 0.8.8 leaves the `app_icon` argument
+      empty and puts `--icon` in the `image-path` hint instead. A caller drawing `app_icon` alone shows no
+      icon for most of what is sent.
 - [x] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
       `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
       while every module depends on Compose. A provider must not, so the first Compose-free module ended that
