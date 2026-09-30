@@ -171,6 +171,11 @@ class DragAndDropTest {
      * is one the compositor owed an update on. Hyprland 0.56.2 leaves exactly that standing: it sends
      * `wl_data_offer.action(2)` before this side has answered anything and never sends another, whatever
      * `set_actions` follows it.
+     *
+     * The mechanism, read out of the compositor rather than inferred from the wire: it installs no handler
+     * for `wl_data_offer.set_actions`, so a destination's mask is discarded, and picks from the source's
+     * alone. This clamp is therefore the only thing between content and a delete it never agreed to, not a
+     * guard on top of a compositor that would otherwise have honoured the mask.
      */
     @Test
     fun `a move the destination never offered reads as a copy, not as the move it was settled as`() {

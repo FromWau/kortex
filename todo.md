@@ -734,15 +734,6 @@ where on the monitor the compositor put it.
       to itself: a file dragged out of Dolphin 26.08.1 by hand arrives with `source_actions(3)` and
       `action(2)`, a move settled before kortex has answered anything. `LiveDropProbe` is how that was read.
       (`KortexSceneTest`, `DragAndDropTest`, `DragWireTest`)
-- [ ] **A drag that settles on `ask` is one kortex can neither offer nor answer.** `DndAction.Ask` is the
-      third `wl_data_device_manager.dnd_action`. It means the compositor puts a menu to the user mid-drag and
-      tells both sides what they chose. `TAKEABLE` leaves it out, and `asCompletedAction` and `asDragAction`
-      both read it as no action at all, which is the right answer while nothing answers the menu: a
-      destination that names `ask` without answering stalls the drop, because the source waits for a
-      `set_actions` naming the choice and none comes.
-      Open: whether to answer it at all. Nothing kortex is used for asks for it, and Hyprland 0.56.2 settles
-      an action before this side has spoken, so there is no compositor here to develop it against. Left as a
-      decision rather than work, so the three actions are not mistaken for two by someone reading the enum.
 - [x] **A drag out of a file manager lands on kortex, which reads `text/uri-list` now.** `UriListMime` is a
       third `Mime` family beside `TextMime` and `ImageMime`, ahead of both in `Mime.all`, because an
       application offering a file list and a text sends the same files under each and only the list says that
@@ -1611,6 +1602,27 @@ references and stays actionable on its own once the reports are gone.
   that refuses with a reason. kortex requires the layer shell and says so instead: the entry under "Audit
   against the reference implementations" holds the working, and the cost this gives up is a second compositor
   to test conformance against.
+- Answering a drag that settles on `ask`. **The entry this replaces had the protocol backwards**, and the
+  correction is the whole decision: `wl_data_offer.action`'s own description puts that menu on the
+  *destination*, "e.g. popping up a menu with the available options", not on the compositor. So answering an
+  ask means kortex drawing a menu mid-drop, and kortex draws no widgets: `SurfaceConfig.contextMenu` and
+  `MenuAnchor` were deleted for having no caller. Asking the caller to choose instead has nowhere to live
+  either, because Compose's own contract has no room for it: `DragAndDropTarget.onDrop` answers a `Boolean`
+  and `DragAndDropTransferAction` has no `ask`.
+  The second reason is independent of the first, and it is why there is no way to develop this here anyway.
+  Hyprland 0.56.2 installs **no handler at all** for `wl_data_offer.set_actions`, so a destination's mask is
+  discarded, and it selects from the source's mask alone: move if offered, else copy, else move with a
+  "Client bug?" log (`src/protocols/core/DataDevice.cpp`, `CWLDataOfferResource::sendData`). `ask` has no
+  branch, so it can never be selected for a native Wayland drag, and there is nothing to answer.
+  **Nothing needs fixing in the code, which is why this is a decline and not work.** `TAKEABLE` leaves `ask`
+  out, `asDragAction` and `asCompletedAction` read it as a copy and as no completion, and `finish` stays
+  silent on it because sending one before answering an ask is a protocol error. The offer is then destroyed
+  with the drag, and the protocol names that destroy *dismissing* the ask, so an ask kortex cannot answer
+  releases its source rather than leaving it waiting. All four enum entries stay, so nobody reading it
+  mistakes the wire for having three.
+  The corollary is worth keeping in view: since the destination's mask is discarded here, `asDragAction`'s
+  clamp is the only thing between content and a delete it never agreed to, not a guard on top of a
+  compositor that would otherwise have honoured it. `DragAndDropTest` pins it and now says why.
 - Placing a menu ourselves. `SurfaceConfig.contextMenu` flipped a layer surface to whichever corner kept a menu
   on screen, which is the compositor's own job once a menu is an `xdg_popup` and it solves the positioner.
   Deleted with `MenuAnchor` and its nine test cases rather than given a caller.

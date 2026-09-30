@@ -405,12 +405,16 @@ internal class DataDevice private constructor(
          * What a drag arriving here may do, which is a copy and nothing else, because a destination cannot
          * steer the choice on Hyprland 0.56.2 and a drag that lands as a move deletes what it came from.
          *
-         * Read off the wire: the compositor answers a drag's enter with `wl_data_offer.action(2)`, a move,
-         * before this side has said anything, and re-sends nothing after four `set_actions(3, 1)` naming both
-         * and preferring copy. So naming move here means every drag in is a move, whatever the user held.
-         * `ask` is left out for a second reason: answering it means putting the compositor's own menu to the
-         * user and sending one last `set_actions` for what they picked, and a destination that names it
-         * without answering it stalls the drop.
+         * Read off the wire and then confirmed in the compositor: `wl_data_offer.action(2)`, a move, arrives
+         * before this side has said anything, and nothing follows four `set_actions(3, 1)` naming both and
+         * preferring copy. Hyprland 0.56.2 installs no handler for `wl_data_offer.set_actions` at all and
+         * picks from the source's mask alone, move ahead of copy, where the protocol recommends the first
+         * match in bit order and that is copy. So naming move here would make every drag in a move whatever
+         * the user held, and [asDragAction]'s clamp is what stands between content and a delete nobody agreed
+         * to rather than a belt on top of a compositor that would have got it right.
+         *
+         * `ask` is left out for a reason of its own: the specification puts that menu on the destination
+         * rather than on the compositor, so answering one means kortex drawing a menu, and kortex draws none.
          */
         private val TAKEABLE = setOf(DndAction.Copy)
 
@@ -532,7 +536,8 @@ internal class DataOffer(private val arena: Arena = Arena.ofShared()) {
      *
      * Silent where the protocol names saying so an error: after an accept of no type, and before the compositor
      * has settled an action. An ask is settled only once the destination has answered it with a set_actions of
-     * its own, which kortex never sends.
+     * its own, which kortex never sends, so the offer is destroyed with the drag instead. The protocol names
+     * that destroy dismissing the ask, which releases the source rather than leaving it waiting.
      */
     fun finish() {
         if (!accepting) return
@@ -763,7 +768,12 @@ internal class DataSource(
     }
 }
 
-/** A `wl_data_device_manager.dnd_action`: how a drag is carried out. Copy is the only one kortex asks for. */
+/**
+ * A `wl_data_device_manager.dnd_action`: how a drag is carried out. Copy is the only one kortex asks for.
+ *
+ * All four are here because the wire has all four, not because kortex acts on all four. [Ask] never reaches
+ * a native drag on Hyprland 0.56.2, which selects from the source's mask alone and has no branch for it.
+ */
 internal enum class DndAction(val wire: Int) {
     None(0),
     Copy(1),
