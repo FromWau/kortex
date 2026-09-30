@@ -12,7 +12,8 @@ import com.fromwau.kortex.dbus.DBusType
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
 import com.fromwau.kortex.dbus.Message
-import com.fromwau.kortex.dbus.unwrapped
+import com.fromwau.kortex.dbus.asBoolean
+import com.fromwau.kortex.dbus.asInt32
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -68,7 +69,7 @@ public class Menu internal constructor(
         emitAll(
             connection.signals(rule)
                 .filter { it.member == ACTIVATION_REQUESTED }
-                .mapNotNull { signal -> (signal.body.firstOrNull()?.unwrapped as? DBusValue.I32)?.value },
+                .mapNotNull { signal -> signal.body.firstOrNull()?.asInt32 },
         )
     }.onCompletion { withContext(NonCancellable) { connection.removeMatch(rule) } }
 
@@ -107,7 +108,7 @@ public class Menu internal constructor(
     public suspend fun aboutToShow(id: Int): Result<Boolean, TrayError> = connection
         .call(service, path, INTERFACE, "AboutToShow", listOf(DBusValue.I32(id)))
         .mapError(TrayError::BusFailed)
-        .map { body -> (body.firstOrNull()?.unwrapped as? DBusValue.Bool)?.value == true }
+        .map { body -> body.firstOrNull()?.asBoolean == true }
 
     private fun track(): Flow<Result<MenuItem, TrayError>> = channelFlow<Result<MenuItem, TrayError>> {
         connection.addMatch(rule).getOrElse {

@@ -1,7 +1,14 @@
 package com.fromwau.kortex.tray
 
 import com.fromwau.kortex.dbus.DBusValue
-import com.fromwau.kortex.dbus.unwrapped
+import com.fromwau.kortex.dbus.asBytes
+import com.fromwau.kortex.dbus.asFields
+import com.fromwau.kortex.dbus.asInt32
+import com.fromwau.kortex.dbus.asItems
+import com.fromwau.kortex.dbus.asObjectPath
+import com.fromwau.kortex.dbus.asText
+import com.fromwau.kortex.dbus.flag
+import com.fromwau.kortex.dbus.text
 
 /** Where an item lives: the connection that exports it, and the object on that connection. */
 public data class ItemAddress(public val service: String, public val path: String) {
@@ -145,8 +152,8 @@ internal fun trayItemFrom(address: ItemAddress, properties: Map<String, DBusValu
         overlayIcon = properties.icon("OverlayIconName", "OverlayIconPixmap", themePath),
         attentionIcon = properties.icon("AttentionIconName", "AttentionIconPixmap", themePath),
         toolTip = properties.toolTip(themePath),
-        menuPath = properties.objectPath("Menu"),
-        isMenu = properties.flagOr("ItemIsMenu", default = false),
+        menuPath = properties.menuPath("Menu"),
+        isMenu = properties.flag("ItemIsMenu"),
     )
 }
 
@@ -157,55 +164,36 @@ private fun Map<String, DBusValue>.icon(name: String, pixmap: String, themePath:
 )
 
 private fun Map<String, DBusValue>.toolTip(themePath: String?): TrayToolTip? {
-    val fields = (this["ToolTip"]?.unwrapped as? DBusValue.Struct)?.fields ?: return null
+    val fields = this["ToolTip"]?.asFields ?: return null
     if (fields.size != TOOLTIP_FIELDS) return null
 
     val tip = TrayToolTip(
         icon = TrayIcon(
-            name = (fields[0] as? DBusValue.Text)?.value?.ifEmpty { null },
+            name = fields[0].asText?.ifEmpty { null },
             themePath = themePath,
             pixmaps = imagesIn(fields[1]),
         ),
-        title = (fields[2] as? DBusValue.Text)?.value.orEmpty(),
-        description = (fields[3] as? DBusValue.Text)?.value.orEmpty(),
+        title = fields[2].asText.orEmpty(),
+        description = fields[3].asText.orEmpty(),
     )
     // An item with nothing to say sends four empty fields rather than leaving the property out.
     return tip.takeUnless { it.icon.isEmpty && it.title.isEmpty() && it.description.isEmpty() }
 }
 
-/**
- * A value as a string, looking through a variant on the way.
- *
- * Every accessor here does, because the same property reaches this both already unwrapped, out of a
- * `GetAll`, and still boxed, out of a `PropertiesChanged`. Unwrapping in one place rather than at each
- * caller is what stops a boxed value reading as a property the item never sent.
- */
-internal val DBusValue.text: String? get() = (unwrapped as? DBusValue.Text)?.value
-
-internal fun Map<String, DBusValue>.text(key: String): String? = this[key]?.text
-
-internal fun Map<String, DBusValue>.objectPath(key: String): String? =
-    (this[key]?.unwrapped as? DBusValue.ObjectPath)?.value?.takeUnless { it == "/" }
-
-/**
- * A flag, or [default] where the sender left it out.
- *
- * The default is a parameter because it is the thing that differs: a tray item's `ItemIsMenu` is false
- * when absent, and a menu entry's `enabled` and `visible` are true.
- */
-internal fun Map<String, DBusValue>.flagOr(key: String, default: Boolean): Boolean =
-    (this[key]?.unwrapped as? DBusValue.Bool)?.value ?: default
+/** An item with no menu says so by naming the root path, which no menu is ever exported at. */
+private fun Map<String, DBusValue>.menuPath(key: String): String? =
+    this[key]?.asObjectPath?.takeUnless { it == "/" }
 
 private fun Map<String, DBusValue>.images(key: String): List<TrayImage> = imagesIn(this[key])
 
 /** An `a(iiay)`, where each struct is a width, a height and the pixels. */
-private fun imagesIn(value: DBusValue?): List<TrayImage> = (value?.unwrapped as? DBusValue.Sequence)
-    ?.values
+private fun imagesIn(value: DBusValue?): List<TrayImage> = value
+    ?.asItems
     ?.mapNotNull { entry ->
-        val fields = (entry as? DBusValue.Struct)?.fields ?: return@mapNotNull null
-        val width = (fields.getOrNull(0) as? DBusValue.I32)?.value ?: return@mapNotNull null
-        val height = (fields.getOrNull(1) as? DBusValue.I32)?.value ?: return@mapNotNull null
-        val pixels = (fields.getOrNull(2) as? DBusValue.Bytes)?.value ?: return@mapNotNull null
+        val fields = entry.asFields ?: return@mapNotNull null
+        val width = fields.getOrNull(0)?.asInt32 ?: return@mapNotNull null
+        val height = fields.getOrNull(1)?.asInt32 ?: return@mapNotNull null
+        val pixels = fields.getOrNull(2)?.asBytes ?: return@mapNotNull null
         TrayImage(width, height, pixels)
     }
     .orEmpty()

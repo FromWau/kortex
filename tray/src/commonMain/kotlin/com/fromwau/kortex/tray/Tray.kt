@@ -15,7 +15,9 @@ import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
 import com.fromwau.kortex.dbus.Message
-import com.fromwau.kortex.dbus.unwrapped
+import com.fromwau.kortex.dbus.asDictionary
+import com.fromwau.kortex.dbus.asItems
+import com.fromwau.kortex.dbus.asText
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -161,7 +163,7 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
     }
 
     private suspend fun Known.afterWatcherSignal(signal: Message.Signal): Known? {
-        val entry = signal.body.firstOrNull()?.text ?: return null
+        val entry = signal.body.firstOrNull()?.asText ?: return null
         val address = ItemAddress.parse(entry, signal.sender) ?: return null
         return when (signal.member) {
             ITEM_REGISTERED -> readItem(address)?.let { this + (address to it) }
@@ -174,7 +176,7 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         val address = addressOf(signal) ?: return null
         // NewStatus is the one that carries its own value, so it is the one that needs no read back.
         if (signal.member == NEW_STATUS) {
-            val status = signal.body.firstOrNull()?.text ?: return null
+            val status = signal.body.firstOrNull()?.asText ?: return null
             return this + (address to getValue(address) + ("Status" to DBusValue.Text(status)))
         }
         if (!signal.member.startsWith("New")) return null
@@ -182,18 +184,11 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
     }
 
     private fun Known.afterPropertiesChanged(signal: Message.Signal): Known? {
-        if (signal.body.firstOrNull()?.text !in ITEM_INTERFACES) return null
+        if (signal.body.firstOrNull()?.asText !in ITEM_INTERFACES) return null
         val address = addressOf(signal) ?: return null
 
-        val changed = (signal.body.getOrNull(1) as? DBusValue.Sequence)
-            ?.values
-            ?.filterIsInstance<DBusValue.Pair>()
-            ?.associate { entry -> (entry.key as DBusValue.Text).value to entry.value.unwrapped }
-            .orEmpty()
-        val invalidated = (signal.body.getOrNull(2) as? DBusValue.Sequence)
-            ?.values
-            ?.mapNotNull { it.text }
-            .orEmpty()
+        val changed = signal.body.getOrNull(1)?.asDictionary.orEmpty()
+        val invalidated = signal.body.getOrNull(2)?.asItems?.mapNotNull { it.asText }.orEmpty()
         if (changed.isEmpty() && invalidated.isEmpty()) return null
 
         return this + (address to (getValue(address) + changed - invalidated.toSet()))
@@ -201,8 +196,8 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
 
     /** An application that exits takes its items with it, whether or not the watcher noticed. */
     private fun Known.afterNameOwnerChanged(signal: Message.Signal): Known? {
-        val name = signal.body.firstOrNull()?.text ?: return null
-        val newOwner = signal.body.getOrNull(2)?.text ?: return null
+        val name = signal.body.firstOrNull()?.asText ?: return null
+        val newOwner = signal.body.getOrNull(2)?.asText ?: return null
         if (newOwner.isNotEmpty()) return null
 
         val gone = keys.filter { it.service == name }
@@ -225,7 +220,7 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
             .mapError(TrayError::BusFailed)
             .getOrElse { return Err(it) }
 
-        val entries = (registered as? DBusValue.Sequence)?.values?.mapNotNull { it.text }.orEmpty()
+        val entries = registered.asItems?.mapNotNull { it.asText }.orEmpty()
         val known = linkedMapOf<ItemAddress, Map<String, DBusValue>>()
         entries.forEach { entry ->
             val address = ItemAddress.parse(entry) ?: return@forEach

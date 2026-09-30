@@ -128,7 +128,7 @@ public class DBusConnection private constructor(
             val reply = withTimeout(timeout) { waiting.await() }.getOrElse { return Err(it) }
             when (reply) {
                 is Message.Return -> Ok(reply.body)
-                is Message.Failure -> Err(DBusError.CallFailed(reply.name, reply.body.firstText()))
+                is Message.Failure -> Err(DBusError.CallFailed(reply.name, reply.body.firstOrNull()?.asText))
                 // Nothing else is ever put into a pending reply, so this is unreachable rather than a case.
                 is Message.Call, is Message.Signal -> Err(DBusError.Disconnected)
             }
@@ -228,7 +228,7 @@ public class DBusConnection private constructor(
         iface = Bus.INTERFACE,
         member = "GetNameOwner",
         args = listOf(DBusValue.Text(name)),
-    ).map { body -> body.firstText().orEmpty() }
+    ).map { body -> body.firstOrNull()?.asText.orEmpty() }
 
     /** Reads one property, already unwrapped from the variant `Get` answers in. */
     public suspend fun property(
@@ -255,13 +255,7 @@ public class DBusConnection private constructor(
         iface = Bus.PROPERTIES,
         member = "GetAll",
         args = listOf(DBusValue.Text(iface)),
-    ).map { body ->
-        (body.singleOrNull() as? DBusValue.Sequence)
-            ?.values
-            ?.filterIsInstance<DBusValue.Pair>()
-            ?.associate { entry -> (entry.key as DBusValue.Text).value to entry.value.unwrapped }
-            .orEmpty()
-    }
+    ).map { body -> body.singleOrNull()?.asDictionary.orEmpty() }
 
     override fun close() {
         // The channel first: a blocking read does not notice a cancelled coroutine, and closing the socket
@@ -478,7 +472,7 @@ public class DBusConnection private constructor(
         path = Bus.PATH,
         iface = Bus.INTERFACE,
         member = "Hello",
-    ).map { body -> name = body.firstText() }
+    ).map { body -> name = body.firstOrNull()?.asText }
 
     private fun writeAscii(line: String): EmptyResult<DBusError> = try {
         val bytes = ByteBuffer.wrap(line.toByteArray(Charsets.US_ASCII))
@@ -537,9 +531,6 @@ public enum class NameRequest {
         }
     }
 }
-
-/** The first argument, where it is a string; the shape most bus replies take. */
-internal fun List<DBusValue>.firstText(): String? = (firstOrNull()?.unwrapped as? DBusValue.Text)?.value
 
 /** The uid as `EXTERNAL` wants it: its decimal spelling, then that hex-encoded. */
 private fun String.hexed(): String = toByteArray(Charsets.US_ASCII).joinToString(separator = "") { byte ->

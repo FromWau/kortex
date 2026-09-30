@@ -1,7 +1,14 @@
 package com.fromwau.kortex.tray
 
 import com.fromwau.kortex.dbus.DBusValue
-import com.fromwau.kortex.dbus.unwrapped
+import com.fromwau.kortex.dbus.asBytes
+import com.fromwau.kortex.dbus.asDictionary
+import com.fromwau.kortex.dbus.asFields
+import com.fromwau.kortex.dbus.asInt32
+import com.fromwau.kortex.dbus.asItems
+import com.fromwau.kortex.dbus.asText
+import com.fromwau.kortex.dbus.flag
+import com.fromwau.kortex.dbus.text
 import java.util.Base64
 
 /** What a toggling entry draws beside itself. */
@@ -85,21 +92,14 @@ public data class MenuItem(
  * than this stack, and the result would be a crash rather than a value. Real menus are two or three deep.
  */
 internal fun menuItemFrom(node: DBusValue, depth: Int = MAX_MENU_DEPTH): MenuItem? {
-    val fields = (node.unwrapped as? DBusValue.Struct)?.fields?.takeIf { it.size == NODE_FIELDS } ?: return null
-    val id = (fields[0].unwrapped as? DBusValue.I32)?.value ?: return null
-    val properties = (fields[1].unwrapped as? DBusValue.Sequence)
-        ?.values
-        ?.filterIsInstance<DBusValue.Pair>()
-        ?.associate { entry -> (entry.key as DBusValue.Text).value to entry.value.unwrapped }
-        .orEmpty()
+    val fields = node.asFields?.takeIf { it.size == NODE_FIELDS } ?: return null
+    val id = fields[0].asInt32 ?: return null
+    val properties = fields[1].asDictionary.orEmpty()
 
     val children = if (depth <= 0) {
         emptyList()
     } else {
-        (fields[2].unwrapped as? DBusValue.Sequence)
-            ?.values
-            ?.mapNotNull { child -> menuItemFrom(child, depth - 1) }
-            .orEmpty()
+        fields[2].asItems?.mapNotNull { child -> menuItemFrom(child, depth - 1) }.orEmpty()
     }
 
     return MenuItem(
@@ -107,8 +107,8 @@ internal fun menuItemFrom(node: DBusValue, depth: Int = MAX_MENU_DEPTH): MenuIte
         isSeparator = properties.text(TYPE) == SEPARATOR,
         label = properties.text(LABEL).orEmpty(),
         // Absent means true for both, which is why neither can use flag()'s "absent is false".
-        enabled = properties.flagOr(ENABLED, default = true),
-        visible = properties.flagOr(VISIBLE, default = true),
+        enabled = properties.flag(ENABLED, default = true),
+        visible = properties.flag(VISIBLE, default = true),
         icon = MenuIcon(properties.text(ICON_NAME)?.ifEmpty { null }, properties.iconData()),
         toggle = properties.toggle(),
         shortcuts = properties.shortcuts(),
@@ -124,7 +124,7 @@ private fun Map<String, DBusValue>.toggle(): MenuToggle? {
         RADIO -> MenuToggleKind.Radio
         else -> return null
     }
-    val state = when ((this[TOGGLE_STATE]?.unwrapped as? DBusValue.I32)?.value) {
+    val state = when (this[TOGGLE_STATE]?.asInt32) {
         TOGGLE_ON -> MenuToggleState.On
         TOGGLE_OFF -> MenuToggleState.Off
         // Anything else, the specification's -1 included, is a toggle that will not say.
@@ -134,11 +134,9 @@ private fun Map<String, DBusValue>.toggle(): MenuToggle? {
 }
 
 private fun Map<String, DBusValue>.shortcuts(): List<List<String>> =
-    (this[SHORTCUT]?.unwrapped as? DBusValue.Sequence)
-        ?.values
-        ?.mapNotNull { combination ->
-            (combination.unwrapped as? DBusValue.Sequence)?.values?.mapNotNull { key -> key.text }
-        }
+    this[SHORTCUT]
+        ?.asItems
+        ?.mapNotNull { combination -> combination.asItems?.mapNotNull { key -> key.asText } }
         ?.filter { it.isNotEmpty() }
         .orEmpty()
 
@@ -150,15 +148,16 @@ private fun Map<String, DBusValue>.disposition(): MenuDisposition = when (text(D
 }
 
 /** An array of bytes, or the same bytes base64-encoded into a string, which libdbusmenu's helper writes. */
-private fun Map<String, DBusValue>.iconData(): ByteArray? = when (val value = this[ICON_DATA]?.unwrapped) {
-    is DBusValue.Bytes -> value.value.takeIf { it.isNotEmpty() }
-    is DBusValue.Text -> try {
-        Base64.getDecoder().decode(value.value).takeIf { it.isNotEmpty() }
+private fun Map<String, DBusValue>.iconData(): ByteArray? {
+    val value = this[ICON_DATA] ?: return null
+    value.asBytes?.let { return it.takeIf(ByteArray::isNotEmpty) }
+
+    val encoded = value.asText ?: return null
+    return try {
+        Base64.getDecoder().decode(encoded).takeIf(ByteArray::isNotEmpty)
     } catch (_: IllegalArgumentException) {
         null
     }
-
-    else -> null
 }
 
 /** As deep as a menu may nest before parsing stops; see [menuItemFrom]. */
