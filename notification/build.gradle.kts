@@ -27,3 +27,15 @@ kotlin {
         }
     }
 }
+
+// A probe under jvmTest that waits for a person rather than driving itself; no test task can run one,
+// since a suite that blocks on a hand never finishes.
+tasks.register<JavaExec>("probe") {
+    group = "verification"
+    description = "Runs a jvmTest main by name: -Pprobe=com.fromwau.kortex.notification.LiveServerProbeKt"
+    val test = kotlin.jvm().compilations.getByName("test")
+    classpath = files(test.output.allOutputs, test.runtimeDependencyFiles)
+    mainClass = providers.gradleProperty("probe")
+    // Stdin stays connected so a probe can wait on a keypress rather than only on a clock.
+    standardInput = System.`in`
+}

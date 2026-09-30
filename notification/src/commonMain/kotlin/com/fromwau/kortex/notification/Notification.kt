@@ -105,7 +105,13 @@ public data class ScreenHint(public val x: Int, public val y: Int)
 public data class Notification(
     public val id: UInt,
     public val appName: String,
-    /** A theme icon name or a file path; empty where the application sent none. */
+    /**
+     * A theme icon name or a file path; empty where the application sent none, which is common.
+     *
+     * A caller drawing an icon has to consider [imagePath] and [image] too, and cannot prefer this. Read
+     * off the wire: `notify-send --icon=dialog-information` leaves this empty and puts the name in the
+     * `image-path` hint, so a caller reading only this shows nothing for most of what gets sent.
+     */
     public val appIcon: String,
     public val summary: String,
     /** May carry the small subset of markup the specification allows, which a caller decides about. */
