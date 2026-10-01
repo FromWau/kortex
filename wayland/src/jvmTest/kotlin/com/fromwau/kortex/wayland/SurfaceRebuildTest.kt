@@ -154,7 +154,13 @@ class SurfaceRebuildTest {
                 "the rebuild did not end the surface with the reason its settings were rejected for",
             )
             assertTrue(shell.shownSurfaces.isEmpty(), "the ended surface is still held by the shell")
-            assertNull(Screen.geometry(FIRST_NAMESPACE), "hyprctl layers still reports the surface that ended")
+            // Waited for rather than read once: the client has destroyed the layer surface by here, and the
+            // compositor dropping it from its own list is a pass of its own. Every sibling test that asks
+            // hyprctl whether a surface is gone waits the same way.
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { Screen.geometry(FIRST_NAMESPACE) == null },
+                "hyprctl layers still reports the surface that ended",
+            )
 
             // The scene a failed rebuild leaves behind is one nothing would ever close again.
             val ticks = watch.ticks.get()
