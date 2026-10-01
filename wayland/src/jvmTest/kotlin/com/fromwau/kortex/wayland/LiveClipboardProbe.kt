@@ -33,7 +33,10 @@ import java.nio.file.Path
  *
  * Run it, then:
  * - press Copy, and paste into a file manager. Two files should appear where you pasted.
- * - copy files in the file manager, press Read, and watch them arrive here.
+ * - copy files in the file manager, click the probe to give it the keyboard, then press Read.
+ *
+ * Read needs that click: a copy of this client's own answers from memory, but another application's reads
+ * back only while one of these surfaces has keyboard focus, and without it the answer is `NoSelection`.
  *
  * Under `WAYLAND_DEBUG=client` the `wl_data_source` and `wl_data_offer` traffic reads beside each result.
  */
@@ -47,6 +50,10 @@ public fun main() {
             .createApplication(wayland) {
                 TestSurface(
                     NAMESPACE,
+                    // OnDemand, because reading what another application copied needs keyboard focus and
+                    // the compositor only says what is on the clipboard to a client that has it. Exclusive
+                    // would take it the moment the probe starts and leave the file manager unusable.
+                    keyboard = KeyboardInteractivity.OnDemand,
                     anchor = setOf(Edge.Top, Edge.Left),
                     margins = Margins(top = MARGIN.dp, left = MARGIN.dp),
                     width = WIDTH.dp,

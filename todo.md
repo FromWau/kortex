@@ -793,6 +793,18 @@ where on the monitor the compositor put it.
       including the list's last CRLF, since a reader given one line without it would see the same files and
       only the bytes say whether the framing survived. That assertion caught `wl-paste` appending a newline
       of its own, which `--no-newline` suppresses by appending nothing rather than by stripping anything.
+      **Confirmed live against Dolphin 26.08.1, both directions, by hand.** A copy out of kortex pastes as
+      two real files, `kortex two.txt` among them with its space decoded back out of the `%20` that
+      `Path.toUri` wrote, so `text/uri-list` on its own is enough and KDE's file manager wants no companion
+      type beside it. That is the question `wl-paste` could not answer, since wl-clipboard hands over
+      whatever bytes it is given. A copy made *in* Dolphin reads back the other way as
+      `[file:///home/fromml/Downloads/test.txt]`, which is a list framed by a file manager rather than by
+      `wl-copy`. `LiveClipboardProbe` is the probe that did it.
+      Worth knowing for anyone reaching for `readUris`: reading another application's copy needs one of your
+      surfaces to hold keyboard focus, and a layer surface asking for none never gets it. The probe asked
+      for no keyboard at first and read `NoSelection` every time, which is the documented answer and not a
+      defect.
+
       **What running this costs: the suite empties the clipboard.** `ClipboardFocusTest` ends with
       `wl-copy --clear`, which clears rather than restores, so whatever was copied before a run is gone
       afterwards. That was already true of the text tests and is worth knowing before running the suite.
