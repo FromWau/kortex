@@ -1083,8 +1083,8 @@ Modules that carry a desktop's own state to whatever draws it. A provider gives 
 widget is where a toolkit starts having opinions about what a bar should look like, and kortex has none. The
 caller builds its own.
 
-**`:dbus` and `:tray` now exist, and building them corrected this in four places**, which is what the draft
-note said would happen. Every rule survived; what changed is underneath them.
+**`:dbus`, `:tray` and `:notification` now exist, and building them corrected this in four places**, which
+is what the draft note said would happen. Every rule survived; what changed is underneath them.
 
 - **There is no FFI.** D-Bus is a wire protocol on a unix socket, not a library, so the sd_bus against
   libdbus-1 question below is moot and `:dbus` is pure Kotlin on `java.net.UnixDomainSocketAddress`. The
@@ -1104,8 +1104,10 @@ note said would happen. Every rule survived; what changed is underneath them.
   session bus that is running, as every `:wayland` test talks to a live compositor.
 
 What was settled stayed settled: data and no UI, one flow carrying a `Result`, typed errors on `IError`,
-nothing running while nobody is watching, and no Compose or `:wayland` anywhere. What is still draft is
-everything `:notification` and the server side turn on, none of which is built.
+nothing running while nobody is watching, and no Compose or `:wayland` anywhere. The server side is built
+too, and the one rule `:notification` genuinely departs from is written up in its own entry below. What is
+still draft is `:mpris`, `:hyprland` and `:sysinfo`, none of which exists, and the system bus every one of
+UPower, logind, NetworkManager, BlueZ and systemd lives on.
 
 What every one of them keeps to:
 
@@ -1157,7 +1159,7 @@ at all.
       answers. `:notification` does: it takes a bus name exclusively, exports an object, dispatches method
       calls made to it and returns their values. A `:dbus` designed against `:tray` alone would have no
       server side at all, so the two together are what the client has to survive.
-      **Done: the client, the module, and all of `:tray`'s reading side.** 88 tests, against the running
+      **Done: the client, the module, and all of `:tray`'s reading side.** 106 tests, against the running
       session bus and a live tray. `:dbus` carries the codec, the four message shapes, the connection with
       one coroutine owning the socket, match rules and name ownership. `:tray` reads items, decodes them and
       passes on activation, secondary activation, context menu and scroll. Two probes print the live tray
@@ -1231,7 +1233,7 @@ at all.
       `GetCapabilities` is the caller's to declare and not kortex's to guess: whether body markup, action
       icons or inline images are supported depends on what the content drawing them can render, and only the
       caller knows that.
-      **Done.** 28 tests, run with dunst stopped, and one of them posts through `notify-send` itself, which
+      **Done.** 29 tests, run with dunst stopped, and one of them posts through `notify-send` itself, which
       is the only thing that proves libnotify agrees with how kortex reads a `Notify`.
       **`notifications` carries no `Result`, which is this module's one departure from the rules above.**
       The error the others carry answers "why is there no data", and here that cannot be a failure: holding
