@@ -1157,11 +1157,19 @@ at all.
       deep, so the recursive `(ia{sv}av)` parse is proven past the one level seen before; separators;
       entries that are `disabled`, `hidden`, and both at once; and an entry that is hidden and still
       delivers its submenu's children. Steam's sixteen entries add three more separators and nothing else.
-      **Still unexercised by any live item**, and neither of these two sends them: a non-empty tray
-      `a(iiay)` pixmap, `NeedsAttention`, an overlay icon, a menu entry's `toggle-type` or `toggle-state`,
-      a `disposition` other than normal, a `shortcut`, and either shape of `icon-data`. All are unit-tested
-      and the pixmaps are in the captured fixture. An application that renders its own icon or badges it,
-      Discord or Telegram among them, is the kind that would send the first four.
+      **Discord closed most of what those two could not.** Its item sends a real `a(iiay)` pixmap, 24 by 24
+      and 2304 bytes, which is exactly `width * height * 4`, so `TrayLiveTest`'s byte-count assertion had
+      real pixels to check for the first time and passes. It sends an empty `Title` with a non-empty `Id`,
+      which is why that test accepts either rather than both. Its menu carries `toggle-type` `checkmark`
+      with `toggle-state` 0 on Mute and Deafen, a `shortcut` of `[["Control", "q"]]` on Quit, and an entry
+      with `icon-data`.
+      **That `icon-data` arrived as a raw `ay` of 905 bytes beginning `89 50 4E 47 0D 0A 1A 0A`**, the PNG
+      signature, which settles on the wire what was only read in libdbusmenu's docs: the bytes are an
+      encoded image file and not the raw ARGB a tray icon carries. The base64-into-a-string shape is the one
+      libdbusmenu-gtk's own helper writes, so a GTK application using it would produce the other branch;
+      that branch is unit-tested and still unseen live.
+      **Still unexercised by any live item**: `NeedsAttention`, an overlay icon, and a `disposition` other
+      than normal. The first would need an application with an unread mention while the probe runs.
       **Done: the server side too.** An object is exported at a path, a call to it reaches a handler, and
       what the handler returns becomes a reply or an error reply under a name it chose. Answered off the
       pump, because a handler that takes its time would otherwise stop the socket being read; replies are
