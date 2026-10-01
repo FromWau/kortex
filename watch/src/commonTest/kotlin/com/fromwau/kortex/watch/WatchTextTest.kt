@@ -30,19 +30,19 @@ import kotlin.time.Duration.Companion.seconds
  * Nothing here needs a desktop, a compositor or a bus, which makes this the one kortex module whose whole
  * suite runs on a bare machine.
  */
-class FileWatcherTest {
+class WatchTextTest {
     @Test
     fun `the first value is the file as it stands, before anything changes`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("one")
 
-        assertEquals(Ok("one"), fileWatcher(file).first())
+        assertEquals(Ok("one"), file.watchText().first())
     }
 
     @Test
     fun `a file replaced by a save is read again`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("one")
 
-        watching(fileWatcher(file)) { reads ->
+        watching(file.watchText()) { reads ->
             assertEquals(Ok("one"), reads.receive())
             file.saveOver("two")
             assertEquals(Ok("two"), reads.receive())
@@ -54,7 +54,7 @@ class FileWatcherTest {
     fun `a save that leaves the contents identical emits nothing`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("one")
 
-        watching(fileWatcher(file)) { reads ->
+        watching(file.watchText()) { reads ->
             assertEquals(Ok("one"), reads.receive())
 
             file.saveOver("one")
@@ -68,7 +68,7 @@ class FileWatcherTest {
     fun `a file that is not there yet is reported, and so is its arrival`() = watchTest {
         val file = newTempDir() / "later"
 
-        watching(fileWatcher(file)) { reads ->
+        watching(file.watchText()) { reads ->
             assertEquals(Err(WatchError.Unreadable(file, FileError.NotFound(file))), reads.receive())
             file.saveOver("here now")
             assertEquals(Ok("here now"), reads.receive())
@@ -79,7 +79,7 @@ class FileWatcherTest {
     fun `a deleted file is reported, and so is its return`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("one")
 
-        watching(fileWatcher(file)) { reads ->
+        watching(file.watchText()) { reads ->
             assertEquals(Ok("one"), reads.receive())
 
             file.deleteRaw()
@@ -100,7 +100,7 @@ class FileWatcherTest {
     fun `a write in place arrives, whatever is read on the way`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("one")
 
-        watching(fileWatcher(file)) { reads ->
+        watching(file.watchText()) { reads ->
             assertEquals(Ok("one"), reads.receive())
             file.writeRaw("rewritten in place")
             reads.until(Ok("rewritten in place"))
@@ -118,7 +118,7 @@ class FileWatcherTest {
     fun `a procfs file is refused rather than watched in silence`() = watchTest {
         val file = Path("/proc/meminfo")
 
-        val values = fileWatcher(file).toList()
+        val values = file.watchText().toList()
 
         assertEquals(listOf(Err(WatchError.Unwatchable(file, Pseudofilesystem.Proc))), values)
     }
@@ -128,7 +128,7 @@ class FileWatcherTest {
         val folder = newTempDir() / "missing"
         val file = folder / "config"
 
-        val values = fileWatcher(file).toList()
+        val values = file.watchText().toList()
 
         assertEquals(listOf(Err(WatchError.FolderUnreadable(file, FileError.NotFound(folder)))), values)
     }
@@ -137,7 +137,7 @@ class FileWatcherTest {
     fun `a filesystem root has no directory above it to watch`() = watchTest {
         val root = Path("/")
 
-        val values = fileWatcher(root).toList()
+        val values = root.watchText().toList()
 
         assertEquals(listOf(Err(WatchError.NoFolderAbove(root))), values)
     }
@@ -148,7 +148,7 @@ class FileWatcherTest {
         val folder = newTempDir()
         val file = (folder / "config").writeRaw("one")
 
-        watching(fileWatcher(file)) { reads ->
+        watching(file.watchText()) { reads ->
             assertEquals(Ok("one"), reads.receive())
 
             file.deleteRaw()
@@ -163,7 +163,7 @@ class FileWatcherTest {
     fun `an interval watcher sees a file procfs makes up as it reads`() = watchTest {
         val file = Path("/proc/meminfo")
 
-        watching(fileWatcher(file, every = 50.milliseconds)) { reads ->
+        watching(file.readTextEvery(50.milliseconds)) { reads ->
             val first = assertIs<Ok<String>>(reads.receive())
             // Moves MemAvailable, so the next read differs without waiting on whatever else the machine does.
             val ballast = ByteArray(64 * 1024 * 1024) { 1 }
@@ -178,7 +178,7 @@ class FileWatcherTest {
     fun `an interval watcher emits only what changed`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("one")
 
-        watching(fileWatcher(file, every = 50.milliseconds)) { reads ->
+        watching(file.readTextEvery(50.milliseconds)) { reads ->
             assertEquals(Ok("one"), reads.receive())
             file.saveOver("two")
             assertEquals(Ok("two"), reads.receive(), "an unchanged read emitted a value")
@@ -189,7 +189,7 @@ class FileWatcherTest {
     fun `a file past the limit a caller set is too large to read`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("more than two bytes")
 
-        val value = fileWatcher(file, every = 50.milliseconds, maxBytes = 2).first()
+        val value = file.readTextEvery(50.milliseconds, maxBytes = 2).first()
 
         assertEquals(Err(WatchError.Unreadable(file, FileError.TooLarge(file, 2, 19))), value)
     }
@@ -198,7 +198,7 @@ class FileWatcherTest {
     fun `a directory is not a file to watch`() = watchTest {
         val dir = newTempDir()
 
-        val value = fileWatcher(dir, every = 50.milliseconds).first()
+        val value = dir.readTextEvery(50.milliseconds).first()
 
         assertEquals(
             Err(WatchError.Unreadable(dir, FileError.NotRegularFile(dir, FileType.Directory))),
@@ -210,7 +210,7 @@ class FileWatcherTest {
     @Test
     fun `each collector reads for itself`() = watchTest {
         val file = (newTempDir() / "config").writeRaw("one")
-        val watcher = fileWatcher(file)
+        val watcher = file.watchText()
 
         assertEquals(Ok("one"), watcher.first())
         assertEquals(Ok("one"), watcher.first())

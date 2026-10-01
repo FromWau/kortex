@@ -32,8 +32,8 @@ class LayerGeometryTest {
                 SurfaceConfig(
                     namespace = NAMESPACE,
                     anchor = setOf(Edge.Bottom, Edge.Right),
-                    width = WIDTH.dp,
-                    height = HEIGHT.dp,
+                    width = Length.Of(WIDTH.dp),
+                    height = Length.Of(HEIGHT.dp),
                     margins = Margins(
                         top = IGNORED_MARGIN.dp, right = MARGIN_RIGHT.dp,
                         bottom = MARGIN_BOTTOM.dp, left = IGNORED_MARGIN.dp,
@@ -107,8 +107,8 @@ class LayerGeometryTest {
                 SurfaceConfig(
                     namespace = REJECTED_NAMESPACE,
                     anchor = setOf(Edge.Top),
-                    width = SPAN_ANCHORED_AXIS.dp,
-                    height = HEIGHT.dp,
+                    width = Length.WholeAxis,
+                    height = Length.Of(HEIGHT.dp),
                     exclusiveZone = ExclusiveZone.Reserve(HEIGHT.dp),
                 ),
             )
@@ -143,8 +143,8 @@ class LayerGeometryTest {
                 SurfaceConfig(
                     namespace = REJECTED_NAMESPACE,
                     anchor = horizontal,
-                    width = SPAN_ANCHORED_AXIS.dp,
-                    height = SPAN_ANCHORED_AXIS.dp,
+                    width = Length.WholeAxis,
+                    height = Length.WholeAxis,
                     exclusiveZone = ExclusiveZone.Yield,
                 ),
             )
@@ -176,8 +176,8 @@ class LayerGeometryTest {
                 SurfaceConfig(
                     namespace = REJECTED_NAMESPACE,
                     anchor = setOf(Edge.Top),
-                    width = NEGATIVE_WIDTH.dp,
-                    height = HEIGHT.dp,
+                    width = Length.Of(NEGATIVE_WIDTH.dp),
+                    height = Length.Of(HEIGHT.dp),
                     exclusiveZone = ExclusiveZone.Yield,
                 ),
             )
@@ -210,7 +210,7 @@ class LayerGeometryTest {
                 bar.waitForConfigure()
                     .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
 
-                when (val result = bar.setSize(SPAN_ANCHORED_AXIS, HEIGHT)) {
+                when (val result = bar.setSize(Length.WholeAxis, Length.Of(HEIGHT.dp))) {
                     is Ok -> fail("a 0 width on a surface anchored to Top alone must be rejected")
                     is Err ->
                         assertEquals(KortexError.UnspannableAxis(Axis.Horizontal, setOf(Edge.Top)), result.error)
@@ -238,7 +238,7 @@ class LayerGeometryTest {
                 bar.waitForConfigure()
                     .getOrElse { error -> fail("compositor never configured the layer surface: $error") }
 
-                when (val result = bar.setSize(WIDTH, NEGATIVE_HEIGHT)) {
+                when (val result = bar.setSize(Length.Of(WIDTH.dp), Length.Of(NEGATIVE_HEIGHT.dp))) {
                     is Ok -> fail("a height below 0 must be rejected")
                     is Err -> assertEquals(KortexError.NegativeSize(Axis.Vertical, NEGATIVE_HEIGHT), result.error)
                 }
@@ -262,8 +262,8 @@ class LayerGeometryTest {
                 SurfaceConfig(
                     namespace = SPANNING_NAMESPACE,
                     anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-                    width = SPAN_ANCHORED_AXIS.dp,
-                    height = SPAN_ANCHORED_AXIS.dp,
+                    width = Length.WholeAxis,
+                    height = Length.WholeAxis,
                     exclusiveZone = ExclusiveZone.Yield,
                 ),
                 output = monitor.proxy,
@@ -295,8 +295,8 @@ class LayerGeometryTest {
     private fun topBar(namespace: String, height: Int, exclusiveZone: ExclusiveZone) = SurfaceConfig(
         namespace = namespace,
         anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-        width = SPAN_ANCHORED_AXIS.dp,
-        height = height.dp,
+        width = Length.WholeAxis,
+        height = Length.Of(height.dp),
         exclusiveZone = exclusiveZone,
     )
 
@@ -304,8 +304,8 @@ class LayerGeometryTest {
     private fun pinnedToTop(namespace: String) = SurfaceConfig(
         namespace = namespace,
         anchor = setOf(Edge.Top),
-        width = WIDTH.dp,
-        height = HEIGHT.dp,
+        width = Length.Of(WIDTH.dp),
+        height = Length.Of(HEIGHT.dp),
         exclusiveZone = ExclusiveZone.Yield,
     )
 

@@ -54,11 +54,22 @@ public sealed interface KortexError : IError {
         public val objectId: Int,
     ) : KortexError
 
-    /** [axis] was left 0 ("you choose") while [anchor] does not pin both of its edges; the protocol forbids it. */
+    /**
+     * [axis] was asked to span ([Length.WholeAxis]) while [anchor] does not pin both of its edges; the
+     * protocol forbids it.
+     */
     public data class UnspannableAxis(public val axis: Axis, public val anchor: Set<Edge>) : KortexError
 
     /** [axis] was given a size that rounds below 0, to [size] logical pixels. */
     public data class NegativeSize(public val axis: Axis, public val size: Int) : KortexError
+
+    /**
+     * [axis] was given a [Length.Of] that rounds to no pixels at all, so the surface would draw nothing.
+     *
+     * Distinct from [UnspannableAxis] on purpose: both arrive as a 0 on the wire, and they are opposite
+     * mistakes. One asked for the whole axis without anchoring it, the other asked for nothing.
+     */
+    public data class EmptyLength(public val axis: Axis) : KortexError
 
     /** [anchor] does not pin [edge], and reserving space against an unanchored edge is a protocol error. */
     public data class InvalidExclusiveEdge(public val edge: Edge, public val anchor: Set<Edge>) : KortexError

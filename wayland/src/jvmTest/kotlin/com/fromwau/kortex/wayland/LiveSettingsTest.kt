@@ -27,7 +27,11 @@ class LiveSettingsTest {
         val size = mutableStateOf(IntSize(SPECK, SPECK))
         val placements = AtomicInteger()
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface(NAMESPACE, width = size.value.width.dp, height = size.value.height.dp) {
+            TestSurface(
+                NAMESPACE,
+                width = Length.Of(size.value.width.dp),
+                height = Length.Of(size.value.height.dp),
+            ) {
                 remember { placements.incrementAndGet() }
             }
         }
@@ -125,8 +129,8 @@ class LiveSettingsTest {
             TestSurface(
                 NAMESPACE,
                 anchor = BOTTOM_BAR,
-                width = SPAN_ANCHORED_AXIS.dp,
-                height = WIDER_ZONE.dp,
+                width = Length.WholeAxis,
+                height = Length.Of(WIDER_ZONE.dp),
                 exclusiveZone = zone.value,
             ) {
                 remember { placements.incrementAndGet() }
@@ -158,8 +162,8 @@ class LiveSettingsTest {
             TestSurface(
                 NAMESPACE,
                 anchor = corner.value.anchor,
-                width = WIDER.dp,
-                height = TALLER.dp,
+                width = Length.Of(WIDER.dp),
+                height = Length.Of(TALLER.dp),
                 exclusiveZone = ExclusiveZone.Reserve(ZONE.dp),
                 exclusiveEdge = corner.value.exclusiveEdge,
             ) {
@@ -195,7 +199,7 @@ class LiveSettingsTest {
             TestSurface(
                 NAMESPACE,
                 anchor = anchor.value,
-                width = SPAN_ANCHORED_AXIS.dp,
+                width = Length.WholeAxis,
                 state = bar,
             )
         }

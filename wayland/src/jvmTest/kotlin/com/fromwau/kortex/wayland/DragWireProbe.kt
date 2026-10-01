@@ -81,14 +81,14 @@ public fun main() {
                 TestSurface(
                     SOURCE_NAMESPACE,
                     anchor = setOf(Edge.Top, Edge.Left),
-                    width = BOX.dp,
-                    height = BOX.dp,
+                    width = Length.Of(BOX.dp),
+                    height = Length.Of(BOX.dp),
                 ) { DraggableBox() }
                 TestSurface(
                     TARGET_NAMESPACE,
                     anchor = setOf(Edge.Top, Edge.Right),
-                    width = BOX.dp,
-                    height = BOX.dp,
+                    width = Length.Of(BOX.dp),
+                    height = Length.Of(BOX.dp),
                 ) { DropTarget(dropped) }
             }
             .getOrElse { error("probe: shell create failed: $it") }

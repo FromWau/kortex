@@ -74,7 +74,12 @@ class LiveKeyboardTest {
         val keyboard = mutableStateOf(KeyboardInteractivity.OnDemand)
         val focused = AtomicBoolean(false)
         val content: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface(NAMESPACE, width = FIELD_SIDE.dp, height = FIELD_SIDE.dp, keyboard = keyboard.value) {
+            TestSurface(
+                NAMESPACE,
+                width = Length.Of(FIELD_SIDE.dp),
+                height = Length.Of(FIELD_SIDE.dp),
+                keyboard = keyboard.value,
+            ) {
                 FocusedTextField(focused)
             }
         }

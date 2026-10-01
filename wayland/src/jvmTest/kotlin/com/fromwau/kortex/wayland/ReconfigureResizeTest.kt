@@ -33,7 +33,7 @@ class ReconfigureResizeTest {
                     "the bar did not start at the size its own construction should have produced",
                 )
 
-                bar.requestSize(SPAN_ANCHORED_AXIS.dp, RESIZED_HEIGHT.dp)
+                bar.requestSize(Length.WholeAxis, Length.Of(RESIZED_HEIGHT.dp))
                     .getOrElse { error -> fail("the resize was rejected before it reached the compositor: $error") }
                 val resized =
                     bar.pumpOrFail(timeoutMillis = PUMP_MILLIS) { bar.bufferSize.height == RESIZED_HEIGHT * scale }

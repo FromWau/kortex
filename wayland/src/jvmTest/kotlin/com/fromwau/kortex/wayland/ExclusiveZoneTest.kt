@@ -27,8 +27,8 @@ class ExclusiveZoneTest {
                 SurfaceConfig(
                     namespace = PANEL_NAMESPACE,
                     anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-                    width = SPAN_ANCHORED_AXIS.dp,
-                    height = PANEL_HEIGHT.dp,
+                    width = Length.WholeAxis,
+                    height = Length.Of(PANEL_HEIGHT.dp),
                     exclusiveZone = ExclusiveZone.Reserve(PANEL_HEIGHT.dp),
                 ),
                 output = monitor.proxy,
@@ -44,8 +44,8 @@ class ExclusiveZoneTest {
                         namespace = BACKGROUND_NAMESPACE,
                         layer = Layer.Background,
                         anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-                        width = SPAN_ANCHORED_AXIS.dp,
-                        height = SPAN_ANCHORED_AXIS.dp,
+                        width = Length.WholeAxis,
+                        height = Length.WholeAxis,
                         exclusiveZone = ExclusiveZone.Overlap,
                     ),
                     output = monitor.proxy,
@@ -91,8 +91,8 @@ class ExclusiveZoneTest {
                 SurfaceConfig(
                     namespace = CORNER_NAMESPACE,
                     anchor = setOf(Edge.Bottom, Edge.Right),
-                    width = CORNER_WIDTH.dp,
-                    height = CORNER_HEIGHT.dp,
+                    width = Length.Of(CORNER_WIDTH.dp),
+                    height = Length.Of(CORNER_HEIGHT.dp),
                     exclusiveZone = ExclusiveZone.Reserve(CORNER_ZONE.dp),
                     exclusiveEdge = Edge.Right,
                 ),
@@ -125,8 +125,8 @@ class ExclusiveZoneTest {
                     SurfaceConfig(
                         namespace = PROBE_NAMESPACE,
                         anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-                        width = SPAN_ANCHORED_AXIS.dp,
-                        height = SPAN_ANCHORED_AXIS.dp,
+                        width = Length.WholeAxis,
+                        height = Length.WholeAxis,
                         exclusiveZone = ExclusiveZone.Yield,
                     ),
                     output = monitor.proxy,
@@ -184,8 +184,8 @@ class ExclusiveZoneTest {
                 SurfaceConfig(
                     namespace = REJECTED_NAMESPACE,
                     anchor = anchor,
-                    width = CORNER_WIDTH.dp,
-                    height = CORNER_HEIGHT.dp,
+                    width = Length.Of(CORNER_WIDTH.dp),
+                    height = Length.Of(CORNER_HEIGHT.dp),
                     exclusiveZone = ExclusiveZone.Reserve(CORNER_ZONE.dp),
                     exclusiveEdge = Edge.Top,
                 ),
@@ -212,8 +212,8 @@ class ExclusiveZoneTest {
     private fun topBar(namespace: String, exclusiveZone: ExclusiveZone) = SurfaceConfig(
         namespace = namespace,
         anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-        width = SPAN_ANCHORED_AXIS.dp,
-        height = CORNER_HEIGHT.dp,
+        width = Length.WholeAxis,
+        height = Length.Of(CORNER_HEIGHT.dp),
         exclusiveZone = exclusiveZone,
     )
 

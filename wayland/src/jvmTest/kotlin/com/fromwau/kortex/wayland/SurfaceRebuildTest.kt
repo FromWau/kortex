@@ -141,7 +141,7 @@ class SurfaceRebuildTest {
 
         onWatchedSurface(asked, watch) { shell, _ ->
             // Both in one recomposition: the namespace is what makes this a rebuild, the anchor what fails it.
-            asked.width.value = SPAN_ANCHORED_AXIS
+            asked.width.value = Length.WholeAxis
             asked.anchor.value = UNSPANNABLE
             asked.namespace.value = SECOND_NAMESPACE
 
@@ -183,8 +183,8 @@ class SurfaceRebuildTest {
             TestSurface(
                 namespace = asked.namespace.value,
                 anchor = asked.anchor.value,
-                width = asked.width.value.dp,
-                height = asked.height.dp,
+                width = asked.width.value,
+                height = Length.Of(asked.height.dp),
                 state = watch.state,
             ) {
                 if (showing.value) Popup(at = MENU_AT, width = MENU_SIDE, height = MENU_SIDE, state = menu) { Grey() }
@@ -266,8 +266,8 @@ class SurfaceRebuildTest {
             TestSurface(
                 namespace = asked.namespace.value,
                 anchor = asked.anchor.value,
-                width = asked.width.value.dp,
-                height = asked.height.dp,
+                width = asked.width.value,
+                height = Length.Of(asked.height.dp),
                 state = speck,
             ) {
                 DisposableEffect(Unit) { onDispose { error(CLEANUP_FAILURE) } }
@@ -278,7 +278,7 @@ class SurfaceRebuildTest {
             awaitPlaced(shell)
 
             // Both in one recomposition: the namespace is what makes this a rebuild, the anchor what fails it.
-            asked.width.value = SPAN_ANCHORED_AXIS
+            asked.width.value = Length.WholeAxis
             asked.anchor.value = UNSPANNABLE
             asked.namespace.value = SECOND_NAMESPACE
 
@@ -417,7 +417,7 @@ class SurfaceRebuildTest {
     private class Asked {
         val namespace: MutableState<String> = mutableStateOf(FIRST_NAMESPACE)
         val anchor: MutableState<Set<Edge>> = mutableStateOf(BOTTOM_RIGHT_SPECK)
-        val width: MutableState<Int> = mutableStateOf(SPECK)
+        val width: MutableState<Length> = mutableStateOf(Length.Of(SPECK.dp))
         val height: Int = SPECK
     }
 
@@ -437,8 +437,8 @@ class SurfaceRebuildTest {
         TestSurface(
             namespace = asked.namespace.value,
             anchor = asked.anchor.value,
-            width = asked.width.value.dp,
-            height = asked.height.dp,
+            width = asked.width.value,
+            height = Length.Of(asked.height.dp),
             state = watch.state,
         ) {
             val surface = this
@@ -497,8 +497,8 @@ class SurfaceRebuildTest {
             namespace = "kortex-rebuild-detach",
             layer = Layer.Overlay,
             anchor = BOTTOM_RIGHT_SPECK,
-            width = SPECK.dp,
-            height = SPECK.dp,
+            width = Length.Of(SPECK.dp),
+            height = Length.Of(SPECK.dp),
             exclusiveZone = ExclusiveZone.Yield,
         )
 

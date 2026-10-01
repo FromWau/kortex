@@ -21,6 +21,17 @@ internal const val SPAN_ANCHORED_AXIS = 0
 // The scene's density is set to the output scale, so 1.dp is exactly 1 logical pixel at every scale.
 internal fun Dp.toLogicalPx(): Int = value.roundToInt()
 
+/**
+ * The one place the protocol's own sentinel is written, which is why [Length] exists above it.
+ *
+ * Checked by [LayerShellSurface.requirePlaceable] before it gets here, so a 0 reaching the wire from
+ * [Length.Of] is a defect rather than a request.
+ */
+internal fun Length.toLogicalPx(): Int = when (this) {
+    Length.WholeAxis -> SPAN_ANCHORED_AXIS
+    is Length.Of -> amount.toLogicalPx()
+}
+
 internal fun Set<Edge>.toBits(): Int = fold(0) { bits, edge -> bits or edge.bit }
 
 internal fun ExclusiveZone.toWireValue(): Int = when (this) {
@@ -175,8 +186,8 @@ internal class LayerShellSurface(
      * @return what [requirePlaceable] rejects the new size for, leaving the surface at
      *   the size it already has.
      */
-    fun setSize(width: Int, height: Int): EmptyResult<KortexError> =
-        apply(config.copy(width = width.dp, height = height.dp))
+    fun setSize(width: Length, height: Length): EmptyResult<KortexError> =
+        apply(config.copy(width = width, height = height))
 
     /**
      * Sends only what [new] changes from the config this surface holds, then commits once.
@@ -355,20 +366,11 @@ internal class LayerShellSurface(
         }
 
         fun requirePlaceable(config: SurfaceConfig): EmptyResult<KortexError> {
-            val width = config.width.toLogicalPx()
-            val height = config.height.toLogicalPx()
             val anchor = config.anchor
+            config.width.unplaceable(Axis.Horizontal, anchor)?.let { return Err(it) }
+            config.height.unplaceable(Axis.Vertical, anchor)?.let { return Err(it) }
+
             return when {
-                width < 0 -> Err(KortexError.NegativeSize(Axis.Horizontal, width))
-
-                height < 0 -> Err(KortexError.NegativeSize(Axis.Vertical, height))
-
-                width == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Horizontal.edges) ->
-                    Err(KortexError.UnspannableAxis(Axis.Horizontal, anchor))
-
-                height == SPAN_ANCHORED_AXIS && !anchor.containsAll(Axis.Vertical.edges) ->
-                    Err(KortexError.UnspannableAxis(Axis.Vertical, anchor))
-
                 config.exclusiveEdge != null && config.exclusiveEdge !in anchor ->
                     Err(KortexError.InvalidExclusiveEdge(config.exclusiveEdge, anchor))
 
@@ -378,6 +380,23 @@ internal class LayerShellSurface(
                     Err(KortexError.InvalidExclusiveZone(config.exclusiveZone.amount))
 
                 else -> Ok(Unit)
+            }
+        }
+
+        /**
+         * Why this length cannot be placed on [axis] under [anchor], or null when it can.
+         *
+         * The two failures are opposite mistakes that the wire cannot tell apart, since both are a 0 in
+         * `set_size`: asking for the whole axis without anchoring it, and asking for nothing at all.
+         */
+        private fun Length.unplaceable(axis: Axis, anchor: Set<Edge>): KortexError? = when (this) {
+            Length.WholeAxis ->
+                KortexError.UnspannableAxis(axis, anchor).takeUnless { anchor.containsAll(axis.edges) }
+
+            is Length.Of -> when (val pixels = amount.toLogicalPx()) {
+                in Int.MIN_VALUE..-1 -> KortexError.NegativeSize(axis, pixels)
+                0 -> KortexError.EmptyLength(axis)
+                else -> null
             }
         }
 
@@ -461,9 +480,9 @@ internal fun KortexSurface.applyConfig(new: SurfaceConfig): EmptyResult<KortexEr
  * @return what [LayerShellSurface.setSize] rejected, leaving the surface at the size it already had.
  */
 internal fun KortexSurface.requestSize(
-    width: Dp,
-    height: Dp,
-): EmptyResult<KortexError> = role.asLayerShell().setSize(width.toLogicalPx(), height.toLogicalPx())
+    width: Length,
+    height: Length,
+): EmptyResult<KortexError> = role.asLayerShell().setSize(width, height)
 
 /** Only the factory above places a surface [LayerSettings] reaches, and it builds every one on a layer surface. */
 private fun SurfaceRole.asLayerShell(): LayerShellSurface {

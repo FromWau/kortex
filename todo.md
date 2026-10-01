@@ -1278,6 +1278,13 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       asked for on procfs or sysfs answers `WatchError.Unwatchable(path, Pseudofilesystem.Proc)` as its
       first and only value and names the overload that works, instead of being a widget that looks fine and
       never updates.
+      **The names were wrong once, and a bar built on it is what showed that.** The two were overloads of
+      one `fileWatcher`, both spelled `fileWatcher(path)` at a call site that omitted the interval, both
+      returning the same type, and the difference between them being a widget that updates and a widget
+      that does not. The error for the wrong choice is a good one, and it is still a runtime one, in red,
+      in ninety pixels, among five other widgets. They are `Path.watchText()` and
+      `Path.readTextEvery(every)` now: a mechanism cannot be chosen by leaving an argument out, and the
+      pair reads beside kern's own `Path.readText()` as read it once, read it repeatedly, or watch it.
       **The error set was wrong once, and the correction is the rule.** It first had a
       `WatchFailed(path, reason: String)`, which lumped a missing directory, an unreadable one, a watch that
       had stopped and a system limit into one case with English as the discriminator, and an `Unwatchable`
@@ -1317,6 +1324,14 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       `Dispatchers.IO` is not in coroutines' common API and resolves in common code only while a module has
       a single target. That second one compiled fine before it was wrong, which is the trap worth
       remembering.
+      **"Only changes arrive" is right for a readout and quietly wrong for a rate, and the docs did not
+      say so.** The suppression that makes every text widget simpler means `every` is not the gap between
+      values: a file that stops changing emits nothing until it changes again. A consumer's throughput
+      widget divided a counter's delta by the interval, which is the obvious implementation, and rendered a
+      2 kB keepalive after sixty idle seconds as 1 kB/s instead of 33 B/s. CPU load escaped by arithmetic
+      luck, a ratio of jiffy counters where elapsed time cancels, and memory and temperature are absolute,
+      so a counter was the only one of four widgets that was wrong. The behaviour is right and already
+      pinned by a test; what was missing was a clause, and `readTextEvery`'s KDoc now carries it.
       One nicety that fell out of typing the signals: an inotify queue overflow is not an error. It means
       events were dropped, so the only honest signal is `Ok(Unit)`, a re-read, which the deduplication then
       drops again if nothing actually changed.
@@ -1929,6 +1944,43 @@ What the review asked for that is deliberately still open:
   caller. The address is `DBUS_SYSTEM_BUS_ADDRESS` when it is set, which it is not on this machine, and
   otherwise the specification's default of `/var/run/dbus/system_bus_socket`, which here is
   `/run/dbus/system_bus_socket` through a symlink. Nothing else about the client changes.
+- **`:watch` has no public API dump, and nor does anything else.** A consumer has no way to read kortex's
+  surface: no Dokka, no `.api` file, no sources jar, so the first outside user unzipped the jars and ran
+  `javap -public`. `binary-compatibility-validator` is about ten lines of build script and leaves an `.api`
+  file in the repo, which doubles as the thing a reviewer reads to see a public surface change.
+- [x] **`0.dp` meaning "the whole edge" was a sentinel inside a `Dp`, and is now a `Length`.** `WholeAxis`
+      and `Of(amount)`, beside `ExclusiveZone`, which had already made the same move for the same reason:
+      the protocol's 0 is the protocol's, so it stays there, and the two meanings a caller can hold are
+      types. A length that rounds to no pixels is `KortexError.EmptyLength` now instead of silently
+      becoming the opposite request.
+      **It was in more places than the finding said.** `LayerSurface`'s public `width` and `height` carried
+      the same 0, so the fix is four public signatures, not three, and the internal `SurfaceConfig` carries
+      the type too, since otherwise `Length.Of(0.dp)` would convert straight back to the sentinel and the
+      change would be decoration. `requirePlaceable` reads better for it: it matches on cases rather than
+      comparing against `SPAN_ANCHORED_AXIS`, and that constant now appears twice in the whole repository,
+      its declaration and the one line that writes the wire, where before it was in fourteen test files.
+      **One test would have failed only on the desktop.** `SurfaceRebuildTest` drove a rebuild through a
+      `MutableState<Int>` set to 0 to mean "span", which under the new rule is `Length.Of(0.dp)`, so it
+      would have ended with `EmptyLength` where it asserts `UnspannableAxis`. The state holds a `Length`
+      now and says `WholeAxis`, which is what it always meant.
+      **`PlacementTest` is new and needs no compositor.** Seven cases over `requirePlaceable`, which until
+      now was only ever exercised through a live surface ending with an error. Removing the `EmptyLength`
+      branch fails four of them.
+- **The consumer-build story is three things the README had to be told, not one.** Google's Maven for the
+  androidx artifacts Compose resolves, `maven.frommhund.xyz` for kern, and a toolchain repository for
+  JDK 25, because `foojay-resolver-convention` sits in kortex's own settings and a settings plugin does not
+  reach a build that only includes kortex. All three are in the README now. All three were found by
+  somebody building against kortex rather than by anybody reading it, which is the argument for doing that
+  again when the surface next changes.
+- **Nothing says which `CoroutineScope` a shell's state belongs on.** `kortexApplication`'s KDoc says the
+  content thread also draws, so the reflex, `stateIn(rememberCoroutineScope())`, looks unsafe, and nothing
+  in the README, the KDoc or the demo says what context that scope gets. The first outside user wrote their
+  own scope plus a `DisposableEffect` and a wrapper to carry both, twelve lines that every stateful kortex
+  shell will write, and left the question open rather than reading the implementation. Either answer it in
+  the doc or offer a `rememberShellScope()`.
+- **A public `pseudofilesystemOf(path)` would let a consumer test its own choice of watcher.** Wanted by the
+  first outside user and hand-written instead. Smaller now that the two watchers have their own names, so
+  it waits for a second person to ask.
 - **The API-shape suggestions, as suggestions.** A `watch(rule)` that adds and removes a match rule with the
   subscription instead of leaving both to the caller; an object proxy so a path and interface are named once
   rather than per call; `argN` on `MatchRule`, which is what narrowing `NameOwnerChanged` needs; public
@@ -1940,6 +1992,12 @@ What the review asked for that is deliberately still open:
 
 ## Deliberately not doing
 
+- **A glob watcher in `:watch`**: "the first file matching this pattern, watched, and re-resolved if it goes
+  away". Every sysfs widget needs to find its file before it can watch one, battery, backlight, temperature
+  and fan speed included, and none of them can hardcode a path. Finding it is still the caller's scope, and
+  `kern:dirs` is already on the classpath with `list` and `walkTopDown` to do it. `:watch` watches a file
+  you can name; what both watchers' docs now say is that naming it is your job, with the hwmon case as the
+  example.
 - `BinarySource` / bundled binary extraction / arch-specific resources: no helper binary exists.
 - The two JVM reflection flags: kortex reaches `PlatformContext` directly.
 - JitPack publishing: publishing is out of scope for now.

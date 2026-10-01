@@ -34,8 +34,8 @@ public fun main() {
                     NAMESPACE,
                     anchor = setOf(Edge.Top, Edge.Left),
                     margins = Margins(top = MARGIN.dp, left = MARGIN.dp),
-                    width = BOX.dp,
-                    height = BOX.dp,
+                    width = Length.Of(BOX.dp),
+                    height = Length.Of(BOX.dp),
                 ) { DropSquare() }
             }
             .getOrElse { error("live: shell create failed: $it") }

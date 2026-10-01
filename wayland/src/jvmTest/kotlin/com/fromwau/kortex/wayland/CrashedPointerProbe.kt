@@ -36,8 +36,8 @@ object CrashedPointerProbe {
                     POINTER_PROBE_NAMESPACE,
                     layer = Layer.Overlay,
                     anchor = setOf(Edge.Top, Edge.Left),
-                    width = 32.dp,
-                    height = 32.dp,
+                    width = Length.Of(32.dp),
+                    height = Length.Of(32.dp),
                     state = probe,
                 ) { ThrowOnClick() }
             }

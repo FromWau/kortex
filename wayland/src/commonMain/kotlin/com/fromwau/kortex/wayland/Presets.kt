@@ -27,8 +27,8 @@ import androidx.compose.ui.unit.dp
  * @param edge the edge the bar runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the bar reaches in from [edge], which is also the space it reserves there. It must round to
  *   at least one logical pixel, or the bar is not placed and its status ends with `Err`.
- * @param length how far the bar runs along [edge]; 0 spans the whole edge. It must not round below 0, or the bar is
- *   not placed and its status ends with `Err`.
+ * @param length how far the bar runs along [edge]; the default spans it. A [Length.Of] that rounds to no
+ *   pixels, or below none, leaves the bar unplaced and its status ends with `Err`.
  * @param margins insets from the edges the bar is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param keyboard whether the bar can take keyboard focus, as a text field in it needs.
  * @param namespace what the compositor calls the bar, e.g. in `hyprctl layers`, exactly as written.
@@ -40,7 +40,7 @@ public fun Bar(
     monitor: Monitor? = null,
     edge: Edge = Edge.Top,
     thickness: Dp = 32.dp,
-    length: Dp = 0.dp,
+    length: Length = Length.WholeAxis,
     margins: Margins = Margins.None,
     keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
     namespace: String = "kortex",
@@ -67,8 +67,8 @@ public fun Bar(
  * @param edge the edge the panel runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the panel reaches in from [edge], which is also the space it reserves there. It must round
  *   to at least one logical pixel, or the panel is not placed and its status ends with `Err`.
- * @param length how far the panel runs along [edge]; 0 spans the whole edge. It must not round below 0, or the panel
- *   is not placed and its status ends with `Err`.
+ * @param length how far the panel runs along [edge]; the default spans it. A [Length.Of] that rounds to no
+ *   pixels, or below none, leaves the panel unplaced and its status ends with `Err`.
  * @param margins insets from the edges the panel is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the panel, e.g. in `hyprctl layers`, exactly as written.
  * @param state where to read what the panel is doing, as [LayerSurface]'s `state` describes.
@@ -79,7 +79,7 @@ public fun Panel(
     monitor: Monitor? = null,
     edge: Edge,
     thickness: Dp,
-    length: Dp = 0.dp,
+    length: Length = Length.WholeAxis,
     margins: Margins = Margins.None,
     namespace: String = "kortex",
     state: SurfaceState = rememberSurfaceState(),
@@ -105,8 +105,8 @@ public fun Panel(
  * @param edge the edge the dock runs along. It is pinned to that edge and the two beside it.
  * @param thickness how far the dock reaches in from [edge], which is also the space it reserves there. It must round
  *   to at least one logical pixel, or the dock is not placed and its status ends with `Err`.
- * @param length how far the dock runs along [edge]; 0 spans the whole edge. It must not round below 0, or the dock is
- *   not placed and its status ends with `Err`.
+ * @param length how far the dock runs along [edge]; the default spans it. A [Length.Of] that rounds to no
+ *   pixels, or below none, leaves the dock unplaced and its status ends with `Err`.
  * @param margins insets from the edges the dock is pinned to; a margin on the edge opposite [edge] has no effect.
  * @param namespace what the compositor calls the dock, e.g. in `hyprctl layers`, exactly as written.
  * @param state where to read what the dock is doing, as [LayerSurface]'s `state` describes.
@@ -117,7 +117,7 @@ public fun Dock(
     monitor: Monitor? = null,
     edge: Edge,
     thickness: Dp,
-    length: Dp = 0.dp,
+    length: Length = Length.WholeAxis,
     margins: Margins = Margins.None,
     namespace: String = "kortex",
     state: SurfaceState = rememberSurfaceState(),

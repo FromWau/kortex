@@ -216,7 +216,7 @@ class PopupTest {
         LayerSurface(
             namespace = BAR_NAMESPACE,
             anchor = setOf(Edge.Bottom, Edge.Left, Edge.Right),
-            height = BAR_THICKNESS,
+            height = Length.Of(BAR_THICKNESS),
             exclusiveZone = ExclusiveZone.Overlap,
             state = state,
             content = content,

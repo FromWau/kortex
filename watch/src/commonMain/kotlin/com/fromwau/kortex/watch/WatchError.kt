@@ -47,7 +47,7 @@ public sealed interface WatchError : IError {
      *
      * procfs and sysfs make a file's contents up as it is read, so there is no write for the kernel to
      * report and `inotify(7)` names both as unmonitorable. Read such a file on an interval instead, with
-     * the [fileWatcher] overload that takes one.
+     * [readTextEvery].
      */
     public data class Unwatchable(
         override val path: Path,
@@ -71,7 +71,10 @@ public sealed interface WatchError : IError {
 }
 
 /** The filesystems whose files report no change, which are the ones `inotify(7)` names as unmonitorable. */
-public enum class Pseudofilesystem(internal val typeName: String) {
+public enum class Pseudofilesystem(
+    /** What the kernel itself calls it, which is what a message about the file should say. */
+    public val typeName: String,
+) {
     Proc("proc"),
     Sysfs("sysfs"),
     DevPts("devpts"),

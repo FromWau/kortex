@@ -80,7 +80,7 @@ class PresetTest {
                     monitor = monitor,
                     edge = Edge.Left,
                     thickness = THICKNESS.dp,
-                    length = LENGTH.dp,
+                    length = Length.Of(LENGTH.dp),
                     margins = MARGINS,
                     keyboard = KeyboardInteractivity.OnDemand,
                     namespace = BAR_NAMESPACE,
@@ -90,7 +90,7 @@ class PresetTest {
             assertSame(monitor, settings.monitor, "the bar was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig
-                    .panel(Edge.Left, THICKNESS.dp, LENGTH.dp)
+                    .panel(Edge.Left, THICKNESS.dp, Length.Of(LENGTH.dp))
                     .copy(namespace = BAR_NAMESPACE, margins = MARGINS, keyboard = KeyboardInteractivity.OnDemand),
                 settings.config,
                 "the bar did not ask for a panel's settings with the values it was given",
@@ -106,7 +106,7 @@ class PresetTest {
                     monitor = monitor,
                     edge = Edge.Right,
                     thickness = THICKNESS.dp,
-                    length = LENGTH.dp,
+                    length = Length.Of(LENGTH.dp),
                     margins = MARGINS,
                     namespace = PANEL_NAMESPACE,
                 ) {}
@@ -115,7 +115,7 @@ class PresetTest {
             assertSame(monitor, settings.monitor, "the panel was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig
-                    .panel(Edge.Right, THICKNESS.dp, LENGTH.dp)
+                    .panel(Edge.Right, THICKNESS.dp, Length.Of(LENGTH.dp))
                     .copy(namespace = PANEL_NAMESPACE, margins = MARGINS),
                 settings.config,
                 "the panel did not ask for a panel's settings with the values it was given",
@@ -216,7 +216,7 @@ class PresetTest {
                     monitor = monitor,
                     edge = Edge.Bottom,
                     thickness = THICKNESS.dp,
-                    length = LENGTH.dp,
+                    length = Length.Of(LENGTH.dp),
                     margins = MARGINS,
                     namespace = DOCK_NAMESPACE,
                 ) {}
@@ -230,7 +230,7 @@ class PresetTest {
             assertSame(monitor, settings.monitor, "the dock was not put on the monitor it was given")
             assertEquals(
                 SurfaceConfig
-                    .dock(Edge.Bottom, THICKNESS.dp, LENGTH.dp)
+                    .dock(Edge.Bottom, THICKNESS.dp, Length.Of(LENGTH.dp))
                     .copy(namespace = DOCK_NAMESPACE, margins = MARGINS),
                 settings.config,
                 "the dock did not ask for a dock's settings with the values it was given",

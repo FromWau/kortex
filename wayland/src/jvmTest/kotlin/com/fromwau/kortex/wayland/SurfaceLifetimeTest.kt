@@ -107,8 +107,8 @@ class SurfaceLifetimeTest {
                 SurfaceConfig(
                     namespace = LAYER_NAMESPACE,
                     anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-                    width = SPAN_ANCHORED_AXIS.dp,
-                    height = LAYER_HEIGHT.dp,
+                    width = Length.WholeAxis,
+                    height = Length.Of(LAYER_HEIGHT.dp),
                     exclusiveZone = ExclusiveZone.Yield,
                 ),
             ).getOrElse { error -> fail("layer surface creation failed: $error") }

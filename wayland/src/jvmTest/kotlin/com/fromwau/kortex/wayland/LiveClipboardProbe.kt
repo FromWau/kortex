@@ -56,8 +56,8 @@ public fun main() {
                     keyboard = KeyboardInteractivity.OnDemand,
                     anchor = setOf(Edge.Top, Edge.Left),
                     margins = Margins(top = MARGIN.dp, left = MARGIN.dp),
-                    width = WIDTH.dp,
-                    height = HEIGHT.dp,
+                    width = Length.Of(WIDTH.dp),
+                    height = Length.Of(HEIGHT.dp),
                 ) { Buttons(files) }
             }
             .getOrElse { error("live: shell create failed: $it") }

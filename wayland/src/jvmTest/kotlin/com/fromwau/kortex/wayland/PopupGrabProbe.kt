@@ -34,7 +34,7 @@ public fun main() {
             LayerSurface(
                 namespace = NAMESPACE,
                 anchor = setOf(Edge.Bottom, Edge.Left, Edge.Right),
-                height = BAR_THICKNESS,
+                height = Length.Of(BAR_THICKNESS),
                 // Reserves nothing, so nothing the user has open is re-tiled around it.
                 exclusiveZone = ExclusiveZone.Overlap,
             ) {

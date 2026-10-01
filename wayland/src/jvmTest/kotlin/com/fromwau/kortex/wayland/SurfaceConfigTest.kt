@@ -27,8 +27,8 @@ class SurfaceConfigTest {
                 namespace = DOCK_NAMESPACE,
                 layer = Layer.Overlay,
                 anchor = setOf(Edge.Bottom, Edge.Left, Edge.Right),
-                width = 0.dp,
-                height = DOCK_HEIGHT.dp,
+                width = Length.WholeAxis,
+                height = Length.Of(DOCK_HEIGHT.dp),
                 exclusiveZone = ExclusiveZone.Reserve(DOCK_HEIGHT.dp),
             )
             val dock = KortexSurface.createOnLayer(wayland, config, output = monitor.proxy)
@@ -82,8 +82,8 @@ class SurfaceConfigTest {
                     namespace = BACKGROUND_NAMESPACE,
                     layer = Layer.Background,
                     anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-                    width = 0.dp,
-                    height = 0.dp,
+                    width = Length.WholeAxis,
+                    height = Length.WholeAxis,
                     exclusiveZone = ExclusiveZone.Overlap,
                 )
                 val background = KortexSurface.createOnLayer(wayland, config, output = monitor.proxy)

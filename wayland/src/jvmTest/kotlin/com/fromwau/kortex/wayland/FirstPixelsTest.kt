@@ -45,8 +45,8 @@ class FirstPixelsTest {
                     SurfaceConfig(
                         namespace = NAMESPACE,
                         anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-                        width = SPAN_ANCHORED_AXIS.dp,
-                        height = BAR_HEIGHT.dp,
+                        width = Length.WholeAxis,
+                        height = Length.Of(BAR_HEIGHT.dp),
                         exclusiveZone = ExclusiveZone.Reserve(BAR_HEIGHT.dp),
                     ),
                 )

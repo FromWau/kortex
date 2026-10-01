@@ -79,8 +79,8 @@ class LayerShellSurfaceTest {
     private fun topBar(exclusiveZone: ExclusiveZone) = SurfaceConfig(
         namespace = NAMESPACE,
         anchor = setOf(Edge.Top, Edge.Left, Edge.Right),
-        width = SPAN_ANCHORED_AXIS.dp,
-        height = BAR_HEIGHT.dp,
+        width = Length.WholeAxis,
+        height = Length.Of(BAR_HEIGHT.dp),
         exclusiveZone = exclusiveZone,
     )
 

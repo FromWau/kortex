@@ -330,7 +330,7 @@ class SurfaceTest {
     fun `a surface that cannot be placed ends with the reason, and the run goes on`() {
         val speck = SurfaceState()
         val unplaceable: @Composable KortexApplicationScope.() -> Unit = {
-            TestSurface(NAMESPACE, anchor = emptySet(), width = 0.dp, state = speck)
+            TestSurface(NAMESPACE, anchor = emptySet(), width = Length.WholeAxis, state = speck)
         }
 
         onApplication(unplaceable) { shell ->
@@ -352,7 +352,7 @@ class SurfaceTest {
         val speck = SurfaceState()
         val negative: @Composable KortexApplicationScope.() -> Unit = {
             // A corner anchor: should the width go out, Hyprland answers its commit by ending the connection.
-            TestSurface(NAMESPACE, width = NEGATIVE_WIDTH.dp, state = speck)
+            TestSurface(NAMESPACE, width = Length.Of(NEGATIVE_WIDTH.dp), state = speck)
         }
 
         onApplication(negative) { shell ->

@@ -83,6 +83,33 @@ public sealed interface ExclusiveZone {
 }
 
 /**
+ * How far a surface runs along one axis: a length of its own, or the whole of what it is anchored across.
+ *
+ * A type rather than a [Dp] where 0 means "the whole thing". That 0 is the protocol's sentinel and stays in
+ * the protocol: "no length at all" and "every pixel of the axis" are the two furthest apart answers there
+ * are, and a caller whose computed length rounds to 0 should hear [KortexError.EmptyLength] rather than
+ * silently get the opposite of what they asked for. [ExclusiveZone] is the same move, for the same reason.
+ */
+public sealed interface Length {
+    /**
+     * Spans whatever the surface is anchored across, at whatever size the monitor is.
+     *
+     * Both edges of that axis have to be anchored, since the compositor has nothing else to measure
+     * against: without them the surface is not placed and its status ends with
+     * [KortexError.UnspannableAxis].
+     */
+    public data object WholeAxis : Length
+
+    /**
+     * Runs exactly [amount].
+     *
+     * [amount] must round to at least one logical pixel. One that rounds to 0 is
+     * [KortexError.EmptyLength], and one that rounds below 0 is [KortexError.NegativeSize].
+     */
+    public data class Of(public val amount: Dp) : Length
+}
+
+/**
  * Every setting of a layer surface but its monitor, as [LayerSurface] places one, and every one of them reaches a
  * surface already placed. The companion's presets write each kind's placement rule once, for the preset composables
  * to pass on.
@@ -93,10 +120,9 @@ public sealed interface ExclusiveZone {
  * @property namespace what the compositor calls the surface, e.g. in `hyprctl layers`.
  * @property anchor the edges the surface is pinned to; pinning both edges of an [Axis] spans that axis.
  *   Pinning nothing centres the surface, which then needs an explicit [width] and [height].
- * @property width 0 asks the compositor to choose, which requires [anchor] to pin both [Edge.Left] and
- *   [Edge.Right]; without them you get [KortexError.UnspannableAxis].
- * @property height 0 asks the compositor to choose, like [width], and requires both [Edge.Top] and
- *   [Edge.Bottom].
+ * @property width [Length.WholeAxis] asks the compositor to choose, which requires [anchor] to pin both
+ *   [Edge.Left] and [Edge.Right]; without them you get [KortexError.UnspannableAxis].
+ * @property height as [width], and [Length.WholeAxis] there requires both [Edge.Top] and [Edge.Bottom].
  * @property exclusiveZone what the surface reserves of the space the compositor tiles other windows
  *   into; what is sensible depends on [anchor].
  * @property keyboard whether the surface can take keyboard focus.
@@ -107,8 +133,8 @@ internal data class SurfaceConfig(
     val namespace: String = "kortex",
     val layer: Layer = Layer.Top,
     val anchor: Set<Edge>,
-    val width: Dp,
-    val height: Dp,
+    val width: Length,
+    val height: Length,
     val margins: Margins = Margins.None,
     val exclusiveZone: ExclusiveZone,
     val keyboard: KeyboardInteractivity = KeyboardInteractivity.None,
@@ -121,12 +147,12 @@ internal data class SurfaceConfig(
          *
          * @param thickness how far the surface extends from [edge], and the screen space it reserves.
          *   It must round to at least one logical pixel, as [ExclusiveZone.Reserve] does.
-         * @param length how far the surface runs along [edge]; 0 (the default) spans the whole edge.
+         * @param length how far the surface runs along [edge]; the default spans it.
          */
-        fun panel(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig {
+        fun panel(edge: Edge, thickness: Dp, length: Length = Length.WholeAxis): SurfaceConfig {
             val (width, height, perpendicular) = when (edge) {
-                Edge.Top, Edge.Bottom -> Triple(length, thickness, Axis.Horizontal.edges)
-                Edge.Left, Edge.Right -> Triple(thickness, length, Axis.Vertical.edges)
+                Edge.Top, Edge.Bottom -> Triple(length, Length.Of(thickness), Axis.Horizontal.edges)
+                Edge.Left, Edge.Right -> Triple(Length.Of(thickness), length, Axis.Vertical.edges)
             }
             return SurfaceConfig(
                 anchor = setOf(edge) + perpendicular,
@@ -137,7 +163,7 @@ internal data class SurfaceConfig(
         }
 
         /** A [panel] with [KeyboardInteractivity.OnDemand], for one a user types or clicks into. */
-        fun dock(edge: Edge, thickness: Dp, length: Dp = 0.dp): SurfaceConfig =
+        fun dock(edge: Edge, thickness: Dp, length: Length = Length.WholeAxis): SurfaceConfig =
             panel(edge, thickness, length).copy(keyboard = KeyboardInteractivity.OnDemand)
 
         /**
@@ -147,8 +173,8 @@ internal data class SurfaceConfig(
         fun desktopBackground(): SurfaceConfig = SurfaceConfig(
             layer = Layer.Background,
             anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-            width = 0.dp,
-            height = 0.dp,
+            width = Length.WholeAxis,
+            height = Length.WholeAxis,
             exclusiveZone = ExclusiveZone.Overlap,
         )
 
@@ -163,8 +189,8 @@ internal data class SurfaceConfig(
         fun lockScreen(): SurfaceConfig = SurfaceConfig(
             layer = Layer.Overlay,
             anchor = setOf(Edge.Top, Edge.Bottom, Edge.Left, Edge.Right),
-            width = 0.dp,
-            height = 0.dp,
+            width = Length.WholeAxis,
+            height = Length.WholeAxis,
             exclusiveZone = ExclusiveZone.Overlap,
             keyboard = KeyboardInteractivity.Exclusive,
         )
@@ -180,8 +206,8 @@ internal data class SurfaceConfig(
         fun osd(width: Dp, height: Dp): SurfaceConfig = SurfaceConfig(
             layer = Layer.Overlay,
             anchor = emptySet(),
-            width = width,
-            height = height,
+            width = Length.Of(width),
+            height = Length.Of(height),
             exclusiveZone = ExclusiveZone.Yield,
         )
 

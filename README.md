@@ -33,7 +33,11 @@ Compose's runtime, ui and foundation come with `:wayland`; material3 is yours to
 - **A compositor with `zwlr_layer_shell_v1`**: wlroots compositors, Hyprland and sway among them, and KWin.
   kortex refuses to start without it and names it, rather than running as half a toolkit whose bars and
   wallpapers silently never appear. Development happens against Hyprland.
-- **JDK 25**, which is what the Gradle toolchain asks for.
+- **JDK 25**, which is what the Gradle toolchain asks for. A consumer build needs its own toolchain
+  repository to fetch one, since a settings plugin does not reach a build that merely includes kortex:
+  `id("org.gradle.toolchains.foojay-resolver-convention")` in your `settings.gradle.kts`, or a JDK 25
+  already on the machine. Without either, Gradle auto-provisions one and warns, and that warning becomes
+  an error in Gradle 10.
 - **`libwayland-client.so.0`, `libwayland-cursor.so.0` and `libxkbcommon.so.0`** at runtime, and
   `--enable-native-access=ALL-UNNAMED` on the JVM that runs your shell, because the bindings are foreign
   calls.
@@ -93,18 +97,27 @@ Plenty of what a bar shows lives in a file rather than on a bus, so `:watch` han
 hands it over again when it changes:
 
 ```kotlin
-val memory: StateFlow<MemInfo?> = fileWatcher(Path("/proc/meminfo"), every = 2.seconds)
+import kotlinx.io.files.Path   // kern's Path, not java.nio's
+
+val memory: StateFlow<MemInfo?> = Path("/proc/meminfo").readTextEvery(2.seconds)
     .map { read -> read.getOrNull()?.let(::parseMemInfo) }
     .stateIn(scope, SharingStarted.WhileSubscribed(), null)
 ```
 
 The first value is always the file as it stands, and after that only changes arrive, so you need no
-`distinctUntilChanged()` of your own. `fileWatcher(path)` without an interval waits for the operating system
-instead of reading on a tick, which is what you want for a config file in `$HOME`. It is **not** what works
-for the example above: procfs and sysfs make a file's contents up as it is read, so there is no write for
-the kernel to report, and `inotify(7)` names both as unmonitorable. That overload says so, with
-`WatchError.Unwatchable` naming the filesystem, rather than leaving you a widget that looks fine and never
-updates.
+`distinctUntilChanged()` of your own. Note what that means for a rate: `every` is not the gap between
+values, because a file that stops changing emits nothing, so divide a counter's delta by the gap you
+measured rather than by the interval.
+
+`watchText()` is the other half of the pair. It waits for the operating system instead of reading on a
+tick, which is what you want for a config file in `$HOME`. It is **not** what works for the example above:
+procfs and sysfs make a file's contents up as it is read, so there is no write for the kernel to report,
+and `inotify(7)` names both as unmonitorable. It says so, with `WatchError.Unwatchable` naming the
+filesystem, rather than leaving you a widget that looks fine and never updates.
+
+Finding the file is yours. A sysfs reading rarely has a path you can write down: `/sys/class/hwmon/hwmonN`
+is numbered in probe order, and which `tempN_input` you want is decided by the `tempN_label` beside it.
+List and choose with `kern:dirs`, then watch what you found.
 
 In a composition, `collectAsState()` is the bridge, and kortex ships no helper for it.
 
@@ -119,7 +132,12 @@ Use the wrapper.
 ```
 
 Nothing is published yet. Publishing waits until development settles, so for now a consumer builds from
-source.
+source: `includeBuild("path/to/kortex")` in your `settings.gradle.kts` and then the ordinary coordinate,
+`implementation("com.fromwau.kortex:wayland:0.1.0")`, which Gradle substitutes from the included build.
+
+Your repositories need `mavenCentral()`, Google's Maven for the androidx artifacts Compose pulls in, and
+`maven("https://maven.frommhund.xyz/releases")` for kern. Without the second, the failure names an androidx
+artifact rather than anything of kortex's, which is a confusing first five minutes.
 
 Two probes print live desktop state and wait for you rather than driving themselves, which is why no test
 task can run one:

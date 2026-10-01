@@ -400,8 +400,8 @@ class SurfaceCloseCancellationTest {
         namespace = namespace,
         layer = Layer.Overlay,
         anchor = setOf(Edge.Bottom, Edge.Right),
-        width = SPECK_SIZE.dp,
-        height = SPECK_SIZE.dp,
+        width = Length.Of(SPECK_SIZE.dp),
+        height = Length.Of(SPECK_SIZE.dp),
         exclusiveZone = ExclusiveZone.Yield,
     )
 

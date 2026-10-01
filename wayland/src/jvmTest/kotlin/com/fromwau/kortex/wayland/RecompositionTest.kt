@@ -85,7 +85,7 @@ class RecompositionTest {
                 val composedOnce = surface.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) { composed.isNotEmpty() }
                 assertTrue(composedOnce, "content never composed at all")
 
-                surface.requestSize(SPAN_ANCHORED_AXIS.dp, RESIZED_HEIGHT.dp)
+                surface.requestSize(Length.WholeAxis, Length.Of(RESIZED_HEIGHT.dp))
                     .getOrElse { error -> fail("the resize was rejected before it reached the compositor: $error") }
 
                 val recomposed = surface.pumpOrFail(timeoutMillis = PUMP_TIMEOUT_MILLIS) {

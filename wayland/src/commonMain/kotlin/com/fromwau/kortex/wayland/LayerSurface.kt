@@ -17,8 +17,8 @@ import androidx.compose.ui.unit.dp
  *     LayerSurface(
  *         namespace = "volume",
  *         layer = Layer.Overlay,
- *         width = 240.dp,
- *         height = 48.dp,
+ *         width = Length.Of(240.dp),
+ *         height = Length.Of(48.dp),
  *         state = volume,
  *     ) {
  *         LaunchedEffect(Unit) {
@@ -52,11 +52,11 @@ import androidx.compose.ui.unit.dp
  * @param layer which layer the surface sits in.
  * @param anchor the edges the surface is pinned to. Pinning both edges of an [Axis] spans that axis, and pinning
  *   none centres the surface.
- * @param width 0 asks the compositor to choose, which needs [anchor] to pin both [Edge.Left] and [Edge.Right];
- *   without them the surface is not placed, and ends with `Err(KortexError.UnspannableAxis(...))`. One that rounds
- *   below 0 leaves the surface unplaced too, ending it with `Err(KortexError.NegativeSize(...))`.
- * @param height 0 asks the compositor to choose, like [width], and needs both [Edge.Top] and [Edge.Bottom]. One that
- *   rounds below 0 leaves the surface unplaced, as for [width].
+ * @param width [Length.WholeAxis], the default, asks the compositor to choose, which needs [anchor] to pin both
+ *   [Edge.Left] and [Edge.Right]; without them the surface is not placed and ends with
+ *   `Err(KortexError.UnspannableAxis(...))`. A [Length.Of] that rounds to no pixels leaves it unplaced with
+ *   `Err(KortexError.EmptyLength(...))`, and one that rounds below 0 with `Err(KortexError.NegativeSize(...))`.
+ * @param height as [width], and [Length.WholeAxis] there needs both [Edge.Top] and [Edge.Bottom].
  * @param margins insets from the anchor point; an edge [anchor] does not pin ignores its margin.
  * @param exclusiveZone what the surface reserves of the space the compositor tiles other windows into.
  * @param exclusiveEdge which anchored edge [exclusiveZone] is measured from, needed only when [anchor] pins a
@@ -76,8 +76,8 @@ public fun LayerSurface(
     namespace: String = "kortex",
     layer: Layer = Layer.Top,
     anchor: Set<Edge> = emptySet(),
-    width: Dp = 0.dp,
-    height: Dp = 0.dp,
+    width: Length = Length.WholeAxis,
+    height: Length = Length.WholeAxis,
     margins: Margins = Margins.None,
     exclusiveZone: ExclusiveZone = ExclusiveZone.Yield,
     exclusiveEdge: Edge? = null,
