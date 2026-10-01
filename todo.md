@@ -1175,8 +1175,7 @@ at all.
       encoded image file and not the raw ARGB a tray icon carries. The base64-into-a-string shape is the one
       libdbusmenu-gtk's own helper writes, so a GTK application using it would produce the other branch;
       that branch is unit-tested and still unseen live.
-      **Still unexercised by any live item**: `NeedsAttention`, an overlay icon, and a `disposition` other
-      than normal. The first would need an application with an unread mention while the probe runs.
+      What no live item has sent yet is its own entry below, since it is a wait rather than work.
       **Done: the server side too.** An object is exported at a path, a call to it reaches a handler, and
       what the handler returns becomes a reply or an error reply under a name it chose. Answered off the
       pump, because a handler that takes its time would otherwise stop the socket being read; replies are
@@ -1220,6 +1219,25 @@ at all.
       **Found on the wire, and no document says it:** `notify-send` 0.8.8 leaves the `app_icon` argument
       empty and puts `--icon` in the `image-path` hint instead. A caller drawing `app_icon` alone shows no
       icon for most of what is sent.
+- [ ] **Four tray paths are written and no live item has ever sent them.** Draft, and deliberately not
+      work: the code exists, the unit tests cover it, and what is missing is an application that sends the
+      thing. Left open so that the next time one turns up it is read rather than assumed, and so nobody
+      counts the live sessions as having covered everything.
+      `TrayStatus.NeedsAttention` and `TrayItem.attentionIcon` go together: an item asking to be noticed is
+      meant to be drawn with its attention icon instead of its usual one, and nothing has asked. An
+      application with an unread mention is the likely sender, and Discord did not do it while a probe was
+      running.
+      `TrayItem.overlayIcon`, which is the small badge drawn over the main icon. Discord sends a 24 by 24
+      pixmap for its main icon and no overlay at all, so the two are independent and only one is seen.
+      `MenuDisposition` other than `Normal`. Every live entry so far reads as normal, which is also the
+      default a missing hint takes, so an `informative`, `warning` or `alert` would be the first time that
+      `when` goes anywhere but its else branch.
+      `MenuIcon.data` arriving as base64 inside a string rather than as an `ay`. Discord sends the `ay`, and
+      the string is what libdbusmenu-gtk's own helper writes, so a GTK application using that helper is the
+      sender to watch for. Both branches are unit-tested; one has now been seen and the other has not.
+      None of this is a defect and none of it blocks anything. The probes to read it with already exist:
+      `./gradlew :tray:probe -Pprobe=com.fromwau.kortex.tray.LiveTrayProbeKt` and the `LiveMenuProbeKt`
+      beside it.
 - [x] **kotlinx-coroutines is not in the version catalog, and every provider needs it.** `:wayland` uses
       `Dispatchers.IO` and `withContext` today and gets them transitively through Compose, which holds only
       while every module depends on Compose. A provider must not, so the first Compose-free module ended that
