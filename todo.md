@@ -970,6 +970,17 @@ where on the monitor the compositor put it.
       `OutputRescaleTest` three times.
       A nested Hyprland was considered, since it would also keep the virtual pointer and the screenshots
       off the user's own session, and set aside in favour of the tag.
+      **Run on this machine at last, and all seven pass: 397 of 397 in `:wayland`.** Nothing crashed, with
+      ags, ghostty and dunst open and Steam and Discord closed, and no headless output survived the run.
+      That is the second clean run on GTK 4.22.5 and it still does not prove a one-in-256 crash gone, so
+      the tag stays: Steam's own crash was a different bug, X11 GTK2 on a RandR output that no longer
+      exists, with no fix recorded and no reason to think there is one.
+      **The run found a test that could never have passed.** `MultiSurfaceTest.awaitPanelCount` slept and
+      polled `hyprctl` without ever pumping the shell, so the panel for a new output could not be created
+      while it waited: kortex only makes one when it has handled the global announcing the output. Its two
+      siblings in the same file pump, and so does the removal half of the very same test. Fixed to pump.
+      That is what gating costs, and it is worth writing down: a test nobody runs is a test nobody notices
+      rotting, and this one was wrong from the day it was written.
 - [x] **A screenshot pixel occasionally read a step off** an expected `0xFF808080`, in `KortexShellTest`,
       `KortexSurfaceTest` and `MultiSurfaceTest`, at times two full-suite runs in three. It was never
       compositing noise. Hyprland ramps a new layer surface from whatever is behind it up to its own
@@ -1267,10 +1278,13 @@ survives on its own.
   14 in `:notification` and 11 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
   Two gates leave tests out of that number, each with a property of its own, because opting into one is no
-  reason to opt into the other. The three `@Hotplug` classes have never run here: changing an output on this
-  machine crashes the installed GTK about one run in 256. `NotificationServerTest` is `@TakesTheName` and
-  adds fourteen, which pass with `-Pkortex.notificationTests=true` once the daemon holding
-  `org.freedesktop.Notifications` is stopped.
+  reason to opt into the other, and both have now been run and pass.
+  The seven `@Hotplug` tests make `:wayland` 397 with `-Pkortex.hotplugTests=true`, and the run that first
+  did it on this machine is written up under its own entry above. They stay gated because they hotplug the
+  live desktop: GTK 4.22.5 fixed the crash that banned them, but Steam's was a different bug with no fix,
+  so Steam wants closing first. `NotificationServerTest` is `@TakesTheName` and adds fourteen, which pass
+  with `-Pkortex.notificationTests=true` once the daemon holding `org.freedesktop.Notifications` is
+  stopped.
   **The suite empties the clipboard.** `ClipboardFocusTest` ends with `wl-copy --clear`, which clears rather
   than restores, so whatever was copied before a run is gone after it.
 

@@ -118,7 +118,7 @@ class MultiSurfaceTest {
                 try {
                     pending = Hyprctl.createHeadlessOutput()
 
-                    val panels = awaitPanelCount(panelsBefore + 1)
+                    val panels = awaitPanelCount(shell, panelsBefore + 1)
                     assertEquals(
                         panelsBefore + 1, panels.size,
                         "expected one panel namespace per monitor, got $panels",
@@ -191,14 +191,16 @@ class MultiSurfaceTest {
         return reported
     }
 
-    private fun awaitPanelCount(count: Int): Set<String> {
-        val deadline = System.nanoTime() + HYPRCTL_SETTLE_MILLIS * NANOS_PER_MILLI
-        var namespaces = panelNamespaces()
-        while (namespaces.size != count && System.nanoTime() < deadline) {
-            Thread.sleep(HYPRCTL_POLL_MILLIS)
-            namespaces = panelNamespaces()
-        }
-        return namespaces
+    /**
+     * Pumps [shell] until `hyprctl layers` reports [count] panel namespaces.
+     *
+     * Pumped rather than slept through, which [awaitUsableTop] above may do and this may not: a panel for a
+     * new output exists only once the shell has handled the global announcing it, and a sleeping test never
+     * lets it. The removal half of the hotplug test always pumped; this half did not, and so could not pass.
+     */
+    private fun awaitPanelCount(shell: KortexShell, count: Int): Set<String> {
+        shell.pumpOrFail(PUMP_TIMEOUT_MILLIS) { panelNamespaces().size == count }
+        return panelNamespaces()
     }
 
     /** Distinct, because a namespace mid-hotplug can transiently be reported under two monitors. */
