@@ -30,10 +30,12 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Only one connection on a bus may hold `org.freedesktop.Notifications`, so whatever daemon usually holds
  * it has to be stopped for any of this to run: `systemctl --user stop dunst.service`. That is the subject
- * of the test rather than an inconvenience, since being the only server is the whole job.
+ * of the test rather than an inconvenience, since being the only server is the whole job, and it is why the
+ * class is [TakesTheName] and opted into rather than run by default.
  *
  * The applications posting here are a second real connection and, in one case, `notify-send` itself.
  */
+@TakesTheName
 class NotificationServerTest {
     @Test
     fun `kortex becomes the server and answers for it`() = withServer { server, client, hosting ->

@@ -36,19 +36,22 @@ plugins {
 }
 
 gradle.lifecycle.beforeProject {
-    // Hotplug.kt, in wayland/src/jvmTest/kotlin/com/fromwau/kortex/wayland, must use the same two names.
-    val hotplugTag = "hotplug"
-    val hotplugProperty = "kortex.hotplugTests"
-    val hotplugTestsOptedIn = providers
-        .gradleProperty(hotplugProperty)
-        .getOrElse("false")
-        .toBoolean()
+    // Tests that change something the whole desktop shares, so each is opted into rather than run by
+    // default. Each annotation carries the same tag and property as its entry here: Hotplug.kt under
+    // wayland/src/jvmTest, and TakesTheName.kt under notification/src/jvmTest.
+    val gatedByProperty = mapOf(
+        "hotplug" to "kortex.hotplugTests",
+        "notification-server" to "kortex.notificationTests",
+    )
+    val optedIn = gatedByProperty.filterValues { property ->
+        providers.gradleProperty(property).getOrElse("false").toBoolean()
+    }
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform {
-            if (!hotplugTestsOptedIn) excludeTags(hotplugTag)
+            (gatedByProperty.keys - optedIn.keys).forEach { tag -> excludeTags(tag) }
         }
-        if (hotplugTestsOptedIn) systemProperty(hotplugProperty, "true")
+        optedIn.values.forEach { property -> systemProperty(property, "true") }
         jvmArgs("--enable-native-access=ALL-UNNAMED")
     }
 }
