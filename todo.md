@@ -761,6 +761,13 @@ where on the monitor the compositor put it.
       opens the transfer for it, which is `Drag.uriListType` picking the type, and the uris reach content as
       themselves. None of that had automated cover before, because no test could make a file manager drag on
       demand.
+      **And confirmed out of kortex into Dolphin 26.08.1 by hand**, which is the only way to know that what
+      kortex writes reads as *files* to a destination not written alongside it rather than merely as bytes.
+      The wire is one `offer("text/uri-list")` and no other, `set_actions(1)`, one `send("text/uri-list")`
+      that Dolphin asked for, and `dnd_finished`. Both files appeared, `a file.txt` among them with its space
+      decoded out of the `%20`, and both originals were still in `/tmp` afterwards: a copy, not a move.
+      Content was told `Copy`, and it came from `assumedAction` rather than from the compositor, since
+      Hyprland sends a drag source no `wl_data_source.action` at all.
       **The key a sandboxed source offers is read now**, and handed to content through
       `KortexDragOffer.readPortalKey`. `PortalMime` sits after `UriListMime` in `Mime.all`, so an application
       offering both gets its file list preferred: that is the one kortex can hand over without the reader
