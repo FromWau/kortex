@@ -751,7 +751,7 @@ where on the monitor the compositor put it.
       The file is untouched afterwards.
       What a drag can carry a paste still cannot, which is an entry of its own below.
       (`UriListTest`, `DragAndDropTest`, `LiveDropProbe`)
-- [ ] **A sandboxed source's files cannot be read, and no file copy can be made.** kortex reads a file list
+- [x] **A sandboxed source's files cannot be read, and no file copy can be made.** kortex reads a file list
       off the clipboard and off a drag, and drags one out: `KortexDragSource.Files` offers files as the
       `text/uri-list` a file manager reads, `Clip.Uris` writes RFC 2483 with a CRLF after every line
       including the last, and that last terminator is what makes `encodeUriList` and `decodeUriList` each
@@ -773,12 +773,29 @@ where on the monitor the compositor put it.
       Cover is desktop-free and has to be: offering a key needs a sandboxed application, which no test here
       can be, so the drain that reads one off a real drop is uncovered the way `Drag.uriListType`'s was before
       kortex could drag a file list itself.
-      The clipboard side is untouched, and with it the gap a source looked likely to close.
-      `KortexClipboard` has no `setUris`, so nothing reaches the type `receiveUris` picks, and adding one
-      would not reach it either: `receiveSelection` answers `NoSelection` before it calls the pick, and
-      getting past that needs keyboard focus, which only the class that takes the desktop's own clipboard may
-      have.
-      Open: a file copy, and a way to drive a selection read that does not take the user's clipboard with it.
+      **The clipboard side is done too, both halves.** `KortexClipboard.setUris` puts a `text/uri-list` on
+      the clipboard and offers that type alone, so pasting into a text field gets nothing: a clipboard holds
+      one selection, so copying the same paths as text is `setText`'s to do and which of the two a copy
+      means belongs to the caller. `readUris` answers this client's own copy from memory now, the way
+      `readText` and `readImage` already did.
+      **A URI carrying a CR or LF is refused, as `ClipboardError.UriHasLineBreak` naming it.** RFC 2483
+      separates URIs by CRLF and a URI may carry neither unencoded, so one that did would reach the reader
+      as two entries and `encodeUriList` and `decodeUriList` would stop being each other's inverse, silently.
+      Refused rather than escaped, because a read does not decode percent-encoding either and a write that
+      encoded would be the asymmetry. The same corruption applied to a drag and had not been noticed:
+      `asClip` answers a `Result` now and `startDrag` refuses one too.
+      **The read half had cover after all**, and the reasoning that said otherwise was right about the
+      mechanism and wrong about the conclusion: `receiveSelection` does answer `NoSelection` before it picks
+      a type, and getting past that does need keyboard focus, which is exactly what `ClipboardFocusTest`
+      has. It is the one class allowed to use `wl-copy`, so `wl-copy --type text/uri-list` drives
+      `receiveUris`'s pick for the first time.
+      Verified against a third party rather than against itself: `wl-paste` must print the exact bytes
+      including the list's last CRLF, since a reader given one line without it would see the same files and
+      only the bytes say whether the framing survived. That assertion caught `wl-paste` appending a newline
+      of its own, which `--no-newline` suppresses by appending nothing rather than by stripping anything.
+      **What running this costs: the suite empties the clipboard.** `ClipboardFocusTest` ends with
+      `wl-copy --clear`, which clears rather than restores, so whatever was copied before a run is gone
+      afterwards. That was already true of the text tests and is worth knowing before running the suite.
 - [x] **D-Bus had no home, and the modules kortex wants next need one.** `:tray` is the heaviest:
       StatusNotifierItem and DBusMenu are both D-Bus, and it works a client far harder than anything else
       here. `:mpris` is D-Bus as well, and notifications, UPower, logind, NetworkManager and BlueZ would be
@@ -1172,10 +1189,16 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **399 tests green on `master`: 366 in `:wayland`, 26 in `:compose`, 7 in `:bar`.**
+- **542 tests green on `master`: 389 in `:wayland`, 69 in `:dbus`, 32 in `:tray`, 27 in `:compose`,
+  14 in `:notification` and 11 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
-  The three `@Hotplug` classes are excluded and have never run here; changing an output on this machine
-  crashes the installed GTK about one run in 256, so that number is 399 of a slightly larger whole.
+  Two gates leave tests out of that number, each with a property of its own, because opting into one is no
+  reason to opt into the other. The three `@Hotplug` classes have never run here: changing an output on this
+  machine crashes the installed GTK about one run in 256. `NotificationServerTest` is `@TakesTheName` and
+  adds fourteen, which pass with `-Pkortex.notificationTests=true` once the daemon holding
+  `org.freedesktop.Notifications` is stopped.
+  **The suite empties the clipboard.** `ClipboardFocusTest` ends with `wl-copy --clear`, which clears rather
+  than restores, so whatever was copied before a run is gone after it.
 
 
 
