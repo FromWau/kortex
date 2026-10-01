@@ -8,8 +8,8 @@ import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Result
 
 /**
- * The desktop's clipboard, as a surface's content reaches it through [LocalKortexClipboard]: put a text or an image on
- * it, clear it, or read what is on it, each call returning a typed result.
+ * The desktop's clipboard, as a surface's content reaches it through [LocalKortexClipboard]: put a text, an image or
+ * a list of files on it, clear it, or read what is on it, each call returning a typed result.
  *
  * Compose's `LocalClipboard`, which Compose's own text fields use, reaches the same clipboard, except inside
  * Compose's own `Popup` and `Dialog`, from `androidx.compose.ui.window`, where it is AWT's clipboard rather than
@@ -100,13 +100,37 @@ public sealed interface KortexClipboard {
     public suspend fun readImage(): Result<ImageBitmap, ClipboardError>
 
     /**
+     * Puts [uris] on the clipboard as a list of files, for a file manager or any other application to paste.
+     *
+     * Give each file as a URI rather than a path, which for a local file means `file:///home/you/notes.txt`
+     * and not `/home/you/notes.txt`: `Path.toUri()` writes one, and percent-encodes the characters that need
+     * it. Nothing is copied here and no file is read, so a paste reaches whatever the URIs point at then,
+     * which may no longer be there.
+     *
+     * The list offers `text/uri-list` and nothing else, so pasting it into a text field gets nothing. A
+     * clipboard holds one selection, so copying the same files as text instead is [setText]'s to do, and
+     * which of the two a copy means is yours to decide.
+     *
+     * The files stay on the clipboard only while your application runs: once [kortexApplication] returns they
+     * come off again, unless a clipboard manager has kept a copy.
+     *
+     * @return `Ok` once the compositor has been asked, which does not confirm a copy;
+     *   [ClipboardError.UriHasLineBreak] where one of [uris] carries a carriage return or a line feed, which
+     *   cannot be written as a line of the list; [ClipboardError.NoInputSerial] before the user has pressed a
+     *   key, clicked, or given keyboard focus to any of your surfaces; or [ClipboardError.NoClipboard] on a
+     *   compositor that has no clipboard.
+     * @throws IllegalStateException once [kortexApplication] has returned.
+     */
+    public suspend fun setUris(uris: List<String>): EmptyResult<ClipboardError>
+
+    /**
      * The files on the clipboard, as the URIs the application that copied them named them by, such as
      * `file:///home/you/notes.txt`.
      *
-     * Files another application copied read back only while one of your surfaces has keyboard focus, since
-     * only then does the compositor say what is on the clipboard; without it, the read is
-     * [ClipboardError.NoSelection]. Nothing your own application copies reads back here: kortex puts text and
-     * images on the clipboard and never a list of files.
+     * Files your own application copied through [setUris] read back at once, with or without keyboard focus,
+     * though the compositor never confirms that it took the copy. Files another application copied read back
+     * only while one of your surfaces has keyboard focus, since only then does the compositor say what is on
+     * the clipboard; without it, the read is [ClipboardError.NoSelection].
      *
      * They arrive percent-encoded and under any scheme, so turn one into a path yourself, with
      * `Path.of(URI(uri))` for a `file` and your own handling for the rest.
@@ -151,6 +175,15 @@ public sealed interface ClipboardError : IError {
 
     /** What is on the clipboard, or what a drag carries, is not a list of files or other URIs. */
     public data object NoUris : ClipboardError
+
+    /**
+     * [uri] carries a carriage return or a line feed, so it cannot be written as one line of a file list.
+     *
+     * A list of files separates them by CRLF and a URI may carry neither character unencoded, so writing
+     * this one would hand the reader two entries where you gave one. Percent-encode it, which `Path.toUri()`
+     * already does for you, or leave it out.
+     */
+    public data class UriHasLineBreak(public val uri: String) : ClipboardError
 
     /**
      * What a drag carries is not a sandboxed application's transfer key. No clipboard call answers this:

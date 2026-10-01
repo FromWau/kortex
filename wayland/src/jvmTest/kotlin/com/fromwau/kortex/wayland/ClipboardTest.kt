@@ -84,12 +84,78 @@ class ClipboardTest {
         }
     }
 
+    /**
+     * A URI that cannot be a line of the list is refused rather than written.
+     *
+     * RFC 2483 separates URIs by CRLF, so one carrying either character would reach the reader as two
+     * entries: `encodeUriList` and `decodeUriList` would stop being each other's inverse, and silently,
+     * which is the one failure here that nothing downstream could notice.
+     */
+    @Test
+    fun `a file list carrying a line break is refused, and says which uri carried it`() {
+        val withLineFeed = "file:///tmp/two\nlines.txt"
+        val withCarriageReturn = "file:///tmp/two\rlines.txt"
+
+        assertEquals(Err(ClipboardError.UriHasLineBreak(withLineFeed)), Clip.Uris.of(listOf(withLineFeed)))
+        assertEquals(
+            Err(ClipboardError.UriHasLineBreak(withCarriageReturn)),
+            Clip.Uris.of(listOf(withCarriageReturn)),
+        )
+        assertEquals(
+            Err(ClipboardError.UriHasLineBreak(withLineFeed)),
+            Clip.Uris.of(ONE_FILE + withLineFeed + "file:///tmp/after.txt"),
+            "the refusal named something other than the first uri that carried one",
+        )
+    }
+
+    @Test
+    fun `an ordinary file list builds a clip whose bytes decode back to it`() {
+        val files = listOf("file:///tmp/one.txt", "file:///home/you/a%20space.txt", "https://example.test/x")
+
+        val clip = urisClipOrFail(files)
+
+        assertEquals(files, clip.uris, "the clip did not keep what it was given")
+        assertEquals(
+            Ok(files),
+            clip.bytesFor(UriListMime.TextUriList).map(::decodeUriList),
+            "what the clip sends does not decode back to the files it was built from",
+        )
+    }
+
+    @Test
+    fun `an empty file list is a clip like any other, offering the type and carrying nothing`() {
+        val clip = urisClipOrFail(emptyList())
+
+        assertEquals(URI_LIST_OFFER, clip.offeredTypes.map { it.wireName })
+        assertEquals(Ok(emptyList()), clip.bytesFor(UriListMime.TextUriList).map(::decodeUriList))
+    }
+
+    /**
+     * The refusal comes before anything is asked of the compositor.
+     *
+     * Checked by the error it answers: a clipboard with no serial yet answers [ClipboardError.NoInputSerial]
+     * to every set, so a [ClipboardError.UriHasLineBreak] here is proof the list was read first and the
+     * selection never touched. Nothing in this class may touch it.
+     */
+    @Test
+    fun `a copy of a file list carrying a line break is refused before the selection is asked for`() {
+        withUnfocusedClipboard { clipboard ->
+            val refused = runBlocking { clipboard.setUris(listOf("file:///tmp/bad\nname.txt")) }
+
+            assertEquals(Err(ClipboardError.UriHasLineBreak("file:///tmp/bad\nname.txt")), refused)
+            assertEquals(
+                Err(ClipboardError.NoInputSerial), runBlocking { clipboard.setUris(ONE_FILE) },
+                "an ordinary list got past the serial check, so the refusal above was not about the list",
+            )
+        }
+    }
+
     @Test
     fun `a copy offers an image as PNG and JPEG, and a text under the five text types`() {
         assertEquals(IMAGE_OFFER, imageClipOrFail().offeredTypes.map { it.wireName }, "an image copy's offer")
         assertEquals(PASTE_PREFERENCE, Clip.Text(COPIED).offeredTypes.map { it.wireName }, "a text copy's offer")
         assertEquals(
-            URI_LIST_OFFER, Clip.Uris(listOf("file:///tmp/one.txt")).offeredTypes.map { it.wireName },
+            URI_LIST_OFFER, urisClipOrFail(ONE_FILE).offeredTypes.map { it.wireName },
             "a file copy's offer",
         )
     }
@@ -126,7 +192,9 @@ class ClipboardTest {
     @Test
     fun `a dragged image past the cap still offers its types, and has nothing to send under them`() {
 
-        val dragged = KortexDragSource.Image(oversizedImage()).asClip()
+        val dragged = KortexDragSource.Image(oversizedImage())
+            .asClip()
+            .getOrElse { error -> fail("a dragged image built no clip: $error") }
 
         assertEquals(IMAGE_OFFER, dragged.offeredTypes.map { it.wireName }, "a dragged image's offer")
         assertEquals(
@@ -391,15 +459,17 @@ class ClipboardTest {
     }
 
     /**
-     * A text or image paste answers this client's own copy from memory before it looks at the selection, and
-     * a file paste has nothing to answer from: no [Clip] carries a file list. So the same clipboard at the
-     * same moment hands back the text it holds and no files at all.
+     * Each read answers this client's own copy from memory only where that copy is its own kind.
      *
-     * The failure it reads as is this fixture's: a clipboard with no surface is never given keyboard focus,
-     * so the compositor never names a selection for it to fall through to.
+     * A paste looks at the copy in memory before it looks at the selection, so a read of the wrong kind has
+     * to fall through rather than hand back what it found. The two legs below are the same clipboard at the
+     * same moment, each asked for something different.
+     *
+     * The failure a fall-through reads as is this fixture's: a clipboard with no surface is never given
+     * keyboard focus, so the compositor never names a selection to fall through to.
      */
     @Test
-    fun `kortex's own copy is text to paste and never files, read at the same moment`() {
+    fun `a copy answers a paste of its own kind from memory and falls through for any other`() {
         withOwnCopy { clipboard ->
             clipboard.recordKeyboardFocus(Any(), focused = true)
 
@@ -407,6 +477,16 @@ class ClipboardTest {
             assertEquals(
                 Err(ClipboardError.NoSelection), runBlocking { clipboard.readUris() },
                 "a text this client copied was handed back to a file paste",
+            )
+        }
+
+        withOwnCopy(urisClipOrFail(ONE_FILE)) { clipboard ->
+            clipboard.recordKeyboardFocus(Any(), focused = true)
+
+            assertEquals(Ok(ONE_FILE), runBlocking { clipboard.readUris() }, "files this client copied")
+            assertEquals(
+                Err(ClipboardError.NoSelection), runBlocking { clipboard.readText() },
+                "files this client copied were handed back to a text paste",
             )
         }
     }
@@ -463,11 +543,11 @@ class ClipboardTest {
     }
 
     /** An unfocused clipboard whose own copy is [COPIED], made so without telling the compositor. */
-    private fun withOwnCopy(block: (WaylandClipboard) -> Unit) {
+    private fun withOwnCopy(clip: Clip = Clip.Text(COPIED), block: (WaylandClipboard) -> Unit) {
         withUnfocusedClipboard { clipboard ->
             Arena.ofShared().use { arena ->
-                // recordOwnedSource reaches the own-copy state setText would leave, without setText's wire call.
-                clipboard.recordOwnedSource(DataSource(Clip.Text(COPIED), arena))
+                // recordOwnedSource reaches the own-copy state a set would leave, without the wire call.
+                clipboard.recordOwnedSource(DataSource(clip, arena))
                 try {
                     block(clipboard)
                 } finally {
@@ -510,6 +590,9 @@ class ClipboardTest {
     }
 
     /** [image] encoded for a copy, failing the test rather than returning why it could not be. */
+    private fun urisClipOrFail(uris: List<String>): Clip.Uris =
+        Clip.Uris.of(uris).getOrElse { error -> fail("the files did not build a clip: $error") }
+
     private fun imageClipOrFail(image: ImageBitmap = contrastingImage()): Clip.Image =
         Clip.Image.of(image).getOrElse { error -> fail("the image did not encode for a copy: $error") }
 
@@ -589,6 +672,9 @@ class ClipboardTest {
 
         // Spelled out rather than read off UriListMime, on the same terms as the two above.
         val URI_LIST_OFFER = listOf("text/uri-list")
+
+        /** One ordinary file, as a URI and not a path, which is what a copy of files takes. */
+        val ONE_FILE = listOf("file:///tmp/one.txt")
 
         const val SWATCH_SIDE = 8
         const val BYTES_PER_PIXEL = 4

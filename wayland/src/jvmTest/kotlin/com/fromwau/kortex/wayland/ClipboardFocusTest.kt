@@ -67,6 +67,101 @@ class ClipboardFocusTest {
         assertEquals(PASTED, paste.printed, "wl-paste printed something other than the text the clipboard set")
     }
 
+    /**
+     * A file list the clipboard sets is what another application pastes, framing and all.
+     *
+     * `wl-paste` is the third party here, and the bytes it prints are the test: RFC 2483 ends every line
+     * with a CRLF including the last, and that last terminator is what makes `encodeUriList` and
+     * `decodeUriList` each other's inverse. A reader that got one line without it would read the same
+     * files, so only the exact bytes say whether the framing survived.
+     */
+    @Test
+    fun `a file list the clipboard sets is what wl-paste prints, terminator and all`() =
+        withFocusedShell { shell, display ->
+            val set = shell.retryUntil({ it is Ok }) { shell.clipboard.setUris(FILES) }
+            assertEquals(Ok(Unit), set, "the clipboard never set the selection")
+            display.roundtrip()
+
+            // --no-newline appends nothing rather than stripping anything, and without it wl-paste adds a
+            // newline of its own after the list's last CRLF, which is its doing and not kortex's.
+            val paste = shell.runWlPaste("--no-newline", "--type", "text/uri-list")
+
+            assertEquals(0, paste.exitCode, "wl-paste failed: ${paste.complaint}")
+            assertEquals(FILES.joinToString("") { "$it\r\n" }, paste.printed)
+        }
+
+    /**
+     * A file copy claims to carry files and nothing else.
+     *
+     * The text types are named in the negative on purpose: putting `text/uri-list` into `TextMime` is the
+     * cheap version of carrying files, and it would have had every text copy claim to carry them. A caller
+     * that wants the paths as text copies them with `setText` instead, and chooses which one copy means.
+     */
+    @Test
+    fun `a file list the clipboard sets is offered as a uri list and under no text type`() =
+        withFocusedShell { shell, display ->
+            val set = shell.retryUntil({ it is Ok }) { shell.clipboard.setUris(FILES) }
+            assertEquals(Ok(Unit), set, "the clipboard never set the selection")
+            display.roundtrip()
+
+            val listed = shell.runWlPaste("--list-types")
+            assertEquals(0, listed.exitCode, "wl-paste failed: ${listed.complaint}")
+            val types = listed.printed
+                .lines()
+                .filter { it.isNotEmpty() }
+                .toSet()
+
+            assertEquals(setOf("text/uri-list"), types)
+            assertEquals(emptySet(), types intersect OFFERED_TYPES, "a file copy claimed to be text as well")
+        }
+
+    /** Its own copy answers from memory, the way a text's and an image's do, so a read needs no transfer. */
+    @Test
+    fun `a file list the clipboard set reads back as itself`() = withFocusedShell { shell, _ ->
+        val set = shell.retryUntil({ it is Ok }) { shell.clipboard.setUris(FILES) }
+        assertEquals(Ok(Unit), set, "the clipboard never set the selection")
+
+        assertEquals(Ok(FILES), shell.awaitCall { shell.clipboard.readUris() })
+    }
+
+    /**
+     * A file list another application copied, which is the half no test could reach before.
+     *
+     * `receiveSelection` answers `NoSelection` before it ever picks a type, and getting past that needs
+     * keyboard focus, which only this class has. So `receiveUris`'s own pick ran uncovered until here.
+     */
+    @Test
+    fun `a file list another application copied reads back off the clipboard`() = withFocusedShell { shell, _ ->
+        try {
+            runWlCopy("--type", "text/uri-list", stdin = FILES.joinToString("") { "$it\r\n" }.encodeToByteArray())
+
+            val read = shell.retryUntil({ it == Ok(FILES) }) { shell.clipboard.readUris() }
+
+            assertEquals(Ok(FILES), read, "the clipboard never read back the files wl-copy set")
+        } finally {
+            runWlCopy("--clear")
+        }
+    }
+
+    /**
+     * A text selection is not a file list, whoever copied it.
+     *
+     * The pick is what decides this, and it only runs once a selection has been offered at all, so it has
+     * to be driven from here rather than off an offer built by hand.
+     */
+    @Test
+    fun `a text another application copied is no file list to read`() = withFocusedShell { shell, _ ->
+        try {
+            runWlCopy(COPIED)
+            val read = shell.retryUntil({ it == Ok(COPIED) }) { shell.clipboard.readText() }
+            assertEquals(Ok(COPIED), read, "the text never arrived, so the read below proves nothing")
+
+            assertEquals(Err(ClipboardError.NoUris), shell.awaitCall { shell.clipboard.readUris() })
+        } finally {
+            runWlCopy("--clear")
+        }
+    }
+
     @Test
     fun `a text the clipboard sets is offered under exactly the five text types`() =
         withFocusedShell { shell, display ->
@@ -455,6 +550,9 @@ class ClipboardFocusTest {
 
         // A PNG file's signature: bytes that are no text, under the type wl-copy is told they are.
         val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+
+        /** Two files, as the URIs a copy of files takes, with a percent-encoded space in the second. */
+        val FILES = listOf("file:///tmp/kortex-one.txt", "file:///tmp/kortex%20two.txt")
 
         // Spelled out rather than read off TextMime, so dropping one of its entries fails here.
         val OFFERED_TYPES = setOf("text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING", "TEXT")

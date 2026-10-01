@@ -64,6 +64,8 @@ internal class WaylandClipboard private constructor(
 
     private val ownedImage: Clip.Image? get() = source?.ownedImage
 
+    private val ownedUris: List<String>? get() = source?.ownedUris
+
     /** The source of the drag this client is carrying out, and null until one starts and once it has ended. */
     val dragSource: DataSource? get() = bound?.device?.dragged
 
@@ -153,6 +155,13 @@ internal class WaylandClipboard private constructor(
         return withContext(loop) { replaceSelection(clip) }
     }
 
+    /** Offers [uris] under every [UriListMime], as the RFC 2483 list a file manager reads. */
+    override suspend fun setUris(uris: List<String>): EmptyResult<ClipboardError> {
+        checkOpen()
+        val clip = Clip.Uris.of(uris).getOrElse { return Err(it) }
+        return withContext(loop) { replaceSelection(clip) }
+    }
+
     /** Answers this client's own copy from memory, and otherwise reads the first [ImageMime] offered. */
     override suspend fun readImage(): Result<ImageBitmap, ClipboardError> {
         checkOpen()
@@ -161,14 +170,10 @@ internal class WaylandClipboard private constructor(
         return decodeOffLoop(received.getOrElse { return Err(it) })
     }
 
-    /**
-     * Reads the `text/uri-list` on the clipboard.
-     *
-     * Nothing answers from memory the way [readText] and [readImage] do: no [Clip] offers a file list, so
-     * this client's own copy is never one.
-     */
+    /** Answers this client's own copy from memory, and otherwise reads the first [UriListMime] offered. */
     override suspend fun readUris(): Result<List<String>, ClipboardError> {
         checkOpen()
+        ownedUris?.let { return Ok(it) }
         return readPipeOpenedOn(loop, TRANSFER_TIMEOUT_MILLIS) { receiveUris() }.map(::decodeUriList)
     }
 
@@ -289,9 +294,9 @@ internal sealed interface Mime {
 }
 
 /**
- * The list-of-files types, which only a drag brings in: no [Clip] offers one, so nothing this client copies is
- * advertised as a list of files. Ahead of the text types in [Mime.all], because an application offering both
- * sends the same files under each and only this one says that they are files.
+ * The list-of-files types, which [Clip.Uris] offers and nothing else does, so a copy carries files only when
+ * a caller asked for files. Ahead of the text types in [Mime.all], because an application offering both sends
+ * the same files under each and only this one says that they are files.
  */
 internal enum class UriListMime(override val wireName: String) : Mime {
     TextUriList("text/uri-list"),
@@ -374,13 +379,29 @@ internal sealed interface Clip {
     }
 
     /** Files, sent as the RFC 2483 list every [UriListMime] carries. */
-    class Uris(uris: List<String>) : Clip {
+    class Uris private constructor(val uris: List<String>) : Clip {
         private val encoded = encodeUriList(uris)
 
         override val offeredTypes: List<Mime> = UriListMime.entries
 
         override fun bytesFor(type: Mime): Result<ByteArray, ClipboardError> =
             if (type is UriListMime) Ok(encoded) else Err(ClipboardError.NoUris)
+
+        companion object {
+            /**
+             * [uris] as a list, or [ClipboardError.UriHasLineBreak] naming the first that cannot be a line.
+             *
+             * RFC 2483 separates URIs by CRLF and a URI may carry neither character unencoded, so one that
+             * does would read back as two entries: [encodeUriList] and [decodeUriList] would stop being
+             * each other's inverse, and silently. Checked rather than escaped, because a read does not
+             * decode percent-encoding either and a write that did would be the asymmetry.
+             */
+            fun of(uris: List<String>): Result<Uris, ClipboardError> {
+                uris.firstOrNull { uri -> uri.any { it == '\r' || it == '\n' } }
+                    ?.let { return Err(ClipboardError.UriHasLineBreak(it)) }
+                return Ok(Uris(uris))
+            }
+        }
     }
 
     /**
@@ -399,10 +420,10 @@ internal sealed interface Clip {
 }
 
 /** What a drag of this offers, encoding nothing here: an image is encoded as each transfer asks for it. */
-internal fun KortexDragSource.asClip(): Clip = when (this) {
-    is KortexDragSource.Text -> Clip.Text(text)
-    is KortexDragSource.Image -> Clip.DeferredImage(image)
-    is KortexDragSource.Files -> Clip.Uris(uris)
+internal fun KortexDragSource.asClip(): Result<Clip, ClipboardError> = when (this) {
+    is KortexDragSource.Text -> Ok(Clip.Text(text))
+    is KortexDragSource.Image -> Ok(Clip.DeferredImage(image))
+    is KortexDragSource.Files -> Clip.Uris.of(uris)
 }
 
 /** [image] as [type] carries it, or [ClipboardError.TooLarge] where that is more than [MAX_IMAGE_BYTES]. */

@@ -233,14 +233,17 @@ internal class KortexSurface private constructor(
         grabSerial?.let { serial -> role.askWindowMenu(seat, serial, at) }
     }
 
-    internal fun startDrag(drag: KortexDrag): EmptyResult<ClipboardError> = onStartDrag(
-        DragOut(
-            clip = drag.dragged.asClip(),
-            origin = role.surface,
-            actions = drag.actions.mapTo(mutableSetOf()) { it.asDndAction() },
-            onEnded = { settled -> drag.onEnded(settled.asCompletedAction()) },
-        ),
-    )
+    internal fun startDrag(drag: KortexDrag): EmptyResult<ClipboardError> {
+        val clip = drag.dragged.asClip().getOrElse { return Err(it) }
+        return onStartDrag(
+            DragOut(
+                clip = clip,
+                origin = role.surface,
+                actions = drag.actions.mapTo(mutableSetOf()) { it.asDndAction() },
+                onEnded = { settled -> drag.onEnded(settled.asCompletedAction()) },
+            ),
+        )
+    }
 
     /** Marks the surface closed, as the compositor closing it would; what content's own handle asks for. */
     internal fun requestClose() {

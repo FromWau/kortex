@@ -626,6 +626,9 @@ internal class DataSource(
     /** Its image while it holds one and nothing has replaced it as the selection. */
     val ownedImage: Clip.Image? get() = ownedClip as? Clip.Image
 
+    /** Its files while it holds them and nothing has replaced them as the selection. */
+    val ownedUris: List<String>? get() = (ownedClip as? Clip.Uris)?.uris
+
     var proxy: MemorySegment = MemorySegment.NULL
         private set
 

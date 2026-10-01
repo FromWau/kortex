@@ -338,7 +338,10 @@ class DragAndDropTest {
 
     /** What a drag of [dragged] offers. */
     private fun offeredTypesOf(dragged: KortexDragSource): List<String> =
-        dragged.asClip().offeredTypes.map(Mime::wireName)
+        dragged.asClip()
+            .getOrElse { error -> fail("a drag of $dragged built no clip: $error") }
+            .offeredTypes
+            .map(Mime::wireName)
 
     /** A small opaque image, as content dragging a picture out holds one. */
     private fun opaqueImage(): ImageBitmap {
