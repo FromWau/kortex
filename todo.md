@@ -1106,7 +1106,7 @@ is what the draft note said would happen. Every rule survived; what changed is u
 What was settled stayed settled: data and no UI, one flow carrying a `Result`, typed errors on `IError`,
 nothing running while nobody is watching, and no Compose or `:wayland` anywhere. The server side is built
 too, and the one rule `:notification` genuinely departs from is written up in its own entry below. What is
-still draft is `:mpris`, `:hyprland` and `:sysinfo`, none of which exists, and the system bus every one of
+still draft is `:mpris` and `:hyprland`, neither of which exists, and the system bus every one of
 UPower, logind, NetworkManager, BlueZ and systemd lives on.
 
 What every one of them keeps to:
@@ -1142,11 +1142,18 @@ be faked.
 | `:mpris` | what is playing, and the transport | `:dbus` |
 | `:notification` | what applications have posted, and dismissing or acting on one | `:dbus`, as the server |
 | `:hyprland` | workspaces, the active window | a unix socket, newline protocol, not D-Bus |
-| `:sysinfo` | cpu, memory, temperature, battery | sysfs and procfs |
+| `:watch` | a file's text, again when it changes, which is where cpu and memory live | the filesystem |
 
 `:hyprland` is the one to keep straight: its IPC shares nothing with D-Bus but the word socket. Nothing in
-this table depends on `:wayland` or `:compose`, and `:hyprland` and `:sysinfo` depend on nothing of kortex's
+this table depends on `:wayland` or `:compose`, and `:hyprland` and `:watch` depend on nothing of kortex's
 at all.
+
+**`:sysinfo` is dropped, and `:watch` replaces it.** A module for cpu, memory, temperature and battery would
+have been four parsers wrapped around one mechanism: read a file under `/proc` or `/sys` and notice when it
+changed. The mechanism is the reusable part, and the parsing belongs to whoever knows what the numbers mean,
+so `:watch` hands over a file's text and a caller's own `.map` makes a `MemInfo` of it. Battery is the one
+that loses something, since UPower on the system bus says more than `/sys/class/power_supply` does, and that
+is a provider for when the system bus exists rather than a reason to keep a module.
 
 - [x] **`:dbus` and `:tray` are built together, and `:tray` is what proves the client.** `:dbus` is public,
       so its surface has to serve someone writing a provider of their own: a connection, method calls, signal
@@ -1247,6 +1254,85 @@ at all.
       **Found on the wire, and no document says it:** `notify-send` 0.8.8 leaves the `app_icon` argument
       empty and puts `--icon` in the `image-path` hint instead. A caller drawing `app_icon` alone shows no
       icon for most of what is sent.
+- [x] **`:watch` reads a file and reads it again when it changes, and the research is why there are two of
+      them.** Two overloads, one name: `fileWatcher(path)` waits for the operating system, and
+      `fileWatcher(path, every = 1.seconds)` reads on a tick. Both hand over `Result<String, WatchError>`,
+      so moving a widget from one to the other changes nothing but the call, and both emit the file as it
+      stands first and then only what changed, which is why no caller needs a `distinctUntilChanged()`.
+      **Pushing is impossible for most of what a bar reads, and the kernel says so.** `inotify(7)`: "Various
+      pseudo-filesystems such as /proc, /sys, and /dev/pts are not monitorable with inotify." Three probes
+      on this machine agree and show how it fails: a watch on `/proc` and on `/sys/class/net/wlan0/statistics`
+      is **accepted**, reports **nothing** while the contents change, and `size` and `mtime` both stand
+      still, `0` for meminfo and a flat `4096` for an rx_bytes of twelve characters. So the three cheap ways
+      to notice a change all fail silently, and the only thing left is reading the contents and comparing
+      them.
+      What push does exist, and did not help: `/proc/mounts` and `/proc/self/mountinfo` are pollable for
+      mount changes, and `/proc/pressure/{cpu,memory,io}` take a written threshold and then poll, which is a
+      real interface for memory pressure but not for "meminfo changed". sysfs attributes answer `poll` with
+      `POLLPRI` only where their driver calls `sysfs_notify`, and **userspace cannot test whether an
+      attribute does**, so an API built on it would wait forever on the ones that do not. For battery and
+      network the push source is not the file at all: it is udev or the system bus, which is `:dbus`'s to
+      carry when it grows one.
+      **So the push overload refuses rather than going quiet.** `Files.getFileStore(folder).type()` is the
+      kernel's own answer, not a guess at the path's spelling: `proc`, `sysfs`, `btrfs`, `tmpfs`. A watch
+      asked for on procfs or sysfs answers `WatchError.Unwatchable(path, Pseudofilesystem.Proc)` as its
+      first and only value and names the overload that works, instead of being a widget that looks fine and
+      never updates.
+      **The error set was wrong once, and the correction is the rule.** It first had a
+      `WatchFailed(path, reason: String)`, which lumped a missing directory, an unreadable one, a watch that
+      had stopped and a system limit into one case with English as the discriminator, and an `Unwatchable`
+      that carried its filesystem as a string. Now every discriminator is a type: `FolderUnreadable` hands
+      back kern's own `FileError` about the directory, `NoFolderAbove`, `WatchEnded` and `Unwatchable` are
+      their own cases, and the filesystem is a `Pseudofilesystem` enum holding the three `inotify(7)` names.
+      One string survives, on `WatchRefused`, and only because what else a kernel may refuse a watch for is
+      not a set anything can close; java.nio throws a bare `IOException` for the watch limit, so matching on
+      its message would be worse than saying so.
+      Fixing it also removed a second set. The platform mechanism had its own `ChangeError` mirroring the
+      public one case for case, which is one rule in two homes and would have drifted the first time either
+      gained a case. There is one set now, split by a sub-interface: `WatchError.Stopped` covers the five
+      cases a watch rather than a read answers for, which is exactly the set a platform can produce, so the
+      mechanism's signal type is `Flow<Result<Unit, WatchError.Stopped>>` and no mapping sits between them.
+      The split earns its place twice over, because it is also the distinction a collector acts on: after a
+      `Stopped` the flow completes and nothing more will ever arrive, while an `Unreadable` leaves the
+      watcher watching, so a file that is missing now may still be written later.
+      Classifying it is done by asking kern rather than by reading the exception: on a failed registration
+      the directory is listed, and kern's `NotFound`, `Inaccessible` or `NotADirectory` is the answer. A
+      listing that succeeds is the interesting case, because it means the directory is fine and the refusal
+      was about watches, which is exactly what no exception type distinguishes.
+      **Decided: a cold `Flow`, not a `StateFlow`, which is the one place this departs from the provider
+      rules above.** The argument is the caller's own code: `.map { MemInfo(...) }` returns a plain flow
+      whatever the source was, so the derived flow needs `stateIn` either way, and a `StateFlow` here would
+      have bought nothing while costing a `CoroutineScope` on every call. Cold also means the reading cannot
+      outlive its collectors.
+      **Decided: the directory is watched, not the file.** An editor saves by writing a temporary file and
+      renaming it over the original, which never touches the original's inode, and a file that does not
+      exist yet has no inode at all. Both arrive as events on the directory. Dropping `ENTRY_CREATE` from
+      the registration fails exactly the four tests that depend on a rename landing, which is how that is
+      known rather than assumed.
+      **Built for the move to kern, since that is where it is going.** It uses kern's own `Path`, `readText`
+      and `FileError` from day one, so the promotion is a move rather than a rewrite, and everything except
+      the platform mechanism lives in `commonMain` with tests in `commonTest`. Two `expect`s carry the rest:
+      `changes(path)`, whose signals are a `Result` because a watch can also fail halfway and throwing is
+      not how this codebase reports that, and `blockingReads`, because
+      `Dispatchers.IO` is not in coroutines' common API and resolves in common code only while a module has
+      a single target. That second one compiled fine before it was wrong, which is the trap worth
+      remembering.
+      One nicety that fell out of typing the signals: an inotify queue overflow is not an error. It means
+      events were dropped, so the only honest signal is `Ok(Unit)`, a re-read, which the deduplication then
+      drops again if nothing actually changed.
+      **15 tests, and the first kortex module whose suite needs no desktop, no compositor and no bus**: a
+      temp directory for arrival, change, deletion, return, an in-place write and a save-over, two live
+      `/proc/meminfo` cases for the refusal and for the interval read that sees through frozen metadata, and
+      the limits, and one each for a missing directory, a filesystem root and a watch whose directory is
+      deleted under it. Three mutations were run against them: removing either `distinctUntilChanged` loses the
+      identical-save test, removing the filesystem check loses the refusal test, and dropping `ENTRY_CREATE`
+      loses the four rename tests.
+      **It belongs in kern, once a second project wants it.** kern's own rule is that something enters it
+      when two real projects already need it and never because one might, and kortex is one. It lives here
+      until there are two, which also lets its public surface be wrong in private first. `kern:dirs` would
+      take the code but not the dependency: `dirs` deliberately pulls in only `kotlinx-io` and `result`, and
+      a flow needs coroutines, so the home is a module of its own beside it, as `logger` already is.
+
 - [ ] **Seven public commands in `:tray` have no test, and the server side made them testable.** Every
       write in that module: `Tray.activate`, `secondaryActivate`, `contextMenu` and `scroll`, and
       `Menu.send`, `aboutToShow` and `activationRequests`. No test names any of them. The reading half is
@@ -1310,12 +1396,13 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **563 tests green on `master` in one run: 390 in `:wayland`, 73 in `:dbus`, 33 in `:tray`, 29 in
-  `:notification`, 27 in `:compose` and 11 in `:bar`.**
+- **563 tests green on `master` in one run: 390 in `:wayland`, 73 in `:dbus`, 33 in `:tray`, 27 in
+  `:compose`, 15 in `:watch`, 14 in `:notification` and 11 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache, and
-  with the session free, which this one needs saying because the two runs before it were made while the
-  desktop was in use and a suite that takes focus and drives the pointer is not being measured then.
-  548 of the 563 are what a plain `check` runs. The other fifteen are `NotificationServerTest`, which is
+  with the session free, which needs saying because a suite that takes focus and drives the pointer is not
+  being measured while the desktop is in use.
+  That is what a plain `check` runs. `NotificationServerTest`'s fifteen make 578 in all and passed in a run
+  of their own earlier the same day, before `:watch` existed, which is why no single run has shown 578. It is
   `@TakesTheName` and wants `-Pkortex.notificationTests=true` and whoever holds
   `org.freedesktop.Notifications` stopped. **Stopping it is not the end of it**: the name is D-Bus
   activatable, so dunst comes back on its own as soon as kortex releases it, which invalidated a run that

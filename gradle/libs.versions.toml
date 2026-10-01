@@ -3,7 +3,7 @@ kortexVersion = "0.1.0"
 jdk = "25"
 
 kotlin = "2.4.10"
-kern = "0.2.0"
+kern = "0.3.1"
 compose-multiplatform = "1.12.0"
 # material3 has its own release line, independent of the Compose Multiplatform version.
 compose-material3 = "1.9.0"
@@ -12,6 +12,7 @@ kotlinxSerialization = "1.11.0"
 kotlinxCoroutines = "1.11.0"
 
 [libraries]
+kern-dirs = { module = "com.fromwau.kern:dirs", version.ref = "kern" }
 kern-result = { module = "com.fromwau.kern:result", version.ref = "kern" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
 compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-multiplatform" }
@@ -21,6 +22,7 @@ kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotl
 skiko-awt-runtime-linux-x64 = { module = "org.jetbrains.skiko:skiko-awt-runtime-linux-x64", version.ref = "skiko" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

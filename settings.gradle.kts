@@ -60,6 +60,7 @@ rootProject.name = "kortex"
 include("compose")
 include("wayland")
 include("dbus")
+include("watch")
 include("tray")
 include("notification")
 include("bar")

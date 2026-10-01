@@ -50,6 +50,7 @@ Library versions all live in `gradle/libs.versions.toml`, which is the only plac
 | `:dbus` | a D-Bus client and server, public so you can write a provider of your own | nothing of kortex's |
 | `:tray` | the system tray: `StatusNotifierItem` and `DBusMenu` | `:dbus` |
 | `:notification` | kortex as the notification server, not a client of one | `:dbus` |
+| `:watch` | a file's text, again whenever it changes | `kern:dirs` |
 | `:bar` | a runnable demo of most of the toolkit at once | `:wayland` |
 
 Twelve surfaces are composables: `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`, `Osd`, `AppMenu`
@@ -87,6 +88,23 @@ suspend fun printNotifications(connection: DBusConnection) {
     server.notifications.collect { posted -> println(posted.map { it.summary }) }
 }
 ```
+
+Plenty of what a bar shows lives in a file rather than on a bus, so `:watch` hands over a file's text and
+hands it over again when it changes:
+
+```kotlin
+val memory: StateFlow<MemInfo?> = fileWatcher(Path("/proc/meminfo"), every = 2.seconds)
+    .map { read -> read.getOrNull()?.let(::parseMemInfo) }
+    .stateIn(scope, SharingStarted.WhileSubscribed(), null)
+```
+
+The first value is always the file as it stands, and after that only changes arrive, so you need no
+`distinctUntilChanged()` of your own. `fileWatcher(path)` without an interval waits for the operating system
+instead of reading on a tick, which is what you want for a config file in `$HOME`. It is **not** what works
+for the example above: procfs and sysfs make a file's contents up as it is read, so there is no write for
+the kernel to report, and `inotify(7)` names both as unmonitorable. That overload says so, with
+`WatchError.Unwatchable` naming the filesystem, rather than leaving you a widget that looks fine and never
+updates.
 
 In a composition, `collectAsState()` is the bridge, and kortex ships no helper for it.
 
