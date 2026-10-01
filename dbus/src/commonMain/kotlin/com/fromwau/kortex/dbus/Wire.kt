@@ -13,6 +13,14 @@ import java.nio.ByteOrder
 /** The longest signature the wire can spell, its length being written as a single byte. */
 private const val MAX_SIGNATURE_LENGTH = 255
 
+/**
+ * How many containers deep a message may nest, which the specification fixes at 64 across every kind.
+ *
+ * Not a ceiling of kortex's choosing: a peer that exceeds it is sending something no reader is required to
+ * accept, and the reader cannot hand back a failure past its own stack.
+ */
+private const val MAX_NESTING_DEPTH = 64
+
 /** What a struct, and so a dict entry, starts on. */
 private const val STRUCT_ALIGNMENT = 8
 
@@ -154,6 +162,8 @@ internal class WireWriter(order: ByteOrder, capacity: Int = 256) {
  * rules are written against, rather than one into a slice that has to be reasoned about separately.
  */
 internal class WireReader(private val bytes: ByteBuffer) {
+    private var depth = 0
+
     fun seek(to: Int) {
         bytes.position(to)
     }
@@ -192,10 +202,27 @@ internal class WireReader(private val bytes: ByteBuffer) {
         align(type.alignment)
         return when (type) {
             is DBusType.Basic -> readBasic(type)
-            is DBusType.Sequence -> readSequence(type)
-            is DBusType.Struct -> readFields(type.fields).map(DBusValue::Struct)
-            is DBusType.Pair -> readPair(type)
-            DBusType.Variant -> readVariant()
+            is DBusType.Sequence -> nested { readSequence(type) }
+            is DBusType.Struct -> nested { readFields(type.fields).map(DBusValue::Struct) }
+            is DBusType.Pair -> nested { readPair(type) }
+            DBusType.Variant -> nested { readVariant() }
+        }
+    }
+
+    /**
+     * Reads one container one level deeper, refusing past [MAX_NESTING_DEPTH].
+     *
+     * A nesting depth is the one thing here a message's own size does not bound: `v` costs three bytes and
+     * buys a frame of recursion, so a body of them is a StackOverflowError, which is not a value anyone can
+     * be handed. Every container counts, because the specification's limit is on their total.
+     */
+    private inline fun nested(read: () -> Result<DBusValue, DBusError>): Result<DBusValue, DBusError> {
+        if (depth >= MAX_NESTING_DEPTH) return Err(DBusError.NestingTooDeep(depth))
+        depth++
+        return try {
+            read()
+        } finally {
+            depth--
         }
     }
 
@@ -233,6 +260,10 @@ internal class WireReader(private val bytes: ByteBuffer) {
         while (bytes.position() < end) {
             values += readValue(type.element).getOrElse { return Err(it) }
         }
+        // An element is bounded by what is left of the message rather than by the array, so one declaring
+        // more than the array holds reads the bytes after it and leaves a value assembled out of its
+        // neighbour. The array's own length is the only thing that says where it ends.
+        if (bytes.position() != end) return Err(DBusError.TruncatedMessage)
         return Ok(DBusValue.Sequence(type.element, values))
     }
 

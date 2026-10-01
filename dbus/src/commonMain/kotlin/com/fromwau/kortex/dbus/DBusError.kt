@@ -25,8 +25,17 @@ public sealed interface DBusError : IError {
     /** [signature] is longer than the 255 bytes the wire's one-byte length can count. */
     public data class SignatureTooLong(public val signature: String) : DBusError
 
-    /** A message declared itself [length] bytes long, past the 128 MiB the specification allows. */
+    /** A message declared a length of [length] bytes, past the 128 MiB the specification allows. */
     public data class MessageTooLarge(public val length: Int) : DBusError
+
+    /**
+     * A message nested containers past the 64 levels deep the specification allows; [depth] is where it
+     * stopped being read.
+     *
+     * A variant carries its own signature inside the message rather than in the enclosing one, so three
+     * bytes of body buy a level each and no signature length bounds how deep one goes.
+     */
+    public data class NestingTooDeep(public val depth: Int) : DBusError
 
     /** A message of a kind that must carry header field [code] arrived without it. */
     public data class MissingHeaderField(public val code: Int) : DBusError
@@ -62,4 +71,13 @@ public sealed interface DBusError : IError {
 
     /** Nothing answered inside the reply budget. */
     public data object ReplyTimedOut : DBusError
+
+    /**
+     * The coroutine reading the socket ended on something other than a protocol failure; [detail] is what.
+     *
+     * Either a bug in kortex or the JVM running out of room for a message a peer declared. It is reported
+     * rather than left to the void because the connection is deaf from then on: nothing will read a reply
+     * off the socket again, so every call made afterwards would otherwise wait out its own timeout.
+     */
+    public data class ReaderFailed(public val detail: String) : DBusError
 }

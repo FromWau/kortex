@@ -22,6 +22,10 @@ public val DBusValue.asInt32: Int? get() = (unwrapped as? DBusValue.I32)?.value
 
 public val DBusValue.asUInt32: UInt? get() = (unwrapped as? DBusValue.U32)?.value
 
+public val DBusValue.asInt64: Long? get() = (unwrapped as? DBusValue.I64)?.value
+
+public val DBusValue.asDouble: Double? get() = (unwrapped as? DBusValue.F64)?.value
+
 /** An `ay`, which is how every icon and image on the bus arrives. */
 public val DBusValue.asBytes: ByteArray? get() = (unwrapped as? DBusValue.Bytes)?.value
 

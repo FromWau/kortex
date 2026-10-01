@@ -51,13 +51,40 @@ class MatchRuleTest {
         assertTrue(MatchRule(member = "NewIcon").matches(signal(iface = "anything", member = "NewIcon")))
     }
 
+    /**
+     * Sender is the bus's to match, so a rule naming one still takes what the bus routed for it.
+     *
+     * The test this replaces asserted the opposite and its name called it the contract: "a sender is matched
+     * against the unique name the bus filled in". That is the defect restated as a design. A caller can only
+     * name a well-known name ahead of time, and the bus stamps the delivered signal with the owner's unique
+     * name, so matching the two strings discarded every signal the identical `AddMatch` had just asked for.
+     */
     @Test
-    fun `a sender is matched against the unique name the bus filled in`() {
-        val rule = MatchRule(sender = ":1.31")
+    fun `a rule naming a sender still takes the signal the bus routed for it`() {
+        val wellKnown = MatchRule(sender = "org.kde.StatusNotifierWatcher", iface = ITEM, member = "NewIcon")
 
-        assertTrue(rule.matches(signal(iface = ITEM, member = "NewIcon", sender = ":1.31")))
-        assertFalse(rule.matches(signal(iface = ITEM, member = "NewIcon", sender = ":1.32")))
-        assertFalse(rule.matches(signal(iface = ITEM, member = "NewIcon", sender = null)))
+        assertTrue(
+            wellKnown.matches(signal(iface = ITEM, member = "NewIcon", sender = ":1.31")),
+            "a rule naming a well-known name rejected the unique name the bus delivers under",
+        )
+        assertTrue(
+            MatchRule(sender = ":1.31", iface = ITEM, member = "NewIcon")
+                .matches(signal(iface = ITEM, member = "NewIcon", sender = ":1.32")),
+            "sender is the bus's to filter, so it is not judged again here",
+        )
+        assertFalse(
+            wellKnown.matches(signal(iface = ITEM, member = "NewStatus", sender = ":1.31")),
+            "everything other than sender is still judged",
+        )
+    }
+
+    /** It still reaches `AddMatch`, which is the one job it has. */
+    @Test
+    fun `a sender still reaches the expression the bus is told`() {
+        assertEquals(
+            "type='signal',sender='org.kde.StatusNotifierWatcher'",
+            MatchRule(sender = "org.kde.StatusNotifierWatcher").asExpression,
+        )
     }
 
     /**

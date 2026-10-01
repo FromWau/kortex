@@ -9,6 +9,11 @@ package com.fromwau.kortex.dbus
  *
  * Two jobs, and both are needed. [asExpression] is what `AddMatch` is told, and [matches] picks a rule's
  * own signals back out of everything the bus routes, because one socket receives what every rule asked for.
+ *
+ * [sender] takes part in the first job only. The bus resolves a name to the connection that owns it and then
+ * stamps the delivered message with that connection's **unique** name, so a rule naming a well-known name,
+ * which is the only form a caller knows ahead of time, could never match its own signals locally. See
+ * [matches].
  */
 public data class MatchRule(
     public val sender: String? = null,
@@ -28,9 +33,20 @@ public data class MatchRule(
             pathNamespace?.let { add("path_namespace" to it) }
         }.joinToString(separator = ",") { (key, value) -> "$key='${value.escaped()}'" }
 
+    /**
+     * Whether [signal] is one this rule asked for, judged on everything except [sender].
+     *
+     * Sender is the bus's to match and not this side's. It resolves the name in [asExpression] to a
+     * connection and delivers the signal stamped with that connection's unique name, so comparing the two
+     * strings rejects every signal a rule naming a well-known name just successfully asked for. A rule that
+     * reached the bus has already been filtered on sender; one that did not never sees a signal at all.
+     *
+     * The cost of leaving it out, stated so nobody has to find it: two rules on one connection differing
+     * only in [sender] cannot be told apart here, so each sees the other's signals. Narrow by [iface],
+     * [member] or [path] where that matters, and read [Message.Signal.sender] to attribute what arrives.
+     */
     public fun matches(signal: Message.Signal): Boolean =
-        (sender == null || sender == signal.sender) &&
-            (iface == null || iface == signal.iface) &&
+        (iface == null || iface == signal.iface) &&
             (member == null || member == signal.member) &&
             (path == null || path == signal.path) &&
             (pathNamespace == null || signal.path.startsWithNamespace(pathNamespace))

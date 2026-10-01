@@ -12,6 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.runBlocking
@@ -122,6 +123,35 @@ class NotificationServerTest {
         val posted = server.settle(2)
         assertEquals(listOf("first, again", "second"), posted.map { it.summary }, "the replacement moved")
         assertEquals(listOf(first, second), posted.map { it.id })
+    }
+
+    /**
+     * What a progress notification that has not moved yet sends, and the one replacement with nothing to see.
+     *
+     * A notification is a value and [NotificationServer.notifications] is a [kotlinx.coroutines.flow.StateFlow],
+     * so a second posting of identical content is an identical list that a collector is never handed.
+     * [Notification.revision] is what keeps the postings apart.
+     */
+    @Test
+    fun `a replacement that changes nothing still reaches a collector`() = withServer { server, client, _ ->
+        val id = client.notify(notifyBody(summary = "unchanged"))
+        assertEquals(FIRST_REVISION, server.settle(1).single().revision)
+
+        val subscribed = CompletableDeferred<Unit>()
+        val next = async(Dispatchers.IO) {
+            server.notifications
+                .onSubscription { subscribed.complete(Unit) }
+                .drop(1)
+                .first()
+        }
+        subscribed.await()
+
+        assertEquals(id, client.notify(notifyBody(summary = "unchanged", replaces = id)), "the id changed")
+
+        val posted = withTimeoutOrNull(BUDGET) { next.await() }
+            ?: fail("the replacement reached no collector, so nothing can redraw or retime the notification")
+        assertEquals(2u, posted.single().revision, "the replacement is not marked as a second posting")
+        assertEquals("unchanged", posted.single().summary)
     }
 
     @Test

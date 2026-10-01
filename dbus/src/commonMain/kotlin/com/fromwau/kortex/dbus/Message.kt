@@ -193,6 +193,9 @@ private fun Message.destination(): String? = when (this) {
 /**
  * The length of the message beginning at [header], which must hold its first [FIELDS_OFFSET] + 4 bytes.
  *
+ * Both lengths are read off the wire, so both are a peer's claim rather than a fact, and the sum of two
+ * claims is checked rather than assumed to be one.
+ *
  * A socket reader needs this before it can know how much more to wait for, which is why it is separate
  * from [decode].
  */
@@ -204,8 +207,12 @@ public fun lengthOf(header: ByteArray): Result<Int, DBusError> {
     val fieldsLength = bytes.getInt(FIELDS_OFFSET)
     if (bodyLength < 0 || fieldsLength < 0) return Err(DBusError.TruncatedMessage)
 
-    val padded = pad(FIXED_HEADER_LENGTH + fieldsLength, HEADER_ALIGNMENT)
-    val total = padded + bodyLength
+    // Each declaration is capped before the two are added. Both near Int.MAX_VALUE sum to a negative total,
+    // which passes the cap below and is handed on as a length to allocate a buffer for.
+    val declared = maxOf(bodyLength, fieldsLength)
+    if (declared > MAX_MESSAGE_LENGTH) return Err(DBusError.MessageTooLarge(declared))
+
+    val total = pad(FIXED_HEADER_LENGTH + fieldsLength, HEADER_ALIGNMENT) + bodyLength
     if (total > MAX_MESSAGE_LENGTH) return Err(DBusError.MessageTooLarge(total))
     return Ok(total)
 }

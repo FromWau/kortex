@@ -166,7 +166,7 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         val entry = signal.body.firstOrNull()?.asText ?: return null
         val address = ItemAddress.parse(entry, signal.sender) ?: return null
         return when (signal.member) {
-            ITEM_REGISTERED -> readItem(address)?.let { this + (address to it) }
+            ITEM_REGISTERED -> tracked(address)?.let { this + (address to it) }
             ITEM_UNREGISTERED -> takeIf { address in it }?.minus(address)
             else -> null
         }
@@ -174,13 +174,15 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
 
     private suspend fun Known.afterItemSignal(signal: Message.Signal): Known? {
         val address = addressOf(signal) ?: return null
+        val held = getValue(address)
         // NewStatus is the one that carries its own value, so it is the one that needs no read back.
         if (signal.member == NEW_STATUS) {
             val status = signal.body.firstOrNull()?.asText ?: return null
-            return this + (address to getValue(address) + ("Status" to DBusValue.Text(status)))
+            val updated = held.properties + ("Status" to DBusValue.Text(status))
+            return this + (address to held.copy(properties = updated))
         }
         if (!signal.member.startsWith("New")) return null
-        return readItem(address)?.let { this + (address to it) }
+        return readItem(address)?.let { this + (address to held.copy(properties = it)) }
     }
 
     private fun Known.afterPropertiesChanged(signal: Message.Signal): Known? {
@@ -191,7 +193,8 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         val invalidated = signal.body.getOrNull(2)?.asItems?.mapNotNull { it.asText }.orEmpty()
         if (changed.isEmpty() && invalidated.isEmpty()) return null
 
-        return this + (address to (getValue(address) + changed - invalidated.toSet()))
+        val held = getValue(address)
+        return this + (address to held.copy(properties = held.properties + changed - invalidated.toSet()))
     }
 
     /** An application that exits takes its items with it, whether or not the watcher noticed. */
@@ -200,12 +203,22 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         val newOwner = signal.body.getOrNull(2)?.asText ?: return null
         if (newOwner.isNotEmpty()) return null
 
-        val gone = keys.filter { it.service == name }
+        // Either spelling: a connection that dies is announced under its unique name, and under every
+        // well-known one it held, and an item may be keyed by one and owned by the other.
+        val gone = entries.filter { it.key.service == name || it.value.owner == name }.map { it.key }
         return takeIf { gone.isNotEmpty() }?.minus(gone.toSet())
     }
 
+    /**
+     * Which item sent [signal], or null where no item did.
+     *
+     * Matched on the owner rather than on the key's service name, which is the watcher's spelling and may
+     * be a well-known name no signal ever carries. This is also what keeps a forged item signal out: the
+     * rules for the item interfaces can name no sender, since which connections hold items is not known
+     * when they go up, so a peer's own `NewIcon` is routed here and discarded for owning no item.
+     */
     private fun Known.addressOf(signal: Message.Signal): ItemAddress? =
-        keys.firstOrNull { it.service == signal.sender && it.path == signal.path }
+        entries.firstOrNull { it.value.owner == signal.sender && it.key.path == signal.path }?.key
 
     private suspend fun findWatcher(): Result<Watcher, TrayError> {
         WATCHERS.forEach { candidate ->
@@ -221,10 +234,10 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
             .getOrElse { return Err(it) }
 
         val entries = registered.asItems?.mapNotNull { it.asText }.orEmpty()
-        val known = linkedMapOf<ItemAddress, Map<String, DBusValue>>()
+        val known = linkedMapOf<ItemAddress, Tracked>()
         entries.forEach { entry ->
             val address = ItemAddress.parse(entry) ?: return@forEach
-            readItem(address)?.let { known[address] = it }
+            tracked(address)?.let { known[address] = it }
         }
         return Ok(known)
     }
@@ -235,6 +248,13 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
      * An item that has just gone away is the ordinary reason for null, and it is not an error: the
      * unregistration is on its way and the tray simply carries one fewer item until it lands.
      */
+    /** [address] ready to be held, or null where either half of it could not be read. */
+    private suspend fun tracked(address: ItemAddress): Tracked? {
+        val owner = connection.nameOwner(address.service).getOrNull() ?: return null
+        val properties = readItem(address) ?: return null
+        return Tracked(owner, properties)
+    }
+
     private suspend fun readItem(address: ItemAddress): Map<String, DBusValue>? =
         onItemInterface(address) { iface -> connection.properties(address.service, address.path, iface) }
             .getOrElse { return null }
@@ -293,16 +313,29 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
          * than that bookkeeping would.
          */
         val RULES = buildList {
-            WATCHERS.mapTo(this) { MatchRule(iface = it.iface) }
+            // A sender wherever exactly one is legitimate, because the bus resolves a well-known name to
+            // whoever owns it and routes only that connection's signals. Without it any peer on the bus can
+            // emit an unregistration, or a name change, and have the tray act on it.
+            WATCHERS.mapTo(this) { MatchRule(sender = it.service, iface = it.iface) }
             ITEM_INTERFACES.mapTo(this) { MatchRule(iface = it) }
             add(MatchRule(iface = Bus.PROPERTIES, member = PROPERTIES_CHANGED))
-            add(MatchRule(iface = Bus.INTERFACE, member = NAME_OWNER_CHANGED))
+            add(MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = NAME_OWNER_CHANGED))
         }
     }
 }
 
-/** What the tray holds between signals: each item's properties exactly as the bus sent them. */
-private typealias Known = Map<ItemAddress, Map<String, DBusValue>>
+/** What the tray holds between signals. */
+private typealias Known = Map<ItemAddress, Tracked>
 
-private fun Known.asItems(): List<TrayItem> = map { (address, properties) -> trayItemFrom(address, properties) }
+/**
+ * One item's properties exactly as the bus sent them, beside the unique name of the connection behind it.
+ *
+ * [owner] is the only thing an item's own signals can be matched against, since the bus stamps every
+ * message with the sender's unique name while a watcher may list the item under a well-known one. The key
+ * stays the watcher's spelling, because that is what its unregistration will name, by which time the
+ * owner is no longer resolvable.
+ */
+private data class Tracked(val owner: String, val properties: Map<String, DBusValue>)
+
+private fun Known.asItems(): List<TrayItem> = map { (address, tracked) -> trayItemFrom(address, tracked.properties) }
 

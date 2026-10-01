@@ -167,6 +167,63 @@ class MessageTest {
         }
     }
 
+    /**
+     * Two lengths a peer declares are added, and a sum is not a length until it has been checked.
+     *
+     * Each is a legal positive `u` on its own. Added they wrap: the total was a small negative that passed
+     * the 128 MiB cap and went on to be the size of a buffer to allocate.
+     */
+    @Test
+    fun `two lengths that sum past an Int are refused rather than wrapping`() {
+        val header = hex(
+            "6c010001" + // little-endian, a method call, no flags, protocol version 1
+                "f0ffff7f" + // a body of Int.MAX_VALUE - 15 bytes
+                "01000000" + // serial 1
+                "f0ffff7f", // and header fields of the same, which together overflow
+        )
+
+        assertEquals(Err(DBusError.MessageTooLarge(2_147_483_632)), lengthOf(header))
+    }
+
+    /**
+     * A variant carries its own signature, so nothing in the enclosing one bounds how deep they go.
+     *
+     * The specification's limit is 64 containers across a whole message, which is what the reader refuses
+     * past, because the failure beyond its own stack is not one anybody can be handed.
+     */
+    @Test
+    fun `nesting past the depth the specification allows is refused`() {
+        fun variants(deep: Int): ByteArray {
+            var value: DBusValue = DBusValue.U32(1u)
+            repeat(deep) { value = DBusValue.Variant(value) }
+            return call(listOf(value)).encode().getOrElse { fail("did not encode: $it") }
+        }
+
+        assertIs<Message.Call>(Message.decode(variants(64)).getOrElse { fail("64 deep did not decode: $it") })
+        assertEquals(Err(DBusError.NestingTooDeep(64)), Message.decode(variants(65)))
+    }
+
+    /** An array says how many bytes it holds, and an element inside it does not get to disagree. */
+    @Test
+    fun `an array whose element reads past its declared length is refused`() {
+        val raw = hex(
+            "6c020001" + // little-endian, a method return, no flags, protocol version 1
+                "11000000" + // seventeen bytes of body
+                "01000000" + // serial 1
+                "10000000" + // sixteen bytes of header fields
+                "05017500" + "07000000" + // reply_serial, as a u, answering serial 7
+                "08016700" + "02617300" + // signature, as a g, holding "as"
+                "04000000" + // the array declares four bytes, which is its element's length field alone
+                "08000000" + "6f766572666c6f7700", // and that element declares eight bytes plus its NUL
+        )
+
+        assertEquals(
+            Err(DBusError.TruncatedMessage),
+            Message.decode(raw),
+            "the array decoded to a string assembled out of the bytes after it",
+        )
+    }
+
     @Test
     fun `a body whose signature field is absent decodes as no arguments at all`() {
         val empty = Message.Call(serial = 9u, path = "/org/freedesktop/DBus", member = "Hello")

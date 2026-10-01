@@ -1299,25 +1299,29 @@ at all.
 Written down because the rest of it lives in a conversation and in a git-ignored directory, and neither
 survives on its own.
 
-- **All of it is on `master` now, 565 commits ahead of `origin/master`, nothing pushed, working tree
-  clean.** `reactive-surfaces` and then `windows-and-input` went in as fast-forwards, so there are no
-  merge commits for either and `master`'s tree is exactly what the branch tip held; both branches are
-  gone. The merge decision this section used to carry is therefore closed.
+- **All of it is on `master` now, nothing pushed, working tree clean.** How far ahead is git's to count
+  and not this file's to restate: `git rev-list --count origin/master..HEAD`. `reactive-surfaces` and then
+  `windows-and-input` went in as fast-forwards, so there are no merge commits for either and `master`'s
+  tree is exactly what the branch tip held; both branches are gone. The merge decision this section used
+  to carry is therefore closed.
 - **No commit message carries a `Co-Authored-By: Claude` or `Claude-Session` trailer.** All 1108 of them
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **543 tests green on `master`: 390 in `:wayland`, 69 in `:dbus`, 32 in `:tray`, 27 in `:compose`,
-  14 in `:notification` and 11 in `:bar`.**
-  No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
-  Two gates leave tests out of that number, each with a property of its own, because opting into one is no
-  reason to opt into the other, and both have now been run and pass.
+- **563 tests green on `master` in one run: 390 in `:wayland`, 73 in `:dbus`, 33 in `:tray`, 29 in
+  `:notification`, 27 in `:compose` and 11 in `:bar`.**
+  No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache, and
+  with the session free, which this one needs saying because the two runs before it were made while the
+  desktop was in use and a suite that takes focus and drives the pointer is not being measured then.
+  548 of the 563 are what a plain `check` runs. The other fifteen are `NotificationServerTest`, which is
+  `@TakesTheName` and wants `-Pkortex.notificationTests=true` and whoever holds
+  `org.freedesktop.Notifications` stopped. **Stopping it is not the end of it**: the name is D-Bus
+  activatable, so dunst comes back on its own as soon as kortex releases it, which invalidated a run that
+  started a minute after the stop. Stop it and start the run in the one command.
   The seven `@Hotplug` tests make `:wayland` 397 with `-Pkortex.hotplugTests=true`, and the run that first
-  did it on this machine is written up under its own entry above. They stay gated because they hotplug the
-  live desktop: GTK 4.22.5 fixed the crash that banned them, but Steam's was a different bug with no fix,
-  so Steam wants closing first. `NotificationServerTest` is `@TakesTheName` and adds fourteen, which pass
-  with `-Pkortex.notificationTests=true` once the daemon holding `org.freedesktop.Notifications` is
-  stopped.
+  did it on this machine is written up under its own entry above. They did not run this time: they hotplug
+  the live desktop, GTK 4.22.5 fixed the crash that banned them but Steam's was a different bug with no
+  fix, and Steam was open.
   **The suite empties the clipboard.** `ClipboardFocusTest` ends with `wl-copy --clear`, which clears rather
   than restores, so whatever was copied before a run is gone after it.
 
@@ -1333,6 +1337,19 @@ survives on its own.
   `PointerReleaseOrderTest` take focus, re-tile open windows and drive the pointer, so they want a session
   kept free. Ask before starting a run.
 
+
+- **`LayerShellSurfaceTest`'s dead-connection test failed once, in a run that was not clean, and has
+  passed in every clean run since.** It kills the
+  connection by binding a global no compositor advertises, then asserts `waitForConfigure` comes back as
+  `KortexError.ProtocolViolation` naming `wl_registry`; that run returned `ConnectionError(errno=104)`,
+  ECONNRESET, because `requireAlive` reports a `ProtocolViolation` only for EPROTO and the connection's own
+  errno otherwise. The mechanism by which the two compete is worth having written down for the next
+  occurrence: libwayland keeps one error per display and never replaces it, `display_fatal_error` and
+  `display_protocol_error` in `wayland-client.c` both returning early while `display->last_error` is set,
+  so whichever is recorded first is the one the test reads.
+  **It is not established as a flake.** The desktop was being used during that run, which is enough to
+  explain a timing-sensitive test on its own, and five solo runs of the class afterwards were clean.
+  Nothing has been changed in it.
 
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
@@ -1738,6 +1755,100 @@ references and stays actionable on its own once the reports are gone.
       `7983b24` fixed the test that left it there in September; the request path itself stayed able to kill
       the JVM for any other caller, `proxyGetVersion` dereferencing the same null a line earlier.
       `NullProxyRequestTest` pins the refusal.
+## A blind review of `:dbus`, `:tray` and `:notification`
+
+Six agents read the three new modules and the session's `:wayland` changes, each told what the code is and
+nothing about what it was expected to do. What came back was checked against the code before any of it was
+believed, which is where the false positives went: an "inconsistency" that an existing test pins as
+intended, and a "divergence" whose two paths converge by design. Six findings survived, one more turned up
+while they were being fixed, and all seven are fixed below. Six carry a test, and every one of those six
+was run against the unfixed code to watch it fail there. The seventh has no test and says why where it is.
+
+- [x] **A match rule naming a sender discarded every signal it had just asked for.** `asExpression` sends
+      `sender='org.kde.StatusNotifierWatcher'` and the bus resolves that name to the connection owning it,
+      then stamps what it delivers with that connection's **unique** name. `matches` compared the rule's
+      string against the stamp, so a rule naming the only form a caller can know ahead of time matched
+      nothing. Found by three agents independently. Sender is now the bus's to judge and is left out of
+      `matches`, which is documented along with its one cost: two rules on one connection differing only in
+      sender no longer tell each other's signals apart, so narrow by interface, member or path.
+      **The test that should have caught it stated the defect as the contract.** It was called `a sender is
+      matched against the unique name the bus filled in` and only ever passed unique names, so it passed. It
+      is renamed for the contract and carries the well-known-name case that fails without the fix.
+- [x] **Two header lengths were added without being checked, and the sum wrapped.** `lengthOf` reads a body
+      length and a fields length, refuses a negative one, then adds them: both near `Int.MAX_VALUE` gave a
+      small negative total that passed the 128 MiB cap and was handed on as how much more of the message to
+      read, reaching `ByteBuffer.allocate` as a negative or near-`Int.MAX_VALUE` size. Each half is now
+      capped before the sum, so the sum cannot overflow. (`MessageTest`)
+- [x] **Nothing bounded how deep a message could nest.** `readVariant` reads a signature out of the message
+      and calls back into `readValue`, so three bytes of body buy a frame of recursion each and no signature
+      length bounds it. A `StackOverflowError` is not a value a caller can be handed, which is the one case
+      where refusing is keeping a promise rather than second-guessing a caller. Refused past 64 containers
+      across a whole message, which is the specification's own limit and not a number kortex chose, as
+      `DBusError.NestingTooDeep`. (`MessageTest`)
+- [x] **An array's element could read past the array and the value was kept.** `readSequence` works out where
+      the array ends but each element is bounded by what is left of the **message**, so an element declaring
+      more than the array holds consumed the bytes after it and the loop exited with a value assembled out
+      of its neighbour. Now refused unless the elements end exactly where the array said they would.
+      (`MessageTest`)
+- [x] **The coroutine reading the socket had no catch, so a connection could go deaf without going dead.**
+      `pump` launches on a `SupervisorJob` with no handler: anything the decoder threw ended it with
+      `death` unset, so no waiting call was failed, nothing read the socket again and every later call spent
+      its full timeout finding that out. Routed to `finish` as `DBusError.ReaderFailed`, errors included,
+      since a decoder that overflows the stack or runs out of heap is exactly the case this exists for. And
+      `call` now asks whether the connection is already dead before sending, which is what makes `finish`
+      mean anything to a caller who arrives afterwards.
+      **This is the one with no test.** Provoking it needs the decoder to throw, and every way it could has
+      now been given a typed error instead: the three fixes above are what used to reach it. A test would
+      have to fake a socket to get there, which is the one thing `:dbus` decided against.
+- [x] **Any peer on the bus could empty the tray, and a real item's updates were being dropped.** Two halves
+      of one mistake. The watcher rules named no sender, so a forged `StatusNotifierItemUnregistered` from
+      anybody was routed in and acted on; and `addressOf` compared the stored service name against
+      `signal.sender`, so an item the watcher lists under a well-known name, which
+      `org.kde.StatusNotifierItem-2362-1/StatusNotifierItem` in `TrayItemTest` is one of the spellings of,
+      never matched its own `NewIcon` and never updated.
+      Fixed from both ends. A sender is pinned wherever exactly one is legitimate, which is each watcher's
+      own rules and the bus's own `NameOwnerChanged`; the bus resolves a well-known name there and routes
+      only its owner's signals. And each item now carries the unique name of the connection behind it,
+      resolved once at discovery, which is what an item's signals are matched against. The key stays the
+      watcher's spelling, because that is what the unregistration will name, by which time the owner cannot
+      be resolved any more. The item interfaces themselves can still name no sender, since which connections
+      hold items is not known when the rules go up, and that is now harmless: a peer's forged `NewIcon` is
+      routed here and discarded for owning no item.
+      **The forged unregistration is a test, and the mutant proves it.** With the sender taken back out of
+      the watcher rules, `TrayLiveTest` fires a `StatusNotifierItemUnregistered` from a second ordinary
+      connection and the tray drops a real item: three items became two, so this was never hypothetical.
+      The test holds a collector open across the forgery, which it has to. `items` runs only while somebody
+      is subscribed, so the first version of this test read the tray twice, tore it down in between, and
+      passed against the unfixed code because nothing was listening when the forgery landed.
+      **The owner half is unproven on this session rather than untested.** Every item on this bus registers
+      under a unique name, which is `addressOf`'s working case either way, and resolving the owner is what
+      the whole suite now exercises. Proving the broken case needs an application that registers a
+      well-known name, and none of kdeconnect, Steam, Discord or wine does.
+- [x] **A notification replaced by an identical one reached nobody.** `Notification` is a data class and
+      `notifications` is a `StateFlow`, so an application replacing a notification with the same content
+      produced an equal list and a collector was never handed it. A progress notification that has not moved
+      yet sends exactly that. `Notification.revision` counts the postings of an id, so the second is a
+      different value, and it is also what a caller animating or timing one needs in order to start again.
+      The test is in the `@TakesTheName` class, so it runs with `-Pkortex.notificationTests=true`, and with
+      the revision pinned to the first one it is the only one of the fifteen that fails.
+
+What the review asked for that is deliberately still open:
+
+- **There is no `system()`.** `DBusConnection` opens the session bus only, and UPower, logind,
+  NetworkManager, BlueZ and systemd, which is most of what a status bar wants, are all on the system bus.
+  Those providers come later and the connection grows a system address with them, rather than ahead of a
+  caller. The address is `DBUS_SYSTEM_BUS_ADDRESS` when it is set, which it is not on this machine, and
+  otherwise the specification's default of `/var/run/dbus/system_bus_socket`, which here is
+  `/run/dbus/system_bus_socket` through a symlink. Nothing else about the client changes.
+- **The API-shape suggestions, as suggestions.** A `watch(rule)` that adds and removes a match rule with the
+  subscription instead of leaving both to the caller; an object proxy so a path and interface are named once
+  rather than per call; `argN` on `MatchRule`, which is what narrowing `NameOwnerChanged` needs; public
+  constants for the standard error names a caller compares `CallFailed.name` against; and the reading side of
+  `introspect()`, which is written and answered but never parsed. Each reshapes a public surface that two
+  modules now depend on, so each is a decision rather than a fix.
+- **`maven-publish` and the single-target source layout are not findings.** kortex is JVM-only by design, and
+  publishing waits until development is done.
+
 ## Deliberately not doing
 
 - `BinarySource` / bundled binary extraction / arch-specific resources: no helper binary exists.

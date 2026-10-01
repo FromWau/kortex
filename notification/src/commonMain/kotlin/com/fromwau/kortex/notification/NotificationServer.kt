@@ -143,15 +143,17 @@ public class NotificationServer private constructor(
         val replaces = body.getOrNull(1)?.asUInt32
             ?: return@withLock Err(CallRejected(CallRejected.INVALID_ARGS, "Notify takes a u as its second argument"))
 
-        val existing = replaces.takeIf { it != NO_ID && posted.value.any { posted -> posted.id == it } }
-        val id = existing ?: ids.incrementAndGet().toUInt()
-        val notification = notificationFrom(id, body)
+        val replaced = replaces
+            .takeIf { it != NO_ID }
+            ?.let { asked -> posted.value.firstOrNull { it.id == asked } }
+        val id = replaced?.id ?: ids.incrementAndGet().toUInt()
+        val notification = notificationFrom(id, body, revision = replaced?.revision?.plus(1u) ?: FIRST_REVISION)
             ?: return@withLock Err(CallRejected(CallRejected.INVALID_ARGS, "Notify takes $NOTIFY_SIGNATURE"))
 
         posted.update { current ->
             // In place when it replaces one, so a notification keeps its position rather than jumping to
             // the end of whatever a caller is drawing.
-            if (existing == null) current + notification
+            if (replaced == null) current + notification
             else current.map { if (it.id == id) notification else it }
         }
         Ok(listOf(DBusValue.U32(id)))

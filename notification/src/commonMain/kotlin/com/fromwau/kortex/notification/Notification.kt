@@ -104,6 +104,16 @@ public data class ScreenHint(public val x: Int, public val y: Int)
 /** One notification an application has posted. */
 public data class Notification(
     public val id: UInt,
+    /**
+     * Which posting of [id] this is, counted from 1 and up by one for each replacement.
+     *
+     * A replacement reuses the id, and an application is free to replace a notification with content
+     * identical to what is already there: a progress notification that has not moved yet does exactly
+     * that. Two such postings are otherwise the same value, which [NotificationServer.notifications] would
+     * conflate, so this is what tells a caller animating or timing one that the application has posted
+     * again.
+     */
+    public val revision: UInt,
     public val appName: String,
     /**
      * A theme icon name or a file path; empty where the application sent none, which is common.
@@ -154,14 +164,19 @@ public enum class CloseReason(internal val wireValue: UInt) {
     Undefined(4u),
 }
 
-/** Builds a notification from one `Notify` call, with [id] already decided. */
-internal fun notificationFrom(id: UInt, body: List<DBusValue>): Notification? {
+/** Builds a notification from one `Notify` call, with [id] and [revision] already decided. */
+internal fun notificationFrom(
+    id: UInt,
+    body: List<DBusValue>,
+    revision: UInt = FIRST_REVISION,
+): Notification? {
     if (body.size != NOTIFY_ARGUMENTS) return null
 
     val hints = body[6].asDictionary.orEmpty()
 
     return Notification(
         id = id,
+        revision = revision,
         appName = body[0].asText.orEmpty(),
         appIcon = body[2].asText.orEmpty(),
         summary = body[3].asText.orEmpty(),
@@ -215,6 +230,9 @@ private fun screenHintIn(hints: Map<String, DBusValue>): ScreenHint? {
 
 /** A hint an application sent as an empty string is one it did not send, for every hint here. */
 private fun Map<String, DBusValue>.present(key: String): String? = text(key)?.ifEmpty { null }
+
+/** What a notification nothing has replaced yet is on. */
+internal const val FIRST_REVISION: UInt = 1u
 
 /** What `Notify` takes, in order. A call of any other width is not one. */
 private const val NOTIFY_ARGUMENTS = 8

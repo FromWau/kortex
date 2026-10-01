@@ -7,6 +7,7 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.fold
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -110,6 +111,10 @@ public class DBusConnection private constructor(
         args: List<DBusValue> = emptyList(),
         timeout: Duration = replyTimeout,
     ): Result<List<DBusValue>, DBusError> {
+        // Asked before sending: the socket may still take the write long after anything stopped reading it,
+        // and a call nobody can answer should say so rather than spend its timeout finding out.
+        death?.let { return Err(it) }
+
         val serial = nextSerial()
         val waiting = CompletableDeferred<Result<Message, DBusError>>()
         pending[serial] = waiting
@@ -294,12 +299,20 @@ public class DBusConnection private constructor(
 
     private fun pump() {
         scope.launch {
-            while (true) {
-                val message = readMessage().getOrElse { error ->
-                    finish(error)
-                    return@launch
+            try {
+                while (true) {
+                    val message = readMessage().getOrElse { error ->
+                        finish(error)
+                        return@launch
+                    }
+                    deliver(message)
                 }
-                deliver(message)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                // Errors included. Whatever ends this coroutine, nothing will read the socket again, and a
+                // connection that is deaf without being dead fails no waiter and refuses no new call.
+                finish(DBusError.ReaderFailed(failure.toString()))
             }
         }
     }
