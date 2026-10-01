@@ -1148,6 +1148,20 @@ at all.
       `icon-data` is an encoded image file rather than the raw ARGB a tray icon carries, and it arrives
       either as bytes or base64 into a string; and `enabled` and `visible` default to true when absent,
       which is the opposite of how a missing flag usually reads.
+      **Confirmed live against Steam and a connected kdeconnect**, by hand with the two probes. Steam
+      registers as `:1.244/org/ayatana/NotificationItem/steam`, which is the ayatana path case
+      `ItemAddress.parse` handles and that the unit test had to invent a name for; it parses. Steam also
+      sends an `IconThemePath` of its own, `~/.local/share/Steam/public`, where kdeconnect sends none, so a
+      caller that ignores it cannot find Steam's icon at all.
+      kdeconnect's menu with two devices paired exercises what one entry could not: submenus nested three
+      deep, so the recursive `(ia{sv}av)` parse is proven past the one level seen before; separators;
+      entries that are `disabled`, `hidden`, and both at once; and an entry that is hidden and still
+      delivers its submenu's children. Steam's sixteen entries add three more separators and nothing else.
+      **Still unexercised by any live item**, and neither of these two sends them: a non-empty tray
+      `a(iiay)` pixmap, `NeedsAttention`, an overlay icon, a menu entry's `toggle-type` or `toggle-state`,
+      a `disposition` other than normal, a `shortcut`, and either shape of `icon-data`. All are unit-tested
+      and the pixmaps are in the captured fixture. An application that renders its own icon or badges it,
+      Discord or Telegram among them, is the kind that would send the first four.
       **Done: the server side too.** An object is exported at a path, a call to it reaches a handler, and
       what the handler returns becomes a reply or an error reply under a name it chose. Answered off the
       pump, because a handler that takes its time would otherwise stop the socket being read; replies are
