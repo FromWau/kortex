@@ -784,11 +784,17 @@ where on the monitor the compositor put it.
       for both, and the key arrives decoded, `_WtCq8syHMFcs8bgYF6JGA` on the run that was watched. So the
       drain has been running against a real source all along and the probe simply never printed what came
       out of it. It does now.
-      What is still untaken is the step after: `RetrieveFiles` with that key answered `Access denied` from
-      `busctl` once the drag had ended, and whether that is the transfer being withdrawn with the drag or
-      the portal scoping retrieval to the recipient's own connection was not established. Closing that loop
-      needs a probe with `:wayland` and `:dbus` both on its classpath, which the toolkit itself must still
-      not have.
+      **The step after is taken too, and the answer is that a key lives exactly as long as its drag.**
+      `LivePortalProbe` asks `RetrieveFiles` with one key on both sides of the drag ending:
+      `during-the-drag=[/home/fromml/Downloads/test.txt]`, a real path, and
+      `after-the-drag=AccessDenied, "Invalid transfer"`. The message is what settles it, since the two
+      guesses made different predictions: the transfer is withdrawn with the drag, and it is not the portal
+      scoping retrieval to a particular caller. `busctl` was refused earlier for the first reason and not
+      the second.
+      So a caller must resolve a key before it returns from the drop, and `readPortalKey` says so now.
+      The probe carries `:wayland` and `:dbus` on one classpath, which a test may and the toolkit may not:
+      that dependency is on `jvmTest` alone and carries a comment saying nothing under `commonMain` may
+      reach for it.
       **The clipboard side is done too, both halves.** `KortexClipboard.setUris` puts a `text/uri-list` on
       the clipboard and offers that type alone, so pasting into a text field gets nothing: a clipboard holds
       one selection, so copying the same paths as text is `setText`'s to do and which of the two a copy

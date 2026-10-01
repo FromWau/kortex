@@ -77,8 +77,14 @@ public class KortexDragOffer internal constructor(
      * `org.freedesktop.portal.Documents` at `/org/freedesktop/portal/documents`, calling
      * `org.freedesktop.portal.FileTransfer.RetrieveFiles(key, {})`, which answers an array of paths.
      *
+     * **Make that call before you return from the drop.** The key is the drag's, not yours: once the drag
+     * has ended the portal answers `org.freedesktop.DBus.Error.AccessDenied`, "Invalid transfer", so a key
+     * kept to resolve later resolves to nothing. Read off the running portal by dragging a file onto
+     * `LivePortalProbe`, which asks with the same key on both sides of the drag ending.
+     *
      * Prefer [readUris] and come here only when it has none: an application that offers both means the same
-     * files either way, and the URIs need nothing of you.
+     * files either way, and the URIs need nothing of you. Dolphin offers both on an ordinary drag, so a key
+     * is not only a sandboxed application's doing.
      *
      * @return the key, or why there is none: [ClipboardError.NoPortalKey] where the drag offers no key or has
      *   not been dropped yet, [ClipboardError.PipeFailed], [ClipboardError.ReadTimedOut] or
