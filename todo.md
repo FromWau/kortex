@@ -904,6 +904,15 @@ where on the monitor the compositor put it.
 
 ## Housekeeping
 
+- [ ] **Three module build files share 21 of their 30 lines, and the probe task is now copied three times.**
+      `dbus`, `tray` and `notification` differ only in their dependencies; `compose` and `wayland` share the
+      same opening. The `probe` task, a `JavaExec` over a test compilation's classpath, is pasted into
+      `wayland`, `tray` and `notification` verbatim. When the second copy went in the note was that a third
+      would justify extracting it, and there is now a third.
+      Open: a convention plugin in a `build-logic` included build, which is what Gradle's own guidance asks
+      for, carrying the toolchain, `explicitApi`, the `jvm()` target and the probe task. Each module would
+      keep only its dependencies. Noted rather than done because a new included build is a design change.
+
 - [x] **`WlSurfaceListener` has a file of its own.** `wl_surface` is a core interface, not part of the
       wlroots extension, so its listener sits in `WlSurfaceListener.kt` and `LayerShell.kt` keeps the
       `zwlr_layer_shell_v1` tables and `LayerShellSurface`.
@@ -1236,6 +1245,30 @@ at all.
       **Found on the wire, and no document says it:** `notify-send` 0.8.8 leaves the `app_icon` argument
       empty and puts `--icon` in the `image-path` hint instead. A caller drawing `app_icon` alone shows no
       icon for most of what is sent.
+- [ ] **Seven public commands in `:tray` have no test, and the server side made them testable.** Every
+      write in that module: `Tray.activate`, `secondaryActivate`, `contextMenu` and `scroll`, and
+      `Menu.send`, `aboutToShow` and `activationRequests`. No test names any of them. The reading half is
+      covered twice over, by unit tests and against three live items, and the half that acts is covered not
+      at all, which is the wrong way round: a `scroll` that sends the wrong argument order or an `activate`
+      that quotes the wrong path fails silently and looks like an application ignoring it.
+      They were skipped because exercising them against a live item means really activating it, opening
+      Discord's window or Steam's menu, which is a side effect on somebody's desktop. That reason expired
+      when `:dbus` gained `export`: a test can export its own object implementing
+      `org.kde.StatusNotifierItem`, register it with the real watcher through `RegisterStatusNotifierItem`,
+      let `Tray` discover it, then call `activate` and assert the handler was given `Activate(x, y)`. Real
+      bus, real watcher, kortex on both ends, and nothing visible happens because the item it drives is the
+      test's own. `ExportedObjectTest` is the shape to copy.
+      Open: that test class, and whether the same trick covers `DBusMenu`'s `Event` and `AboutToShow`.
+
+- [ ] **`DBusConnection.kt` is 538 lines and one piece of it is a different protocol.** The rest is
+      cohesive, all of it things done with a connection: calls, signals, match rules, name ownership,
+      property reads, the exported side and the pump. The handshake is not. `handshake`, `writeAscii` and
+      `readLine` speak SASL over text lines, before a single D-Bus message exists, and they are the only
+      code in the file that reads a `\r\n`-terminated string off the socket.
+      Open: whether to move those three, and nothing else, to a file of their own. Noted rather than done
+      because moving responsibilities is a design change, and the gain is a smaller file rather than a
+      reader who was confused.
+
 - [ ] **Four tray paths are written and no live item has ever sent them.** Draft, and deliberately not
       work: the code exists, the unit tests cover it, and what is missing is an application that sends the
       thing. Left open so that the next time one turns up it is read rather than assumed, and so nobody
