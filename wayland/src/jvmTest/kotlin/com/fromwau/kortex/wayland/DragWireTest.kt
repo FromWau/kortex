@@ -229,6 +229,85 @@ class DragWireTest {
             "the dragged files never reached the target's content as themselves; output:\n$raw",
         )
     }
+
+    /**
+     * The same drag, declined by the content it reached, which must not be finished.
+     *
+     * A `wl_data_offer.finish` is what lets a source dragging a move delete what it sent, so the branch
+     * with no cover until here is the one that would destroy another application's file. `completeDrop`
+     * finishes only where content took the drop, and nothing had ever driven the other side of that `if`.
+     *
+     * The entry this closes said it needed a second client. It does not: the refusal has to come from
+     * content, and content is kortex's either way. What a foreign source would add is types and actions
+     * kortex never sends, which is `LiveDropProbe`'s job and a different gap.
+     */
+    @Test
+    fun `a drop the target declines is given back unfinished, and its offer still freed`() {
+        val (exitCode, output) = runProbe(
+            "com.fromwau.kortex.wayland.DragWireProbeKt",
+            environment = mapOf(
+                "WAYLAND_DEBUG" to "client",
+                PROBE_REFUSE_VAR to "true",
+            ),
+        )
+        val raw = output.joinToString("\n")
+        assertEquals(0, exitCode, "the refused drop probe exited $exitCode; output:\n$raw")
+
+        val placedAt = output.indexOfFirst { it == PROBE_MARKER_DRAG_PLACED }
+        val drivenAt = output.indexOfFirst { it == PROBE_MARKER_DRAG_DRIVEN }
+        assertTrue(
+            placedAt >= 0 && drivenAt > placedAt,
+            "the probe's markers are missing or out of order (placed=$placedAt driven=$drivenAt); output:\n$raw",
+        )
+        val wire = output.subList(placedAt + 1, drivenAt)
+        val dataTraffic = wire.traceOf("wl_data_device", "wl_data_offer", "wl_data_source")
+
+        // Asserted first, because everything below is about what did not happen. A drop content never saw
+        // would send no finish either, and would say nothing at all about the branch under test.
+        assertTrue(
+            output.any { it == PROBE_MARKER_REFUSED },
+            "the target was never handed a drop to decline, so no finish proves nothing; output:\n$raw",
+        )
+
+        val dropAt = wire.indexOfFirst { it.isEvent("wl_data_device", "drop") }
+        assertTrue(dropAt >= 0, "the drag was never dropped at all; wire:\n$dataTraffic")
+        val afterDrop = wire.drop(dropAt)
+
+        assertEquals(
+            emptyList(),
+            afterDrop.filter { it.isRequest("wl_data_offer", "finish") },
+            "a declined drop was finished, which tells a source dragging a move to delete what it sent; " +
+                "wire:\n$dataTraffic",
+        )
+
+        // The offer is still given back: a drag that is declined ends like any other, and an offer left
+        // alive would hold the compositor's drag open and leak the proxy with it.
+        assertTrue(
+            afterDrop.any { it.isRequest("wl_data_offer", "destroy") },
+            "a declined drop left the compositor's offer alive; wire:\n$dataTraffic",
+        )
+
+        // The source is told a copy, which is the half of this that reaches the content that dragged, and
+        // it is told that because of Hyprland rather than in spite of it. The compositor sends
+        // dnd_finished from the offer's own destructor whether a finish was sent or not
+        // (CWLDataOfferResource::~CWLDataOfferResource), so a declined drop reads to the source exactly
+        // like a taken one, and onCancelled's null never happens. It also sends the source no
+        // wl_data_source.action at all, so what content hears is DataSource.assumedAction.
+        //
+        // That fallback was chosen for the missing action event and turns out to cover this too: content is
+        // told the copy it offered, which takes nothing away. A move here is what would have content delete
+        // a file nobody took, so the negative is the assertion that matters.
+        assertTrue(
+            output.any { it == PROBE_MARKER_COMPLETED + "Copy" },
+            "the content that dragged was told something other than the copy it offered; output:\n$raw",
+        )
+        assertEquals(
+            emptyList(),
+            output.filter { it == PROBE_MARKER_COMPLETED + "Move" },
+            "a declined drop told the content that dragged it was a move, which is its cue to delete the " +
+                "original; output:\n$raw",
+        )
+    }
 }
 
 // start_drag(source, origin, icon, serial): the serial is its last argument.

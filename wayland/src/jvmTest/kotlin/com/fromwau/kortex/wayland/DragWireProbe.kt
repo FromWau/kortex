@@ -37,11 +37,26 @@ internal const val PROBE_MARKER_TOOK_AS = "KORTEX-PROBE took-as="
 internal const val PROBE_PAYLOAD_VAR = "KORTEX_DRAG_PAYLOAD"
 internal const val PROBE_PAYLOAD_FILES = "files"
 
+/** Set to `"true"` to have the target decline the drop it is handed rather than take it. */
+internal const val PROBE_REFUSE_VAR = "KORTEX_DROP_REFUSED"
+
+/**
+ * Printed where the target was handed the drop and declined it.
+ *
+ * The wire cannot tell that from a drop content never saw, and the two call for opposite verdicts: one is
+ * the branch under test, the other is a drag that never arrived and proves nothing about it.
+ */
+internal const val PROBE_MARKER_REFUSED = "KORTEX-PROBE refused"
+
+/** What a refused drop leaves behind, so the probe stops waiting on a payload that will never be set. */
+internal const val PROBE_REFUSED = "refused"
+
 /** What a file drag carries: two, and one with a percent-encoded space, so a mangled list cannot read right. */
 internal val PROBE_DRAGGED_URIS = listOf("file:///tmp/one.txt", "file:///tmp/a%20file.txt")
 
-// Read once here rather than per composition, since the payload is fixed for the life of the probe.
+// Read once here rather than per composition, since both are fixed for the life of the probe.
 private val dragsFiles = System.getenv(PROBE_PAYLOAD_VAR) == PROBE_PAYLOAD_FILES
+private val refusesDrop = System.getenv(PROBE_REFUSE_VAR) == "true"
 
 /** The text the source offers, which the target must read back byte for byte. */
 internal const val PROBE_DRAGGED_TEXT = "carried over the wire"
@@ -49,6 +64,9 @@ internal const val PROBE_DRAGGED_TEXT = "carried over the wire"
 /**
  * Drags text out of one layer surface and into another with a virtual pointer, so [DragWireTest] can read the
  * `wl_data_device` traffic it takes to do it.
+ *
+ * [PROBE_PAYLOAD_VAR] chooses what is dragged and [PROBE_REFUSE_VAR] whether the target takes it, so the
+ * same gesture serves each leg and only the one thing under test differs between them.
  *
  * In a child JVM because libwayland reads `WAYLAND_DEBUG` once per process and never clears it. The pointer
  * drives from a connection of its own, which carries no `wl_data_*` object, so the trace stays unambiguous.
@@ -192,6 +210,13 @@ private fun DropTarget(dropped: AtomicReference<String?>) {
                     override fun onDrop(event: DragAndDropEvent): Boolean {
                         val offer = event.nativeEvent as? KortexDragOffer ?: return false
                         System.err.println(PROBE_MARKER_TOOK_AS + event.action)
+                        if (refusesDrop) {
+                            // Set before returning, so the wait outside ends on the refusal rather than
+                            // running out the clock on a payload this leg never reads.
+                            dropped.set(PROBE_REFUSED)
+                            System.err.println(PROBE_MARKER_REFUSED)
+                            return false
+                        }
                         dropped.set(
                             if (dragsFiles) offer.readUris().getOrElse { null }?.toString()
                             else offer.readText().getOrElse { null },
