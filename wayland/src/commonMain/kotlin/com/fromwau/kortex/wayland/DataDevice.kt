@@ -413,6 +413,11 @@ internal class DataDevice private constructor(
          * the user held, and [asDragAction]'s clamp is what stands between content and a delete nobody agreed
          * to rather than a belt on top of a compositor that would have got it right.
          *
+         * Seen live, which is the only way this one can be: every drag out of Dolphin 26.08.1 settles
+         * `action(2)`, a move, and ignores all of the `set_actions(1, 1)` kortex sends over it. Content is
+         * told the copy, so without the clamp dragging a file out of a file manager onto a kortex surface
+         * would have content delete the original.
+         *
          * `ask` is left out for a reason of its own: the specification puts that menu on the destination
          * rather than on the compositor, so answering one means kortex drawing a menu, and kortex draws none.
          */

@@ -82,6 +82,9 @@ private fun DropSquare() {
                         // map, not let: the result is never null, so let reports an image for a drag with none.
                         System.err.println("$MARKER_IMAGE${offer?.readImage()?.map { "<image>" }}")
                         System.err.println("$MARKER_URIS${offer?.readUris()}")
+                        // The drain nothing else reaches. Dolphin offers the portal type on an ordinary
+                        // drag, so a sandboxed application is not what it takes to see one after all.
+                        System.err.println("$MARKER_PORTAL${offer?.readPortalKey()}")
                         return true
                     }
                 },
@@ -97,6 +100,7 @@ private const val MARKER_TYPES = "LIVE-DROP dropped-types="
 private const val MARKER_TEXT = "LIVE-DROP dropped-text="
 private const val MARKER_IMAGE = "LIVE-DROP dropped-image="
 private const val MARKER_URIS = "LIVE-DROP dropped-uris="
+private const val MARKER_PORTAL = "LIVE-DROP dropped-portal-key="
 private const val MARKER_DONE = "LIVE-DROP done"
 private const val NAMESPACE = "kortex-live-drop"
 private const val BOX = 260

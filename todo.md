@@ -770,9 +770,18 @@ where on the monitor the compositor put it.
       `/org/freedesktop/portal/documents`, whose signature there is `sa{sv}` answering `as`.
       kortex does not make the call and should not: that is D-Bus, and `:wayland` speaks Wayland. The entry
       below holds that seam.
-      Cover is desktop-free and has to be: offering a key needs a sandboxed application, which no test here
-      can be, so the drain that reads one off a real drop is uncovered the way `Drag.uriListType`'s was before
-      kortex could drag a file list itself.
+      Cover is desktop-free, but the reason given for that was wrong. **Dolphin 26.08.1 offers
+      `application/vnd.portal.filetransfer` on an ordinary drag**, unsandboxed, so a sandboxed application
+      is not what it takes to see a key at all. Confirmed by hand with `LiveDropProbe`: every drag out of
+      Dolphin offers exactly `[text/uri-list, application/vnd.portal.filetransfer]`, kortex opens a transfer
+      for both, and the key arrives decoded, `_WtCq8syHMFcs8bgYF6JGA` on the run that was watched. So the
+      drain has been running against a real source all along and the probe simply never printed what came
+      out of it. It does now.
+      What is still untaken is the step after: `RetrieveFiles` with that key answered `Access denied` from
+      `busctl` once the drag had ended, and whether that is the transfer being withdrawn with the drag or
+      the portal scoping retrieval to the recipient's own connection was not established. Closing that loop
+      needs a probe with `:wayland` and `:dbus` both on its classpath, which the toolkit itself must still
+      not have.
       **The clipboard side is done too, both halves.** `KortexClipboard.setUris` puts a `text/uri-list` on
       the clipboard and offers that type alone, so pasting into a text field gets nothing: a clipboard holds
       one selection, so copying the same paths as text is `setText`'s to do and which of the two a copy
