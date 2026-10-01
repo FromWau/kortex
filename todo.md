@@ -1189,7 +1189,7 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **542 tests green on `master`: 389 in `:wayland`, 69 in `:dbus`, 32 in `:tray`, 27 in `:compose`,
+- **543 tests green on `master`: 390 in `:wayland`, 69 in `:dbus`, 32 in `:tray`, 27 in `:compose`,
   14 in `:notification` and 11 in `:bar`.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache.
   Two gates leave tests out of that number, each with a property of its own, because opting into one is no
@@ -1434,15 +1434,28 @@ references and stays actionable on its own once the reports are gone.
       `getOrElse { false }` at the enter stays and is right there: a scene that has failed takes nothing more,
       which is a refusal. Nothing is open on the positive side; the refusing side is an entry of its own
       below. (`DragAndDropTest`, `DragWireTest`)
-- [ ] **No test drives a drop that content refuses.** `DataDevice.completeDrop` finishes the compositor's
+- [x] **No test drives a drop that content refuses.** `DataDevice.completeDrop` finishes the compositor's
       offer only where content took what arrived, and gives it back unfinished where content did not. Only
-      the first of those is covered. That matters because a finish is what lets a source dragging a move
-      delete what it sent, so the branch with no cover is the one that would destroy another application's
+      the first of those was covered. That mattered because a finish is what lets a source dragging a move
+      delete what it sent, so the branch with no cover was the one that would destroy another application's
       file if it ever sent a finish it should not.
-      It needs a second client dragging onto kortex: a refusal has to come from content while a real
-      compositor holds a real offer, and every drag test here is kortex to kortex, which is also why the
-      `text/uri-list` gap went unseen for so long. `LiveDropProbe` is the shape that could do it, with a
-      target that returns false and an assertion that no `wl_data_offer.finish` follows the drop.
+      **It did not need a second client**, which is what the entry used to claim. The refusal has to come
+      from content, and content is kortex's either way: a target whose `onDrop` answers false reaches the
+      branch, because `dragOverTarget` only asks whether a target exists and `sendDrop` hands back whatever
+      Compose returned. What a foreign source would add is types and actions kortex never sends, which is
+      `LiveDropProbe`'s job and a separate gap. So `DragWireProbe` took an env var and the same gesture
+      serves both legs, differing only in the target's answer.
+      Three of the four assertions passed at once: content was handed the drop and declined it, no
+      `wl_data_offer.finish` followed, and the offer was still freed. The fourth expected the source to hear
+      that the drag had not completed, and it hears a copy, which is the finding:
+      **Hyprland sends `dnd_finished` from the offer's own destructor whether a finish was sent or not**
+      (`CWLDataOfferResource::~CWLDataOfferResource`), so a declined drop reads to the source exactly like a
+      taken one and `onCancelled` never runs. It also sends a drag source no `wl_data_source.action` at all,
+      so what content hears is `DataSource.assumedAction`, whose comment already says why that is a copy:
+      reporting a move that was not one has content delete what nobody took. A fallback chosen for the
+      missing action event is the only thing standing between a declined drop and a deleted file, and the
+      test pins both the copy and, separately, that it is never a move.
+      (`DragWireTest`, `DragWireProbe`)
 
 - [x] **The crash logger does blocking file I/O on the loop thread, at five sites.** `bar/Main.kt:233-236`,
       `:278-281`, `:333-336`, `:380` and `:384-387` each call `logIfCrashed` inside a `LaunchedEffect`, and
