@@ -55,6 +55,7 @@ Library versions all live in `gradle/libs.versions.toml`, which is the only plac
 | `:tray` | the system tray, as the host that draws it and the registry applications register with | `:dbus` |
 | `:notification` | kortex as the notification server, not a client of one | `:dbus` |
 | `:watch` | a file's text, again whenever it changes | `kern:dirs` |
+| `:hyprland` | Hyprland's workspaces and focused window, from its own sockets | nothing of kortex's |
 | `:icons` | a provider's icon as something Compose can draw | `:tray`, `:notification`, Compose |
 | `:theme` | a watched JSON file as a Material `ColorScheme`, so a bar retints itself | `:watch`, Compose, material3 |
 | `:bar` | a bar you could run, and a demo of the toolkit's other surfaces behind a right click | most of the above |
@@ -184,6 +185,8 @@ That makes the suite a demanding guest, and worth knowing about before you run i
   that look like kortex's fault. They take the selection between kortex setting it and `wl-paste` reading
   it, which no amount of waiting on this side prevents. KDE Connect's clipboard plugin copying from
   another machine does it, so stop that kind of thing, or expect `ClipboardFocusTest` to fail now and then.
+- **`:hyprland`'s tests need Hyprland 0.56 or later**, whose `dispatch` takes Lua. One of them switches to
+  workspace 77 or the first free one above it, renames it and switches back to the window that had focus.
 - **`:tray`'s tests need a tray with at least one item in it**, since what they read is whatever your
   session is carrying.
 - **`:tray`'s tests also need `org.kde.StatusNotifierWatcher` free**, because they become the registry
