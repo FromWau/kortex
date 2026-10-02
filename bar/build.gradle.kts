@@ -12,6 +12,7 @@ kotlin {
 
 dependencies {
     implementation(project(":wayland"))
+    implementation(project(":theme"))
     implementation(libs.compose.material3)
     implementation(compose.desktop.currentOs)
 

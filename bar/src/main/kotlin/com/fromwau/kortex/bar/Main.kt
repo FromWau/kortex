@@ -12,11 +12,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -26,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -35,7 +39,9 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.errorOrNull
+import com.fromwau.kern.result.getOrNull
 import com.fromwau.kern.result.onError
+import com.fromwau.kortex.theme.rememberFileTheme
 import com.fromwau.kortex.wayland.Bar
 import com.fromwau.kortex.wayland.ContextMenu
 import com.fromwau.kortex.wayland.Dialog
@@ -53,12 +59,13 @@ import com.fromwau.kortex.wayland.kortexApplication
 import com.fromwau.kortex.wayland.rememberMonitors
 import com.fromwau.kortex.wayland.rememberSurfaceState
 import com.fromwau.kortex.wayland.rememberWindowState
-import java.nio.file.Path
-import kotlin.math.roundToInt
-import kotlin.system.exitProcess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import java.nio.file.Path
+import kotlin.math.roundToInt
+import kotlin.system.exitProcess
+import kotlinx.io.files.Path as KPath
 
 fun main() {
     val crashLog = crashLogPath(System.getenv())
@@ -68,7 +75,9 @@ fun main() {
             val bar = rememberSurfaceState()
             var stopped by remember { mutableStateOf<Stopped>(Stopped.NotYet) }
             val status = bar.status
-            LaunchedEffect(status) { if (status is SurfaceStatus.Ended) stopped = Stopped.With(status.result) }
+            LaunchedEffect(status) {
+                if (status is SurfaceStatus.Ended) stopped = Stopped.With(status.result)
+            }
 
             when (val ended = stopped) {
                 // Dismissing puts the bar back under the same state, which reads Placing again as it is replaced.
@@ -94,14 +103,12 @@ fun main() {
  * Only the failures a person can do something about are worded. Everything else is a defect or a connection
  * that went away, and there the data class's own fields are what helps, so it prints as itself.
  */
-internal fun KortexError.saidPlainly(): String = when {
-    this is KortexError.MissingGlobal && global == WaylandInterface.LayerShell ->
+internal fun KortexError.saidPlainly(): String = when (this) {
+    is KortexError.MissingGlobal if global == WaylandInterface.LayerShell ->
         "this compositor does not support ${global.wireName}, which kortex needs for bars, docks and every " +
-            "other layer surface. It runs on wlroots compositors, Hyprland and sway among them, and on KWin."
+                "other layer surface. It runs on wlroots compositors, Hyprland and sway among them, and on KWin."
 
-    this is KortexError.MissingGlobal ->
-        "this compositor does not support ${global.wireName}, which kortex needs."
-
+    is KortexError.MissingGlobal -> "this compositor does not support ${global.wireName}, which kortex needs."
     else -> toString()
 }
 
@@ -126,10 +133,54 @@ private suspend fun logIfCrashed(
 private suspend fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
     // NonCancellable: this runs inside the ended surface's own LaunchedEffect, and an outer surface (or the whole
     // application) can leave composition and cancel it before the write lands.
-    withContext(NonCancellable + Dispatchers.IO) { appendCrash(path, crash) }.onError { writeFailure ->
+    withContext(NonCancellable + Dispatchers.IO) {
+        appendCrash(path, crash)
+    }.onError { writeFailure ->
         System.err.println("kortex: surface crashed: $crash")
         System.err.println(crash.failure.cause.stackTraceToString())
         System.err.println("kortex: could not write the crash log: $writeFailure")
+    }
+}
+
+@Composable
+fun scheme(
+    scheme: BarSettings.Scheme,
+): ColorScheme = when (scheme) {
+    is BarSettings.Scheme.Light -> lightColorScheme()
+    is BarSettings.Scheme.Dark -> darkColorScheme()
+    is BarSettings.Scheme.Amoled -> darkColorScheme(
+        primary = Color(0xFF000000),
+        onPrimary = Color(0xFFFFFFFF),
+        surface = Color(0xFF000000),
+        onSurface = Color(0xFFFFFFFF),
+    )
+
+    is BarSettings.Scheme.Custom.Dark -> rememberFileTheme(scheme.file).getOrNull()?.dark
+        ?: darkColorScheme()
+
+    is BarSettings.Scheme.Custom.Light -> rememberFileTheme(scheme.file).getOrNull()?.light
+        ?: lightColorScheme()
+}
+
+
+@Immutable
+data class BarSettings(
+    val scheme: Scheme = Scheme.Dark,
+) {
+    @Immutable
+    sealed interface Scheme {
+        data object Light : Scheme
+        data object Dark : Scheme
+        data object Amoled : Scheme
+        sealed interface Custom : Scheme {
+            val file: KPath
+
+            data class Light(override val file: KPath = KPath("/home/fromml/.cache/matugen/colors.json")) :
+                Custom
+
+            data class Dark(override val file: KPath = KPath("/home/fromml/.cache/matugen/colors.json")) :
+                Custom
+        }
     }
 }
 
@@ -162,7 +213,11 @@ private fun DemoBar(
         var menu by remember { mutableStateOf<Menu>(Menu.Closed) }
         var window by remember { mutableStateOf(false) }
 
-        MaterialTheme(colorScheme = darkColorScheme()) {
+        var settings by remember { mutableStateOf(BarSettings()) }
+
+        MaterialTheme(
+            colorScheme = scheme(settings.scheme),
+        ) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -180,7 +235,8 @@ private fun DemoBar(
                                     if (event.button != PointerButton.Secondary) continue
                                     // This scope's Density is the very buffer scale the offset was produced
                                     // at, so it converts exactly into the logical space ContextMenu wants.
-                                    val x = (event.changes.first().position.x / density).roundToInt()
+                                    val x =
+                                        (event.changes.first().position.x / density).roundToInt()
                                     menu = Menu.OpenAt(IntOffset(x, bar.size.height))
                                 }
                             }
@@ -220,6 +276,22 @@ private fun DemoBar(
                         text = "size: ${bar.size.width} by ${bar.size.height}",
                         color = MaterialTheme.colorScheme.onSurface,
                     )
+
+                    Button(onClick = {
+                        settings = when (settings.scheme) {
+                            is BarSettings.Scheme.Light -> settings.copy(scheme = BarSettings.Scheme.Dark)
+                            is BarSettings.Scheme.Dark -> settings.copy(scheme = BarSettings.Scheme.Amoled)
+                            is BarSettings.Scheme.Amoled ->
+                                settings.copy(scheme = BarSettings.Scheme.Custom.Light())
+
+                            is BarSettings.Scheme.Custom.Light ->
+                                settings.copy(scheme = BarSettings.Scheme.Custom.Dark())
+
+                            is BarSettings.Scheme.Custom.Dark -> settings.copy(scheme = BarSettings.Scheme.Light)
+                        }
+                    }) {
+                        Text("change theme; current: ${settings.scheme::class.simpleName}")
+                    }
                 }
             }
         }
@@ -265,7 +337,8 @@ private fun BarMenu(
         ) {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Column(
-                    modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     MENU_ITEMS.forEach { item ->

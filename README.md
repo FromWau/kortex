@@ -55,6 +55,8 @@ Library versions all live in `gradle/libs.versions.toml`, which is the only plac
 | `:tray` | the system tray: `StatusNotifierItem` and `DBusMenu` | `:dbus` |
 | `:notification` | kortex as the notification server, not a client of one | `:dbus` |
 | `:watch` | a file's text, again whenever it changes | `kern:dirs` |
+| `:icons` | a provider's icon as something Compose can draw | `:tray`, `:notification`, Compose |
+| `:theme` | a watched JSON file as a Material `ColorScheme`, so a bar retints itself | `:watch`, Compose, material3 |
 | `:bar` | a runnable demo of most of the toolkit at once | `:wayland` |
 
 Twelve surfaces are composables: `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`, `Osd`, `AppMenu`
@@ -87,11 +89,30 @@ connection on a bus may hold the name:
 suspend fun printNotifications(connection: DBusConnection) {
     val server = NotificationServer
         .start(connection, ServerInformation(name = "my-shell", vendor = "me", version = "0.1.0"))
-        .getOrElse { return }
+        .getOrElse { error ->
+            // AlreadyServed names the process already holding it, which is the difference between
+            // "it did not start" and "stop dunst first".
+            System.err.println("my-shell: $error")
+            return
+        }
 
     server.notifications.collect { posted -> println(posted.map { it.summary }) }
 }
 ```
+
+An icon arrives as a theme name, or as pixels, or both, and `:icons` turns whichever into something to
+draw, resolving the name through the desktop's own icon theme:
+
+```kotlin
+Row {
+    BasicText(item.label)
+    Icon(item.icon, null)   // a TrayIcon, a MenuIcon or a NotificationImage
+}
+```
+
+It does not tint, unlike material3's `Icon` of the same name, because tinting is right for a glyph and
+wrong for an application's artwork, and it holds its space when an icon resolves to nothing so a tray does
+not reflow as icons arrive.
 
 Plenty of what a bar shows lives in a file rather than on a bus, so `:watch` hands over a file's text and
 hands it over again when it changes:

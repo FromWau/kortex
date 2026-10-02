@@ -73,6 +73,10 @@ public data class NotificationAction(
  *
  * Raw and unencoded, unlike a menu entry's icon: [channels] is 3 or 4, and [rowStride] is the bytes per
  * row, which is not always [width] times [channels] because rows are padded.
+ *
+ * Not the same bytes as a tray icon, which is the other place a provider here hands over pixels: that one
+ * is always four channels of `ARGB` in network byte order, packed with no stride. One unpacker cannot read
+ * both, and reusing the wrong one draws a real picture in rotated colours rather than failing.
  */
 public class NotificationImage(
     public val width: Int,

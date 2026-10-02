@@ -80,11 +80,16 @@ public enum class TrayStatus {
 }
 
 /**
- * Icon pixels as they arrive, which is `ARGB32` in **network byte order**.
+ * Icon pixels as they arrive, which is `ARGB32` in **network byte order**, packed with no padding.
  *
  * Big-endian, so a little-endian caller has to reverse each group of four bytes before handing them to
  * anything that expects native order. They stay bytes here: turning them into a bitmap needs a toolkit,
  * and choosing one is what a provider is not for.
+ *
+ * Not the same bytes as a notification's image, which is the other place a provider here hands over
+ * pixels: that one is `RGB` or `RGBA` by its own channel count, with a row stride that need not be the
+ * width, and in native order. One unpacker cannot read both, and reusing the wrong one draws a real
+ * picture in rotated colours rather than failing.
  */
 public class TrayImage(public val width: Int, public val height: Int, public val argb: ByteArray) {
     override fun equals(other: Any?): Boolean = other is TrayImage &&
@@ -103,6 +108,14 @@ public class TrayImage(public val width: Int, public val height: Int, public val
  * Kept as it arrived rather than resolved to one. The specification prefers [name] where it is set, but a
  * caller that cannot look up an icon theme wants [pixmaps] even then, and picking for them is a decision
  * about drawing.
+ *
+ * **Expect [name] and no [pixmaps].** Applications lean on the theme: of the two items on the desktop
+ * this was last checked against, one sent an empty `a(iiay)` and the other has no pixmap property at all,
+ * so a host that draws [pixmaps] alone draws nothing for either. Resolving a [name] means walking the XDG
+ * icon directories, [themePath] first where the application set one, and being ready for what you find to
+ * be an SVG: one of those two items exists only as `scalable/apps/<name>.svg` in every installed theme.
+ * `:icons` does that walk and the decode, so a Compose host draws one with `Icon(item.icon, null)` rather
+ * than finding the file for itself.
  */
 public data class TrayIcon(
     public val name: String? = null,
@@ -112,6 +125,16 @@ public data class TrayIcon(
     public val isEmpty: Boolean get() = name == null && pixmaps.isEmpty()
 
 }
+
+/**
+ * The one line to show for this item, for a host with room for one.
+ *
+ * [title] where the application set one, then its tooltip's title, then [id], which is the only field the
+ * specification makes an application fill in. Discord sends an empty [title] and a real [id], and a host
+ * that reads only [title] shows a blank where its name should be.
+ */
+public val TrayItem.label: String
+    get() = title.ifBlank { toolTip?.title?.ifBlank { null } ?: id }
 
 /** The hover text an item offers, which no host is obliged to draw. */
 public data class TrayToolTip(

@@ -246,6 +246,26 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
 
 ## Surface presets
 
+- [ ] **A tooltip on hover, which turns out to be a question about sizing rather than a missing preset.**
+      Asked for by the first bar built on kortex from the outside, where it wants one for the CPU and memory
+      widgets and the tray already fakes one by drawing its hovered item's text inside the bar, because
+      there is nowhere else to put it. A bar is only as tall as the bar, so a tooltip cannot be drawn on the
+      surface that triggers it.
+      **`Popup` is already the primitive.** `Popup(at, width, height)` is `PopupCall(grab = false)`: a
+      surface placed at a point that takes no grab, which is exactly what a tooltip is, and a tooltip that
+      took a grab would steal the pointer it is reacting to. Hover tracking and the offset are the caller's,
+      and the demo app already computes an offset that way for `ContextMenu`.
+      **What is missing is a surface sized by its content.** Every preset here demands a `width` and a
+      `height` up front, and a tooltip's size is whatever its text comes out as: a percentage, a memory
+      figure and a tray item's tooltip are three different widths, and a caller cannot know any of them
+      before Compose has measured them. A layer surface has to declare its size before its content is
+      measured, which is the chicken and the egg, and nothing in kortex resolves it today, so the honest
+      shape of this entry is "can a surface be sized by what it draws, and at what cost in frames" rather
+      than "add a `Tooltip`".
+      Worth settling first, because it is not only tooltips: a notification popup, a menu built from a
+      `DBusMenu` of unknown depth, and an OSD whose text is a track title all want it, and all of them
+      currently guess a size and clip.
+
 - [x] **The presets are composables a host calls.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`,
       `Osd`, `AppMenu` and `ContextMenu` (`Presets.kt`) are composable functions, each taking the parameters
       its kind needs plus `namespace`, `state`, `content` and a `monitor`, optional except on `ContextMenu`;
@@ -304,7 +324,7 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       `KortexShell.takeDown` closes a slot's surface without ending the popups under it, and both the reconcile
       that ends slots and the shell's own close walk `placed` parent-before-child. The *reason* first recorded
       here was wrong, and the audit corrected it: destroy-order `xdg_wm_base.not_the_topmost_popup` is enforced
-      by nothing for a popup that never took a grab, which is every popup kortex makes -- weston returns early
+      by nothing for a popup that never took a grab, which is every popup kortex makes: weston returns early
       without a grab (`libweston/desktop/xdg-shell.c:1437-1444`), mutter's equivalent check sits inside
       `if (seat)`, KWin has it as a literal `// TODO` (`xdgshell.cpp:839-846`), and Hyprland has no such code
       at all. What does fire is mutter's parent-unmap path, which is a client disconnect rather than a
@@ -883,7 +903,7 @@ where on the monitor the compositor put it.
       `zwlr_virtual_pointer_v1` forwards into the ordinary `IPointer` event set (`VirtualPointer.cpp:22-29`),
       lands in the same `setupMouse(SP<IPointer>)` a physical mouse uses (`InputManager.cpp:94-97`), and
       `attachPointer` is generic over `IPointer` (`PointerManager.cpp:963-1000`), so the drag-focus path cannot
-      tell the two apart. And Hyprland was not silent by choice -- `initiateDrag` logs at DEBUG
+      tell the two apart. And Hyprland was not silent by choice, since `initiateDrag` logs at DEBUG
       (`DataDevice.cpp:574`), which is the default threshold (`Logger.cpp:10-12`), so either the log was read
       where that line could not appear or `start_drag` never reached `initiateDrag`. The real cause is
       `decline` destroying the live offer; see the first entry under "Audit against the reference
@@ -1127,6 +1147,16 @@ What every one of them keeps to:
   only be read is the exception, not the rule: a notification is dismissed, a tray item is activated, a
   player is paused. Those are `suspend fun`s returning `EmptyResult<E>`, the shape `KortexClipboard.setText`
   already has, and none of them returns the new state, which arrives where all state arrives.
+- **Every property reattaches when its source restarts, and one that cannot is a bug.** Start the bar,
+  start Steam, its tray icon appears; `pkill steam` and it goes; start Steam again and it comes back. That
+  is the standard for everything a bar shows, not a nicety: a shell outlives every application on the
+  desktop and usually outlives the daemons too, so anything that latches on first contact is broken by the
+  second hour of a session.
+  It implies a test shape as much as a design: every provider owes a "kill the source, bring it back" test.
+  The places that already obey the rule are exactly the places where somebody wrote one. `rememberMonitors`
+  survives an output being unplugged and replugged because the `@Hotplug` tests do that; the interval file
+  watcher survives a file being deleted and rewritten because a test does that. Everything found violating
+  it below was never tested that way.
 - **No Compose, and no dependency on `:wayland`.** A provider needs neither a compositor nor a composition:
   `collectAsState()` is already the bridge and kortex ships no helper for it. Tray icons arrive as a width, a
   height and ARGB bytes and stay that way, so `:tray` never reaches for `ImageBitmap`.
@@ -1143,6 +1173,11 @@ be faked.
 | `:notification` | what applications have posted, and dismissing or acting on one | `:dbus`, as the server |
 | `:hyprland` | workspaces, the active window | a unix socket, newline protocol, not D-Bus |
 | `:watch` | a file's text, again when it changes, which is where cpu and memory live | the filesystem |
+
+`:icons` is not in that table because it is not a provider: it is the drawing side of them, and the only
+module that depends on a provider and on Compose at once. Nor is `:theme`, which exists now: it watches a
+file and hands back colours, so it is drawing-side too, with no provider underneath it at all. Both have
+entries below.
 
 `:hyprland` is the one to keep straight: its IPC shares nothing with D-Bus but the word socket. Nothing in
 this table depends on `:wayland` or `:compose`, and `:hyprland` and `:watch` depend on nothing of kortex's
@@ -1348,6 +1383,175 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       take the code but not the dependency: `dirs` deliberately pulls in only `kotlinx-io` and `result`, and
       a flow needs coroutines, so the home is a module of its own beside it, as `logger` already is.
 
+- [x] **`:icons` makes a provider's icon drawable, because `Icon(item.icon, null)` is the call site a bar
+      author wants.** A new module, plain JVM rather than multiplatform like its neighbours since it reads
+      the machine's icon directories and decodes with skia. It owns the XDG theme search, the decode, and
+      the unpacking of both raw-pixel layouts, and offers `Icon` for a `TrayIcon`, a `MenuIcon` or a
+      `NotificationImage`, plus `rememberIconPainter` for callers who want the painter. It cannot live in a
+      provider, which would then need Compose, nor in `:compose`, which would then need the bus.
+      **This reverses two decisions taken the same afternoon**, and the reversal is the interesting part.
+      Finding the icon was recorded as the caller's scope, and the pixel converters were written and
+      deleted as speculative. Both were defensible until the call site was stated: `Icon(item.icon, null)`
+      cannot work unless something resolves a theme name, because the only two items on this desktop are
+      name-only, so declining the lookup and declining the converters together amounted to declining the
+      feature. The deleted converters live here now, where the dependency direction works.
+      **`Icon` does not tint**, unlike material3's, because tinting is right for a glyph and wrong for an
+      application's own artwork, and it holds its space when nothing resolves so a tray does not reflow as
+      icons arrive.
+      **A live test found a real bug in the first attempt.** The size model assumed SVG meant size-agnostic,
+      so every candidate scored equally and asking for 64 pixels returned the 16-pixel file: Papirus ships
+      that icon as three separate SVGs under `16x16`, `22x22` and `24x24`, and only `scalable/` is genuinely
+      size-free. The size now comes from whichever ancestor folder names one. A fixture tree would never
+      have caught it, which is the argument for testing the lookup against the real filesystem.
+      Decoding is `decodeToImageBitmap` and `decodeToSvgPainter` from `components-resources`, a new
+      dependency and the only one Compose still points at: `loadImageBitmap` and `loadSvgPainter` are both
+      deprecated in 1.12. 12 tests, 5 of them the lookup against this machine's own themes.
+      `TrayItem.label` came with it, in `:tray` where the data is: title, then the tooltip's title, then id,
+      because Discord sends an empty title and a real id and a host reading only title shows a blank.
+- [x] **`:theme` reads a watched JSON file into a `Theme`, so changing the wallpaper retints the bar.**
+      matugen already recolours every other themed application on this desktop: 16 templates, 9 of them
+      firing a post_hook so the application reloads. A kortex bar is the one that cannot be told, because it
+      has no config language and no reload command. `:watch` is the reload command. matugen writes the file,
+      the watcher notices, the bar recomposes, and this is the first entry in that config needing no
+      post_hook at all, which is the whole argument for the module.
+      **JSON, not `.kt` or `.kts`.** A `.kt` is compiled into the bar, so a colour change needs a rebuild,
+      which is the opposite of the point. A `.kts` needs the Kotlin compiler at runtime to evaluate a file
+      that a wallpaper change rewrites: a compile per theme, and a generated file executed as code. JSON
+      needs no new dependency, since kotlinx-serialization is already in the catalogue and in use, matugen
+      emits it natively and reads it back with `--import-json`, and nothing in a table of colours wants a
+      language.
+      **The mapping is total, and that is measured rather than hoped.** matugen emits 50 roles; 48 of them
+      are exactly `ColorScheme`'s 48, leaving `shadow` and `source_color` over, diffed against the role list
+      in material3 1.9.0's own sources. No role has to be invented or defaulted, and the two left over are
+      worth keeping on kortex's type, since a bar may well want `source_color` as an accent.
+      **Settled: kortex owns the schema, and a matugen template writes it.** The template is built, and
+      renders `{version, mode, wallpaper, sourceColor, light, dark}` with `light` and `dark` each holding
+      the 48 roles under their exact `ColorScheme` names, so the Kotlin side needs no `@SerialName`
+      anywhere. One file carries both schemes, which is a light/dark switch for free. Parsing matugen's own
+      dump instead would couple kortex to matugen's release line, and `--old-json-output` exists because
+      that shape has already broken once, while a template is a file the user owns and matugen's engine
+      absorbs any change to. Colours are matugen's `alpha_hex`, `#AARRGGBB`, picked because it is
+      `Color(0xAARRGGBB)`'s own layout and needs no channel reordering on the way in.
+      **Three things the template language will not do, each found by trying it.** `wallpaper` is a plain
+      string, because `{{ image }}` renders the literal `Null` when the source is a colour rather than an
+      image and neither a filter nor a conditional can make that a JSON null: `replace` panics the binary
+      with "not yet implemented", and `if` takes Booleans only. The parser therefore reads `Null` and empty
+      alike as absent. A loop over the roles with `camel_case` does work, and is rejected anyway, since
+      JSON has no trailing comma to drop and an explicit list pins the schema: a role matugen renames then
+      fails loudly at that key instead of quietly reshaping kortex's file. And a template whose input is
+      missing makes matugen exit 1 after rendering every other template, so a wrapper that checks the exit
+      code refuses to apply a theme that was in fact generated.
+      A new module rather than `:compose`, for the reason `:icons` is not in `:compose` either: it needs
+      `:watch` and a parser, and `:compose` must no more grow a filesystem than it may grow the bus. It is
+      also the one kortex module that commits to material3, because `ColorScheme` is the return type and so
+      material3 becomes `api`, where today only `:bar` depends on it. A caller with a design system of their
+      own reads the role map and never builds a `ColorScheme`.
+      **The hazard is already pinned by a test.** `WatchTextTest` holds `a write in place arrives, whatever
+      is read on the way`, because a non-atomic write empties the file before filling it, so a blank or
+      half-written read is real. Whether matugen writes atomically is unmeasured and must not be assumed.
+      `themeIn` reports such a read as `Unparseable` rather than hiding it, which leaves holding the last
+      theme that parsed to the caller: a shell that cares filters the failures out of the flow it shares,
+      and one that does not flickers to its fallback for a frame mid-save. Sharing alone does not do it,
+      since `stateIn` keeps whatever arrived last, failures included. Surfacing the error somewhere is
+      still right, because a bar that silently ignores a theme file is worse than one that says the file is
+      wrong.
+      Blocked behind the push-watcher bug below, by the reactive rule, and the output path sharpens it: the
+      theme renders under `~/.cache`, so clearing a cache takes the watched directory with it, and a
+      watcher that dies there means a bar that never retints again for the life of the process.
+      **Built, and the one design question it turned on was where the read lives.** `:theme` hands over a
+      `Theme`: both schemes and the mode the file asks for, with an `active` that picks between them. Both
+      are there rather than only the chosen one because an application may override the mode and then needs
+      the scheme the file did not pick. `themeIn(file)` is the public entry point and is a plain cold flow,
+      `themeUnread(file)` is its stand-in for the frame before a read, and `rememberFileTheme` is that flow
+      collected for one composition. The file schema, the serializer reading `#AARRGGBB` or `#RRGGBB`, and
+      the mapping onto material3's 48 roles are all internal, so the published surface is `Theme` and the
+      two functions. 19 tests, one decoding the file this machine's generator actually wrote, since a
+      fixture only ever agrees with whatever the schema already believes.
+      **Three shapes were tried before the last one, and each failed for the same reason.** A `Theme`
+      interface whose `isDark()`, `light()` and `dark()` were each `@Composable` read the file once per
+      value, so a caller using all three placed three watches on it and the three could disagree mid-save.
+      Moving the read to construction fixed that and left `Theme` with no Compose in it at all, which is
+      also what makes a built-in theme a plain value rather than an interface implementation with ceremony.
+      Then the composable was still the only way in, which put the watcher's lifetime at a call site: two
+      monitors meant two bars meant two watches on one file, the same bug one level up. Exposing the flow
+      fixed that and matches what every other provider here does. The reading itself was never the problem:
+      `watchText` ends `.flowOn(blockingReads)`, so no read ever ran on the thread that draws.
+      **Two things measured that contradict what the code was written to believe.** material3 keeps
+      deprecated `ColorScheme` constructors taking fewer roles, and the one a short argument list matches
+      fills all twelve fixed roles with `Color.Unspecified`, so a mapping that passes 26 of 48 compiles,
+      warns, and then draws nothing for them. And `@SerialName` on an enum's entries is honoured without
+      `@Serializable` on the enum class, which a mutation run established after a KDoc here claimed the
+      opposite. material3's `ColorScheme` also has no `equals`, so two schemes built from one file compare
+      unequal, which is why the test for `active` asserts identity.
+      **A mutation run also caught a vacuous test of mine**, which is the reason to keep running them: a
+      counter placed outside `themeIn` counted collections of the wrapper rather than reads of the file, so
+      making the flow hot did not fail it. Stated instead as what a caller observes, that a later collection
+      sees the file as it now stands, it catches the regression that matters, a per-path cache with replay.
+      What is left is the shell's half. Nothing shares one theme across several surfaces yet, which is the
+      `stateIn` the docs recommend, and `:bar` demonstrates the single-surface call instead.
+- [ ] **A push file watcher stops for good when the directory under it goes.** `watchText` answers
+      `WatchError.Stopped` and completes, and its KDoc calls that intended, which the rule above makes a
+      bug: delete the directory holding a config file and recreate it, which an atomic config deploy, a
+      `git checkout` of a dotfiles repo and `rm -rf` followed by a restore all do, and the watcher is dead
+      for the life of the process. The interval overload is unaffected, because it only ever reads.
+      The fix is to watch the nearest existing ancestor and re-register when the path reappears, which is
+      what `WatchEnded` should trigger rather than report. `Stopped` then narrows to the cases that really
+      are final, and `watchText`'s doc loses the paragraph that called this a feature.
+- [ ] **`:tray` is the host side only, so a kortex bar on its own has no tray at all.** It finds an existing
+      `StatusNotifierWatcher`, registers as a host with it, and answers `TrayError.NoWatcher` where none
+      exists. Nothing in the module takes the watcher name or answers `RegisterStatusNotifierItem`, so the
+      tray works only while some *other* bar is running: on this desktop that was ags, and the moment ags
+      stopped the watcher went with it and seven live tests went from passing to `NoWatcher`.
+      That is the normal case for anybody kortex is for. A shell that replaces the desktop's only other bar
+      inherits an empty tray and no error a user would understand, which is the worst shape: the bar looks
+      fine and applications quietly have nowhere to register.
+      The work is the mirror of what `:notification` already does, and that module is the template: take
+      `org.kde.StatusNotifierWatcher` with `DO_NOT_QUEUE`, export the object, answer
+      `RegisterStatusNotifierItem` and `RegisterStatusNotifierHost`, keep the registered set as the
+      property, emit the three signals, and watch `NameOwnerChanged` to drop an item whose application
+      died. Decide what to do when a watcher already exists: a second one is as wrong as a second
+      notification server, so the shape is probably `Tray.serve(connection)` answering the same
+      `AlreadyServed`-style error that names who holds it.
+      Worth noting while here: this machine also has an activatable `org.x.StatusNotifierWatcher`, which is
+      xapp's, and `WATCHERS` tries only the KDE and freedesktop names, so even that one is invisible.
+      **Two things measured before building it, with `WatcherProbe` holding the name on a live session.**
+      Applications already running **do** re-register: Steam came back the instant the name was taken, with
+      nothing restarted, so a kortex watcher adopts the existing tray rather than only the applications
+      started after it. And taking the name is not passive: KDE Connect answered by starting a *second*
+      indicator beside the one already connected, so the real watcher has to expect duplicate items from
+      one application and decide what to do about them.
+      `WatcherProbe` stays until this entry is done, since it is most of the method handling and the only
+      way to exercise it against real applications; delete it with this entry.
+
+- [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
+      once and is final: `call` now fails fast on it, `send` reports it, and nothing anywhere reopens the
+      socket. A session bus does restart, and a socket does drop, and when it does the tray, every menu and
+      the notification server are gone until the process is restarted, with no path back.
+      This is the root of the rule above rather than one more instance of it: reattaching the tray to a new
+      watcher is pointless while the connection under it is dead, so this is the one to settle first. It is
+      also the hardest, because reconnecting means deciding what happens to the state the old connection
+      carried: the serials in flight, the match rules the bus has forgotten, the exported objects, and a
+      name like `org.freedesktop.Notifications` that somebody else may have taken in between. The shape is
+      probably that `DBusConnection` gains a `connected: StateFlow<Boolean>` and re-applies its own match
+      rules and exports on reconnect, so a provider sees a reconnect as a fresh start rather than having to
+      know it happened.
+- [ ] **The tray does not notice its own watcher dying.** `afterNameOwnerChanged` removes items whose
+      service or owner matches a departed name, which covers an application dying, and the watcher's own
+      name is neither of those. So when ags restarts, the tray keeps showing the items it last knew, learns
+      of no new ones, and never re-registers as a host with the watcher that replaced it. It freezes while
+      looking fine, which is the shape this codebase keeps finding and keeps deciding it dislikes.
+      Fixed together with the entry below, since both are "watch the watcher's name and act on it" and
+      splitting them would mean writing that rule twice.
+- [ ] **A missing watcher is treated as permanent, so a bar that starts first never gets a tray.**
+      `track()` answers `Err(NoWatcher)` and returns, which ends the flow, and with
+      `stateIn(WhileSubscribed)` and something collecting continuously `items` stays that way for the life
+      of the process. That is the normal case for a shell rather than an edge: the bar comes up before the
+      desktop's tray daemon, every login. It is also what a kortex bar shows today with ags stopped, and no
+      watcher appearing later can rescue it.
+      The fix is small and worth doing whether or not the watcher above gets built: add a match rule for
+      `NameOwnerChanged` on both watcher names, and start tracking when one appears instead of giving up.
+      `NoWatcher` stays the honest first value; what changes is that it stops being the last one.
+
 - [ ] **Seven public commands in `:tray` have no test, and the server side made them testable.** Every
       write in that module: `Tray.activate`, `secondaryActivate`, `contextMenu` and `scroll`, and
       `Menu.send`, `aboutToShow` and `activationRequests`. No test names any of them. The reading half is
@@ -1411,8 +1615,11 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **563 tests green on `master` in one run: 390 in `:wayland`, 73 in `:dbus`, 33 in `:tray`, 27 in
-  `:compose`, 15 in `:watch`, 14 in `:notification` and 11 in `:bar`.**
+- **601 tests on `master`: 397 in `:wayland`, 73 in `:dbus`, 33 in `:tray`, 27 in `:compose`, 19 in
+  `:theme`, 15 in `:watch`, 14 in `:notification`, 12 in `:icons` and 11 in `:bar`. 570 of them have been
+  seen green in one run; the 19 in `:theme` and the 12 in `:icons` have each been green on their own but
+  not in a whole-suite run, and the 33 in `:tray` cannot pass at all while no status notifier watcher owns
+  the name, which is its own entry above.**
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache, and
   with the session free, which needs saying because a suite that takes focus and drives the pointer is not
   being measured while the desktop is in use.
@@ -1972,12 +2179,17 @@ What the review asked for that is deliberately still open:
   reach a build that only includes kortex. All three are in the README now. All three were found by
   somebody building against kortex rather than by anybody reading it, which is the argument for doing that
   again when the surface next changes.
-- **Nothing says which `CoroutineScope` a shell's state belongs on.** `kortexApplication`'s KDoc says the
-  content thread also draws, so the reflex, `stateIn(rememberCoroutineScope())`, looks unsafe, and nothing
-  in the README, the KDoc or the demo says what context that scope gets. The first outside user wrote their
-  own scope plus a `DisposableEffect` and a wrapper to carry both, twelve lines that every stateful kortex
-  shell will write, and left the question open rather than reading the implementation. Either answer it in
-  the doc or offer a `rememberShellScope()`.
+- **Nothing says which `CoroutineScope` a shell's state belongs on, and providers made it worse.**
+  `kortexApplication`'s KDoc says the content thread also draws, so the reflex,
+  `stateIn(rememberCoroutineScope())`, looks unsafe, and nothing in the README, the KDoc or the demo says
+  what context that scope gets. The first outside user wrote their own scope plus a `DisposableEffect` and
+  a wrapper to carry both, and left the question open rather than reading the implementation.
+  Adding `:tray` and `:notification` to that bar turned twelve lines into about twenty-four, because a
+  provider introduces a **second** lifetime: the bus connection, the tray and the notification server
+  belong to the application, while a surface's `stateIn` belongs to the surface, and the two end at
+  different times. A shell whose content is two composable calls now carries two hand-rolled scopes and two
+  `DisposableEffect`s. Either answer it in the doc or offer a `rememberShellScope()`, and say which
+  lifetime a provider belongs to.
 - **A public `pseudofilesystemOf(path)` would let a consumer test its own choice of watcher.** Wanted by the
   first outside user and hand-written instead. Smaller now that the two watchers have their own names, so
   it waits for a second person to ask.
@@ -1992,6 +2204,22 @@ What the review asked for that is deliberately still open:
 
 ## Deliberately not doing
 
+- **`toImageBitmap()` converters in `:compose` for the two providers' raw pixels.** Written, tested and
+  deleted the same hour, which is the useful part of the entry. Compose Desktop already decodes encoded
+  images: `loadImageBitmap(InputStream)` is `readAllBytes().decodeToImageBitmap()`, `loadSvgPainter` is
+  beside it, and Coil is better than either for anything more. That covers what hosts actually meet, which
+  is a tray icon's resolved theme file, a notification's `image-path`, and a menu entry's `icon-data`, all
+  of them encoded. The only thing left uncovered is the two **raw pixel** fields, `TrayImage.argb` and
+  `NotificationImage.pixels`, which nothing in Compose or Coil can read because raw pixels carry no header.
+  That is a real gap and a narrow one: neither item on this desktop sends pixels at all, so the tray
+  unpacker a consumer wrote was dead at runtime, and 140 lines of skia pixel work plus eight tests is poor
+  value for a path that rarely runs. It would also put a drawing opinion inside `:compose`, which kortex has
+  kept out on purpose.
+  **What was kept is the half that prevents the bug**: each image type's KDoc now names the other and says
+  one unpacker cannot read both. That matters because the failure is silent in the worst way. ARGB opaque
+  blue, bytes `FF 00 00 FF`, read as RGBA comes out as opaque *red*: a pure colour rotation at full alpha,
+  no transparency hint, no error, just the wrong picture. Bring the converters back the day an item that
+  really sends pixels turns up and somebody says so.
 - **A glob watcher in `:watch`**: "the first file matching this pattern, watched, and re-resolved if it goes
   away". Every sysfs widget needs to find its file before it can watch one, battery, backlight, temperature
   and fan speed included, and none of them can hardcode a path. Finding it is still the caller's scope, and

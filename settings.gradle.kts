@@ -57,10 +57,12 @@ gradle.lifecycle.beforeProject {
 }
 
 rootProject.name = "kortex"
+include("theme")
 include("compose")
 include("wayland")
 include("dbus")
 include("watch")
+include("icons")
 include("tray")
 include("notification")
 include("bar")
