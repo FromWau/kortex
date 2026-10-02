@@ -10,14 +10,11 @@ import kotlinx.io.files.Path
  * cases make the override a thing a reader can see rather than a mode argument.
  */
 sealed interface BarScheme {
-    /** material3's own light scheme, with no file involved. */
-    data object Light : BarScheme
-
-    /** material3's own dark scheme. */
-    data object Dark : BarScheme
-
     /** Dark, with the surfaces taken to black, which is what an OLED panel wants. */
     data object Amoled : BarScheme
+
+    /** Black on grey with no hue at all, whatever the wallpaper is doing. */
+    data object Monochrome : BarScheme
 
     /** A scheme read from [file], which a generator rewrites and the bar picks up without restarting. */
     sealed interface Custom : BarScheme {
@@ -30,14 +27,23 @@ sealed interface BarScheme {
 
     /** The one a click moves to, so the bar can cycle every scheme from a single target. */
     fun next(): BarScheme = when (this) {
-        Light -> Dark
-        Dark -> Amoled
-        Amoled -> Custom.Light()
+        Amoled -> Monochrome
+        Monochrome -> Custom.Light()
         is Custom.Light -> Custom.Dark(file)
-        is Custom.Dark -> Light
+        is Custom.Dark -> Amoled
     }
 
     companion object {
+        /**
+         * What the bar draws before anybody has clicked, in the one place both the state and its holder
+         * read it from, so the first frame and the first settled state cannot disagree.
+         *
+         * The generated theme, since following the wallpaper is what the bar is for. A getter because
+         * [Custom.Dark] defaults to [DEFAULT], declared below: a property here would read it during
+         * companion initialisation, before it has a value.
+         */
+        val Starting: BarScheme get() = Custom.Dark()
+
         /**
          * Where a generator leaves a theme on this desktop.
          *

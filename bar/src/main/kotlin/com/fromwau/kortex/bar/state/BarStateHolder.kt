@@ -137,7 +137,7 @@ class BarStateHolder(
         val showDetail: Boolean = false,
         val timer: Session = Session.NotStarted,
         val hovered: ItemAddress? = null,
-        val scheme: BarScheme = BarScheme.Dark,
+        val scheme: BarScheme = BarScheme.Starting,
         val trayRegistry: String? = null,
     )
 

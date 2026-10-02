@@ -108,9 +108,8 @@ private fun SchemeWidget(scheme: BarScheme, onClick: () -> Unit) {
 
 /** What to call this scheme on the bar, where there is room for a word and not a sentence. */
 private fun BarScheme.named(): String = when (this) {
-    BarScheme.Light -> "light"
-    BarScheme.Dark -> "dark"
     BarScheme.Amoled -> "amoled"
+    BarScheme.Monochrome -> "mono"
     is BarScheme.Custom.Light -> "file, light"
     is BarScheme.Custom.Dark -> "file, dark"
 }

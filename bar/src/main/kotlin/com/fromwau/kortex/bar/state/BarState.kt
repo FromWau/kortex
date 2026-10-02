@@ -79,7 +79,7 @@ data class BarState(
             tray = Reading.Pending,
             hoveredTray = null,
             notifications = Reading.Pending,
-            scheme = BarScheme.Dark,
+            scheme = BarScheme.Starting,
             trayRegistry = null,
         )
     }
