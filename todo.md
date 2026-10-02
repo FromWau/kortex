@@ -1591,7 +1591,37 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       nothing else serves one, which is a tray that looks fine and is permanently empty. `Desktop` gained
       `trayRegistry: Flow<String?>`, null where this shell is the registry, which the holder collects into
       its own state rather than combining, since `combine`'s typed overloads stop at the five already used.
-      Not done: none of it has run on a desktop yet, and `~/Projects/kortex-bar-qa` stays until it has.
+      **It ran, and three things only running could have told us.** With ags and dunst stopped the bar
+      draws, the tray is live, and notifications work. Killing Steam removes its item and restarting Steam
+      brings it back, which is the reactive rule satisfied through kortex's own registry rather than
+      another bar's, and the thing that could not be demonstrated at all before the watcher existed.
+      **The theme switcher was missing, dropped in the merge.** The old bar's button was inline in its
+      demo content, so when `BarContent` became the bar nothing dispatched `SchemeCycled` and the state
+      field had no way to change. It is a widget now and names the scheme it is showing, since the two
+      custom cases differ only in which half of one file they read and a swatch of a theme that failed to
+      load looks exactly like one that loaded dark.
+      **A reactivity report turned out to be the bar being right**, and still found a real hole. The file's
+      `dark.primary` was the blue on screen, so the bar was drawing the current theme. What the report
+      exposed was that `ThemeSharingTest` only ever started fresh collections, which proves a new reader
+      gets current colours and says nothing about the case a shell actually depends on: a collector that
+      never stopped receiving a second value. That test exists now, and `hypr-wal` with the bar up retints
+      it without a restart.
+      **The bar read four roles of sixteen, which is why a generated theme looked monochrome.** A matugen
+      dark scheme puts its whole surface ramp in near-black with almost no chroma, `#10140F` through
+      `#323630` on the palette this was found with, and the bar pinned every label and readout to
+      `onSurface` at the other end. The colour lives in the container roles it never touched. Widgets are
+      chips on `secondaryContainer` now, the clock is the one filled accent on `primaryContainer`, and
+      `Label` and `Readout` name no colour at all: they read `LocalContentColor`, which each chip provides
+      through `contentColorFor`, so one palette change moves all of them and a label is its own chip's
+      colour at 70% rather than a grey that fights it.
+      The three hardcoded severity colours went with it. Fixed green, amber and red said the same thing
+      under every palette, which is what made the only colour in the bar immune to theming; the bands
+      survive because a machine at 90% should still look alarming, but calm and warm are the palette's own
+      accents now. The separators went too, since chips have edges of their own and a hairline between
+      them is a border on a border.
+      A plain background and `CompositionLocalProvider` rather than material3's `Surface`, because
+      `Surface` substitutes `surfaceTint` over anything equal to `colorScheme.surface` once an ancestor
+      contributes tonal elevation, and a bar should get the colour it asked for.
 
 - [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
       once and is final: `call` now fails fast on it, `send` reports it, and nothing anywhere reopens the
@@ -1685,12 +1715,12 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **660 tests on `master`: 397 in `:wayland`, 73 in `:dbus`, 60 in `:bar`, 41 in `:tray`, 27 in
-  `:compose`, 19 in `:theme`, 15 in `:watch`, 14 each in `:notification` and `:icons`. 570 of them have
+- **661 tests on `master`: 397 in `:wayland`, 73 in `:dbus`, 60 in `:bar`, 41 in `:tray`, 27 in
+  `:compose`, 20 in `:theme`, 15 in `:watch`, 14 each in `:notification` and `:icons`. 570 of them have
   been seen green in one run, which was before `:icons`, `:theme`, the tray's watcher and the bar merge,
   so no whole-suite run has covered what is on `master` now. Everything outside `:wayland` has been green
   on its own: `:tray`'s 41 with ags stopped, which is the configuration that could not pass at all before
-  the watcher, and `:bar`'s 60 and `:icons`' 14 after the icon swap.**
+  the watcher, and `:bar`'s 60, `:theme`'s 20 and `:icons`' 14 after the icon swap.**
   **`:tray`'s 41 need whatever holds `org.kde.StatusNotifierWatcher` stopped**, which is `ags quit` on this
   desktop, because the watcher tests claim that name themselves. That is the mirror of the old problem
   rather than the same one: the suite used to need another bar running and now needs it not to be.

@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,7 +28,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fromwau.kortex.tray.ItemAddress
+import com.fromwau.kortex.notification.Urgency
 import com.fromwau.kortex.bar.state.BarAction
+import com.fromwau.kortex.bar.state.BarScheme
 import com.fromwau.kortex.bar.state.BarState
 import com.fromwau.kortex.bar.state.Posted
 import com.fromwau.kortex.bar.state.Reading
@@ -52,7 +57,7 @@ fun BarContent(
     Row(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -65,28 +70,49 @@ fun BarContent(
 
         Spacer(Modifier.weight(1f))
 
+        SchemeWidget(
+            scheme = state.scheme,
+            onClick = { onAction(BarAction.SchemeCycled) },
+        )
         TrayWidget(
             tray = state.tray,
             hovered = state.hoveredTray,
             onHover = { address -> onAction(BarAction.TrayHovered(address)) },
         )
-        Separator()
         NotificationWidget(state.notifications)
-        Separator()
         NetworkWidget(state.network)
-        Separator()
         TemperatureWidget(state.temperature)
-        Separator()
         GaugeWidget(label = "CPU", fraction = state.cpuLoad, readout = ::percent)
-        Separator()
         MemoryWidget(state.memory)
-        Separator()
         ClockWidget(
             clock = state.clock,
             showDetail = state.showDetail,
             onClick = { onAction(BarAction.ClockClicked) },
         )
     }
+}
+
+/**
+ * Which scheme the bar is drawing with. Clicking it moves to the next one.
+ *
+ * Named rather than shown as a swatch, because the two custom cases differ only in which half of one file
+ * they read and a swatch of a theme that failed to load looks like a theme that loaded dark.
+ */
+@Composable
+private fun SchemeWidget(scheme: BarScheme, onClick: () -> Unit) {
+    Widget(onClick = onClick) {
+        Label("THEME")
+        Readout(scheme.named())
+    }
+}
+
+/** What to call this scheme on the bar, where there is room for a word and not a sentence. */
+private fun BarScheme.named(): String = when (this) {
+    BarScheme.Light -> "light"
+    BarScheme.Dark -> "dark"
+    BarScheme.Amoled -> "amoled"
+    is BarScheme.Custom.Light -> "file, light"
+    is BarScheme.Custom.Dark -> "file, dark"
 }
 
 /** The date and time. Clicking it adds the date and the seconds, and clicking again takes them away. */
@@ -96,7 +122,7 @@ private fun ClockWidget(
     showDetail: Boolean,
     onClick: () -> Unit,
 ) {
-    Widget(onClick = onClick) {
+    Widget(onClick = onClick, container = MaterialTheme.colorScheme.primaryContainer) {
         when (clock) {
             Reading.Pending -> Readout("--:--")
             is Reading.Unavailable -> Unavailable(clock)
@@ -160,7 +186,7 @@ private fun TemperatureWidget(temperature: Reading<Temperature>) {
                 Label(temperature.value.label.uppercase())
                 Readout(
                     text = "${temperature.value.celsius.degrees}°",
-                    color = temperature.value.celsius.degrees.heatColor(),
+                    color = heatColour(temperature.value.celsius.degrees),
                 )
             }
         }
@@ -245,7 +271,16 @@ private fun NotificationWidget(notifications: Reading<List<Posted>>) {
             is Reading.Unavailable -> Unavailable(notifications)
             is Reading.Value -> when {
                 notifications.value.isEmpty() -> Readout("none")
-                else -> Readout(notifications.value.size.toString(), weight = FontWeight.Medium)
+                else -> Readout(
+                    text = notifications.value.size.toString(),
+                    color = when {
+                        notifications.value.any { it.urgency == Urgency.Critical } ->
+                            MaterialTheme.colorScheme.error
+
+                        else -> MaterialTheme.colorScheme.secondary
+                    },
+                    weight = FontWeight.Medium,
+                )
             }
         }
     }
@@ -267,12 +302,16 @@ private fun TimerWidget(
 
             is TimerFace.Counting -> {
                 Label("FOCUS")
-                Readout(face.secondsLeft.asClock(), weight = FontWeight.Medium)
+                Readout(
+                    text = face.secondsLeft.asClock(),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    weight = FontWeight.Medium,
+                )
             }
 
             is TimerFace.Paused -> {
                 Label("HELD")
-                Readout(face.secondsLeft.asClock(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Readout(face.secondsLeft.asClock(), color = LocalContentColor.current.copy(alpha = LABEL_ALPHA))
             }
 
             TimerFace.Elapsed -> {
@@ -298,13 +337,13 @@ private fun Gauge(fraction: Float) {
             .width(GAUGE_WIDTH)
             .height(GAUGE_HEIGHT)
             .clip(RoundedCornerShape(GAUGE_HEIGHT / 2))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(LocalContentColor.current.copy(alpha = TRACK_ALPHA)),
     ) {
         Box(
             Modifier
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
                 .fillMaxHeight()
-                .background(fraction.loadColor()),
+                .background(loadColour(fraction)),
         )
     }
 }
@@ -323,14 +362,16 @@ private fun Label(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        // Dimmed against its own chip rather than a grey of its own, so a label stays subordinate to the
+        // readout beside it under every palette.
+        color = LocalContentColor.current.copy(alpha = LABEL_ALPHA),
     )
 }
 
 @Composable
 private fun Readout(
     text: String,
-    color: Color = MaterialTheme.colorScheme.onSurface,
+    color: Color = LocalContentColor.current,
     weight: FontWeight = FontWeight.Normal,
     modifier: Modifier = Modifier,
 ) {
@@ -351,33 +392,33 @@ private fun Readout(
 private fun Widget(
     onClick: (() -> Unit)? = null,
     onSecondaryClick: (() -> Unit)? = null,
+    container: Color = MaterialTheme.colorScheme.secondaryContainer,
     content: @Composable () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxHeight()
-            .clip(RoundedCornerShape(6.dp))
-            .clicks(onClick, onSecondaryClick)
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        content()
+    // A background and a content colour rather than material3's Surface, which substitutes surfaceTint
+    // over anything equal to colorScheme.surface once an ancestor contributes tonal elevation. A bar wants
+    // the colour it asked for.
+    CompositionLocalProvider(LocalContentColor provides contentColorFor(container)) {
+        Row(
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(vertical = 4.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(container)
+                .clicks(onClick, onSecondaryClick)
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            content()
+        }
     }
-}
-
-@Composable
-private fun Separator() {
-    Box(
-        Modifier
-            .width(1.dp)
-            .height(SEPARATOR_HEIGHT)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-    )
 }
 
 private val GAUGE_WIDTH = 42.dp
 private val GAUGE_HEIGHT = 6.dp
-private val SEPARATOR_HEIGHT = 16.dp
+private const val LABEL_ALPHA = 0.7f
+private const val TRACK_ALPHA = 0.2f
+
 private val TRAY_ICON = 18.dp
 private val HOVER_WIDTH = 220.dp

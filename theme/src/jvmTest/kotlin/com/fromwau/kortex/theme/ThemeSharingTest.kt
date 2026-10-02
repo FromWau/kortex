@@ -3,18 +3,21 @@ package com.fromwau.kortex.theme
 import androidx.compose.ui.graphics.Color
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.onStart
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.test.runTest
-import kotlinx.io.files.Path
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import kotlinx.io.files.Path
 
 /**
  * How often a theme file is read, which is a caller's decision and has to stay one.
@@ -59,6 +62,37 @@ class ThemeSharingTest {
             themeIn(file).firstTheme().dark.primary,
             "a second collection served colours from the first rather than reading the file",
         )
+    }
+
+    /**
+     * The reactive claim itself: a collector that is already running sees the file change.
+     *
+     * The other tests here each start a fresh collection, which only proves a new reader gets current
+     * colours. A shell collects once and keeps collecting, so what it needs is for the second value to
+     * arrive at a collector that never stopped. Nothing else in this suite covers that.
+     */
+    @Test
+    fun `a collector already running is given the file again when it changes`() = runTest(timeout = BUDGET) {
+        val file = themeFile(primary = BLUE)
+        val seen = Channel<Theme>(Channel.UNLIMITED)
+
+        val collecting = launch(Dispatchers.Default) {
+            themeIn(file).collect { read -> if (read is Ok) seen.send(read.value) }
+        }
+
+        try {
+            assertEquals(Color(0xFFADC6FF), seen.receive().dark.primary)
+
+            write(file, primary = SLATE)
+
+            assertEquals(
+                Color(0xFF445E91),
+                seen.receive().dark.primary,
+                "a live collector never saw the rewritten file",
+            )
+        } finally {
+            collecting.cancel()
+        }
     }
 
     /** Skips the stand-in a share starts with, which is not a read of anything. */

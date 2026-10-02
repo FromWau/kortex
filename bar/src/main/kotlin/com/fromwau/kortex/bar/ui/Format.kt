@@ -1,5 +1,7 @@
 package com.fromwau.kortex.bar.ui
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.notification.NotificationError
@@ -99,25 +101,36 @@ private fun ParseFailure.shortly(): String = when (this) {
 
 
 /** Green while there is room to spare, amber as it fills, red when it is full. */
-fun Float.loadColor(): Color = when {
-    this >= 0.85f -> HOT
-    this >= 0.6f -> WARM
-    else -> COOL
+/**
+ * The colour for a reading in its three bands, taken from the theme rather than fixed.
+ *
+ * Fixed green, amber and red said the same thing under every palette and ignored the one the desktop
+ * generated, which on a dark scheme left the bar reading as black and white. The bands survive, since a
+ * machine at 90% should still look alarming: what changes is that calm and warm are now the palette's own
+ * accents, so a generated theme is visible in the thing that moves.
+ */
+@Composable
+fun loadColour(fraction: Float): Color = when {
+    fraction >= ALARMING -> MaterialTheme.colorScheme.error
+    fraction >= WARM -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.primary
 }
 
 /** The same three bands for a temperature, where the thresholds are degrees rather than a share. */
-fun Int.heatColor(): Color = when {
-    this >= 85 -> HOT
-    this >= 70 -> WARM
-    else -> COOL
+@Composable
+fun heatColour(celsius: Int): Color = when {
+    celsius >= ALARMING_DEGREES -> MaterialTheme.colorScheme.error
+    celsius >= WARM_DEGREES -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.onSurface
 }
 
 private val PLAIN: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val DETAILED: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM  HH:mm:ss")
 
-private val COOL = Color(0xFF8BC48A)
-private val WARM = Color(0xFFE0B341)
-private val HOT = Color(0xFFE06C6C)
+private const val WARM = 0.6f
+private const val ALARMING = 0.85f
+private const val WARM_DEGREES = 70
+private const val ALARMING_DEGREES = 85
 
 private const val SECONDS_IN_MINUTE = 60
 private const val KIBIBYTE = 1024L
