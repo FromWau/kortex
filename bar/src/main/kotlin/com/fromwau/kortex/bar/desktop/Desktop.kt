@@ -66,6 +66,14 @@ interface Desktop {
      * the list it was drawn from is the thing that was out of date, which the next value fixes.
      */
     suspend fun dismiss(id: UInt)
+
+    /**
+     * Switches to the workspace numbered [id].
+     *
+     * Nothing is handed back, for the reason [dismiss] gives: the strip shows the switch once it has
+     * happened, and a switch that failed leaves the strip as it was, which is the honest picture.
+     */
+    suspend fun focusWorkspace(id: Int)
 }
 
 /**
@@ -141,6 +149,10 @@ class BusDesktop(
     override val workspaces: Flow<Reading<List<WorkspaceSlot>>> = hyprland.workspaces.map { it.asStrip() }
 
     override val focusedWindow: Flow<Reading<FocusedWindow?>> = hyprland.activeWindow.map { it.asFocused() }
+
+    override suspend fun focusWorkspace(id: Int) {
+        hyprland.focusWorkspace(id)
+    }
 
     override suspend fun dismiss(id: UInt) {
         server.await().getOrNull()?.close(id, CloseReason.Dismissed)

@@ -224,6 +224,18 @@ class BarStateHolderTest {
         assertIs<Reading.Pending>(holder.state.value.tray, "the tray has not answered and is not held up by them")
     }
 
+    @Test
+    fun `clicking a workspace asks the desktop to switch to it, by its number`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        runCurrent()
+
+        holder.onAction(BarAction.WorkspaceClicked(5))
+        runCurrent()
+
+        assertEquals(listOf(5), desktop.focused)
+    }
+
     private fun TestScope.holder(
         metrics: SystemMetrics,
         clock: Flow<LocalDateTime>,
@@ -247,6 +259,7 @@ private class FakeDesktop : Desktop {
     val slots = MutableStateFlow<Reading<List<WorkspaceSlot>>?>(null)
     val window = MutableStateFlow<Reading<FocusedWindow?>?>(null)
     val dismissed = mutableListOf<UInt>()
+    val focused = mutableListOf<Int>()
 
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
     override val trayRegistry: Flow<String?> get() = registry
@@ -256,6 +269,10 @@ private class FakeDesktop : Desktop {
 
     override suspend fun dismiss(id: UInt) {
         dismissed += id
+    }
+
+    override suspend fun focusWorkspace(id: Int) {
+        focused += id
     }
 }
 

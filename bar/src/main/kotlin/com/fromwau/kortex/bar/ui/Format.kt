@@ -58,6 +58,7 @@ private fun HyprlandError.shortly(): String = when (this) {
     is HyprlandError.Unreachable -> "hyprland unreachable"
     HyprlandError.Disconnected -> "hyprland closed"
     is HyprlandError.Refused -> "hyprland refused"
+    is HyprlandError.NotNumbered -> "no workspace $number"
     is HyprlandError.Unparseable -> "unreadable reply"
 }
 

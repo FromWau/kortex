@@ -28,6 +28,9 @@ sealed interface BarAction {
     /** The notification with [id] was dismissed, which closes it and tells its application why. */
     data class NotificationDismissed(val id: UInt) : BarAction
 
+    /** The workspace numbered [id] was clicked, which switches to it, making it if it is the empty one. */
+    data class WorkspaceClicked(val id: Int) : BarAction
+
     /** The scheme button was clicked, which moves to the next of [BarScheme]. */
     data object SchemeCycled : BarAction
 }

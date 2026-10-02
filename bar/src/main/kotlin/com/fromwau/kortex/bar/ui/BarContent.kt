@@ -70,7 +70,10 @@ fun BarContent(
             onClick = { onAction(BarAction.TimerClicked) },
             onReset = { onAction(BarAction.TimerReset) },
         )
-        WorkspacesWidget(state.workspaces)
+        WorkspacesWidget(
+            workspaces = state.workspaces,
+            onClick = { id -> onAction(BarAction.WorkspaceClicked(id)) },
+        )
         // All the free room, so the right side sits at the edge and a long title is cut at the box rather than
         // pushing it off. Weighting the widget itself with fill = false leaves its unused share at the far end.
         Box(
@@ -331,15 +334,18 @@ private fun TimerWidget(
     }
 }
 
-/** Every workspace from 1 to one past the highest in use, the one being looked at filled. */
+/** Every workspace from 1 to one past the highest in use, the one being looked at filled. Clicking one goes there. */
 @Composable
-private fun WorkspacesWidget(workspaces: Reading<List<WorkspaceSlot>>) {
+private fun WorkspacesWidget(
+    workspaces: Reading<List<WorkspaceSlot>>,
+    onClick: (Int) -> Unit,
+) {
     Widget {
         when (workspaces) {
             Reading.Pending -> Readout("--")
             is Reading.Unavailable -> Unavailable(workspaces)
             is Reading.Value -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                workspaces.value.forEach { slot -> WorkspacePill(slot) }
+                workspaces.value.forEach { slot -> WorkspacePill(slot = slot, onClick = { onClick(slot.id) }) }
             }
         }
     }
@@ -347,7 +353,10 @@ private fun WorkspacesWidget(workspaces: Reading<List<WorkspaceSlot>>) {
 
 /** One workspace's number, filled where a monitor shows it and faded where it holds no window. */
 @Composable
-private fun WorkspacePill(slot: WorkspaceSlot) {
+private fun WorkspacePill(
+    slot: WorkspaceSlot,
+    onClick: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val fill = when (slot.shown) {
         SlotShown.Focused -> colors.primary
@@ -364,6 +373,7 @@ private fun WorkspacePill(slot: WorkspaceSlot) {
             .widthIn(min = PILL_WIDTH)
             .clip(RoundedCornerShape(6.dp))
             .background(fill)
+            .clicks(onClick, null)
             .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
