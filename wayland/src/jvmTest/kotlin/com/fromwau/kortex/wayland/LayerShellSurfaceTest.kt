@@ -53,6 +53,8 @@ class LayerShellSurfaceTest {
         }
     }
 
+    // Can race: it failed once in a full run as ConnectionError(errno=104) instead. killConnection waits for the
+    // hang-up to close the one window found for that, and 700 stress runs since have not failed it.
     @Test
     fun `waitForConfigure on a connection that died before any configure returns the connection's error`() {
         val display = WaylandDisplay.connect().getOrElse { error -> fail("no compositor answered: $error") }
