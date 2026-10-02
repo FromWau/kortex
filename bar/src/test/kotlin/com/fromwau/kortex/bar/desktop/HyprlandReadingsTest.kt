@@ -106,6 +106,24 @@ class HyprlandReadingsTest {
     }
 
     @Test
+    fun `the next workspace may be one of the monitor's own empty persistent ones`() {
+        val monitors = listOf(
+            monitor(
+                DP1,
+                workspace(1, windows = 1),
+                workspace(2, windows = 1),
+                workspace(3, windows = 0),
+                workspace(4, windows = 0),
+                active = 1,
+            ),
+            monitor(HDMI, workspace(6, windows = 0), active = 6, focused = false),
+        )
+
+        assertEquals(listOf(1, 2, 3), monitors.strip(DP1).slots.map { it.id })
+        assertEquals(listOf(5, 6, 7), monitors.strip(HDMI).slots.map { it.id })
+    }
+
+    @Test
     fun `an urgent workspace is marked on its pill`() {
         val monitors = listOf(
             monitor(DP1, workspace(1, windows = 1), workspace(2, windows = 1, urgent = true), active = 1),
@@ -133,8 +151,8 @@ class HyprlandReadingsTest {
     }
 
     @Test
-    fun `the layout is its code where hyprland gives one, and its full name where not`() {
-        assertEquals(Reading.Value("at"), Ok(KeyboardLayout("k", "German (Austria)", "at")).asLayout())
+    fun `the layout is its code in capitals where hyprland gives one, and its full name as written where not`() {
+        assertEquals(Reading.Value("AT"), Ok(KeyboardLayout("k", "German (Austria)", "at")).asLayout())
         assertEquals(Reading.Value("German (Austria)"), Ok(KeyboardLayout("k", "German (Austria)", null)).asLayout())
     }
 

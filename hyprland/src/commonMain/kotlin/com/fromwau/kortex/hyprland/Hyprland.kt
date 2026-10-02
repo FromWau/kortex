@@ -64,8 +64,7 @@ public class Hyprland private constructor(
      */
     public val monitors: StateFlow<Result<List<Monitor>, HyprlandError>> = flow {
         val urgent = UrgentWindows()
-        val read = follow(MONITOR_EVENTS, observe = urgent::observe) { at -> readMonitors(at, urgent.addresses) }
-        emitAll(read)
+        emitAll(follow(MONITOR_EVENTS, observe = urgent::observe) { at -> readMonitors(at, urgent.addresses) })
     }.stateIn(scope, SharingStarted.WhileSubscribed(), Err(HyprlandError.NotConnected))
 
     /** The window with keyboard focus, null while nothing has it, or why that cannot be known. */
@@ -82,7 +81,12 @@ public class Hyprland private constructor(
         request(at.requests, SUBMAP).flatMap(::submapFrom)
     }.stateIn(scope, SharingStarted.WhileSubscribed(), Err(HyprlandError.NotConnected))
 
-    /** The layout the main keyboard types in, null while Hyprland calls no keyboard main. */
+    /**
+     * The layout the main keyboard types in, null while Hyprland calls no keyboard main.
+     *
+     * Read again when a layout changes. Which keyboard is main changes too, to whichever device last sent a key,
+     * and Hyprland announces nothing when it does, so this goes on naming the last one until a layout changes.
+     */
     public val keyboardLayout: StateFlow<Result<KeyboardLayout?, HyprlandError>> =
         follow(setOf(LAYOUT_EVENT)) { at ->
             request(at.requests, DEVICES).flatMap(::keyboardLayoutFrom)

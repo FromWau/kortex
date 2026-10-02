@@ -389,7 +389,7 @@ private fun SubmapWidget(submap: Reading<String?>) {
     }
 }
 
-/** The layout the keyboard types in, in capitals: `US`. */
+/** The layout the keyboard types in. */
 @Composable
 private fun KeyboardWidget(layout: Reading<String?>) {
     Widget {
@@ -397,7 +397,7 @@ private fun KeyboardWidget(layout: Reading<String?>) {
         when (layout) {
             Reading.Pending -> Readout("--")
             is Reading.Unavailable -> Unavailable(layout)
-            is Reading.Value -> Readout(layout.value?.uppercase() ?: "none")
+            is Reading.Value -> Readout(layout.value ?: "none")
         }
     }
 }
@@ -409,7 +409,7 @@ private fun WorkspacePill(
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    // Urgency shows until the workspace is looked at, so the one being looked at keeps its own fill.
+    // The workspace being looked at keeps its own fill: an urgent window on it is cleared once it takes focus.
     val fill = when {
         slot.shown == SlotShown.Focused -> colors.primary
         slot.urgent -> colors.errorContainer

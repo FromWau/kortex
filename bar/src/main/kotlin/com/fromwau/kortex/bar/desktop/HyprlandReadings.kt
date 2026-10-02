@@ -25,10 +25,11 @@ import com.fromwau.kortex.hyprland.Monitor
 internal fun List<Monitor>.strip(connector: String): WorkspaceStrip {
     val mine = firstOrNull { it.name == connector }
     val numbered = mine?.workspaces.orEmpty().filter { it.id.value > 0 }.associateBy { it.id.value }
-    val elsewhere = filter { it !== mine }.flatMap { it.workspaces }.map { it.id.value }.toSet()
+    val elsewhere = filter { it.name != connector }.flatMap { it.workspaces }.map { it.id.value }.toSet()
     val inUse = numbered.values.filter { it.windows > 0 || it.id == mine?.active }.map { it.id.value }
     val last = inUse.maxOrNull() ?: 0
-    val next = generateSequence(last + 1) { it + 1 }.first { it !in elsewhere && it !in numbered }
+    // One of this monitor's own empty workspaces counts, which a persistent workspace rule leaves in place.
+    val next = generateSequence(last + 1) { it + 1 }.first { it !in elsewhere }
 
     val slots = ((1..last).filter { it !in elsewhere } + next).map { id ->
         val workspace = numbered[id]
@@ -56,9 +57,9 @@ internal fun Result<ActiveWindow?, HyprlandError>.asFocused(): Reading<FocusedWi
 
 internal fun Result<String?, HyprlandError>.asSubmap(): Reading<String?> = asReading { it }
 
-/** The layout as the bar names it: its short code where Hyprland gives one, and its full name where not. */
+/** The layout as the bar names it: its short code in capitals, `US`, and its full name where Hyprland gives no code. */
 internal fun Result<KeyboardLayout?, HyprlandError>.asLayout(): Reading<String?> =
-    asReading { layout -> layout?.let { it.code ?: it.keymap } }
+    asReading { layout -> layout?.let { it.code?.uppercase() ?: it.keymap } }
 
 /** `NotConnected` is Pending, as its own KDoc says: nobody is watching yet or the first answer is on its way. */
 private inline fun <T, R> Result<T, HyprlandError>.asReading(transform: (T) -> R): Reading<R> = when (this) {

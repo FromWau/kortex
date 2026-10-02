@@ -1721,10 +1721,15 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       anybody collected is not known to be.
       `submap` reads `j/submap`, a bare JSON string that is `"default"` for none, and `keyboardLayout` reads the
       keyboard `j/devices` calls main, its code being that keyboard's layout list at its active index, which
-      Hyprland writes as a bare `none` when it has none.
+      Hyprland writes as a bare `none` when it has none. **Which keyboard is main changes without an event**:
+      Hyprland moves it to whichever device last sent a key (`CSeatManager::setKeyboard`, called from
+      `InputManager.cpp` on every key) and posts no `activelayout`, so after typing on another keyboard the
+      flow names the old one until some layout changes. Left as a documented limit; a query on every key
+      would be the cost of closing it.
       On the bar each strip is its own monitor's: its numbered workspaces, the gaps no other monitor holds and
-      the next number nobody uses, so one monitor draws what it did before. An urgent pill fills with the error
-      container until it is looked at, an open special workspace shows as a named pill after the numbers, a
+      the next number no other monitor holds, which may be one of its own empty persistent workspaces, so one
+      monitor draws what it did before. A pill fills with the error container while a window on it is urgent,
+      which lasts until that window takes focus rather than until the workspace is visited, as in Hyprland, an open special workspace shows as a named pill after the numbers, a
       `MODE` chip appears only outside the default submap and `KB US` sits beside the clock.
       (`HyprlandTest`, `RepliesTest`, `HyprlandLiveTest`, `HyprlandReadingsTest`, `BarStateHolderTest`)
 - [x] **`:shell` is the escape hatch for everything no provider covers.** `shell(script, timeout)` runs
