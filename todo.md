@@ -1623,6 +1623,33 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       `Surface` substitutes `surfaceTint` over anything equal to `colorScheme.surface` once an ancestor
       contributes tonal elevation, and a bar should get the colour it asked for.
 
+- [ ] **`:hyprland` carries the workspaces and the focused window, read from Hyprland's own sockets.** Agreed
+      design, no code yet. The first cut only reads: switching a workspace is a command for later.
+      An instance, as every provider is: `Hyprland(scope, instance = HyprlandInstance.fromEnvironment())`, where
+      `HyprlandInstance` is the folder holding `.socket.sock` and `.socket2.sock`, found from
+      `XDG_RUNTIME_DIR` and `HYPRLAND_INSTANCE_SIGNATURE`. Taking it as a parameter is what lets a test point
+      the provider at a fake. Two flows:
+      `workspaces: StateFlow<Result<Workspaces, HyprlandError>>`, with every `Workspace` (id, name, monitor,
+      window count) and the active one per monitor, and
+      `activeWindow: StateFlow<Result<ActiveWindow?, HyprlandError>>` (address, app id, title, workspace), null
+      when nothing has focus.
+      **Events are ticks and queries are the truth.** One connection to `.socket2.sock` reads `EVENT>>DATA`
+      lines, and a relevant one sends a fresh `j/workspaces`, `j/monitors` or `j/activewindow` down
+      `.socket.sock` and publishes what decodes. Workspace events (`workspacev2`, `createworkspacev2`,
+      `destroyworkspacev2`, `moveworkspacev2`, `renameworkspace`, `focusedmonv2`) refresh the workspaces;
+      `activewindowv2` and `windowtitlev2` refresh the window; `openwindow`, `closewindow` and
+      `movewindowv2` refresh both, since they change window counts. Folding each event into a local copy was
+      rejected: a dozen event kinds to mirror, and a missed one drifts silently, where a local query costs
+      microseconds.
+      `HyprlandError : IError` is `NotRunning` (no signature, or no socket), `NotConnected` (the honest first
+      value), `Disconnected` (the event socket closed) and `Unparseable(detail)`. No Compose, no `:wayland`,
+      no `:dbus`: JDK 25 opens a unix socket with `UnixDomainSocketAddress` and nothing else.
+      Tests: a fake serving both sockets in a temp folder, for events leading to queries and for recovery
+      after a disconnect, with no desktop; live tests that only read and compare against `hyprctl ... -j`;
+      decode tests over recorded JSON, including what `activewindow` answers with nothing focused, which is
+      still to be confirmed rather than assumed to be `{}`.
+      `:bar` gets a workspace strip and a title chip through `Desktop` once the provider is green, not before.
+
 - [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
       once and is final: `call` now fails fast on it, `send` reports it, and nothing anywhere reopens the
       socket. A session bus does restart, and a socket does drop, and when it does the tray, every menu and
