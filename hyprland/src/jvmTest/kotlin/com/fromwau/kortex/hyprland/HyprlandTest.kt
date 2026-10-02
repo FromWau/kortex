@@ -159,6 +159,65 @@ class HyprlandTest {
     }
 
     @Test
+    fun focusingAWorkspaceSendsTheLuaHyprlandAccepts() = runBlocking {
+        fake.answers[FOCUS_3] = "ok"
+
+        assertEquals(Ok(Unit), hyprland.focusWorkspace(3))
+        assertEquals(listOf(FOCUS_3), fake.requests)
+    }
+
+    @Test
+    fun aNumberBelowOneIsRefusedBeforeHyprlandCouldReadItAsAMove() = runBlocking {
+        assertEquals(Err(HyprlandError.NotNumbered(0)), hyprland.focusWorkspace(0))
+        assertEquals(Err(HyprlandError.NotNumbered(-98)), hyprland.focusWorkspace(-98))
+        assertEquals(emptyList(), fake.requests)
+    }
+
+    @Test
+    fun aListedWorkspaceIsAskedForTheWayHyprlandNamesIt() = runBlocking {
+        val sent = listOf(
+            Workspace(WorkspaceId(3), "3", "DP-1", 1),
+            Workspace(WorkspaceId(-98), "special:magic", "DP-1", 1),
+            Workspace(WorkspaceId(-1337), "we\"b\\", "DP-1", 1),
+        ).map { workspace ->
+            fake.requests.clear()
+            fake.answers.clear()
+            hyprland.focusWorkspace(workspace)
+            fake.requests.single()
+        }
+
+        assertEquals(
+            listOf(
+                FOCUS_3,
+                "dispatch hl.dsp.focus({ workspace = \"special:magic\" })",
+                "dispatch hl.dsp.focus({ workspace = \"name:we\\\"b\\\\\" })",
+            ),
+            sent,
+        )
+    }
+
+    @Test
+    fun aDispatchHyprlandCannotRunIsRefusedWithItsOwnWords() = runBlocking {
+        // What Hyprland 0.56.2 answered the pre-Lua `dispatch workspace 2`.
+        val lua = "workspace 2"
+        val error = "error: [string \"return hl.dispatch(workspace 2)\"]:1: ')' expected near '2'\n\n" +
+            " → Note: dispatch in lua is a shorthand for hl.dispatch(...), your syntax might need to be updated."
+        fake.answers["dispatch $lua"] = error
+
+        assertEquals(Err(HyprlandError.Refused("dispatch $lua", error)), hyprland.dispatch(lua))
+    }
+
+    @Test
+    fun aCommandWithNoSocketSaysWhichPathItTried() = runBlocking {
+        val empty = HyprlandInstance(Files.createTempDirectory("kortex-no-hyprland").toString())
+
+        assertEquals(
+            Err(HyprlandError.NoSocket(empty.requests)),
+            Hyprland(scope, empty, RETRY).focusWorkspace(1),
+        )
+    }
+
+    @Test
     fun theEnvironmentNamesTheFolderOrSaysThereIsNoInstance() {
         assertEquals(Err(HyprlandError.NoInstance), HyprlandInstance.fromEnvironment(emptyMap()))
         assertEquals(
@@ -206,6 +265,7 @@ class HyprlandTest {
 
     private companion object {
         val RETRY = 50.milliseconds
+        const val FOCUS_3 = "dispatch hl.dsp.focus({ workspace = \"3\" })"
         val TIMEOUT = 5.seconds
         val SETTLE = 200.milliseconds
     }

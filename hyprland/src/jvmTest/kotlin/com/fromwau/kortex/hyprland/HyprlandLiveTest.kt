@@ -1,5 +1,6 @@
 package com.fromwau.kortex.hyprland
 
+import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrNull
@@ -22,6 +23,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -73,16 +76,19 @@ class HyprlandLiveTest {
 
         watching(hyprland.workspaces, hyprland.activeWindow) {
             try {
-                dispatch("hl.dsp.focus({ workspace = \"$spare\" })")
+                assertEquals(Ok(Unit), hyprland.focusWorkspace(spare))
                 hyprland.workspaces.awaitOk { it.active[monitor] == WorkspaceId(spare) }
                 hyprland.activeWindow.awaitOk { it == null }
 
                 // A comma, because event data is comma separated and a name may carry one.
-                dispatch("hl.dsp.workspace.rename({ workspace = \"$spare\", name = \"kortex,probe\" })")
+                assertEquals(
+                    Ok(Unit),
+                    hyprland.dispatch("hl.dsp.workspace.rename({ workspace = \"$spare\", name = \"kortex,probe\" })"),
+                )
                 hyprland.workspaces.awaitOk { all -> all.all.any { it.id.value == spare && it.name == "kortex,probe" } }
             } finally {
-                dispatch("hl.dsp.focus({ workspace = \"${returnTo.value}\" })")
-                focusedBefore?.let { dispatch("hl.dsp.focus({ window = \"address:${it.address.value}\" })") }
+                start.all.firstOrNull { it.id == returnTo }?.let { hyprland.focusWorkspace(it) }
+                focusedBefore?.let { hyprland.dispatch("hl.dsp.focus({ window = \"address:${it.address.value}\" })") }
             }
 
             hyprland.workspaces.awaitOk { now ->
@@ -92,9 +98,43 @@ class HyprlandLiveTest {
         }
     }
 
-    private suspend fun dispatch(lua: String) {
-        val answer = request(instance.requests, "dispatch $lua")
-        check(answer.getOrNull()?.trim() == "ok") { "dispatch $lua answered $answer" }
+    @Test
+    fun aNamedWorkspaceIsFocusedByTheWorkspaceTheFlowListed() = runBlocking {
+        val start = hyprland.workspaces.awaitOk()
+        val focusedBefore = hyprland.activeWindow.awaitOk()
+        val monitor = checkNotNull(start.focusedMonitor)
+        val returnTo = checkNotNull(start.all.firstOrNull { it.id == start.active[monitor] })
+
+        watching(hyprland.workspaces, hyprland.activeWindow) {
+            try {
+                assertEquals(Ok(Unit), hyprland.dispatch("hl.dsp.focus({ workspace = \"name:$PROBE\" })"))
+                val named = hyprland.workspaces.awaitOk { now -> now.all.any { it.name == PROBE } }
+                    .all
+                    .single { it.name == PROBE }
+                assertTrue(named.id.value < 0 && !named.special, "a name: workspace got the id ${named.id}")
+
+                // Away and back, so the second switch is the selector built from the listed workspace.
+                assertEquals(Ok(Unit), hyprland.focusWorkspace(returnTo))
+                hyprland.workspaces.awaitOk { it.active[monitor] == returnTo.id }
+                assertEquals(Ok(Unit), hyprland.focusWorkspace(named))
+                hyprland.workspaces.awaitOk { it.active[monitor] == named.id }
+            } finally {
+                hyprland.focusWorkspace(returnTo)
+                focusedBefore?.let { hyprland.dispatch("hl.dsp.focus({ window = \"address:${it.address.value}\" })") }
+            }
+
+            hyprland.workspaces.awaitOk { now ->
+                now.active[monitor] == returnTo.id && now.all.none { it.name == PROBE }
+            }
+        }
+    }
+
+    @Test
+    fun luaHyprlandCannotRunIsRefusedWithLuasOwnError() = runBlocking {
+        val refused = hyprland.dispatch("hl.dsp.nope(")
+
+        val answer = assertIs<HyprlandError.Refused>((refused as Err).error).answer
+        assertTrue(answer.startsWith("error:"), answer)
     }
 
     private suspend fun <T> StateFlow<Result<T, HyprlandError>>.awaitOk(until: (T) -> Boolean = { true }): T =
@@ -130,5 +170,8 @@ class HyprlandLiveTest {
 
         /** Far enough above what a person binds to keys that the first free one is free in practice too. */
         const val SPARE_FROM = 77
+
+        /** Named so it cannot be one of somebody's own. */
+        const val PROBE = "kortex-probe-named"
     }
 }

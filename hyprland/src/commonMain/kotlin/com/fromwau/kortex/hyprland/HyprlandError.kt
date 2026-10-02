@@ -34,11 +34,17 @@ public sealed interface HyprlandError : IError {
     /** The event socket was live and Hyprland closed it. The flow keeps trying to reconnect. */
     public data object Disconnected : HyprlandError
 
-    /** Hyprland answered [request] with [answer], which is not JSON: `unknown request` is the usual one. */
+    /**
+     * Hyprland answered [request] with [answer] instead of what was asked for: `unknown request` for a query it
+     * does not know, or a Lua error for a dispatch it could not run.
+     */
     public data class Refused(
         public val request: String,
         public val answer: String,
     ) : HyprlandError
+
+    /** [number] is below 1, and only a workspace numbered from 1 up can be asked for by its number. */
+    public data class NotNumbered(public val number: Int) : HyprlandError
 
     /** Hyprland answered [request] with JSON of a shape kortex does not read; [detail] says where. */
     public data class Unparseable(

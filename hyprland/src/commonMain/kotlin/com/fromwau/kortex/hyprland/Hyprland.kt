@@ -1,5 +1,6 @@
 package com.fromwau.kortex.hyprland
 
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
@@ -74,6 +75,52 @@ public class Hyprland private constructor(
         request(at.requests, ACTIVE_WINDOW).flatMap(::activeWindowFrom)
     }.stateIn(scope, SharingStarted.WhileSubscribed(), Err(HyprlandError.NotConnected))
 
+    /**
+     * Shows [workspace], one of those [workspaces] lists: numbered, named or special.
+     *
+     * A special workspace is shown over the focused monitor's own rather than in its place.
+     *
+     * @return `Ok` once Hyprland has accepted the switch. The switch itself arrives through [workspaces].
+     */
+    public suspend fun focusWorkspace(workspace: Workspace): EmptyResult<HyprlandError> =
+        focus(workspace.selector())
+
+    /**
+     * Shows the workspace numbered [number] on the focused monitor, creating it if it does not exist.
+     *
+     * @return `Ok` once Hyprland has accepted the switch, or [HyprlandError.NotNumbered] for a [number] below 1,
+     *   which Hyprland would read as something else: a leading `-` as a move relative to the current workspace.
+     */
+    public suspend fun focusWorkspace(number: Int): EmptyResult<HyprlandError> = when {
+        number < 1 -> Err(HyprlandError.NotNumbered(number))
+        else -> focus("$number")
+    }
+
+    private suspend fun focus(selector: String): EmptyResult<HyprlandError> =
+        dispatch("hl.dsp.focus({ workspace = ${luaString(selector)} })")
+
+    /**
+     * Runs one of Hyprland's dispatchers, written as the Lua that `dispatch` takes from Hyprland 0.56 on.
+     *
+     * ```kotlin
+     * hyprland.dispatch("hl.dsp.window.close()")
+     * ```
+     *
+     * @param lua sent exactly as given: nothing in it is escaped or checked.
+     * @return `Ok` once Hyprland answers `ok`, or [HyprlandError.Refused] with what it answered instead,
+     *   which for Lua it cannot run is the error Lua gave.
+     */
+    public suspend fun dispatch(lua: String): EmptyResult<HyprlandError> {
+        val at = instance.getOrElse { return Err(it) }
+        val command = "dispatch $lua"
+        return request(at.requests, command).flatMap { answer ->
+            when (val said = answer.trim()) {
+                ACCEPTED -> Ok(Unit)
+                else -> Err(HyprlandError.Refused(command, said))
+            }
+        }
+    }
+
     /** [read] once the event socket is listening, and again after every event named in [refreshOn]. */
     private fun <T> follow(
         refreshOn: Set<String>,
@@ -105,6 +152,8 @@ public class Hyprland private constructor(
 
     private companion object {
         val RETRY_AFTER = 1.seconds
+
+        const val ACCEPTED = "ok"
 
         // The v2 name wherever Hyprland sends two versions of one event, so a change is read once, not twice.
         val WINDOW_COUNTS = setOf("openwindow", "closewindow", "movewindowv2")

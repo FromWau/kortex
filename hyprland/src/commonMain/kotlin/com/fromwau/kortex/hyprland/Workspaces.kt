@@ -33,6 +33,26 @@ public data class Workspace(
     public val special: Boolean get() = id.value in SPECIAL_IDS
 }
 
+/** How Hyprland's workspace selector names this workspace: its number, or its name where it has no number. */
+internal fun Workspace.selector(): String = when {
+    special -> name
+    id.value < 0 -> "name:$name"
+    else -> "${id.value}"
+}
+
+/** [text] as a Lua string literal, so a workspace name with a quote in it stays one string. */
+internal fun luaString(text: String): String = buildString {
+    append('"')
+    text.forEach { char ->
+        when (char) {
+            '\\', '"' -> append('\\').append(char)
+            '\n' -> append("\\n")
+            else -> append(char)
+        }
+    }
+    append('"')
+}
+
 // Hyprland's own CWorkspaceQueryCore::isSpecial. Named workspaces are negative too, from -1337 down, so a
 // sign test would call every `name:` workspace special.
 private val SPECIAL_IDS = -99..-2
