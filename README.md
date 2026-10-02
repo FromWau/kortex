@@ -55,7 +55,8 @@ Library versions all live in `gradle/libs.versions.toml`, which is the only plac
 | `:tray` | the system tray, as the host that draws it and the registry applications register with | `:dbus` |
 | `:notification` | kortex as the notification server, not a client of one | `:dbus` |
 | `:watch` | a file's text, again whenever it changes | `kern:dirs` |
-| `:hyprland` | Hyprland's workspaces and focused window, from its own sockets | nothing of kortex's |
+| `:hyprland` | Hyprland's workspaces and focused window, and its dispatchers, over its own sockets | nothing of kortex's |
+| `:shell` | a bash script's output and exit code, for whatever no provider covers | nothing of kortex's |
 | `:icons` | a provider's icon as something Compose can draw | `:tray`, `:notification`, Compose |
 | `:theme` | a watched JSON file as a Material `ColorScheme`, so a bar retints itself | `:watch`, Compose, material3 |
 | `:bar` | a bar you could run, and a demo of the toolkit's other surfaces behind a right click | most of the above |
