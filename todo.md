@@ -1126,7 +1126,7 @@ is what the draft note said would happen. Every rule survived; what changed is u
 What was settled stayed settled: data and no UI, one flow carrying a `Result`, typed errors on `IError`,
 nothing running while nobody is watching, and no Compose or `:wayland` anywhere. The server side is built
 too, and the one rule `:notification` genuinely departs from is written up in its own entry below. What is
-still draft is `:mpris` and `:hyprland`, neither of which exists, and the system bus every one of
+still draft is `:mpris`, which does not exist, and the system bus every one of
 UPower, logind, NetworkManager, BlueZ and systemd lives on.
 
 What every one of them keeps to:
@@ -1623,8 +1623,16 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       `Surface` substitutes `surfaceTint` over anything equal to `colorScheme.surface` once an ancestor
       contributes tonal elevation, and a bar should get the colour it asked for.
 
-- [ ] **`:hyprland` carries the workspaces and the focused window, read from Hyprland's own sockets.** Agreed
-      design, no code yet. The first cut only reads: switching a workspace is a command for later.
+- [x] **`:hyprland` carries the workspaces and the focused window, read from Hyprland's own sockets.** Built
+      as designed below. The first cut only reads: switching a workspace is a command for later.
+      **Done.** 21 tests: 19 against `FakeHyprland`, which serves both sockets in a temporary folder and
+      answers with JSON recorded from 0.56.2, and 2 live against the running Hyprland, checked against what
+      `hyprctl -j` reports. The second live test drives the desktop: it switches to a spare workspace, renames
+      it with a comma in the name and switches back to the window that had focus, restoring both in a
+      `finally`. Each ordering claim has a mutation that fails it: dropping `focusedmonv2`, the `conflate`, the
+      request's `shutdownOutput`, the reconnect, `activewindowv2` or `renameworkspace` each fails a named test.
+      **`special` is Hyprland's own range, -99 to -2**, from `CWorkspaceQueryCore::isSpecial`, not a sign
+      test: a `name:` workspace is negative too, counting down from -1337, and is not special.
       An instance, as every provider is: `Hyprland(scope, instance = HyprlandInstance.fromEnvironment())`, where
       `HyprlandInstance` is the folder holding `.socket.sock` and `.socket2.sock`, found from
       `XDG_RUNTIME_DIR` and `HYPRLAND_INSTANCE_SIGNATURE`. Taking it as a parameter is what lets a test point
@@ -1676,7 +1684,14 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       - **`dispatch` is Lua on 0.56**: `dispatch workspace 2` answers a Lua syntax error, and the form that
         works is `dispatch hl.dsp.focus({ workspace = "2" })`, answering `ok`. That is the shape the
         workspace switching command will need when it comes.
-      `:bar` gets a workspace strip and a title chip through `Desktop` once the provider is green, not before.
+      **`:bar` draws both now**, through `Desktop` like the tray. The strip runs from workspace 1 to the
+      highest one holding a window or shown on a monitor, gaps included, and one empty workspace past it, so
+      windows on 1 and 4 draw 1 2 3 4 5. Special and named workspaces stay out of it: a special one is shown
+      over another rather than in a place of its own, and a named one has no number to stand at. The pill a
+      focused monitor shows is filled, one on another monitor is tinted, and an empty one is faded. Display
+      only, so clicking a pill switches nothing yet. Beside it, the focused window's app id, cut to its last
+      segment, and its title, cut short rather than pushing the right side off the bar. (`HyprlandReadingsTest`,
+      `BarStateHolderTest`)
 
 - [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
       once and is final: `call` now fails fast on it, `send` reports it, and nothing anywhere reopens the
@@ -1817,9 +1832,15 @@ survives on its own.
   occurrence: libwayland keeps one error per display and never replaces it, `display_fatal_error` and
   `display_protocol_error` in `wayland-client.c` both returning early while `display->last_error` is set,
   so whichever is recorded first is the one the test reads.
-  **It is not established as a flake.** The desktop was being used during that run, which is enough to
-  explain a timing-sensitive test on its own, and five solo runs of the class afterwards were clean.
-  Nothing has been changed in it.
+  **It is a race now, not an open question.** The first failure came in a run while the desktop was in
+  use. It failed again on 2026-10-02 in a full `check` with nobody at the desktop, 1 of 397 `:wayland`
+  tests, and passed 8 solo runs straight after. libwayland keeps the first error it records and flushes
+  past EPIPE but not ECONNRESET (`wl_display_flush`, 1.26.0), and the kernel marks this end ECONNRESET when
+  the compositor closes with requests of ours still unread (`unix_release_sock`). So `killConnection` now
+  waits for the compositor to hang up before returning, and requests sent after that fail with EPIPE.
+  **Not proven**: the old helper never failed in 700 stress runs, idle and with every core busy, so the
+  failure could not be reproduced to show the wait removes it. Kept, with a comment on the test that it
+  can race.
 
 - **Read gradle's exit code directly, not through a pipe.** `./gradlew … | tail` returns tail's status,
   which made three "green" reports meaningless before it was noticed. The counts in
