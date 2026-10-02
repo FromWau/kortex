@@ -87,6 +87,9 @@ class MenuLiveTest {
             .use { connection ->
                 val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
                 try {
+                    // Serves the registry only where nothing else does, so a menu is readable whether or
+                    // not a bar is running. See the same line in TrayLiveTest.
+                    TrayWatcher.claim(connection, scope)
                     body(Tray(connection, scope))
                 } finally {
                     scope.cancel()

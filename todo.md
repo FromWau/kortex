@@ -1497,31 +1497,101 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       The fix is to watch the nearest existing ancestor and re-register when the path reappears, which is
       what `WatchEnded` should trigger rather than report. `Stopped` then narrows to the cases that really
       are final, and `watchText`'s doc loses the paragraph that called this a feature.
-- [ ] **`:tray` is the host side only, so a kortex bar on its own has no tray at all.** It finds an existing
-      `StatusNotifierWatcher`, registers as a host with it, and answers `TrayError.NoWatcher` where none
-      exists. Nothing in the module takes the watcher name or answers `RegisterStatusNotifierItem`, so the
-      tray works only while some *other* bar is running: on this desktop that was ags, and the moment ags
-      stopped the watcher went with it and seven live tests went from passing to `NoWatcher`.
-      That is the normal case for anybody kortex is for. A shell that replaces the desktop's only other bar
-      inherits an empty tray and no error a user would understand, which is the worst shape: the bar looks
-      fine and applications quietly have nowhere to register.
-      The work is the mirror of what `:notification` already does, and that module is the template: take
-      `org.kde.StatusNotifierWatcher` with `DO_NOT_QUEUE`, export the object, answer
-      `RegisterStatusNotifierItem` and `RegisterStatusNotifierHost`, keep the registered set as the
-      property, emit the three signals, and watch `NameOwnerChanged` to drop an item whose application
-      died. Decide what to do when a watcher already exists: a second one is as wrong as a second
-      notification server, so the shape is probably `Tray.serve(connection)` answering the same
-      `AlreadyServed`-style error that names who holds it.
-      Worth noting while here: this machine also has an activatable `org.x.StatusNotifierWatcher`, which is
-      xapp's, and `WATCHERS` tries only the KDE and freedesktop names, so even that one is invisible.
-      **Two things measured before building it, with `WatcherProbe` holding the name on a live session.**
-      Applications already running **do** re-register: Steam came back the instant the name was taken, with
-      nothing restarted, so a kortex watcher adopts the existing tray rather than only the applications
-      started after it. And taking the name is not passive: KDE Connect answered by starting a *second*
-      indicator beside the one already connected, so the real watcher has to expect duplicate items from
-      one application and decide what to do about them.
-      `WatcherProbe` stays until this entry is done, since it is most of the method handling and the only
-      way to exercise it against real applications; delete it with this entry.
+- [x] **`:tray` serves the registry now, so a kortex bar is a tray on its own.** It was the host side only:
+      it found an existing `StatusNotifierWatcher`, registered as a host, and answered `TrayError.NoWatcher`
+      where none existed, so the tray worked only while some *other* bar was running. On this desktop that
+      was ags, and the moment ags stopped the watcher went with it and the live tests went to `NoWatcher`.
+      A shell replacing the desktop's only other bar inherited an empty tray with nothing to explain it.
+      `TrayWatcher.claim(connection, scope)` takes `org.kde.StatusNotifierWatcher` without queuing, exports
+      `/StatusNotifierWatcher` with introspection, answers both register calls and the three properties,
+      emits the three signals, and drops an application's items when the bus says its connection went. It
+      reuses `ItemAddress.parse(entry, sender)`, so the registry stores exactly the format the host parses
+      rather than a second spelling of it.
+      **Two successful outcomes, not one and an error.** `claim` answers a `TrayRegistry`: `HeldHere` with
+      the watcher, or `HeldElsewhere` naming who has it. Being refused the name is not a failure, because a
+      shell that did not get it still draws the tray by reading the registry of whoever did, and a caller
+      that read it as an error would stop drawing a tray that works. `Result`'s error channel is left for
+      the one thing that really is one, a bus that would not answer. `start` became `claim` with it, since a
+      function named start that can answer "somebody else has it" reads wrong at the call site.
+      **It does not take the name back and does not wait for one somebody else holds.** Taking a name out
+      from under another bar on its next restart is the worse failure, and a desktop running two bars is the
+      owner's business. The cost is named: if ags is the registry and ags dies, kortex goes dark for *new*
+      items even though it could serve them. For a desktop where kortex is the only bar that never arises.
+      **`IsStatusNotifierHostRegistered` answers true from the moment the watcher is up**, rather than
+      tracking whether a host has registered. The two wrong answers are not equally wrong: a true with
+      nobody drawing costs an application one export nobody looks at, while a false makes it skip the tray
+      for the rest of its life. There is a real window between taking the name and a shell's own host
+      registering, because `Tray.items` is `WhileSubscribed` and discovers on first collection, so the
+      honest answer in that window would be the harmful one.
+      **41 tests green with ags stopped, which is the configuration that could not work at all before.**
+      The one that mattered is `a host reads a registry its own process is serving`: a shell that serves and
+      draws makes a property call to a name it owns, and the bus loops it back through the connection that
+      is waiting for the reply. Reading the code said that was fine; only running it proved the pump does
+      not sit waiting on itself. `TrayLiveTest` and `MenuLiveTest` now claim a registry in their harnesses,
+      so the suite no longer needs another bar running to pass.
+      **The probe's two measurements both showed up live.** KDE Connect re-registered with kortex's watcher
+      the instant it took the name and appeared as `:1.97/StatusNotifierItem`, so a watcher started after
+      the applications adopts the tray already there. `WatcherProbe` is deleted: the real watcher and these
+      tests replace it, which is what its own KDoc said to do.
+      **Three strings had three homes and now have one.** The two watcher names lived in `Tray`'s private
+      companion, in `TrayLiveTest`, and were needed by the watcher, so `StatusNotifier.kt` holds them with
+      the path and the member, signal and property names. `"NameOwnerChanged"` is the bus's own signal
+      rather than the tray's, so it is `Bus.NAME_OWNER_CHANGED` beside `Bus.NAME` and `Bus.PROPERTIES`;
+      `:dbus`'s own tests still have five literal copies of it.
+      Left undone deliberately: `WATCHERS` still tries only the KDE and freedesktop names, so this machine's
+      activatable `org.x.StatusNotifierWatcher` stays invisible. Probing it would **start** xapp's watcher as
+      a side effect of looking, which is a worse thing for a library to do than to miss a name nothing
+      registers with.
+      **The shape this does not fix**, found while explaining it rather than building it: the registry is a
+      singleton whose owner is a volunteer. Whoever starts first wins arbitrarily, every bar has to be able
+      to serve it, and when the winner dies nobody is responsible for taking over. The ecosystem's answer is
+      on this machine already: `org.x.StatusNotifierWatcher` is **activatable**, so the bus starts it on
+      demand and it outlives any bar. A watcher that actually solved this would be both activatable and hold
+      the KDE name, since that is the number applications dial; xapp's has the first property and not the
+      second, and ags has the second and not the first. Shipping kortex's watcher as its own activatable
+      service is the real answer and costs a second process and a service file to install.
+
+- [x] **`:bar` is the QA bar now, which is what finally made `:icons` and `:theme` pay for themselves.**
+      There were two bars: `:bar` in this repository, a demo of the toolkit's surfaces with a click counter
+      and a theme switcher, and `~/Projects/kortex-bar-qa`, a bar somebody could actually use, built against
+      the published artifacts by an agent working blind. The second had the design and the first had the
+      theme, and keeping both meant the real bar could never use an unpublished module.
+      Merged into `:bar`, repackaged to `com.fromwau.kortex.bar`, consuming `project(...)` rather than
+      published coordinates: the MVI state holder, the procfs widgets over `:watch`, the clock, the focus
+      timer, the tray widget with hover text, and the notification popup. 11 tests became 60.
+      **The demo surfaces are kept rather than dropped**, in `ui/Demos.kt`, behind a right click on the bar.
+      They cost no coverage either way, since `:wayland` tests popups, windows and dialogs directly, but a
+      repository with no example of opening one leaves a reader to the tests. `BarMenu` never had a way to
+      open the window, because the old bar opened it from an inline button, so a menu entry does it now.
+      **The theme folded into the MVI rather than arriving beside it.** It was a `var settings` next to a
+      state holder that did everything else the other way. `BarScheme` is a sealed set of Light, Dark,
+      Amoled and `Custom.Light`/`Custom.Dark`, cycled by `BarAction.SchemeCycled`. The two custom cases are
+      the point rather than an afterthought: a theme file carries both schemes and says which it prefers,
+      and an application overriding that is a thing a reader should be able to see. `BarScheme.DEFAULT`
+      honours `XDG_CACHE_HOME`, so the hardcoded home directory is gone.
+      **The state stopped carrying resolved artwork, which is the interesting half.** `TrayEntry.art: Art`
+      became `icon: TrayIcon` and `Posted.art: Art?` became `image` plus `iconName`, so the state holder no
+      longer reads the filesystem at all and `BusDesktop` lost its `IconIndex`. Resolution happens where the
+      drawing does, through `rememberIconPainter`. That deleted `IconIndex`, `TrayArtwork`, `Unpacking` and
+      `state/Art.kt` with `Art`, `Pixels` and `IconFormat`, about 380 lines, and 290 more of tests.
+      The monogram survived as the bar's own choice rather than `:icons`': `Artwork` takes a `Painter?` and
+      draws a letter where it is null. `:icons` holds the square and draws nothing, which is right for a
+      library, while a letter saying which application is sitting there is a bar's decision.
+      **The swap found two real defects in `:icons`**, which is the argument for doing it by hand rather
+      than by deleting files. The bar's own unpacking refused a row stride narrower than one row of pixels,
+      and a bits-per-sample that is not 8, and `:icons` guarded neither. The stride one is the dangerous
+      half: every other malformed layout runs off the end of the array and is caught by the length check,
+      while a narrow stride reads *inside* it with overlapping rows and renders a picture made of its
+      neighbours' bytes. Both are guarded, with a test each, so `:icons` is 14 tests rather than 12. Both
+      tests were nearly deleted along with the four the move made redundant; checking `:icons`' coverage
+      case by case before deleting is what caught them.
+      The registry hint lives in `BusDesktop`, which owns the bus connection and is therefore the only
+      thing that can claim the name. It claims lazily before building the host, and that order is
+      load-bearing: a shell that hosts without ever claiming reads an empty registry on a desktop where
+      nothing else serves one, which is a tray that looks fine and is permanently empty. `Desktop` gained
+      `trayRegistry: Flow<String?>`, null where this shell is the registry, which the holder collects into
+      its own state rather than combining, since `combine`'s typed overloads stop at the five already used.
+      Not done: none of it has run on a desktop yet, and `~/Projects/kortex-bar-qa` stays until it has.
 
 - [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
       once and is final: `call` now fails fast on it, `send` reports it, and nothing anywhere reopens the
@@ -1615,11 +1685,15 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **601 tests on `master`: 397 in `:wayland`, 73 in `:dbus`, 33 in `:tray`, 27 in `:compose`, 19 in
-  `:theme`, 15 in `:watch`, 14 in `:notification`, 12 in `:icons` and 11 in `:bar`. 570 of them have been
-  seen green in one run; the 19 in `:theme` and the 12 in `:icons` have each been green on their own but
-  not in a whole-suite run, and the 33 in `:tray` cannot pass at all while no status notifier watcher owns
-  the name, which is its own entry above.**
+- **660 tests on `master`: 397 in `:wayland`, 73 in `:dbus`, 60 in `:bar`, 41 in `:tray`, 27 in
+  `:compose`, 19 in `:theme`, 15 in `:watch`, 14 each in `:notification` and `:icons`. 570 of them have
+  been seen green in one run, which was before `:icons`, `:theme`, the tray's watcher and the bar merge,
+  so no whole-suite run has covered what is on `master` now. Everything outside `:wayland` has been green
+  on its own: `:tray`'s 41 with ags stopped, which is the configuration that could not pass at all before
+  the watcher, and `:bar`'s 60 and `:icons`' 14 after the icon swap.**
+  **`:tray`'s 41 need whatever holds `org.kde.StatusNotifierWatcher` stopped**, which is `ags quit` on this
+  desktop, because the watcher tests claim that name themselves. That is the mirror of the old problem
+  rather than the same one: the suite used to need another bar running and now needs it not to be.
   No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache, and
   with the session free, which needs saying because a suite that takes focus and drives the pointer is not
   being measured while the desktop is in use.

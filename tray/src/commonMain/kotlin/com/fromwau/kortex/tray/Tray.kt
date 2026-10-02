@@ -158,7 +158,7 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         signal.iface == watcher.iface -> afterWatcherSignal(signal)
         signal.iface in ITEM_INTERFACES -> afterItemSignal(signal)
         signal.iface == Bus.PROPERTIES && signal.member == PROPERTIES_CHANGED -> afterPropertiesChanged(signal)
-        signal.iface == Bus.INTERFACE && signal.member == NAME_OWNER_CHANGED -> afterNameOwnerChanged(signal)
+        signal.iface == Bus.INTERFACE && signal.member == Bus.NAME_OWNER_CHANGED -> afterNameOwnerChanged(signal)
         else -> null
     }
 
@@ -280,27 +280,9 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         return Err(TrayError.BusFailed(last ?: DBusError.Disconnected))
     }
 
-    /** A watcher, under a name some desktop actually uses. */
-    internal data class Watcher(val service: String, val iface: String)
-
     private companion object {
-        const val WATCHER_PATH = "/StatusNotifierWatcher"
-        const val ITEM_REGISTERED = "StatusNotifierItemRegistered"
-        const val ITEM_UNREGISTERED = "StatusNotifierItemUnregistered"
         const val NEW_STATUS = "NewStatus"
         const val PROPERTIES_CHANGED = "PropertiesChanged"
-        const val NAME_OWNER_CHANGED = "NameOwnerChanged"
-
-        /**
-         * KDE's names first, because they are the ones desktops actually use.
-         *
-         * On a Hyprland session with ags running, `org.freedesktop.StatusNotifierWatcher` does not exist
-         * at all and `org.kde.StatusNotifierWatcher` does.
-         */
-        val WATCHERS = listOf(
-            Watcher("org.kde.StatusNotifierWatcher", "org.kde.StatusNotifierWatcher"),
-            Watcher("org.freedesktop.StatusNotifierWatcher", "org.freedesktop.StatusNotifierWatcher"),
-        )
 
         val ITEM_INTERFACES = listOf("org.kde.StatusNotifierItem", "org.freedesktop.StatusNotifierItem")
 
@@ -319,7 +301,7 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
             WATCHERS.mapTo(this) { MatchRule(sender = it.service, iface = it.iface) }
             ITEM_INTERFACES.mapTo(this) { MatchRule(iface = it) }
             add(MatchRule(iface = Bus.PROPERTIES, member = PROPERTIES_CHANGED))
-            add(MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = NAME_OWNER_CHANGED))
+            add(MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED))
         }
     }
 }

@@ -17,7 +17,7 @@ public sealed interface TrayError : IError {
      * No status notifier watcher holds a name on this bus, so there is no tray to read.
      *
      * A desktop without one has no system tray at all; a bar is the thing that usually provides the
-     * watcher, and on a bare compositor nothing has.
+     * watcher, and on a bare compositor nothing has. [TrayWatcher] is how a shell becomes that bar.
      */
     public data object NoWatcher : TrayError
 

@@ -45,6 +45,9 @@ public object Bus {
     public const val PATH: String = "/org/freedesktop/DBus"
     public const val INTERFACE: String = "org.freedesktop.DBus"
     public const val PROPERTIES: String = "org.freedesktop.DBus.Properties"
+
+    /** The bus telling every interested peer that a name changed hands, or was taken, or was given up. */
+    public const val NAME_OWNER_CHANGED: String = "NameOwnerChanged"
 }
 
 /**

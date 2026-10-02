@@ -13,10 +13,19 @@ kotlin {
 dependencies {
     implementation(project(":wayland"))
     implementation(project(":theme"))
+    implementation(project(":icons"))
+    implementation(project(":tray"))
+    implementation(project(":notification"))
+    implementation(project(":watch"))
+    implementation(project(":dbus"))
+    implementation(libs.kern.result)
+    implementation(libs.kern.dirs)
     implementation(libs.compose.material3)
     implementation(compose.desktop.currentOs)
+    implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 compose.desktop {
@@ -30,4 +39,8 @@ compose.desktop {
             packageVersion = libs.versions.kortexVersion.get()
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }

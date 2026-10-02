@@ -141,6 +141,10 @@ internal fun TrayImage.bitmapOrNull(): ImageBitmap? {
 internal fun NotificationImage.bitmap(): ImageBitmap? {
     if (width <= 0 || height <= 0) return null
     if (channels != OPAQUE_CHANNELS && channels != ALPHA_CHANNELS) return null
+    if (bitsPerSample != BITS_PER_SAMPLE) return null
+    // A stride narrower than one row of pixels would have rows overlapping each other, which reads inside
+    // the array and draws a picture made of the wrong bytes rather than failing.
+    if (rowStride < width * channels) return null
     if (pixels.size < rowStride * height) return null
 
     val rgba = ByteArray(width * height * BYTES_PER_PIXEL)
@@ -167,6 +171,7 @@ private fun raster(width: Int, height: Int, order: ColorType, bytes: ByteArray):
 }
 
 private const val BYTES_PER_PIXEL = 4
+private const val BITS_PER_SAMPLE = 8
 private const val OPAQUE_CHANNELS = 3
 private const val ALPHA_CHANNELS = 4
 private const val OPAQUE = (-1).toByte()

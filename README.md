@@ -52,12 +52,12 @@ Library versions all live in `gradle/libs.versions.toml`, which is the only plac
 | `:wayland` | the toolkit: surfaces, input, the clipboard, drag and drop, monitors | `:compose` |
 | `:compose` | hosting Compose content on a surface, with no Wayland in it | Compose runtime, ui, foundation |
 | `:dbus` | a D-Bus client and server, public so you can write a provider of your own | nothing of kortex's |
-| `:tray` | the system tray: `StatusNotifierItem` and `DBusMenu` | `:dbus` |
+| `:tray` | the system tray, as the host that draws it and the registry applications register with | `:dbus` |
 | `:notification` | kortex as the notification server, not a client of one | `:dbus` |
 | `:watch` | a file's text, again whenever it changes | `kern:dirs` |
 | `:icons` | a provider's icon as something Compose can draw | `:tray`, `:notification`, Compose |
 | `:theme` | a watched JSON file as a Material `ColorScheme`, so a bar retints itself | `:watch`, Compose, material3 |
-| `:bar` | a runnable demo of most of the toolkit at once | `:wayland` |
+| `:bar` | a bar you could run, and a demo of the toolkit's other surfaces behind a right click | most of the above |
 
 Twelve surfaces are composables: `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`, `Osd`, `AppMenu`
 and `ContextMenu`, the `LayerSurface` they are all presets of, and `Window`, `Dialog` and `Popup` over
@@ -182,6 +182,10 @@ That makes the suite a demanding guest, and worth knowing about before you run i
 - **It empties the clipboard.** One test ends by clearing it, rather than restoring what was there.
 - **`:tray`'s tests need a tray with at least one item in it**, since what they read is whatever your
   session is carrying.
+- **`:tray`'s tests also need `org.kde.StatusNotifierWatcher` free**, because they become the registry
+  themselves. Stop whatever holds it first, which on a session running ags is `ags quit`. Applications
+  already in the tray re-register with the test's own watcher within a second or so, so you do not lose
+  the items by doing this; you get them back when you start your bar again.
 
 ```sh
 ./gradlew check                                     # everything that needs no special arrangement

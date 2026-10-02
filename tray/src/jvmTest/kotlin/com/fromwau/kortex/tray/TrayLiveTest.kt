@@ -124,12 +124,18 @@ class TrayLiveTest {
                         .getOrElse { error -> fail("the tray could not be read: $error") }
                         .map { it.address }
 
-                    forgeUnregistration(before.first(), host = connection)
+                    // The one address the forgery names, rather than the whole list: an application
+                    // registering legitimately in the same window also changes the list, and asserting on
+                    // the list would read that as the forgery landing.
+                    val target = before.first()
+                    forgeUnregistration(target, host = connection)
 
-                    val acted = withTimeoutOrNull(FORGERY_WINDOW) {
-                        tray.items.first { outcome -> outcome.getOrNull()?.map { it.address } != before }
+                    val dropped = withTimeoutOrNull(FORGERY_WINDOW) {
+                        tray.items.first { outcome ->
+                            outcome.getOrNull()?.none { it.address == target } == true
+                        }
                     }
-                    assertNull(acted, "the tray acted on a signal the watcher did not send: $acted")
+                    assertNull(dropped, "the tray dropped $target on an unregistration the watcher did not send")
                 } finally {
                     holding.cancel()
                 }
@@ -183,6 +189,10 @@ class TrayLiveTest {
                 // coroutineScope here would wait on it forever.
                 val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
                 try {
+                    // Serves the registry only where nothing else does, so this file reads the same tray
+                    // whether a bar is running or not. AlreadyServed is the ordinary answer on a desktop
+                    // that has one, and means the tray below is that bar's rather than ours.
+                    TrayWatcher.claim(connection, scope)
                     body(Tray(connection, scope), connection)
                 } finally {
                     scope.cancel()
@@ -199,7 +209,7 @@ class TrayLiveTest {
         const val WATCHER_PATH = "/StatusNotifierWatcher"
 
         /** KDE's first, as the tray tries them. */
-        val WATCHER_INTERFACES = listOf("org.kde.StatusNotifierWatcher", "org.freedesktop.StatusNotifierWatcher")
+        val WATCHER_INTERFACES = WATCHERS.map(Watcher::service)
 
         /** ARGB32, which is what the specification says an icon's bytes are. */
         const val BYTES_PER_PIXEL = 4

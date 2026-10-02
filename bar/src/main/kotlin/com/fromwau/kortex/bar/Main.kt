@@ -1,299 +1,150 @@
 package com.fromwau.kortex.bar
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.fromwau.kern.result.Result
-import com.fromwau.kern.result.errorOrNull
-import com.fromwau.kern.result.getOrNull
 import com.fromwau.kern.result.onError
-import com.fromwau.kortex.theme.rememberFileTheme
+import com.fromwau.kortex.bar.desktop.BusDesktop
+import com.fromwau.kortex.bar.desktop.Desktop
+import com.fromwau.kortex.bar.state.BarStateHolder
+import com.fromwau.kortex.bar.system.ProcfsMetrics
+import com.fromwau.kortex.bar.system.secondTicks
+import com.fromwau.kortex.bar.ui.BarContent
+import com.fromwau.kortex.bar.ui.BarMenu
+import com.fromwau.kortex.bar.ui.DemoWindow
+import com.fromwau.kortex.bar.ui.Menu
+import com.fromwau.kortex.bar.ui.NotificationPopup
+import com.fromwau.kortex.bar.ui.colorsFor
+import com.fromwau.kortex.notification.ServerInformation
 import com.fromwau.kortex.wayland.Bar
-import com.fromwau.kortex.wayland.ContextMenu
-import com.fromwau.kortex.wayland.Dialog
+import com.fromwau.kortex.wayland.Edge
 import com.fromwau.kortex.wayland.KeyboardInteractivity
 import com.fromwau.kortex.wayland.KortexError
 import com.fromwau.kortex.wayland.Monitor
-import com.fromwau.kortex.wayland.Osd
-import com.fromwau.kortex.wayland.SurfaceEnd
-import com.fromwau.kortex.wayland.SurfaceState
 import com.fromwau.kortex.wayland.SurfaceStatus
 import com.fromwau.kortex.wayland.WaylandInterface
-import com.fromwau.kortex.wayland.Window
-import com.fromwau.kortex.wayland.WindowStatus
 import com.fromwau.kortex.wayland.kortexApplication
 import com.fromwau.kortex.wayland.rememberMonitors
 import com.fromwau.kortex.wayland.rememberSurfaceState
-import com.fromwau.kortex.wayland.rememberWindowState
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
-import java.nio.file.Path
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
-import kotlinx.io.files.Path as KPath
 
 fun main() {
     val crashLog = crashLogPath(System.getenv())
+
     kortexApplication {
+        val desktop = rememberDesktop()
         val monitors by rememberMonitors()
-        for (monitor in monitors) key(monitor) {
+
+        for ((index, monitor) in monitors.withIndex()) key(monitor) {
             val bar = rememberSurfaceState()
             var stopped by remember { mutableStateOf<Stopped>(Stopped.NotYet) }
             val status = bar.status
+
             LaunchedEffect(status) {
                 if (status is SurfaceStatus.Ended) stopped = Stopped.With(status.result)
             }
 
             when (val ended = stopped) {
-                // Dismissing puts the bar back under the same state, which reads Placing again as it is replaced.
-                Stopped.NotYet -> DemoBar(screen = monitor, crashLog = crashLog, state = bar)
-
+                // Dismissing puts the bar back under the same state, which reads Placing again as it is
+                // replaced, so a crash is recoverable without restarting the shell.
                 is Stopped.With -> CrashPopup(
                     monitor = monitor,
                     stopped = ended.ending,
                     crashLog = crashLog,
                     onDismiss = { stopped = Stopped.NotYet },
                 )
+
+                Stopped.NotYet -> Shell(
+                    monitor = monitor,
+                    desktop = desktop,
+                    crashLog = crashLog,
+                    popupHere = index == 0,
+                )
             }
         }
-    }.onError { error ->
-        System.err.println("kortex: ${error.saidPlainly()}")
+    }.onError { failure ->
+        System.err.println("kortex-bar: ${failure.saidPlainly()}")
         exitProcess(1)
     }
 }
 
 /**
- * What to print for [this] on the way out, where a person reads it off a terminal.
+ * One monitor's bar: the widgets, the notification popup, and a right click for the other surfaces.
  *
- * Only the failures a person can do something about are worded. Everything else is a defect or a connection
- * that went away, and there the data class's own fields are what helps, so it prints as itself.
- */
-internal fun KortexError.saidPlainly(): String = when (this) {
-    is KortexError.MissingGlobal if global == WaylandInterface.LayerShell ->
-        "this compositor does not support ${global.wireName}, which kortex needs for bars, docks and every " +
-                "other layer surface. It runs on wlroots compositors, Hyprland and sway among them, and on KWin."
-
-    is KortexError.MissingGlobal -> "this compositor does not support ${global.wireName}, which kortex needs."
-    else -> toString()
-}
-
-/** Whether a monitor's bar has stopped, and what it stopped with. */
-private sealed interface Stopped {
-    data object NotYet : Stopped
-
-    data class With(val ending: Result<SurfaceEnd, KortexError>) : Stopped
-}
-
-private val Result<SurfaceEnd, KortexError>.crash: KortexError.SurfaceCrashed?
-    get() = errorOrNull() as? KortexError.SurfaceCrashed
-
-/** Appends the crash a surface ended with to the crash log at [path], if it ended with one. */
-private suspend fun logIfCrashed(
-    path: Path,
-    ending: Result<SurfaceEnd, KortexError>,
-) {
-    ending.crash?.let { crash -> logCrash(path, crash) }
-}
-
-private suspend fun logCrash(path: Path, crash: KortexError.SurfaceCrashed) {
-    // NonCancellable: this runs inside the ended surface's own LaunchedEffect, and an outer surface (or the whole
-    // application) can leave composition and cancel it before the write lands.
-    withContext(NonCancellable + Dispatchers.IO) {
-        appendCrash(path, crash)
-    }.onError { writeFailure ->
-        System.err.println("kortex: surface crashed: $crash")
-        System.err.println(crash.failure.cause.stackTraceToString())
-        System.err.println("kortex: could not write the crash log: $writeFailure")
-    }
-}
-
-@Composable
-fun scheme(
-    scheme: BarSettings.Scheme,
-): ColorScheme = when (scheme) {
-    is BarSettings.Scheme.Light -> lightColorScheme()
-    is BarSettings.Scheme.Dark -> darkColorScheme()
-    is BarSettings.Scheme.Amoled -> darkColorScheme(
-        primary = Color(0xFF000000),
-        onPrimary = Color(0xFFFFFFFF),
-        surface = Color(0xFF000000),
-        onSurface = Color(0xFFFFFFFF),
-    )
-
-    is BarSettings.Scheme.Custom.Dark -> rememberFileTheme(scheme.file).getOrNull()?.dark
-        ?: darkColorScheme()
-
-    is BarSettings.Scheme.Custom.Light -> rememberFileTheme(scheme.file).getOrNull()?.light
-        ?: lightColorScheme()
-}
-
-
-@Immutable
-data class BarSettings(
-    val scheme: Scheme = Scheme.Dark,
-) {
-    @Immutable
-    sealed interface Scheme {
-        data object Light : Scheme
-        data object Dark : Scheme
-        data object Amoled : Scheme
-        sealed interface Custom : Scheme {
-            val file: KPath
-
-            data class Light(override val file: KPath = KPath("/home/fromml/.cache/matugen/colors.json")) :
-                Custom
-
-            data class Dark(override val file: KPath = KPath("/home/fromml/.cache/matugen/colors.json")) :
-                Custom
-        }
-    }
-}
-
-/**
- * The bar on [screen]: a click counter, a text field, a button that makes the bar taller and shorter, a button that
- * opens a window, and a context menu for a right click on its background. A crash goes to [crashLog].
- *
- * The count and the typed text are the bar's own content state, so both survive the resize, and the readout beside
- * them is the size the compositor gave the bar.
+ * [popupHere] draws the notification popup on this monitor. One popup for the session rather than one per
+ * monitor, since a notification is posted to the shell and not to a screen.
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun DemoBar(
-    screen: Monitor,
-    crashLog: Path,
-    state: SurfaceState,
+private fun Shell(
+    monitor: Monitor,
+    desktop: Desktop,
+    crashLog: java.nio.file.Path,
+    popupHere: Boolean,
 ) {
-    var tall by remember { mutableStateOf(false) }
-
     Bar(
-        monitor = screen,
-        thickness = if (tall) TALL_THICKNESS else THICKNESS,
-        keyboard = KeyboardInteractivity.OnDemand,
-        namespace = "kortex-${screen.name}",
-        state = state,
+        monitor = monitor,
+        edge = Edge.Top,
+        thickness = THICKNESS,
+        keyboard = KeyboardInteractivity.None,
+        namespace = "$NAMESPACE-${monitor.name}",
     ) {
-        val bar = this
-        var clicks by remember { mutableStateOf(0) }
-        var text by remember { mutableStateOf("") }
+        val holder = rememberBarStateHolder(monitor, desktop)
+        val state by holder.state.collectAsState()
         var menu by remember { mutableStateOf<Menu>(Menu.Closed) }
         var window by remember { mutableStateOf(false) }
+        val density = LocalDensity.current.density
 
-        var settings by remember { mutableStateOf(BarSettings()) }
-
-        MaterialTheme(
-            colorScheme = scheme(settings.scheme),
-        ) {
+        MaterialTheme(colorScheme = colorsFor(state.scheme)) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface),
-            ) {
-                // Under the row, not around it: a right click on a button or the field is theirs alone.
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    if (event.type != PointerEventType.Press) continue
-                                    if (event.button != PointerButton.Secondary) continue
-                                    // This scope's Density is the very buffer scale the offset was produced
-                                    // at, so it converts exactly into the logical space ContextMenu wants.
-                                    val x =
-                                        (event.changes.first().position.x / density).roundToInt()
-                                    menu = Menu.OpenAt(IntOffset(x, bar.size.height))
-                                }
+                    .pointerInput(density) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.type != PointerEventType.Press) continue
+                                if (event.button != PointerButton.Secondary) continue
+                                // This scope's Density is the buffer scale the offset was produced at, so
+                                // it converts exactly into the logical space ContextMenu wants.
+                                val x = (event.changes.first().position.x / density).roundToInt()
+                                menu = Menu.OpenAt(IntOffset(x, THICKNESS.value.roundToInt()))
                             }
-                        },
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Button(onClick = { clicks++ }) {
-                        Text("clicked $clicks")
-                    }
-
-                    TextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        singleLine = true,
-                        modifier = Modifier.width(240.dp).fillMaxHeight(),
-                    )
-
-                    Button(onClick = { tall = !tall }) {
-                        Text(if (tall) "shrink me" else "grow me")
-                    }
-
-                    Button(onClick = { window = !window }) {
-                        Text(if (window) "hide window" else "show window")
-                    }
-
-                    Text(
-                        text = "typed: $text",
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-
-                    Text(
-                        text = "size: ${bar.size.width} by ${bar.size.height}",
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-
-                    Button(onClick = {
-                        settings = when (settings.scheme) {
-                            is BarSettings.Scheme.Light -> settings.copy(scheme = BarSettings.Scheme.Dark)
-                            is BarSettings.Scheme.Dark -> settings.copy(scheme = BarSettings.Scheme.Amoled)
-                            is BarSettings.Scheme.Amoled ->
-                                settings.copy(scheme = BarSettings.Scheme.Custom.Light())
-
-                            is BarSettings.Scheme.Custom.Light ->
-                                settings.copy(scheme = BarSettings.Scheme.Custom.Dark())
-
-                            is BarSettings.Scheme.Custom.Dark -> settings.copy(scheme = BarSettings.Scheme.Light)
                         }
-                    }) {
-                        Text("change theme; current: ${settings.scheme::class.simpleName}")
-                    }
-                }
+                    },
+            ) {
+                BarContent(state = state, onAction = holder::onAction)
             }
+        }
+
+        if (popupHere) {
+            NotificationPopup(
+                monitor = monitor,
+                notifications = state.notifications,
+                onAction = holder::onAction,
+            )
         }
 
         when (val open = menu) {
@@ -301,6 +152,10 @@ private fun DemoBar(
             is Menu.OpenAt -> BarMenu(
                 at = open.at,
                 crashLog = crashLog,
+                onWindow = {
+                    menu = Menu.Closed
+                    window = true
+                },
                 onClosed = { menu = Menu.Closed },
             )
         }
@@ -309,218 +164,93 @@ private fun DemoBar(
     }
 }
 
-/** Whether the bar's context menu is open, and where it opened. */
-private sealed interface Menu {
-    data object Closed : Menu
-
-    data class OpenAt(val at: IntOffset) : Menu
-}
-
-/** The bar's context menu, opened at [at] on the bar; picking an item closes it, and [onClosed] follows. */
-@Composable
-private fun BarMenu(
-    at: IntOffset,
-    crashLog: Path,
-    onClosed: () -> Unit,
-) {
-    val menu = rememberSurfaceState()
-    when (val status = menu.status) {
-        is SurfaceStatus.Ended -> LaunchedEffect(status) {
-            logIfCrashed(crashLog, status.result)
-            onClosed()
-        }
-
-        else -> ContextMenu(
-            at = at,
-            menuSize = IntSize(width = 160, height = 120),
-            state = menu,
-        ) {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Column(
-                    modifier = Modifier.fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    MENU_ITEMS.forEach { item ->
-                        Text(
-                            text = item,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { close() }
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
 /**
- * The window the bar opens: a click counter, a readout of the size the compositor gave the window, and a button
- * that closes it. A crash goes to [crashLog], and [onClosed] follows however the window ends.
+ * The desktop's own services, on one bus connection for the whole shell.
  *
- * The count is the window's own content state, so it stands through every move, resize and re-tile the compositor
- * makes. A close the compositor asks for opens [CloseDialog] on the window instead of closing it.
+ * Application-wide rather than per bar, because the connection, the tray's registry and match rules, and
+ * the notification name all belong to the process: a second bar is one more collector, not one more
+ * connection, and two shells asking for `org.freedesktop.Notifications` is exactly the failure
+ * `:notification` reports.
  */
 @Composable
-private fun DemoWindow(
-    crashLog: Path,
-    onClosed: () -> Unit,
-) {
-    val state = rememberWindowState()
-    when (val status = state.status) {
-        is WindowStatus.Ended -> LaunchedEffect(status) {
-            logIfCrashed(crashLog, status.result)
-            onClosed()
-        }
-
-        else -> Window(title = WINDOW_TITLE, state = state) {
-            val window = this
-            var clicks by remember { mutableStateOf(0) }
-
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Button(onClick = { clicks++ }) {
-                        Text("clicked $clicks")
-                    }
-
-                    Text(
-                        text = "size: ${window.size.width} by ${window.size.height}",
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-
-                    Button(onClick = onClosed) {
-                        Text("close me")
-                    }
-                }
-            }
-
-            if (state.closeRequested) {
-                CloseDialog(
-                    crashLog = crashLog,
-                    onKeep = { state.declineClose() },
-                    onClose = onClosed,
-                )
-            }
-        }
+private fun rememberDesktop(): Desktop {
+    val shell = remember {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        ShellServices(scope, BusDesktop(scope, identity = IDENTITY))
     }
+
+    DisposableEffect(shell) {
+        onDispose { shell.scope.cancel() }
+    }
+
+    return shell.desktop
 }
 
 /**
- * The dialog the window shows when the compositor asks for that window to close: [onClose] takes the window away,
- * [onKeep] keeps it and lets the next ask through. A crash goes to [crashLog].
+ * The state holder for the bar on [monitor], kept for as long as that bar is on screen.
+ *
+ * Its sources are collected on a scope of this composable's own rather than one from
+ * `rememberCoroutineScope`, because that one runs on the thread that draws every surface, and this bar
+ * reads four files on a timer. [desktop] is not on that scope: it outlives any one bar.
  */
 @Composable
-private fun CloseDialog(
-    crashLog: Path,
-    onKeep: () -> Unit,
-    onClose: () -> Unit,
-) {
-    val state = rememberWindowState()
-    when (val status = state.status) {
-        is WindowStatus.Ended -> LaunchedEffect(status) {
-            logIfCrashed(crashLog, status.result)
-            onKeep()
-        }
-
-        else -> Dialog(title = DIALOG_TITLE, state = state) {
-            // The compositor asking the dialog itself to close is an answer too: the window stays.
-            val dismissed = state.closeRequested
-            LaunchedEffect(dismissed) { if (dismissed) onKeep() }
-
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surface)
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = "The compositor asked for the window to close.",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = onClose) {
-                            Text("close it")
-                        }
-
-                        Button(onClick = onKeep) {
-                            Text("keep it")
-                        }
-                    }
-                }
-            }
-        }
+private fun rememberBarStateHolder(monitor: Monitor, desktop: Desktop): BarStateHolder {
+    val sources = remember(monitor, desktop) {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        Sources(
+            scope = scope,
+            holder = BarStateHolder(
+                scope = scope,
+                metrics = ProcfsMetrics(),
+                desktop = desktop,
+                clock = secondTicks(),
+            ),
+        )
     }
+
+    DisposableEffect(sources) {
+        onDispose { sources.scope.cancel() }
+    }
+
+    return sources.holder
 }
 
-/** Stands in for a bar that stopped, saying why; [onDismiss] follows however the popup itself ends. */
-@Composable
-private fun CrashPopup(
-    monitor: Monitor,
-    stopped: Result<SurfaceEnd, KortexError>,
-    crashLog: Path,
-    onDismiss: () -> Unit,
-) {
-    LaunchedEffect(stopped) { logIfCrashed(crashLog, stopped) }
+/** The shell's own desktop services and the scope they live on, which ends with the application. */
+private class ShellServices(
+    val scope: CoroutineScope,
+    val desktop: Desktop,
+)
 
-    val popup = rememberSurfaceState()
-    when (val status = popup.status) {
-        is SurfaceStatus.Ended -> LaunchedEffect(status) {
-            logIfCrashed(crashLog, status.result)
-            onDismiss()
-        }
+/** One bar's state holder and the scope its sources are collected on, which ends with the bar. */
+private class Sources(
+    val scope: CoroutineScope,
+    val holder: BarStateHolder,
+)
 
-        else -> Osd(
-            monitor = monitor,
-            width = 480.dp,
-            height = 120.dp,
-            namespace = "kortex-stopped",
-            state = popup,
-        ) {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.errorContainer)
-                        .clickable { close() }
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = "The bar stopped. Click to bring it back.",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                    )
+/**
+ * What to print for [this] on the way out, where a person reads it off a terminal.
+ *
+ * Only the failures a person can do something about are worded. Everything else is a defect or a
+ * connection that went away, and there the data class's own fields are what helps.
+ */
+internal fun KortexError.saidPlainly(): String = when (this) {
+    is KortexError.MissingGlobal if global == WaylandInterface.LayerShell ->
+        "this compositor does not support ${global.wireName}, which kortex needs for bars, docks and " +
+            "every other layer surface. It runs on wlroots compositors, Hyprland and sway among them, " +
+            "and on KWin."
 
-                    Text(
-                        text = stopped.crash?.failure?.cause?.toString() ?: "$stopped",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
+    is KortexError.MissingGlobal -> "this compositor does not support ${global.wireName}, which kortex needs."
+    else -> toString()
 }
 
-private val THICKNESS = 56.dp
-private val TALL_THICKNESS = 96.dp
+private val THICKNESS = 34.dp
+private const val NAMESPACE = "kortex-bar"
 
-private const val WINDOW_TITLE = "kortex demo"
-private const val DIALOG_TITLE = "Close this window?"
-
-private val MENU_ITEMS = listOf("Option 1", "Option 2", "Option 3")
+/** What this shell tells an application about itself when it asks the notification server who it is. */
+private val IDENTITY = ServerInformation(
+    name = "kortex-bar",
+    vendor = "fromwau",
+    version = "0.1.0",
+    // Only what the popup can actually honour: it draws plain text, inline images and no action buttons.
+    capabilities = listOf("body", "icon-static", "persistence"),
+)

@@ -84,6 +84,42 @@ class PixelsTest {
         assertColour(Color.Red, pixels[0, 1], "the second row, which the padding would have shifted")
     }
 
+    /**
+     * A stride narrower than a row reads inside the array and draws the wrong bytes.
+     *
+     * The dangerous one of the malformed shapes: every other bad layout runs off the end and is caught by
+     * the length check, while this one overlaps the rows and renders a picture made of neighbours.
+     */
+    @Test
+    fun `a row stride narrower than one row is refused, not drawn from overlapping rows`() {
+        val narrow = notification(
+            width = 2,
+            height = 2,
+            rowStride = 3,
+            channels = 4,
+            hasAlpha = true,
+            pixels = ByteArray(16),
+        )
+
+        assertNull(narrow.bitmap())
+    }
+
+    /** Every sample the wire carries is a byte, and a bitmap built from anything else is not this image. */
+    @Test
+    fun `a sample that is not eight bits is refused`() {
+        val wide = notification(
+            width = 2,
+            height = 2,
+            rowStride = 8,
+            channels = 4,
+            hasAlpha = true,
+            pixels = ByteArray(16),
+            bitsPerSample = 16,
+        )
+
+        assertNull(wide.bitmap())
+    }
+
     @Test
     fun `a channel count the wire does not have is refused`() {
         val image = notification(
@@ -109,12 +145,13 @@ class PixelsTest {
         channels: Int,
         hasAlpha: Boolean,
         pixels: ByteArray,
+        bitsPerSample: Int = 8,
     ) = NotificationImage(
         width = width,
         height = height,
         rowStride = rowStride,
         hasAlpha = hasAlpha,
-        bitsPerSample = 8,
+        bitsPerSample = bitsPerSample,
         channels = channels,
         pixels = pixels,
     )
