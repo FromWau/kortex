@@ -60,10 +60,19 @@ class WindowTest {
 
         onApplication(content) { shell ->
             awaitPlaced(shell)
-            awaitWindow(shell, TITLE)
+            val window = awaitWindow(shell, TITLE)
+
+            // Driven rather than assumed. Left alone the compositor may tile this window, which overrides the
+            // requested size, or leave it floating at exactly what was asked, and which of those happens is a
+            // property of the workspace rather than of anything kortex does. The whole screen is certain to
+            // differ from a 640 by 480 request, so the assertion below is about the drawing and not the luck.
+            Hyprctl.dispatch("window.fullscreen", address = window.address)
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { shell.shownSurfaces.single().logicalSize != ASKED_SIZE },
+                "the compositor was asked for the whole screen and never configured the window off $ASKED_SIZE",
+            )
 
             val configured = shell.shownSurfaces.single().logicalSize
-            assertNotEquals(ASKED_SIZE, configured, "the compositor left the window at the size the call asked for")
             assertEquals(configured, seen.get(), "content was drawn at a size the compositor never configured")
             assertEquals(
                 WindowStatus.OnScreen(configured), state.status,

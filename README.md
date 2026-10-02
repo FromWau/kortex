@@ -180,6 +180,10 @@ That makes the suite a demanding guest, and worth knowing about before you run i
 - **It takes the desktop.** Several tests take focus, re-tile your open windows and drive the pointer, so
   they want a session you are not using.
 - **It empties the clipboard.** One test ends by clearing it, rather than restoring what was there.
+- **A clipboard manager or sync service will fail the clipboard tests**, intermittently and for reasons
+  that look like kortex's fault. They take the selection between kortex setting it and `wl-paste` reading
+  it, which no amount of waiting on this side prevents. KDE Connect's clipboard plugin copying from
+  another machine does it, so stop that kind of thing, or expect `ClipboardFocusTest` to fail now and then.
 - **`:tray`'s tests need a tray with at least one item in it**, since what they read is whatever your
   session is carrying.
 - **`:tray`'s tests also need `org.kde.StatusNotifierWatcher` free**, because they become the registry

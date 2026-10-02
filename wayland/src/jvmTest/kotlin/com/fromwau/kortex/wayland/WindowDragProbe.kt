@@ -61,7 +61,7 @@ public fun main() {
     }
 }
 
-/** Presses in the middle of [placed], asks for both gestures, and releases. */
+/** Floats [placed], presses in its middle, asks for both gestures, and releases. */
 private fun askUnderPress(shell: KortexShell, state: WindowState, placed: HyprWindow) {
     val pointerDisplay = WaylandDisplay.connect().getOrElse { error("probe: no compositor for the pointer: $it") }
     pointerDisplay.use { pd ->
@@ -73,13 +73,21 @@ private fun askUnderPress(shell: KortexShell, state: WindowState, placed: HyprWi
             shell.pumpOrFail(SETTLE_MILLIS)
         }
 
+        // Floated, because tiled this window fills the screen and leaves nowhere off it to park the pointer.
+        Hyprctl.dispatch("window.float", address = placed.address)
+        check(shell.pumpOrFail(SETTLE_MILLIS) { Hyprctl.window(TITLE)?.floating == true }) {
+            "probe: the compositor was asked to float the window and never did"
+        }
+        val floated = checkNotNull(Hyprctl.window(TITLE)) { "probe: hyprctl lost the window after floating it" }
+        val park = parkOff(floated, monitor)
+
         manager.createVirtualPointer().use { pointer ->
             // Off the window first: the compositor re-evaluates focus on motion, so a cursor already parked on
             // it would never enter it and the press would land nowhere.
-            pointer.moveTo(monitor, monitor.logicalWidth / 2, monitor.logicalHeight / 2)
+            pointer.moveTo(monitor, park.x, park.y)
             settle()
 
-            pointer.moveTo(monitor, placed.at.x + placed.size.width / 2, placed.at.y + placed.size.height / 2)
+            pointer.moveTo(monitor, floated.at.x + floated.size.width / 2, floated.at.y + floated.size.height / 2)
             settle()
             pointer.button(BTN_LEFT, pressed = true)
             pointer.frame()
@@ -106,3 +114,23 @@ private const val ASK_MILLIS = 1_000L
 private const val SETTLE_MILLIS = 300L
 private val WIDTH = 640.dp
 private val HEIGHT = 480.dp
+
+/**
+ * A point on [monitor] that is outside [window], for parking the pointer before it enters.
+ *
+ * One of the four corners, since a floating window sits mid-screen and cannot cover them all. Checked rather
+ * than assumed, so a window that does says so here instead of failing later as a dropped press.
+ */
+private fun parkOff(window: HyprWindow, monitor: HyprMonitor): IntOffset {
+    val corners = listOf(
+        IntOffset(0, 0),
+        IntOffset(monitor.logicalWidth - 1, 0),
+        IntOffset(0, monitor.logicalHeight - 1),
+        IntOffset(monitor.logicalWidth - 1, monitor.logicalHeight - 1),
+    )
+
+    return corners.firstOrNull { corner ->
+        corner.x < window.at.x || corner.x >= window.at.x + window.size.width ||
+            corner.y < window.at.y || corner.y >= window.at.y + window.size.height
+    } ?: error("probe: the window covers every corner of $monitor, so there is nowhere off it to park")
+}

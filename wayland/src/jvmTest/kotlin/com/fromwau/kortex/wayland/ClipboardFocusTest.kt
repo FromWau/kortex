@@ -274,9 +274,7 @@ class ClipboardFocusTest {
             // So the compositor has taken the selection before wl-paste asks it for one.
             display.roundtrip()
 
-            val paste = shell.runWlPaste()
-            assertEquals(0, paste.exitCode, "wl-paste failed: ${paste.complaint}")
-            assertEquals(FIELD_TEXT, paste.printed, "wl-paste printed something other than the field's copied text")
+            shell.runWlPaste().assertIsFieldText()
         }
     }
 
@@ -300,9 +298,7 @@ class ClipboardFocusTest {
             // So the compositor has taken the selection before wl-paste asks it for one.
             display.roundtrip()
 
-            val paste = shell.runWlPaste()
-            assertEquals(0, paste.exitCode, "wl-paste failed: ${paste.complaint}")
-            assertEquals(FIELD_TEXT, paste.printed, "wl-paste printed something other than the field's copied text")
+            shell.runWlPaste().assertIsFieldText()
         }
     }
 
@@ -473,6 +469,23 @@ class ClipboardFocusTest {
     }
 
     /** Runs `wl-paste` with [args] while pumping: it may read this client's own source, which only a pump serves. */
+    /**
+     * Asserts wl-paste printed the field's text, for the tests that have already proved kortex owns it.
+     *
+     * Both callers wait for ownership and roundtrip before pasting, so a mismatch here is a third party taking
+     * the selection in between, and the message says so rather than leaving it to read as kortex's fault.
+     */
+    private fun Pasted.assertIsFieldText() {
+        assertEquals(0, exitCode, "wl-paste failed: $complaint")
+        assertEquals(
+            FIELD_TEXT,
+            printed,
+            "wl-paste printed something other than the field's copied text, after kortex owned the selection " +
+                "and the compositor had processed it: a clipboard manager or a sync service such as KDE " +
+                "Connect's clipboard plugin took it in between",
+        )
+    }
+
     private fun KortexShell.runWlPaste(vararg args: String = arrayOf("--no-newline")): Pasted {
         val paste = ProcessBuilder("wl-paste", *args).start()
         try {
