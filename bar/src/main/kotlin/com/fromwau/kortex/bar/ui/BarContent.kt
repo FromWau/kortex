@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,10 +31,13 @@ import com.fromwau.kortex.notification.Urgency
 import com.fromwau.kortex.bar.state.BarAction
 import com.fromwau.kortex.bar.state.BarScheme
 import com.fromwau.kortex.bar.state.BarState
+import com.fromwau.kortex.bar.state.FocusedWindow
 import com.fromwau.kortex.bar.state.Posted
 import com.fromwau.kortex.bar.state.Reading
+import com.fromwau.kortex.bar.state.SlotShown
 import com.fromwau.kortex.bar.state.TimerFace
 import com.fromwau.kortex.bar.state.TrayEntry
+import com.fromwau.kortex.bar.state.WorkspaceSlot
 import com.fromwau.kortex.icons.rememberIconPainter
 import com.fromwau.kortex.bar.system.MemoryUse
 import com.fromwau.kortex.bar.system.NetworkRate
@@ -43,7 +45,8 @@ import com.fromwau.kortex.bar.system.Temperature
 import java.time.LocalDateTime
 
 /**
- * The whole bar: the focus timer on the left, the tray, the machine's readings and the clock on the right.
+ * The whole bar: the focus timer, the workspaces and the focused window on the left, the tray, the
+ * machine's readings and the clock on the right.
  *
  * Stateless, as every composable here is. It holds nothing, reads nothing and does no work of its own:
  * [state] is what it draws and [onAction] is where a click goes.
@@ -67,8 +70,15 @@ fun BarContent(
             onClick = { onAction(BarAction.TimerClicked) },
             onReset = { onAction(BarAction.TimerReset) },
         )
-
-        Spacer(Modifier.weight(1f))
+        WorkspacesWidget(state.workspaces)
+        // All the free room, so the right side sits at the edge and a long title is cut at the box rather than
+        // pushing it off. Weighting the widget itself with fill = false leaves its unused share at the far end.
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            WindowWidget(state.focusedWindow)
+        }
 
         SchemeWidget(
             scheme = state.scheme,
@@ -321,6 +331,72 @@ private fun TimerWidget(
     }
 }
 
+/** Every workspace from 1 to one past the highest in use, the one being looked at filled. */
+@Composable
+private fun WorkspacesWidget(workspaces: Reading<List<WorkspaceSlot>>) {
+    Widget {
+        when (workspaces) {
+            Reading.Pending -> Readout("--")
+            is Reading.Unavailable -> Unavailable(workspaces)
+            is Reading.Value -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                workspaces.value.forEach { slot -> WorkspacePill(slot) }
+            }
+        }
+    }
+}
+
+/** One workspace's number, filled where a monitor shows it and faded where it holds no window. */
+@Composable
+private fun WorkspacePill(slot: WorkspaceSlot) {
+    val colors = MaterialTheme.colorScheme
+    val fill = when (slot.shown) {
+        SlotShown.Focused -> colors.primary
+        SlotShown.Visible -> colors.tertiaryContainer
+        SlotShown.Hidden -> Color.Transparent
+    }
+    val ink = when (slot.shown) {
+        SlotShown.Hidden -> LocalContentColor.current
+        else -> contentColorFor(fill)
+    }
+
+    Box(
+        modifier = Modifier
+            .widthIn(min = PILL_WIDTH)
+            .clip(RoundedCornerShape(6.dp))
+            .background(fill)
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Readout(
+            text = slot.id.toString(),
+            color = if (slot.windows == 0) ink.copy(alpha = EMPTY_ALPHA) else ink,
+            weight = if (slot.shown == SlotShown.Focused) FontWeight.Bold else FontWeight.Normal,
+        )
+    }
+}
+
+/** The focused window: its application, short, and its title, cut where the bar runs out of room. */
+@Composable
+private fun WindowWidget(window: Reading<FocusedWindow?>) {
+    Widget {
+        when (window) {
+            Reading.Pending -> Readout("--")
+            is Reading.Unavailable -> Unavailable(window)
+            is Reading.Value -> when (val focused = window.value) {
+                null -> {
+                    Label("WINDOW")
+                    Readout("none")
+                }
+
+                else -> {
+                    Label(focused.appId.substringAfterLast('.').uppercase())
+                    Readout(focused.title)
+                }
+            }
+        }
+    }
+}
+
 /** The tint behind an item asking to be noticed, and nothing behind one that is not. */
 @Composable
 private fun TrayEntry.attentionTint(): Color = when {
@@ -420,4 +496,6 @@ private const val LABEL_ALPHA = 0.7f
 private const val TRACK_ALPHA = 0.2f
 
 private val TRAY_ICON = 18.dp
+private val PILL_WIDTH = 22.dp
+private const val EMPTY_ALPHA = 0.45f
 private val HOVER_WIDTH = 220.dp

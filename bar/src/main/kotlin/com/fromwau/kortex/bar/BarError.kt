@@ -2,6 +2,7 @@ package com.fromwau.kortex.bar
 
 import com.fromwau.kern.result.IError
 import com.fromwau.kortex.dbus.DBusError
+import com.fromwau.kortex.hyprland.HyprlandError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.watch.WatchError
@@ -29,4 +30,7 @@ sealed interface BarError : IError {
 
     /** This shell is not the notification server, as `:notification` reported it. */
     data class NotServing(val error: NotificationError) : BarError
+
+    /** Hyprland's workspaces or focused window could not be read, as `:hyprland` reported it. */
+    data class NoHyprland(val error: HyprlandError) : BarError
 }

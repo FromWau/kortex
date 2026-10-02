@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.fromwau.kortex.dbus.DBusError
+import com.fromwau.kortex.hyprland.HyprlandError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.watch.WatchError
@@ -47,6 +48,17 @@ fun BarError.shortly(): String = when (this) {
     is BarError.NoBus -> error.shortly()
     is BarError.NoTray -> error.shortly()
     is BarError.NotServing -> error.shortly()
+    is BarError.NoHyprland -> error.shortly()
+}
+
+private fun HyprlandError.shortly(): String = when (this) {
+    HyprlandError.NotConnected -> "connecting"
+    HyprlandError.NoInstance -> "not on hyprland"
+    is HyprlandError.NoSocket -> "no hyprland socket"
+    is HyprlandError.Unreachable -> "hyprland unreachable"
+    HyprlandError.Disconnected -> "hyprland closed"
+    is HyprlandError.Refused -> "hyprland refused"
+    is HyprlandError.Unparseable -> "unreadable reply"
 }
 
 private fun WatchError.shortly(): String = when (this) {

@@ -37,3 +37,28 @@ data class Posted(
     /** The icon name the application named instead, which a theme may carry. */
     val iconName: String?,
 )
+
+/** One pill of the workspace strip. */
+data class WorkspaceSlot(
+    val id: Int,
+    /** Zero for a slot in a gap or past the end, which is a workspace Hyprland would make on arrival. */
+    val windows: Int,
+    val shown: SlotShown,
+)
+
+/** Whether a monitor is showing a slot's workspace, and whether that monitor has focus. */
+enum class SlotShown {
+    /** On the monitor with focus, which is the one workspace a person is in. */
+    Focused,
+
+    /** On a monitor without focus. */
+    Visible,
+
+    Hidden,
+}
+
+/** The window with keyboard focus, as the bar names it. */
+data class FocusedWindow(
+    val appId: String,
+    val title: String,
+)

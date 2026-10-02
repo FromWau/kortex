@@ -52,9 +52,13 @@ class BarStateHolder(
             metrics.network.readings(),
             metrics.cpuTemperature.readings(),
         ) { cpu, memory, network, temperature -> Machine(cpu, memory, network, temperature) },
-        desktop.tray.pendingFirst(),
-        desktop.notifications.pendingFirst(),
-    ) { time, mine, machine, tray, notifications ->
+        combine(
+            desktop.tray.pendingFirst(),
+            desktop.notifications.pendingFirst(),
+            desktop.workspaces.pendingFirst(),
+            desktop.focusedWindow.pendingFirst(),
+        ) { tray, notifications, workspaces, window -> Services(tray, notifications, workspaces, window) },
+    ) { time, mine, machine, services ->
         BarState(
             clock = time,
             showDetail = mine.showDetail,
@@ -63,17 +67,18 @@ class BarStateHolder(
             network = machine.network,
             temperature = machine.temperature,
             timer = mine.timer.face(at = (time as? Reading.Value)?.value),
-            tray = tray,
+            tray = services.tray,
             hoveredTray = mine.hovered,
-            notifications = notifications,
+            notifications = services.notifications,
+            workspaces = services.workspaces,
+            focusedWindow = services.window,
             scheme = mine.scheme,
             trayRegistry = mine.trayRegistry,
         )
     }.stateIn(scope, SharingStarted.Eagerly, BarState.Pending)
 
     init {
-        // Into the bar's own state rather than a sixth arm of the combine: this answers once at startup,
-        // and combine's typed overloads stop at five.
+        // Into the bar's own state rather than another arm of the combines: this answers once at startup.
         scope.launch {
             desktop.trayRegistry.collect { holder -> own.update { mine -> mine.copy(trayRegistry = holder) } }
         }
@@ -147,6 +152,14 @@ class BarStateHolder(
         val memory: Reading<MemoryUse>,
         val network: Reading<NetworkRate>,
         val temperature: Reading<Temperature>,
+    )
+
+    /** The desktop's own services, combined for the same reason as [Machine]. */
+    private data class Services(
+        val tray: Reading<List<TrayEntry>>,
+        val notifications: Reading<List<Posted>>,
+        val workspaces: Reading<List<WorkspaceSlot>>,
+        val window: Reading<FocusedWindow?>,
     )
 
     companion object {

@@ -6,6 +6,7 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrNull
 import com.fromwau.kern.result.mapError
 import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.hyprland.Hyprland
 import com.fromwau.kortex.notification.CloseReason
 import com.fromwau.kortex.notification.NotificationServer
 import com.fromwau.kortex.notification.ServerInformation
@@ -15,9 +16,11 @@ import com.fromwau.kortex.tray.TrayWatcher
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.tray.TrayItem
 import com.fromwau.kortex.bar.BarError
+import com.fromwau.kortex.bar.state.FocusedWindow
 import com.fromwau.kortex.bar.state.Posted
 import com.fromwau.kortex.bar.state.Reading
 import com.fromwau.kortex.bar.state.TrayEntry
+import com.fromwau.kortex.bar.state.WorkspaceSlot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +52,12 @@ interface Desktop {
      * reading the bar shows rather than something that stops it starting.
      */
     val notifications: Flow<Reading<List<Posted>>>
+
+    /** The workspace strip, from 1 to one past the highest workspace in use. */
+    val workspaces: Flow<Reading<List<WorkspaceSlot>>>
+
+    /** The window with keyboard focus, null while nothing has it. */
+    val focusedWindow: Flow<Reading<FocusedWindow?>>
 
     /**
      * Takes the notification with [id] away and tells its application it was dismissed.
@@ -125,6 +134,13 @@ class BusDesktop(
             )
         }
     }.flowOn(Dispatchers.IO)
+
+    // Not on the bus: Hyprland has sockets of its own, and connects only once something collects.
+    private val hyprland = Hyprland(scope)
+
+    override val workspaces: Flow<Reading<List<WorkspaceSlot>>> = hyprland.workspaces.map { it.asStrip() }
+
+    override val focusedWindow: Flow<Reading<FocusedWindow?>> = hyprland.activeWindow.map { it.asFocused() }
 
     override suspend fun dismiss(id: UInt) {
         server.await().getOrNull()?.close(id, CloseReason.Dismissed)

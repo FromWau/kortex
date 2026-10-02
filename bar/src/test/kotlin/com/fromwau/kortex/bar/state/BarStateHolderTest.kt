@@ -206,6 +206,24 @@ class BarStateHolderTest {
         assertEquals(listOf(1u, 2u), (holder.state.value.notifications as Reading.Value).value.map { it.id })
     }
 
+    @Test
+    fun `the workspaces and the focused window arrive as readings, and nothing focused is a value`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+
+        runCurrent()
+        assertIs<Reading.Pending>(holder.state.value.workspaces)
+        assertIs<Reading.Pending>(holder.state.value.focusedWindow)
+
+        desktop.slots.value = Reading.Value(listOf(WorkspaceSlot(1, windows = 1, shown = SlotShown.Focused)))
+        desktop.window.value = Reading.Value(null)
+        runCurrent()
+
+        assertEquals(listOf(1), (holder.state.value.workspaces as Reading.Value).value.map { it.id })
+        assertEquals(Reading.Value(null), holder.state.value.focusedWindow)
+        assertIs<Reading.Pending>(holder.state.value.tray, "the tray has not answered and is not held up by them")
+    }
+
     private fun TestScope.holder(
         metrics: SystemMetrics,
         clock: Flow<LocalDateTime>,
@@ -226,11 +244,15 @@ private class FakeDesktop : Desktop {
     val trayItems = MutableStateFlow<Reading<List<TrayEntry>>?>(null)
     val posted = MutableStateFlow<Reading<List<Posted>>?>(null)
     val registry = MutableStateFlow<String?>(null)
+    val slots = MutableStateFlow<Reading<List<WorkspaceSlot>>?>(null)
+    val window = MutableStateFlow<Reading<FocusedWindow?>?>(null)
     val dismissed = mutableListOf<UInt>()
 
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
     override val trayRegistry: Flow<String?> get() = registry
     override val notifications: Flow<Reading<List<Posted>>> get() = posted.answers()
+    override val workspaces: Flow<Reading<List<WorkspaceSlot>>> get() = slots.answers()
+    override val focusedWindow: Flow<Reading<FocusedWindow?>> get() = window.answers()
 
     override suspend fun dismiss(id: UInt) {
         dismissed += id

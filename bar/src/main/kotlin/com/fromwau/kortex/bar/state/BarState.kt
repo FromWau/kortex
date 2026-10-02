@@ -55,6 +55,9 @@ data class BarState(
     /** Which tray item the pointer is over, whose hover text the tray widget shows beside its icons. */
     val hoveredTray: ItemAddress?,
     val notifications: Reading<List<Posted>>,
+    val workspaces: Reading<List<WorkspaceSlot>>,
+    /** The window with keyboard focus, which is a [Reading.Value] of null while nothing has it. */
+    val focusedWindow: Reading<FocusedWindow?>,
     /** Which colours the bar draws with, cycled by a click rather than read from anywhere. */
     val scheme: BarScheme,
     /**
@@ -79,6 +82,8 @@ data class BarState(
             tray = Reading.Pending,
             hoveredTray = null,
             notifications = Reading.Pending,
+            workspaces = Reading.Pending,
+            focusedWindow = Reading.Pending,
             scheme = BarScheme.Starting,
             trayRegistry = null,
         )
