@@ -1654,8 +1654,28 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       no `:dbus`: JDK 25 opens a unix socket with `UnixDomainSocketAddress` and nothing else.
       Tests: a fake serving both sockets in a temp folder, for events leading to queries and for recovery
       after a disconnect, with no desktop; live tests that only read and compare against `hyprctl ... -j`;
-      decode tests over recorded JSON, including what `activewindow` answers with nothing focused, which is
-      still to be confirmed rather than assumed to be `{}`.
+      decode tests over recorded JSON, including the `{}` that `j/activewindow` answers with nothing focused.
+      **Probed live on 0.56.2**, by driving a throwaway workspace and a kitty window and recording
+      `.socket2.sock` throughout:
+      - `j/activewindow` on an empty workspace answers `{}`, and the events say the same with empty data:
+        `activewindow>>,` and `activewindowv2>>`.
+      - The command socket closes its side as soon as it has answered, whether or not the client shut its
+        own, so reading to the end is the whole framing. JSON comes pretty printed with no trailing newline.
+        A request it does not know answers the plain text `unknown request`, not JSON, so a non-JSON answer
+        is its own error rather than a decode failure.
+      - Moving one window to another workspace sent eleven events in the same millisecond, which is the
+        burst the coalescing is for.
+      - A focused terminal whose title animates (a spinner in ghostty's title) sends `windowtitlev2`,
+        `activewindow` and `activewindowv2` about once a second with focus never moving. So the window flow
+        requeries once a second for as long as that terminal has focus, and the workspaces flow must not
+        listen to title events at all.
+      - Renaming a workspace to `a,b` sends `renameworkspace>>9,a,b` and later `destroyworkspacev2>>9,a,b`,
+        which is the ambiguous data the event-name-only reading avoids.
+      - `[[BATCH]]` separates answers with `\n\n\n`, which the docs never state, so queries go one per
+        connection.
+      - **`dispatch` is Lua on 0.56**: `dispatch workspace 2` answers a Lua syntax error, and the form that
+        works is `dispatch hl.dsp.focus({ workspace = "2" })`, answering `ok`. That is the shape the
+        workspace switching command will need when it comes.
       `:bar` gets a workspace strip and a title chip through `Desktop` once the provider is green, not before.
 
 - [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
