@@ -1636,11 +1636,19 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       **Events are ticks and queries are the truth.** One connection to `.socket2.sock` reads `EVENT>>DATA`
       lines, and a relevant one sends a fresh `j/workspaces`, `j/monitors` or `j/activewindow` down
       `.socket.sock` and publishes what decodes. Workspace events (`workspacev2`, `createworkspacev2`,
-      `destroyworkspacev2`, `moveworkspacev2`, `renameworkspace`, `focusedmonv2`) refresh the workspaces;
-      `activewindowv2` and `windowtitlev2` refresh the window; `openwindow`, `closewindow` and
-      `movewindowv2` refresh both, since they change window counts. Folding each event into a local copy was
-      rejected: a dozen event kinds to mirror, and a missed one drifts silently, where a local query costs
-      microseconds.
+      `destroyworkspacev2`, `moveworkspacev2`, `renameworkspace`, `focusedmonv2`, `activespecialv2`,
+      `monitoraddedv2`, `monitorremovedv2`) refresh the workspaces; `activewindowv2` and `windowtitlev2`
+      refresh the window; `openwindow`, `closewindow` and `movewindowv2` refresh both, since they change
+      window counts. `workspacev2` fires only when somebody asks for a workspace, not when the pointer
+      crosses to another monitor, which is why `focusedmonv2` is in the list. Folding each event into a local
+      copy was rejected: a dozen event kinds to mirror, and a missed one drifts silently. Only the event
+      name is read, which also sidesteps the data: its fields are joined by commas that a window title or a
+      workspace name may contain itself.
+      **Hyprland answers `.socket.sock` synchronously, and the wiki warns that a connection left open
+      freezes the compositor until a five second timeout.** So every query opens its own connection, writes,
+      reads to the end and closes, and none is ever kept for reuse. The same synchronous dispatch is why the
+      wiki asks callers to limit info requests: a burst of events arriving together is coalesced into one
+      query per flow rather than one per event.
       `HyprlandError : IError` is `NotRunning` (no signature, or no socket), `NotConnected` (the honest first
       value), `Disconnected` (the event socket closed) and `Unparseable(detail)`. No Compose, no `:wayland`,
       no `:dbus`: JDK 25 opens a unix socket with `UnixDomainSocketAddress` and nothing else.
