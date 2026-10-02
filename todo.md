@@ -1693,6 +1693,38 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       segment, and its title, cut short rather than pushing the right side off the bar. (`HyprlandReadingsTest`,
       `BarStateHolderTest`)
 
+- [x] **`:hyprland` runs dispatchers too, and a workspace pill is a button.** `focusWorkspace(workspace)`
+      asks for any listed workspace the way Hyprland's selector names it, `special:magic`, `name:web` or the
+      number, with the name escaped as a Lua string. `focusWorkspace(number)` is for numbered ones that may not
+      exist yet, and refuses a number below 1 as `NotNumbered`: Hyprland's parser
+      (`getWorkspaceIDNameFromString`) reads a leading `-` as a move relative to the current workspace and
+      clamps the result to 1, so `-98` would have gone to workspace 1 rather than the special workspace.
+      `dispatch(lua)` sends whatever Lua it is given. All of them go down
+      `.socket.sock` as one short connection like every query. Hyprland's `ok` is `Ok`, and anything else comes
+      back as `Refused` with Hyprland's own answer, which for Lua it cannot run is Lua's error. Neither returns
+      the new state, which arrives through the flows. Through the provider rather than `hyprctl` in a shell:
+      0.56 changed `dispatch` to Lua, which broke every `hyprctl dispatch workspace 1` in a script that does
+      not read the answer and is one line here, and a name spliced into Lua inside a shell is an injection waiting to happen.
+      On the bar a click sends `WorkspaceClicked`, and the empty slot past the end creates its workspace.
+      (`HyprlandTest`, `HyprlandLiveTest`, `BarStateHolderTest`)
+- [x] **`:shell` is the escape hatch for everything no provider covers.** `shell(script, timeout)` runs
+      `bash -c` and answers `Ok(ShellOutput(stdout, stderr, exitCode))` for any script that ran to its end,
+      since `grep` finding nothing exits 1 and that is an answer. `ShellError` is only for one that could not
+      start (127) or ran past its timeout (124), each carrying the code a shell would report. Stdin is empty
+      and both pipes are read at once. No default timeout: a ceiling the caller could not raise would be
+      policy.
+      **The script owns everything it starts.** It runs under `setsid`, so it leads a process group of its
+      own, and when it exits, times out or its caller is cancelled, the whole group is killed with one signal,
+      `cmd &` and nested background jobs included. A review found the first version could not keep its
+      promises: it killed a snapshot of the process tree, which a child started afterwards escaped, and it
+      only timed and cancelled the wait for bash, so a `cmd &` left holding stdout kept the call waiting past
+      its timeout (`sleep 4 & sleep 0.3` with a 1 s timeout took 4 s, three runs of three). Waiting for such
+      children the way `$(cmd &)` does was the first choice and cannot be made reliable here: once bash exits
+      the JDK keeps whatever its pipe already holds and closes it, unless a read is already blocked on it, so
+      the same script either waited or lost the output depending on timing. A process meant to outlive the
+      call is started with `setsid` and its output redirected. (`ShellTest`, 11 tests, each kill and the
+      concurrent read checked by a mutation that fails it)
+
 - [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
       once and is final: `call` now fails fast on it, `send` reports it, and nothing anywhere reopens the
       socket. A session bus does restart, and a socket does drop, and when it does the tray, every menu and
