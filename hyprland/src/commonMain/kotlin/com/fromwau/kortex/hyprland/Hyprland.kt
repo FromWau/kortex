@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
@@ -21,11 +22,11 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Hyprland's workspaces and focused window, as data.
+ * Hyprland's monitors and workspaces, the focused window, the submap and the keyboard layout, as data.
  *
  * ```kotlin
  * val hyprland = Hyprland(scope)
- * val workspaces by hyprland.workspaces.collectAsState()
+ * val monitors by hyprland.monitors.collectAsState()
  * ```
  *
  * Each flow listens on Hyprland's event socket while it has a collector and nothing runs while it has none.
@@ -55,19 +56,16 @@ public class Hyprland private constructor(
     ) : this(scope, Ok(instance), retryAfter)
 
     /**
-     * Every workspace and which one each monitor shows, or why there are none.
+     * Every monitor with the workspaces on it, or why there are none.
      *
-     * The first value is [HyprlandError.NotConnected], since a flow always holds one and an empty list
-     * would read as a Hyprland with no workspaces.
+     * A workspace moved to another monitor, a monitor plugged in or out and a special workspace opened all
+     * arrive here. The first value is [HyprlandError.NotConnected], since a flow always holds one and an
+     * empty list would read as a Hyprland with no monitors.
      */
-    public val workspaces: StateFlow<Result<Workspaces, HyprlandError>> = follow(WORKSPACE_EVENTS) { at ->
-        request(at.requests, WORKSPACES)
-            .flatMap { decode(WORKSPACES, it, ListSerializer(WorkspaceReply.serializer())) }
-            .flatMap { workspaces ->
-                request(at.requests, MONITORS)
-                    .flatMap { decode(MONITORS, it, ListSerializer(MonitorReply.serializer())) }
-                    .map { monitors -> workspacesFrom(workspaces, monitors) }
-            }
+    public val monitors: StateFlow<Result<List<Monitor>, HyprlandError>> = flow {
+        val urgent = UrgentWindows()
+        val read = follow(MONITOR_EVENTS, observe = urgent::observe) { at -> readMonitors(at, urgent.addresses) }
+        emitAll(read)
     }.stateIn(scope, SharingStarted.WhileSubscribed(), Err(HyprlandError.NotConnected))
 
     /** The window with keyboard focus, null while nothing has it, or why that cannot be known. */
@@ -76,11 +74,26 @@ public class Hyprland private constructor(
     }.stateIn(scope, SharingStarted.WhileSubscribed(), Err(HyprlandError.NotConnected))
 
     /**
-     * Shows [workspace], one of those [workspaces] lists: numbered, named or special.
+     * The submap keybinds are in, null in the default one.
+     *
+     * Hyprland names the default `default` when asked, so a submap somebody named `default` reads as null too.
+     */
+    public val submap: StateFlow<Result<String?, HyprlandError>> = follow(setOf(SUBMAP_EVENT)) { at ->
+        request(at.requests, SUBMAP).flatMap(::submapFrom)
+    }.stateIn(scope, SharingStarted.WhileSubscribed(), Err(HyprlandError.NotConnected))
+
+    /** The layout the main keyboard types in, null while Hyprland calls no keyboard main. */
+    public val keyboardLayout: StateFlow<Result<KeyboardLayout?, HyprlandError>> =
+        follow(setOf(LAYOUT_EVENT)) { at ->
+            request(at.requests, DEVICES).flatMap(::keyboardLayoutFrom)
+        }.stateIn(scope, SharingStarted.WhileSubscribed(), Err(HyprlandError.NotConnected))
+
+    /**
+     * Shows [workspace], one of those [monitors] lists: numbered, named or special.
      *
      * A special workspace is shown over the focused monitor's own rather than in its place.
      *
-     * @return `Ok` once Hyprland has accepted the switch. The switch itself arrives through [workspaces].
+     * @return `Ok` once Hyprland has accepted the switch. The switch itself arrives through [monitors].
      */
     public suspend fun focusWorkspace(workspace: Workspace): EmptyResult<HyprlandError> =
         focus(workspace.selector())
@@ -121,9 +134,36 @@ public class Hyprland private constructor(
         }
     }
 
-    /** [read] once the event socket is listening, and again after every event named in [refreshOn]. */
+    private suspend fun readMonitors(
+        at: HyprlandInstance,
+        urgentWindows: Set<WindowAddress>,
+    ): Result<List<Monitor>, HyprlandError> {
+        val workspaces = request(at.requests, WORKSPACES)
+            .flatMap { decode(WORKSPACES, it, ListSerializer(WorkspaceReply.serializer())) }
+            .getOrElse { return Err(it) }
+        val monitors = request(at.requests, MONITORS)
+            .flatMap { decode(MONITORS, it, ListSerializer(MonitorReply.serializer())) }
+            .getOrElse { return Err(it) }
+        // Asked only while something is urgent, which is rarely, rather than on every workspace switch.
+        val urgent = when {
+            urgentWindows.isEmpty() -> emptySet()
+            else -> request(at.requests, CLIENTS)
+                .flatMap { decode(CLIENTS, it, ListSerializer(ClientReply.serializer())) }
+                .map { clients -> workspacesHolding(urgentWindows, clients) }
+                .getOrElse { return Err(it) }
+        }
+        return Ok(monitorsFrom(workspaces, monitors, urgent))
+    }
+
+    /**
+     * [read] once the event socket is listening, and again after every event named in [refreshOn] or that
+     * [observe] says changed something.
+     *
+     * [observe] sees every event, ahead of the folding, so one that only changes state is never folded away.
+     */
     private fun <T> follow(
         refreshOn: Set<String>,
+        observe: (Tick.Event) -> Boolean = { false },
         read: suspend (HyprlandInstance) -> Result<T, HyprlandError>,
     ): Flow<Result<T, HyprlandError>> = flow {
         val at = instance.getOrElse {
@@ -132,7 +172,7 @@ public class Hyprland private constructor(
         }
         while (true) {
             events(at.events)
-                .filter { tick -> tick.calls(refreshOn) }
+                .filter { tick -> tick.calls(refreshOn, observe) }
                 .conflate()
                 .collect { tick ->
                     when (tick) {
@@ -144,10 +184,15 @@ public class Hyprland private constructor(
         }
     }
 
-    /** Whether this calls for a read: a connection or an error always does, an event only if it is named. */
-    private fun Result<Tick, HyprlandError>.calls(refreshOn: Set<String>): Boolean {
+    /** Whether this calls for a read: a connection or an error always does, an event if it is named or observed. */
+    private fun Result<Tick, HyprlandError>.calls(
+        refreshOn: Set<String>,
+        observe: (Tick.Event) -> Boolean,
+    ): Boolean {
         val event = (this as? Ok)?.value as? Tick.Event ?: return true
-        return event.name in refreshOn
+        // Observed first and always, so the state an event changes is kept even when its name also refreshes.
+        val changed = observe(event)
+        return changed || event.name in refreshOn
     }
 
     private companion object {
@@ -158,7 +203,7 @@ public class Hyprland private constructor(
         // The v2 name wherever Hyprland sends two versions of one event, so a change is read once, not twice.
         val WINDOW_COUNTS = setOf("openwindow", "closewindow", "movewindowv2")
 
-        val WORKSPACE_EVENTS = WINDOW_COUNTS + setOf(
+        val MONITOR_EVENTS = WINDOW_COUNTS + setOf(
             "workspacev2",
             "createworkspacev2",
             "destroyworkspacev2",
@@ -169,8 +214,13 @@ public class Hyprland private constructor(
             "activespecialv2",
             "monitoraddedv2",
             "monitorremovedv2",
+            // A reload applies the config's monitor and workspace rules over again.
+            "configreloaded",
         )
 
         val WINDOW_EVENTS = WINDOW_COUNTS + setOf("activewindowv2", "windowtitlev2")
+
+        const val SUBMAP_EVENT = "submap"
+        const val LAYOUT_EVENT = "activelayout"
     }
 }

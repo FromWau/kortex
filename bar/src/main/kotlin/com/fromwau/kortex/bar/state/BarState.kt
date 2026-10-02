@@ -55,9 +55,12 @@ data class BarState(
     /** Which tray item the pointer is over, whose hover text the tray widget shows beside its icons. */
     val hoveredTray: ItemAddress?,
     val notifications: Reading<List<Posted>>,
-    val workspaces: Reading<List<WorkspaceSlot>>,
+    val workspaces: Reading<WorkspaceStrip>,
     /** The window with keyboard focus, which is a [Reading.Value] of null while nothing has it. */
     val focusedWindow: Reading<FocusedWindow?>,
+    /** The keybind submap in force, a [Reading.Value] of null in the default one. */
+    val submap: Reading<String?>,
+    val keyboardLayout: Reading<String?>,
     /** Which colours the bar draws with, cycled by a click rather than read from anywhere. */
     val scheme: BarScheme,
     /**
@@ -84,6 +87,8 @@ data class BarState(
             notifications = Reading.Pending,
             workspaces = Reading.Pending,
             focusedWindow = Reading.Pending,
+            submap = Reading.Pending,
+            keyboardLayout = Reading.Pending,
             scheme = BarScheme.Starting,
             trayRegistry = null,
         )

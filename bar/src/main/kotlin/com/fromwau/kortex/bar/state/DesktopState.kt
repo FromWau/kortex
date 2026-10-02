@@ -38,20 +38,29 @@ data class Posted(
     val iconName: String?,
 )
 
+/** The workspaces one bar's monitor holds, as pills, and the special workspace open over them. */
+data class WorkspaceStrip(
+    val slots: List<WorkspaceSlot>,
+    /** The open special workspace's name without its `special:` prefix, or null while none is open. */
+    val special: String?,
+)
+
 /** One pill of the workspace strip. */
 data class WorkspaceSlot(
     val id: Int,
     /** Zero for a slot in a gap or past the end, which is a workspace Hyprland would make on arrival. */
     val windows: Int,
     val shown: SlotShown,
+    /** One of its windows asked for attention and has not had focus since. */
+    val urgent: Boolean,
 )
 
-/** Whether a monitor is showing a slot's workspace, and whether that monitor has focus. */
+/** Whether this bar's monitor is showing a slot's workspace, and whether that monitor has focus. */
 enum class SlotShown {
-    /** On the monitor with focus, which is the one workspace a person is in. */
+    /** Shown on a monitor with focus, which is the one workspace a person is in. */
     Focused,
 
-    /** On a monitor without focus. */
+    /** Shown on a monitor while another one has focus. */
     Visible,
 
     Hidden,

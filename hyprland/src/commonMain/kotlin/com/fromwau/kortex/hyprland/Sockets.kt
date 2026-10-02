@@ -24,7 +24,11 @@ import java.nio.file.Path
 internal sealed interface Tick {
     data object Connected : Tick
 
-    data class Event(val name: String) : Tick
+    /** [data] is everything after `>>`, whose fields are joined by commas a name or title may also hold. */
+    data class Event(
+        val name: String,
+        val data: String,
+    ) : Tick
 }
 
 /**
@@ -73,13 +77,16 @@ internal fun events(path: String): Flow<Result<Tick, HyprlandError>> = flow {
                 emit(Err(HyprlandError.Disconnected))
                 return@flow
             }
-            lines.add(buffer.array(), read).forEach { line -> emit(Ok(Tick.Event(eventName(line)))) }
+            lines.add(buffer.array(), read).forEach { line -> emit(Ok(Tick.Event(eventName(line), eventData(line)))) }
         }
     }
 }.flowOn(Dispatchers.IO)
 
-/** The event's name, which is everything before `>>`: the data after it is never read, see [Hyprland]. */
+/** The event's name, which is everything before `>>`. */
 internal fun eventName(line: String): String = line.substringBefore(EVENT_SEPARATOR)
+
+/** The event's data, which is everything after `>>`. */
+internal fun eventData(line: String): String = line.substringAfter(EVENT_SEPARATOR, "")
 
 /** Whole lines out of a byte stream that splits them wherever a read happens to end. */
 internal class Lines {

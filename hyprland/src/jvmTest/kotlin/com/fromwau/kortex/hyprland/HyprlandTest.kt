@@ -28,6 +28,8 @@ class HyprlandTest {
         answers[WORKSPACES] = Recorded.workspaces
         answers[MONITORS] = Recorded.monitors
         answers[ACTIVE_WINDOW] = Recorded.activeWindow
+        answers[SUBMAP] = Recorded.submap
+        answers[DEVICES] = Recorded.devices
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val hyprland = Hyprland(scope, fake.instance, RETRY)
@@ -40,35 +42,35 @@ class HyprlandTest {
 
     @Test
     fun theFirstValueSaysNothingIsConnectedYet() {
-        assertEquals(Err(HyprlandError.NotConnected), hyprland.workspaces.value)
+        assertEquals(Err(HyprlandError.NotConnected), hyprland.monitors.value)
         assertEquals(Err(HyprlandError.NotConnected), hyprland.activeWindow.value)
     }
 
     @Test
     fun bothFlowsReadOnceListening() = runBlocking {
-        val workspaces = hyprland.workspaces.awaitOk()
+        val workspaces = hyprland.monitors.awaitOk()
         val window = hyprland.activeWindow.awaitOk()
 
-        assertEquals(listOf(-99, 1, 3), workspaces.all.map { it.id.value })
+        assertEquals(listOf(-99, 1, 3), workspaces.allWorkspaces.map { it.id.value })
         assertEquals(WindowAddress("0x55d7c479f890"), window?.address)
     }
 
     @Test
     fun aWorkspaceEventReadsTheWorkspacesAgain() = runBlocking {
-        watching(hyprland.workspaces) {
-            hyprland.workspaces.awaitOk()
+        watching(hyprland.monitors) {
+            hyprland.monitors.awaitOk()
             fake.answers[MONITORS] = monitorsShowing(3)
 
             fake.emit("workspace>>3", "workspacev2>>3,3")
 
-            hyprland.workspaces.awaitOk { it.active["HDMI-A-2"] == WorkspaceId(3) }
+            hyprland.monitors.awaitOk { it.activeOn("HDMI-A-2") == WorkspaceId(3) }
         }
     }
 
     @Test
     fun titleEventsLeaveTheWorkspacesAlone() = runBlocking {
-        watching(hyprland.workspaces) {
-            hyprland.workspaces.awaitOk()
+        watching(hyprland.monitors) {
+            hyprland.monitors.awaitOk()
             val before = fake.requestsOf(WORKSPACES)
             fake.answers[MONITORS] = monitorsShowing(3)
 
@@ -79,7 +81,7 @@ class HyprlandTest {
                 "windowtitlev2>>abc,two",
                 "focusedmonv2>>HDMI-A-2,3",
             )
-            hyprland.workspaces.awaitOk { it.active["HDMI-A-2"] == WorkspaceId(3) }
+            hyprland.monitors.awaitOk { it.activeOn("HDMI-A-2") == WorkspaceId(3) }
 
             assertEquals(before + 1, fake.requestsOf(WORKSPACES))
         }
@@ -87,8 +89,8 @@ class HyprlandTest {
 
     @Test
     fun aBurstOfEventsIsReadOnceItHasArrived() = runBlocking {
-        watching(hyprland.workspaces) {
-            hyprland.workspaces.awaitOk()
+        watching(hyprland.monitors) {
+            hyprland.monitors.awaitOk()
             val before = fake.requestsOf(WORKSPACES)
             fake.hold()
 
@@ -121,6 +123,77 @@ class HyprlandTest {
     }
 
     @Test
+    fun aWorkspaceMovedToAnotherMonitorIsFoundOnIt() = runBlocking {
+        fake.answers[MONITORS] = TWO_MONITORS
+        fake.answers[WORKSPACES] = workspacesOn(three = "DP-1")
+        watching(hyprland.monitors) {
+            hyprland.monitors.awaitOk { now -> now.single { it.name == "DP-1" }.workspaces.any { it.id.value == 3 } }
+
+            fake.answers[WORKSPACES] = workspacesOn(three = "DP-2")
+            fake.emit("moveworkspacev2>>3,3,DP-2")
+
+            hyprland.monitors.awaitOk { now ->
+                now.single { it.name == "DP-2" }.workspaces.any { it.id.value == 3 } &&
+                    now.single { it.name == "DP-1" }.workspaces.none { it.id.value == 3 }
+            }
+        }
+    }
+
+    @Test
+    fun aWindowAskingForAttentionMarksItsWorkspaceUntilItHasFocus() = runBlocking {
+        fake.answers[CLIENTS] = """[{"address": "0x55d7c61e2a20", "workspace": {"id": 3, "name": "3"}}]"""
+        watching(hyprland.monitors) {
+            hyprland.monitors.awaitOk()
+            assertEquals(0, fake.requestsOf(CLIENTS), "nothing is urgent, so nothing asks which workspace")
+
+            fake.emit("urgent>>55d7c61e2a20")
+            hyprland.monitors.awaitOk { now -> now.allWorkspaces.single { it.id.value == 3 }.urgent }
+
+            fake.emit("activewindow>>kitty,t", "activewindowv2>>55d7c61e2a20")
+            hyprland.monitors.awaitOk { now -> now.allWorkspaces.none { it.urgent } }
+        }
+    }
+
+    @Test
+    fun closingAnUrgentWindowClearsItsWorkspace() = runBlocking {
+        fake.answers[CLIENTS] = """[{"address": "0xbeef", "workspace": {"id": 1, "name": "1"}}]"""
+        watching(hyprland.monitors) {
+            hyprland.monitors.awaitOk()
+            fake.emit("urgent>>beef")
+            hyprland.monitors.awaitOk { now -> now.allWorkspaces.single { it.id.value == 1 }.urgent }
+
+            fake.emit("closewindow>>beef")
+
+            hyprland.monitors.awaitOk { now -> now.allWorkspaces.none { it.urgent } }
+        }
+    }
+
+    @Test
+    fun theSubmapFollowsItsEvent() = runBlocking {
+        watching(hyprland.submap) {
+            assertEquals(null, hyprland.submap.awaitOk())
+
+            fake.answers[SUBMAP] = "\"resize\"\n"
+            fake.emit("submap>>resize")
+
+            hyprland.submap.awaitOk { it == "resize" }
+        }
+    }
+
+    @Test
+    fun theKeyboardLayoutFollowsItsEvent() = runBlocking {
+        watching(hyprland.keyboardLayout) {
+            assertEquals("us", hyprland.keyboardLayout.awaitOk()?.code)
+
+            fake.answers[DEVICES] = """{"keyboards": [{"name": "cx-2.4g-wireless-receiver", "layout": "us,at",
+                "active_layout_index": 1, "active_keymap": "German (Austria)", "main": true}]}"""
+            fake.emit("activelayout>>cx-2.4g-wireless-receiver,German (Austria)")
+
+            hyprland.keyboardLayout.awaitOk { it?.code == "at" }
+        }
+    }
+
+    @Test
     fun nothingFocusedIsNull() = runBlocking {
         fake.answers[ACTIVE_WINDOW] = "{}"
 
@@ -136,18 +209,18 @@ class HyprlandTest {
 
     @Test
     fun aDroppedEventSocketIsReportedAndThenReattached() = runBlocking {
-        val seen = CopyOnWriteArrayList<Result<Workspaces, HyprlandError>>()
-        val watcher = launch(Dispatchers.Default) { hyprland.workspaces.collect { seen += it } }
-        hyprland.workspaces.awaitOk()
+        val seen = CopyOnWriteArrayList<Result<List<Monitor>, HyprlandError>>()
+        val watcher = launch(Dispatchers.Default) { hyprland.monitors.collect { seen += it } }
+        hyprland.monitors.awaitOk()
         awaitTrue { fake.listening == 1 }
 
         fake.dropListeners()
         awaitTrue { Err(HyprlandError.Disconnected) in seen }
         awaitTrue { fake.listening == 1 }
-        hyprland.workspaces.awaitOk()
+        hyprland.monitors.awaitOk()
 
         watcher.cancel()
-        assertIs<Ok<Workspaces>>(seen.last(), "saw $seen")
+        assertIs<Ok<List<Monitor>>>(seen.last(), "saw $seen")
     }
 
     @Test
@@ -155,7 +228,7 @@ class HyprlandTest {
         val empty = HyprlandInstance(Files.createTempDirectory("kortex-no-hyprland").toString())
         val absent = Hyprland(scope, empty, RETRY)
 
-        assertEquals(HyprlandError.NoSocket(empty.events), absent.workspaces.firstError())
+        assertEquals(HyprlandError.NoSocket(empty.events), absent.monitors.firstError())
     }
 
     @Test
@@ -176,9 +249,9 @@ class HyprlandTest {
     @Test
     fun aListedWorkspaceIsAskedForTheWayHyprlandNamesIt() = runBlocking {
         val sent = listOf(
-            Workspace(WorkspaceId(3), "3", "DP-1", 1),
-            Workspace(WorkspaceId(-98), "special:magic", "DP-1", 1),
-            Workspace(WorkspaceId(-1337), "we\"b\\", "DP-1", 1),
+            Workspace(WorkspaceId(3), "3", windows = 1, urgent = false),
+            Workspace(WorkspaceId(-98), "special:magic", windows = 1, urgent = false),
+            Workspace(WorkspaceId(-1337), "we\"b\\", windows = 1, urgent = false),
         ).map { workspace ->
             fake.requests.clear()
             fake.answers.clear()
@@ -263,7 +336,19 @@ class HyprlandTest {
         while (!condition()) delay(10.milliseconds)
     }
 
+    private fun workspacesOn(three: String): String = """[
+        {"id": 1, "name": "1", "monitor": "DP-1", "windows": 1},
+        {"id": 3, "name": "3", "monitor": "$three", "windows": 1}
+    ]"""
+
     private companion object {
+        val TWO_MONITORS = """[
+            {"id": 0, "name": "DP-1", "description": "left", "focused": true,
+             "activeWorkspace": {"id": 1, "name": "1"}, "specialWorkspace": {"id": 0, "name": ""}},
+            {"id": 1, "name": "DP-2", "description": "right", "focused": false,
+             "activeWorkspace": {"id": 3, "name": "3"}, "specialWorkspace": {"id": 0, "name": ""}}
+        ]"""
+
         val RETRY = 50.milliseconds
         const val FOCUS_3 = "dispatch hl.dsp.focus({ workspace = \"3\" })"
         val TIMEOUT = 5.seconds

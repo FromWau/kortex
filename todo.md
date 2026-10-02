@@ -1707,6 +1707,26 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       not read the answer and is one line here, and a name spliced into Lua inside a shell is an injection waiting to happen.
       On the bar a click sends `WorkspaceClicked`, and the empty slot past the end creates its workspace.
       (`HyprlandTest`, `HyprlandLiveTest`, `BarStateHolderTest`)
+- [x] **`:hyprland` groups workspaces under their monitor, and follows urgency, specials, the submap and the
+      layout.** `monitors` replaces `workspaces`: each `Monitor` holds its own workspaces, specials included, and
+      says which it shows and which special one is open over it, so a bar picks its monitor by connector instead
+      of matching string-keyed maps. A workspace moved between monitors is a `moveworkspacev2`, which reads both
+      lists again, so the grouping is whatever Hyprland says now. `Monitor` carries only what Hyprland decides
+      and announces. Its size, scale and position stay with `:wayland`: Hyprland 0.56.2 posts no event when
+      they change (every `postEvent` in its source was listed), so a copy here would go stale silently.
+      **Urgency is the one fact kept from events.** Hyprland answers no query with it: it marks a window on
+      `urgent` and clears the mark when the window takes focus (`FocusState.cpp`), so the flow follows
+      `urgent`, `activewindowv2` and `closewindow` by address, ahead of the folding so none is lost, and asks
+      `j/clients` which workspace an urgent window is on only while one is. A window that was urgent before
+      anybody collected is not known to be.
+      `submap` reads `j/submap`, a bare JSON string that is `"default"` for none, and `keyboardLayout` reads the
+      keyboard `j/devices` calls main, its code being that keyboard's layout list at its active index, which
+      Hyprland writes as a bare `none` when it has none.
+      On the bar each strip is its own monitor's: its numbered workspaces, the gaps no other monitor holds and
+      the next number nobody uses, so one monitor draws what it did before. An urgent pill fills with the error
+      container until it is looked at, an open special workspace shows as a named pill after the numbers, a
+      `MODE` chip appears only outside the default submap and `KB US` sits beside the clock.
+      (`HyprlandTest`, `RepliesTest`, `HyprlandLiveTest`, `HyprlandReadingsTest`, `BarStateHolderTest`)
 - [x] **`:shell` is the escape hatch for everything no provider covers.** `shell(script, timeout)` runs
       `bash -c` and answers `Ok(ShellOutput(stdout, stderr, exitCode))` for any script that ran to its end,
       since `grep` finding nothing exits 1 and that is an answer. `ShellError` is only for one that could not

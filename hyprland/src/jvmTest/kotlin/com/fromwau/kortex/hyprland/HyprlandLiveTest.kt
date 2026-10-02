@@ -43,24 +43,41 @@ class HyprlandLiveTest {
 
     @Test
     fun theFlowsReadWhatHyprctlReports() = runBlocking {
-        val workspaces = hyprland.workspaces.awaitOk()
+        val workspaces = hyprland.monitors.awaitOk()
         val window = hyprland.activeWindow.awaitOk()
+        val submap = hyprland.submap.awaitOk()
+        val layout = hyprland.keyboardLayout.awaitOk()
 
         val listed = hyprctl("workspaces").jsonArray().map { it.jsonObject }
         assertEquals(
             listed.map { it.int("id") }.sorted(),
-            workspaces.all.map { it.id.value },
+            workspaces.allWorkspaces.map { it.id.value },
         )
         assertEquals(
             listed.associate { it.int("id") to it.text("name") },
-            workspaces.all.associate { it.id.value to it.name },
+            workspaces.allWorkspaces.associate { it.id.value to it.name },
+        )
+        val monitors = hyprctl("monitors").jsonArray().map { it.jsonObject }
+        assertEquals(
+            monitors.associate { it.text("name") to it.getValue("activeWorkspace").jsonObject.int("id") },
+            workspaces.associate { it.name to it.active.value },
         )
         assertEquals(
-            hyprctl("monitors").jsonArray().associate {
-                it.jsonObject.text("name") to it.jsonObject.getValue("activeWorkspace").jsonObject.int("id")
-            },
-            workspaces.active.mapValues { it.value.value },
+            listed.groupBy({ it.text("monitor") }, { it.int("id") }).mapValues { it.value.sorted() },
+            workspaces.associate { monitor -> monitor.name to monitor.workspaces.map { it.id.value } },
+            "each workspace on the monitor hyprctl names",
         )
+        assertEquals(
+            monitors.associate { it.text("name") to it.getValue("specialWorkspace").jsonObject.int("id") },
+            workspaces.associate { it.name to (it.special?.value ?: 0) },
+        )
+
+        assertEquals(Json.parseToJsonElement(hyprctl("submap")).jsonPrimitive.content, submap ?: "default")
+        val main = hyprctl("devices").let { Json.parseToJsonElement(it).jsonObject.getValue("keyboards") as JsonArray }
+            .map { it.jsonObject }
+            .single { it.getValue("main").jsonPrimitive.content == "true" }
+        assertEquals(main.text("name"), layout?.keyboard)
+        assertEquals(main.text("active_keymap"), layout?.keymap)
 
         val focused = Json.parseToJsonElement(hyprctl("activewindow")).jsonObject
         assertEquals(focused["address"]?.jsonPrimitive?.content, window?.address?.value)
@@ -68,16 +85,17 @@ class HyprlandLiveTest {
 
     @Test
     fun theFlowsFollowAWorkspaceSwitchARenameAndTheWayBack() = runBlocking {
-        val start = hyprland.workspaces.awaitOk()
+        val start = hyprland.monitors.awaitOk()
         val focusedBefore = hyprland.activeWindow.awaitOk()
-        val monitor = checkNotNull(start.focusedMonitor)
-        val returnTo = checkNotNull(start.active[monitor])
-        val spare = generateSequence(SPARE_FROM) { it + 1 }.first { id -> start.all.none { it.id.value == id } }
+        val monitor = start.focused.name
+        val returnTo = checkNotNull(start.activeOn(monitor))
+        val taken = start.allWorkspaces.map { it.id.value }.toSet()
+        val spare = generateSequence(SPARE_FROM) { it + 1 }.first { it !in taken }
 
-        watching(hyprland.workspaces, hyprland.activeWindow) {
+        watching(hyprland.monitors, hyprland.activeWindow) {
             try {
                 assertEquals(Ok(Unit), hyprland.focusWorkspace(spare))
-                hyprland.workspaces.awaitOk { it.active[monitor] == WorkspaceId(spare) }
+                hyprland.monitors.awaitOk { it.activeOn(monitor) == WorkspaceId(spare) }
                 hyprland.activeWindow.awaitOk { it == null }
 
                 // A comma, because event data is comma separated and a name may carry one.
@@ -85,14 +103,16 @@ class HyprlandLiveTest {
                     Ok(Unit),
                     hyprland.dispatch("hl.dsp.workspace.rename({ workspace = \"$spare\", name = \"kortex,probe\" })"),
                 )
-                hyprland.workspaces.awaitOk { all -> all.all.any { it.id.value == spare && it.name == "kortex,probe" } }
+                hyprland.monitors.awaitOk { now ->
+                    now.allWorkspaces.any { it.id.value == spare && it.name == "kortex,probe" }
+                }
             } finally {
-                start.all.firstOrNull { it.id == returnTo }?.let { hyprland.focusWorkspace(it) }
+                start.allWorkspaces.firstOrNull { it.id == returnTo }?.let { hyprland.focusWorkspace(it) }
                 focusedBefore?.let { hyprland.dispatch("hl.dsp.focus({ window = \"address:${it.address.value}\" })") }
             }
 
-            hyprland.workspaces.awaitOk { now ->
-                now.active[monitor] == returnTo && now.all.none { it.id.value == spare }
+            hyprland.monitors.awaitOk { now ->
+                now.activeOn(monitor) == returnTo && now.allWorkspaces.none { it.id.value == spare }
             }
             hyprland.activeWindow.awaitOk { it?.address == focusedBefore?.address }
         }
@@ -100,31 +120,31 @@ class HyprlandLiveTest {
 
     @Test
     fun aNamedWorkspaceIsFocusedByTheWorkspaceTheFlowListed() = runBlocking {
-        val start = hyprland.workspaces.awaitOk()
+        val start = hyprland.monitors.awaitOk()
         val focusedBefore = hyprland.activeWindow.awaitOk()
-        val monitor = checkNotNull(start.focusedMonitor)
-        val returnTo = checkNotNull(start.all.firstOrNull { it.id == start.active[monitor] })
+        val monitor = start.focused.name
+        val returnTo = checkNotNull(start.allWorkspaces.firstOrNull { it.id == start.activeOn(monitor) })
 
-        watching(hyprland.workspaces, hyprland.activeWindow) {
+        watching(hyprland.monitors, hyprland.activeWindow) {
             try {
                 assertEquals(Ok(Unit), hyprland.dispatch("hl.dsp.focus({ workspace = \"name:$PROBE\" })"))
-                val named = hyprland.workspaces.awaitOk { now -> now.all.any { it.name == PROBE } }
-                    .all
+                val named = hyprland.monitors.awaitOk { now -> now.allWorkspaces.any { it.name == PROBE } }
+                    .allWorkspaces
                     .single { it.name == PROBE }
                 assertTrue(named.id.value < 0 && !named.special, "a name: workspace got the id ${named.id}")
 
                 // Away and back, so the second switch is the selector built from the listed workspace.
                 assertEquals(Ok(Unit), hyprland.focusWorkspace(returnTo))
-                hyprland.workspaces.awaitOk { it.active[monitor] == returnTo.id }
+                hyprland.monitors.awaitOk { it.activeOn(monitor) == returnTo.id }
                 assertEquals(Ok(Unit), hyprland.focusWorkspace(named))
-                hyprland.workspaces.awaitOk { it.active[monitor] == named.id }
+                hyprland.monitors.awaitOk { it.activeOn(monitor) == named.id }
             } finally {
                 hyprland.focusWorkspace(returnTo)
                 focusedBefore?.let { hyprland.dispatch("hl.dsp.focus({ window = \"address:${it.address.value}\" })") }
             }
 
-            hyprland.workspaces.awaitOk { now ->
-                now.active[monitor] == returnTo.id && now.all.none { it.name == PROBE }
+            hyprland.monitors.awaitOk { now ->
+                now.activeOn(monitor) == returnTo.id && now.allWorkspaces.none { it.name == PROBE }
             }
         }
     }

@@ -203,6 +203,7 @@ private fun rememberBarStateHolder(monitor: Monitor, desktop: Desktop): BarState
                 scope = scope,
                 metrics = ProcfsMetrics(),
                 desktop = desktop,
+                monitor = monitor.name,
                 clock = secondTicks(),
             ),
         )

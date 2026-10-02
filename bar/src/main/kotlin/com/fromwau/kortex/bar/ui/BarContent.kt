@@ -38,6 +38,7 @@ import com.fromwau.kortex.bar.state.SlotShown
 import com.fromwau.kortex.bar.state.TimerFace
 import com.fromwau.kortex.bar.state.TrayEntry
 import com.fromwau.kortex.bar.state.WorkspaceSlot
+import com.fromwau.kortex.bar.state.WorkspaceStrip
 import com.fromwau.kortex.icons.rememberIconPainter
 import com.fromwau.kortex.bar.system.MemoryUse
 import com.fromwau.kortex.bar.system.NetworkRate
@@ -74,6 +75,7 @@ fun BarContent(
             workspaces = state.workspaces,
             onClick = { id -> onAction(BarAction.WorkspaceClicked(id)) },
         )
+        SubmapWidget(state.submap)
         // All the free room, so the right side sits at the edge and a long title is cut at the box rather than
         // pushing it off. Weighting the widget itself with fill = false leaves its unused share at the far end.
         Box(
@@ -97,6 +99,7 @@ fun BarContent(
         TemperatureWidget(state.temperature)
         GaugeWidget(label = "CPU", fraction = state.cpuLoad, readout = ::percent)
         MemoryWidget(state.memory)
+        KeyboardWidget(state.keyboardLayout)
         ClockWidget(
             clock = state.clock,
             showDetail = state.showDetail,
@@ -334,37 +337,87 @@ private fun TimerWidget(
     }
 }
 
-/** Every workspace from 1 to one past the highest in use, the one being looked at filled. Clicking one goes there. */
+/**
+ * This monitor's workspaces from 1 to one past the highest in use, the one being looked at filled, and the special
+ * workspace open over them after a gap. Clicking a number goes there.
+ */
 @Composable
 private fun WorkspacesWidget(
-    workspaces: Reading<List<WorkspaceSlot>>,
+    workspaces: Reading<WorkspaceStrip>,
     onClick: (Int) -> Unit,
 ) {
     Widget {
         when (workspaces) {
             Reading.Pending -> Readout("--")
             is Reading.Unavailable -> Unavailable(workspaces)
-            is Reading.Value -> Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                workspaces.value.forEach { slot -> WorkspacePill(slot = slot, onClick = { onClick(slot.id) }) }
+            is Reading.Value -> {
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    workspaces.value.slots.forEach { slot ->
+                        WorkspacePill(slot = slot, onClick = { onClick(slot.id) })
+                    }
+                }
+                workspaces.value.special?.let { name -> SpecialPill(name) }
             }
         }
     }
 }
 
-/** One workspace's number, filled where a monitor shows it and faded where it holds no window. */
+/** The special workspace open over this monitor, named, since a special one has no number to show. */
+@Composable
+private fun SpecialPill(name: String) {
+    val fill = MaterialTheme.colorScheme.tertiary
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(fill)
+            .padding(horizontal = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Readout(text = name, color = contentColorFor(fill))
+    }
+}
+
+/** The keybind submap in force, shown only outside the default one, where keys do something unusual. */
+@Composable
+private fun SubmapWidget(submap: Reading<String?>) {
+    val name = (submap as? Reading.Value)?.value ?: return
+
+    Widget(container = MaterialTheme.colorScheme.tertiaryContainer) {
+        Label("MODE")
+        Readout(name, weight = FontWeight.Medium)
+    }
+}
+
+/** The layout the keyboard types in, in capitals: `US`. */
+@Composable
+private fun KeyboardWidget(layout: Reading<String?>) {
+    Widget {
+        Label("KB")
+        when (layout) {
+            Reading.Pending -> Readout("--")
+            is Reading.Unavailable -> Unavailable(layout)
+            is Reading.Value -> Readout(layout.value?.uppercase() ?: "none")
+        }
+    }
+}
+
+/** One workspace's number, filled where a monitor shows it or a window on it wants attention, faded where empty. */
 @Composable
 private fun WorkspacePill(
     slot: WorkspaceSlot,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val fill = when (slot.shown) {
-        SlotShown.Focused -> colors.primary
-        SlotShown.Visible -> colors.tertiaryContainer
-        SlotShown.Hidden -> Color.Transparent
+    // Urgency shows until the workspace is looked at, so the one being looked at keeps its own fill.
+    val fill = when {
+        slot.shown == SlotShown.Focused -> colors.primary
+        slot.urgent -> colors.errorContainer
+        slot.shown == SlotShown.Visible -> colors.tertiaryContainer
+        else -> Color.Transparent
     }
-    val ink = when (slot.shown) {
-        SlotShown.Hidden -> LocalContentColor.current
+    val ink = when (fill) {
+        Color.Transparent -> LocalContentColor.current
         else -> contentColorFor(fill)
     }
 

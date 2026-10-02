@@ -20,7 +20,7 @@ import com.fromwau.kortex.bar.state.FocusedWindow
 import com.fromwau.kortex.bar.state.Posted
 import com.fromwau.kortex.bar.state.Reading
 import com.fromwau.kortex.bar.state.TrayEntry
-import com.fromwau.kortex.bar.state.WorkspaceSlot
+import com.fromwau.kortex.bar.state.WorkspaceStrip
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -53,11 +53,17 @@ interface Desktop {
      */
     val notifications: Flow<Reading<List<Posted>>>
 
-    /** The workspace strip, from 1 to one past the highest workspace in use. */
-    val workspaces: Flow<Reading<List<WorkspaceSlot>>>
+    /** The workspace strip for the monitor connected at [connector], as its own bar draws it. */
+    fun workspacesOn(connector: String): Flow<Reading<WorkspaceStrip>>
 
     /** The window with keyboard focus, null while nothing has it. */
     val focusedWindow: Flow<Reading<FocusedWindow?>>
+
+    /** The keybind submap in force, null in the default one. */
+    val submap: Flow<Reading<String?>>
+
+    /** The main keyboard's layout, short where Hyprland says which, null while no keyboard is main. */
+    val keyboardLayout: Flow<Reading<String?>>
 
     /**
      * Takes the notification with [id] away and tells its application it was dismissed.
@@ -146,9 +152,14 @@ class BusDesktop(
     // Not on the bus: Hyprland has sockets of its own, and connects only once something collects.
     private val hyprland = Hyprland(scope)
 
-    override val workspaces: Flow<Reading<List<WorkspaceSlot>>> = hyprland.workspaces.map { it.asStrip() }
+    override fun workspacesOn(connector: String): Flow<Reading<WorkspaceStrip>> =
+        hyprland.monitors.map { it.asStrip(connector) }
 
     override val focusedWindow: Flow<Reading<FocusedWindow?>> = hyprland.activeWindow.map { it.asFocused() }
+
+    override val submap: Flow<Reading<String?>> = hyprland.submap.map { it.asSubmap() }
+
+    override val keyboardLayout: Flow<Reading<String?>> = hyprland.keyboardLayout.map { it.asLayout() }
 
     override suspend fun focusWorkspace(id: Int) {
         hyprland.focusWorkspace(id)

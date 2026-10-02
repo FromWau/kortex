@@ -36,6 +36,8 @@ class BarStateHolder(
     private val scope: CoroutineScope,
     metrics: SystemMetrics,
     private val desktop: Desktop,
+    /** The connector of the monitor this bar is on, whose workspaces its strip shows. */
+    monitor: String,
     clock: Flow<LocalDateTime>,
     private val session: kotlin.time.Duration = DEFAULT_SESSION,
     private val now: () -> LocalDateTime = LocalDateTime::now,
@@ -55,10 +57,14 @@ class BarStateHolder(
         combine(
             desktop.tray.pendingFirst(),
             desktop.notifications.pendingFirst(),
-            desktop.workspaces.pendingFirst(),
+            desktop.workspacesOn(monitor).pendingFirst(),
             desktop.focusedWindow.pendingFirst(),
         ) { tray, notifications, workspaces, window -> Services(tray, notifications, workspaces, window) },
-    ) { time, mine, machine, services ->
+        combine(
+            desktop.submap.pendingFirst(),
+            desktop.keyboardLayout.pendingFirst(),
+        ) { submap, layout -> Keyboard(submap, layout) },
+    ) { time, mine, machine, services, keyboard ->
         BarState(
             clock = time,
             showDetail = mine.showDetail,
@@ -72,6 +78,8 @@ class BarStateHolder(
             notifications = services.notifications,
             workspaces = services.workspaces,
             focusedWindow = services.window,
+            submap = keyboard.submap,
+            keyboardLayout = keyboard.layout,
             scheme = mine.scheme,
             trayRegistry = mine.trayRegistry,
         )
@@ -159,8 +167,14 @@ class BarStateHolder(
     private data class Services(
         val tray: Reading<List<TrayEntry>>,
         val notifications: Reading<List<Posted>>,
-        val workspaces: Reading<List<WorkspaceSlot>>,
+        val workspaces: Reading<WorkspaceStrip>,
         val window: Reading<FocusedWindow?>,
+    )
+
+    /** What the keyboard is doing, combined for the same reason as [Machine]. */
+    private data class Keyboard(
+        val submap: Reading<String?>,
+        val layout: Reading<String?>,
     )
 
     companion object {

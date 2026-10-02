@@ -215,11 +215,14 @@ class BarStateHolderTest {
         assertIs<Reading.Pending>(holder.state.value.workspaces)
         assertIs<Reading.Pending>(holder.state.value.focusedWindow)
 
-        desktop.slots.value = Reading.Value(listOf(WorkspaceSlot(1, windows = 1, shown = SlotShown.Focused)))
+        desktop.strips.value = Reading.Value(
+            WorkspaceStrip(listOf(WorkspaceSlot(1, windows = 1, shown = SlotShown.Focused, urgent = false)), null),
+        )
         desktop.window.value = Reading.Value(null)
         runCurrent()
 
-        assertEquals(listOf(1), (holder.state.value.workspaces as Reading.Value).value.map { it.id })
+        assertEquals(listOf(MONITOR), desktop.stripsAskedFor, "the strip is the one for this bar's own monitor")
+        assertEquals(listOf(1), (holder.state.value.workspaces as Reading.Value).value.slots.map { it.id })
         assertEquals(Reading.Value(null), holder.state.value.focusedWindow)
         assertIs<Reading.Pending>(holder.state.value.tray, "the tray has not answered and is not held up by them")
     }
@@ -236,6 +239,20 @@ class BarStateHolderTest {
         assertEquals(listOf(5), desktop.focused)
     }
 
+    @Test
+    fun `the submap and the keyboard layout arrive as readings, and the default submap is a value of null`() =
+        runTest {
+            val desktop = FakeDesktop()
+            val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+
+            desktop.mode.value = Reading.Value(null)
+            desktop.layout.value = Reading.Value("us")
+            runCurrent()
+
+            assertEquals(Reading.Value(null), holder.state.value.submap)
+            assertEquals(Reading.Value("us"), holder.state.value.keyboardLayout)
+        }
+
     private fun TestScope.holder(
         metrics: SystemMetrics,
         clock: Flow<LocalDateTime>,
@@ -245,6 +262,7 @@ class BarStateHolderTest {
         scope = backgroundScope,
         metrics = metrics,
         desktop = desktop,
+        monitor = MONITOR,
         clock = clock,
         session = SESSION,
         now = now,
@@ -256,7 +274,10 @@ private class FakeDesktop : Desktop {
     val trayItems = MutableStateFlow<Reading<List<TrayEntry>>?>(null)
     val posted = MutableStateFlow<Reading<List<Posted>>?>(null)
     val registry = MutableStateFlow<String?>(null)
-    val slots = MutableStateFlow<Reading<List<WorkspaceSlot>>?>(null)
+    val strips = MutableStateFlow<Reading<WorkspaceStrip>?>(null)
+    val stripsAskedFor = mutableListOf<String>()
+    val mode = MutableStateFlow<Reading<String?>?>(null)
+    val layout = MutableStateFlow<Reading<String?>?>(null)
     val window = MutableStateFlow<Reading<FocusedWindow?>?>(null)
     val dismissed = mutableListOf<UInt>()
     val focused = mutableListOf<Int>()
@@ -264,7 +285,13 @@ private class FakeDesktop : Desktop {
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
     override val trayRegistry: Flow<String?> get() = registry
     override val notifications: Flow<Reading<List<Posted>>> get() = posted.answers()
-    override val workspaces: Flow<Reading<List<WorkspaceSlot>>> get() = slots.answers()
+    override fun workspacesOn(connector: String): Flow<Reading<WorkspaceStrip>> {
+        stripsAskedFor += connector
+        return strips.answers()
+    }
+
+    override val submap: Flow<Reading<String?>> get() = mode.answers()
+    override val keyboardLayout: Flow<Reading<String?>> get() = layout.answers()
     override val focusedWindow: Flow<Reading<FocusedWindow?>> get() = window.answers()
 
     override suspend fun dismiss(id: UInt) {
@@ -313,6 +340,7 @@ private fun <T> StateFlow<T?>.answers(): Flow<T> = flow {
     collect { answer -> answer?.let { emit(it) } }
 }
 
+private const val MONITOR = "HDMI-A-2"
 private val NOON: LocalDateTime = LocalDateTime.of(2026, 10, 1, 12, 0, 0)
 private val SESSION = 25.minutes
 private val ADDRESS = ItemAddress(service = ":1.97", path = "/StatusNotifierItem")

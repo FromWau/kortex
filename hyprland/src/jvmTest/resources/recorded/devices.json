@@ -1,0 +1,172 @@
+{
+"mice": [
+    {
+        "address": "0x55d7c476faa0",
+        "name": "asix-electronics-ax68004-consumer-control-1",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x55d7c4b40640",
+        "name": "asix-electronics-ax68004",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x55d7c62be200",
+        "name": "cx-2.4g-wireless-receiver-mouse",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x55d7c6337cb0",
+        "name": "cx-2.4g-wireless-receiver-keyboard-1",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    },    {
+        "address": "0x55d7c5352c40",
+        "name": "logitech-g502-x-ls-1",
+        "defaultSpeed": 0.00000,
+        "scrollFactor": -1.00
+    }
+],
+"keyboards": [
+    {
+        "address": "0x55d7c4bc4850",
+        "name": "power-button",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c4c52c10",
+        "name": "power-button-1",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c47ba380",
+        "name": "asix-electronics-ax68004-consumer-control",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c4e3e1a0",
+        "name": "asix-electronics-ax68004-system-control",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c435fb40",
+        "name": "asix-electronics-ax68004-1",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c660b280",
+        "name": "c-media-electronics-inc.-usb-audio-device",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c61cc520",
+        "name": "cx-2.4g-wireless-receiver",
+        "rules": "",
+        "model": "",
+        "layout": "us,at",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": true
+    },    {
+        "address": "0x55d7c64c6380",
+        "name": "cx-2.4g-wireless-receiver-keyboard",
+        "rules": "",
+        "model": "",
+        "layout": "us,at",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c4c169b0",
+        "name": "logitech-g502-x-ls",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    },    {
+        "address": "0x55d7c4473ed0",
+        "name": "wh-1000xm5-(avrcp)",
+        "rules": "",
+        "model": "",
+        "layout": "us,de",
+        "variant": "",
+        "options": "grp:win_space_toggle,caps:escape",
+        "active_layout_index": 0,
+        "active_keymap": "English (US)",
+        "capsLock": false,
+        "numLock": true,
+        "main": false
+    }
+],
+"tablets": [
+
+],
+"touch": [
+
+],
+"switches": [
+
+]
+}
