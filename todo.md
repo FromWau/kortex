@@ -1732,6 +1732,29 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       which lasts until that window takes focus rather than until the workspace is visited, as in Hyprland, an open special workspace shows as a named pill after the numbers, a
       `MODE` chip appears only outside the default submap and `KB US` sits beside the clock.
       (`HyprlandTest`, `RepliesTest`, `HyprlandLiveTest`, `HyprlandReadingsTest`, `BarStateHolderTest`)
+- [ ] **The bar's surface vanished once, on a click on the clock, and nothing reported it.** 2026-10-02, on the
+      build with the per-monitor strip. No "The bar stopped" popup appeared, so the surface never reached
+      `SurfaceStatus.Ended`; nothing reached the crash log, which had never been created, or stderr. The JVM
+      stayed up with its event loop idle in `awaitWork`, `hyprctl layers` listed no `kortex` surface at all, and
+      HDMI-A-2 was connected and enabled; Hyprland's last disconnect and reconnect of it came before that bar
+      started. So either `rememberMonitors()` went empty, which draws no bar and no popup, or the layer surface
+      went away without its state hearing of it. Restarted under `WAYLAND_DEBUG=client` and clicked the same
+      way, it did not happen again. Unexplained; the next occurrence should be caught with the process left
+      running and protocol logging on, since the wire shows which of the two it was.
+- [ ] **Typed `:hyprland` commands for the actions a bar might run, taken from a real `bindings.lua`.** Designed,
+      not agreed. Each sends one `dispatch` and answers `EmptyResult`; a command on a window takes
+      `window: WindowAddress? = null`, null meaning the focused one. `exec(command)` (`exec_cmd`, so Hyprland
+      starts it and it outlives the bar, unlike `shell`), `closeWindow`, `fullscreen(mode, change)`,
+      `float(change)`, `pin(change)`, `moveWindow` to a `Workspace` or a number with `follow`,
+      `toggleSpecial(name)`, `focus(direction)`, `swapWindow(direction)`, `resizeWindow(dx, dy)`,
+      `cycleWindows(forward)`, `layout(message)` and possibly `exit()`.
+      `Change` is `Toggle`, `On`, `Off`, because the dispatchers disagree on the words: `fullscreen` takes
+      `action = "toggle"/"set"/"unset"` while `float` and `pin` go through `parseToggleStr`, which knows
+      `"toggle"`, `"enable"`/`"on"` and `"disable"`/`"off"` and reads anything else, `"set"` included, as a toggle
+      (`LuaBindingsInternal.cpp`, 0.56.2). Open: whether `exit()` belongs at all, a bar button being one misclick
+      from ending the session. Tests planned against the fake socket for every command's Lua, and live against
+      a probe window `exec`'d onto a spare workspace and closed by address, never one of the user's own.
+
 - [x] **`:shell` is the escape hatch for everything no provider covers.** `shell(script, timeout)` runs
       `bash -c` and answers `Ok(ShellOutput(stdout, stderr, exitCode))` for any script that ran to its end,
       since `grep` finding nothing exits 1 and that is an answer. `ShellError` is only for one that could not
