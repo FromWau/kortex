@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.painter.Painter
 import com.fromwau.kortex.tray.TrayIcon
 import androidx.compose.ui.Alignment
@@ -38,6 +39,8 @@ import com.fromwau.kortex.bar.state.BarAction
 import com.fromwau.kortex.bar.state.Posted
 import com.fromwau.kortex.icons.rememberIconPainter
 import com.fromwau.kortex.bar.state.Reading
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The notifications this shell is holding, as a surface of their own in the top right of [monitor].
@@ -87,6 +90,11 @@ private fun NotificationStack(
         verticalArrangement = Arrangement.spacedBy(CARD_GAP),
     ) {
         for (posted in notifications) {
+            LaunchedEffect(posted.id) {
+                if (posted.urgency == Urgency.Critical) return@LaunchedEffect
+                delay(1.seconds)
+                onAction(BarAction.NotificationDismissed(posted.id))
+            }
             NotificationCard(
                 posted = posted,
                 onDismiss = { onAction(BarAction.NotificationDismissed(posted.id)) },
