@@ -21,6 +21,13 @@ import com.fromwau.kortex.bar.state.Reading
 import com.fromwau.kortex.bar.state.TrayEntry
 import com.fromwau.kortex.bar.state.WorkspaceStrip
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.fromwau.kortex.bar.state.NowPlaying
+import com.fromwau.kortex.mpris.Mpris
+import com.fromwau.kern.result.map
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
@@ -46,6 +53,9 @@ interface Desktop {
      * reading the bar shows rather than something that stops it starting.
      */
     val notifications: Flow<Reading<List<Posted>>>
+
+    /** The player the bar shows, with its position moving while it plays, and null while none has a track. */
+    val media: Flow<Reading<NowPlaying?>>
 
     /** The workspace strip for the monitor connected at [connector], as its own bar draws it. */
     fun workspacesOn(connector: String): Flow<Reading<WorkspaceStrip>>
@@ -78,6 +88,13 @@ interface Desktop {
      * happened, and a switch that failed leaves the strip as it was, which is the honest picture.
      */
     suspend fun focusWorkspace(id: Int)
+
+    /**
+     * Plays the player at the bus name [player] if it is paused, and pauses it if it is playing.
+     *
+     * Nothing is handed back, for the reason [close] gives: [media] shows whether it took.
+     */
+    suspend fun playPause(player: String)
 }
 
 /**
@@ -103,6 +120,8 @@ class BusDesktop(
 
     private val server = NotificationServer(bus, identity, scope)
 
+    private val mpris = Mpris(bus, scope)
+
     override val trayRegistry: Flow<String?> = registry.map { held ->
         (held.getOrNull() as? TrayRegistry.HeldElsewhere)?.let { it.process ?: it.owner }
     }
@@ -112,6 +131,20 @@ class BusDesktop(
         combine(registry, trayItems) { _, outcome -> outcome.drawable() }
 
     override val notifications: Flow<Reading<List<Posted>>> = server.notifications.map { outcome -> outcome.readable() }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override val media: Flow<Reading<NowPlaying?>> = mpris.players
+        .map { outcome -> outcome.map { players -> players.chosen() } }
+        .distinctUntilChanged()
+        .flatMapLatest { outcome ->
+            when (outcome) {
+                is Err -> flowOf(outcome.error.reading())
+                is Ok -> when (val player = outcome.value) {
+                    null -> flowOf(Reading.Value(null))
+                    else -> mpris.position(player).map { position -> Reading.Value(player.nowPlaying(position)) }
+                }
+            }
+        }
 
     // Not on the bus: Hyprland has sockets of its own, and connects only once something collects.
     private val hyprland = Hyprland(scope)
@@ -124,6 +157,10 @@ class BusDesktop(
     override val submap: Flow<Reading<String?>> = hyprland.submap.map { it.asSubmap() }
 
     override val keyboardLayout: Flow<Reading<String?>> = hyprland.keyboardLayout.map { it.asLayout() }
+
+    override suspend fun playPause(player: String) {
+        mpris.players.value.getOrNull()?.firstOrNull { it.busName == player }?.let { mpris.playPause(it) }
+    }
 
     override suspend fun focusWorkspace(id: Int) {
         hyprland.focusWorkspace(id)

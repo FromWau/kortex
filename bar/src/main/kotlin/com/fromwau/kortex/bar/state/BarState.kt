@@ -56,6 +56,8 @@ data class BarState(
     val hoveredTray: ItemAddress?,
     val notifications: Reading<List<Posted>>,
     val workspaces: Reading<WorkspaceStrip>,
+    /** The player the bar shows, which is a [Reading.Value] of null while no player has a track. */
+    val media: Reading<NowPlaying?>,
     /** The window with keyboard focus, which is a [Reading.Value] of null while nothing has it. */
     val focusedWindow: Reading<FocusedWindow?>,
     /** The keybind submap in force, a [Reading.Value] of null in the default one. */
@@ -86,6 +88,7 @@ data class BarState(
             hoveredTray = null,
             notifications = Reading.Pending,
             workspaces = Reading.Pending,
+            media = Reading.Pending,
             focusedWindow = Reading.Pending,
             submap = Reading.Pending,
             keyboardLayout = Reading.Pending,

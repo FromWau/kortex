@@ -210,6 +210,21 @@ class BarStateHolderTest {
     }
 
     @Test
+    fun `what is playing reaches the state, and a click on it toggles that player`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        val now = NowPlaying("org.mpris.MediaPlayer2.mpd", "Music", "A song", listOf("Someone"), true, null, null)
+
+        desktop.playing.value = Reading.Value(now)
+        runCurrent()
+        holder.onAction(BarAction.MediaClicked(now.player))
+        runCurrent()
+
+        assertEquals(Reading.Value(now), holder.state.value.media)
+        assertEquals(listOf("org.mpris.MediaPlayer2.mpd"), desktop.toggled)
+    }
+
+    @Test
     fun `the workspaces and the focused window arrive as readings, and nothing focused is a value`() = runTest {
         val desktop = FakeDesktop()
         val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
@@ -284,6 +299,8 @@ private class FakeDesktop : Desktop {
     val window = MutableStateFlow<Reading<FocusedWindow?>?>(null)
     val closed = mutableListOf<Pair<UInt, CloseReason>>()
     val focused = mutableListOf<Int>()
+    val playing = MutableStateFlow<Reading<NowPlaying?>?>(null)
+    val toggled = mutableListOf<String>()
 
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
     override val trayRegistry: Flow<String?> get() = registry
@@ -296,6 +313,7 @@ private class FakeDesktop : Desktop {
     override val submap: Flow<Reading<String?>> get() = mode.answers()
     override val keyboardLayout: Flow<Reading<String?>> get() = layout.answers()
     override val focusedWindow: Flow<Reading<FocusedWindow?>> get() = window.answers()
+    override val media: Flow<Reading<NowPlaying?>> get() = playing.answers()
 
     override suspend fun close(
         id: UInt,
@@ -306,6 +324,10 @@ private class FakeDesktop : Desktop {
 
     override suspend fun focusWorkspace(id: Int) {
         focused += id
+    }
+
+    override suspend fun playPause(player: String) {
+        toggled += player
     }
 }
 

@@ -32,6 +32,7 @@ import com.fromwau.kortex.bar.state.BarAction
 import com.fromwau.kortex.bar.state.BarScheme
 import com.fromwau.kortex.bar.state.BarState
 import com.fromwau.kortex.bar.state.FocusedWindow
+import com.fromwau.kortex.bar.state.NowPlaying
 import com.fromwau.kortex.bar.state.Posted
 import com.fromwau.kortex.bar.state.Reading
 import com.fromwau.kortex.bar.state.SlotShown
@@ -85,6 +86,10 @@ fun BarContent(
             WindowWidget(state.focusedWindow)
         }
 
+        MediaWidget(
+            media = state.media,
+            onClick = { player -> onAction(BarAction.MediaClicked(player)) },
+        )
         SchemeWidget(
             scheme = state.scheme,
             onClick = { onAction(BarAction.SchemeCycled) },
@@ -460,6 +465,43 @@ private fun WindowWidget(window: Reading<FocusedWindow?>) {
     }
 }
 
+/**
+ * What a media player is playing, and how far in. Clicking it plays or pauses that player.
+ *
+ * Nothing at all while no player has a track, since an empty widget would only take room from the title
+ * beside it. A paused track is dimmed rather than labelled, so the widget keeps its width either way.
+ */
+@Composable
+private fun MediaWidget(media: Reading<NowPlaying?>, onClick: (player: String) -> Unit) {
+    when (media) {
+        Reading.Pending -> Unit
+
+        is Reading.Unavailable -> Widget {
+            Label("MEDIA")
+            Unavailable(media)
+        }
+
+        is Reading.Value -> media.value?.let { now ->
+            Widget(onClick = { onClick(now.player) }) {
+                val tone = LocalContentColor.current.let { if (now.playing) it else it.copy(alpha = LABEL_ALPHA) }
+                Label(now.app.uppercase())
+                Readout(now.line(), color = tone, modifier = Modifier.widthIn(max = MEDIA_WIDTH))
+                now.progress()?.let { Readout(it, color = tone) }
+            }
+        }
+    }
+}
+
+/** The artists and the title, as one line. */
+private fun NowPlaying.line(): String =
+    listOf(artists.joinToString(), title).filter { it.isNotBlank() }.joinToString(" - ")
+
+/** How far in, out of how long where the player says, or null where it reports no position. */
+private fun NowPlaying.progress(): String? {
+    val at = position ?: return null
+    return listOfNotNull(at, length).joinToString("/") { it.inWholeSeconds.asClock() }
+}
+
 /** The tint behind an item asking to be noticed, and nothing behind one that is not. */
 @Composable
 private fun TrayEntry.attentionTint(): Color = when {
@@ -554,6 +596,7 @@ private fun Widget(
 }
 
 private val GAUGE_WIDTH = 42.dp
+private val MEDIA_WIDTH = 280.dp
 private val GAUGE_HEIGHT = 6.dp
 private const val LABEL_ALPHA = 0.7f
 private const val TRACK_ALPHA = 0.2f

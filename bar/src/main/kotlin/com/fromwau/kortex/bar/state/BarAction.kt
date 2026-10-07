@@ -35,6 +35,9 @@ sealed interface BarAction {
     /** The workspace numbered [id] was clicked, which switches to it, making it if it is the empty one. */
     data class WorkspaceClicked(val id: Int) : BarAction
 
+    /** The now-playing widget was clicked, which plays the player at the bus name [player] or pauses it. */
+    data class MediaClicked(val player: String) : BarAction
+
     /** The scheme button was clicked, which moves to the next of [BarScheme]. */
     data object SchemeCycled : BarAction
 }

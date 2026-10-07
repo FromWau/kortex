@@ -90,3 +90,16 @@ data class FocusedWindow(
     val appId: String,
     val title: String,
 )
+
+/** What a media player is playing, as the bar names it. */
+data class NowPlaying(
+    /** The bus name a click is sent to. */
+    val player: String,
+    /** The player as it names itself, which is what tells a browser tab from a music player. */
+    val app: String,
+    val title: String,
+    val artists: List<String>,
+    val playing: Boolean,
+    val position: kotlin.time.Duration?,
+    val length: kotlin.time.Duration?,
+)

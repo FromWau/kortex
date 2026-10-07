@@ -16,6 +16,7 @@ dependencies {
     implementation(project(":icons"))
     implementation(project(":tray"))
     implementation(project(":notification"))
+    implementation(project(":mpris"))
     implementation(project(":hyprland"))
     implementation(project(":watch"))
     implementation(project(":dbus"))

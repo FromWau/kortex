@@ -2,6 +2,7 @@ package com.fromwau.kortex.bar
 
 import com.fromwau.kern.result.IError
 import com.fromwau.kortex.hyprland.HyprlandError
+import com.fromwau.kortex.mpris.MprisError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.watch.WatchError
@@ -26,6 +27,9 @@ sealed interface BarError : IError {
 
     /** This shell is not the notification server, as `:notification` reported it. */
     data class NotServing(val error: NotificationError) : BarError
+
+    /** The media players could not be read, as `:mpris` reported it. */
+    data class NoMedia(val error: MprisError) : BarError
 
     /** Hyprland's workspaces or focused window could not be read, as `:hyprland` reported it. */
     data class NoHyprland(val error: HyprlandError) : BarError

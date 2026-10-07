@@ -59,7 +59,10 @@ class BarStateHolder(
             desktop.notifications.pendingFirst(),
             desktop.workspacesOn(monitor).pendingFirst(),
             desktop.focusedWindow.pendingFirst(),
-        ) { tray, notifications, workspaces, window -> Services(tray, notifications, workspaces, window) },
+            desktop.media.pendingFirst(),
+        ) { tray, notifications, workspaces, window, media ->
+            Services(tray, notifications, workspaces, window, media)
+        },
         combine(
             desktop.submap.pendingFirst(),
             desktop.keyboardLayout.pendingFirst(),
@@ -77,6 +80,7 @@ class BarStateHolder(
             hoveredTray = mine.hovered,
             notifications = services.notifications,
             workspaces = services.workspaces,
+            media = services.media,
             focusedWindow = services.window,
             submap = keyboard.submap,
             keyboardLayout = keyboard.layout,
@@ -100,6 +104,7 @@ class BarStateHolder(
             is BarAction.TrayHovered -> own.update { mine -> mine.copy(hovered = action.address) }
             is BarAction.NotificationClosed -> scope.launch { desktop.close(action.id, action.reason) }
             is BarAction.WorkspaceClicked -> scope.launch { desktop.focusWorkspace(action.id) }
+            is BarAction.MediaClicked -> scope.launch { desktop.playPause(action.player) }
             BarAction.SchemeCycled -> own.update { mine -> mine.copy(scheme = mine.scheme.next()) }
         }
     }
@@ -169,6 +174,7 @@ class BarStateHolder(
         val notifications: Reading<List<Posted>>,
         val workspaces: Reading<WorkspaceStrip>,
         val window: Reading<FocusedWindow?>,
+        val media: Reading<NowPlaying?>,
     )
 
     /** What the keyboard is doing, combined for the same reason as [Machine]. */

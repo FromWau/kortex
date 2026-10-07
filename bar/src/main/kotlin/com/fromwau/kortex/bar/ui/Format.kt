@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.hyprland.HyprlandError
+import com.fromwau.kortex.mpris.MprisError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.watch.WatchError
@@ -46,6 +47,7 @@ fun BarError.shortly(): String = when (this) {
     is BarError.Unparseable -> error.shortly()
     is BarError.NoSensor -> "no sensor"
     is BarError.NoTray -> error.shortly()
+    is BarError.NoMedia -> error.shortly()
     is BarError.NotServing -> error.shortly()
     is BarError.NoHyprland -> error.shortly()
 }
@@ -68,6 +70,13 @@ private fun WatchError.shortly(): String = when (this) {
     is WatchError.FolderUnreadable -> "cannot read the folder of ${path.name}"
     is WatchError.WatchRefused -> "watch refused for ${path.name}"
     is WatchError.WatchEnded -> "watch on ${path.name} ended"
+}
+
+private fun MprisError.shortly(): String = when (this) {
+    MprisError.NotConnected -> "connecting"
+    MprisError.NoTrack -> "no track"
+    is MprisError.BusDown -> reason.shortly()
+    is MprisError.BusFailed -> cause.shortly()
 }
 
 private fun TrayError.shortly(): String = when (this) {
