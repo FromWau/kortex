@@ -1925,7 +1925,8 @@ version the better one. None is designed.
       `position` is deliberately not reactive and the docs tell the user to poll it from a timer. A flow that
       extrapolates while playing and corrects on `Seeked` is the better shape.
 - [ ] **Power: UPower and power profiles.** Draft. Quickshell has the display device, every device, on
-      battery, and a writable profile. Battery is the reading `:watch` gave up on when `:sysinfo` was dropped.
+      battery, and a writable profile. Battery is where `/sys/class/power_supply` through `:watch` says less
+      than UPower does, which the `:sysinfo` entry left for when the system bus exists.
 - [ ] **Network: NetworkManager.** Draft. Quickshell does Wi-Fi and Ethernet, connecting with a PSK, and has
       no secret agent, so a network needing a password it does not have fails as `NoSecrets`. A secret agent
       is where kortex could do better.
@@ -1939,8 +1940,10 @@ version the better one. None is designed.
       above.
 - [ ] **`:notification` against Quickshell's server.** Draft. Quickshell opts into capabilities one by one
       (actions, markup, images, persistence, inline reply) and has no expiry timer, leaving `expire()` to the
-      user. Compare what kortex's server advertises and whether it honours a notification's own timeout,
-      rather than leaving that to the bar as `3287c0b` does.
+      user. kortex's server times nothing either, by design: it hands each notification the `Expiry` its
+      application asked for. The bar is where that goes wrong today, since `3287c0b` closes every
+      non-critical notification after one second whatever its `Expiry` says, and reports that as a
+      dismissal rather than an expiry. Compare the capabilities the server advertises as well.
 
 **Runtime**
 
