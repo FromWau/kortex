@@ -19,6 +19,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import com.fromwau.kern.result.assertSuccess
 
 /**
  * The half a tray host can never exercise: answering a call rather than making one.
@@ -175,7 +176,7 @@ class ExportedObjectTest {
             val rule = MatchRule(sender = server.uniqueName, iface = IFACE, path = PATH)
             assertEquals(Ok(Unit), client.addMatch(rule))
 
-            val waiting = async(Dispatchers.IO) { client.signals(rule).first() }
+            val waiting = async(Dispatchers.IO) { client.signals(rule).first().assertSuccess() }
             val arrived = withTimeoutOrNull(10.seconds) {
                 while (!waiting.isCompleted) {
                     server.emit(PATH, IFACE, "Happened", listOf(DBusValue.U32(9u)))

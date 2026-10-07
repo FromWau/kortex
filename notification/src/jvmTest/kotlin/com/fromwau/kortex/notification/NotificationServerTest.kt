@@ -4,6 +4,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.assertSuccess
 import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
@@ -325,7 +326,8 @@ class NotificationServerTest {
         val waiting = async(Dispatchers.IO) {
             on.allSignals
                 .onSubscription { ready.complete(Unit) }
-                .first { signal -> rule.matches(signal) }
+                .first { received -> received !is Ok || rule.matches(received.value) }
+                .assertSuccess()
         }
         ready.await()
         trigger()

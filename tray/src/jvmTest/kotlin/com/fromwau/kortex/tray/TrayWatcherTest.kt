@@ -198,7 +198,8 @@ class TrayWatcherTest {
         scope.launch {
             allSignals
                 .onSubscription { subscribed.complete(Unit) }
-                .collect { signal ->
+                .collect { received ->
+                    val signal = (received as? Ok)?.value ?: return@collect
                     val announced = signal.member == ITEM_REGISTERED &&
                         signal.body.firstOrNull()?.asText == address.toString()
                     if (announced) seen.update { it + 1 }

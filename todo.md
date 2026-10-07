@@ -1819,6 +1819,19 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       and checks the `SessionBus` state sequence, signals ending with the connection, the tray reading
       again, a menu reading again and the notification server serving again.
       **Order:** the death made visible first, then `SessionBus`, then one provider at a time, then the bar.
+      **Step 1 is done.** `closed: StateFlow<DBusError?>` holds the reason once dead. `allSignals` carries
+      `Result<Message.Signal, DBusError>`, each signal as `Ok` and the death as one `Err` the pump sends
+      after the last of them, so nothing the bus delivered is cut off; a subscriber arriving after the
+      death is given the `Err` at once, and `signals(rule)` completes after it. A shared flow cannot
+      complete, which is why the end is a value rather than the flow finishing, and why a channel per
+      subscriber was turned down: it would have added a type and a scope to the API for the same guarantee.
+      `Tray`, `Menu`, `TrayWatcher` and `serve` stop at the `Err` and report `BusFailed` until step 3 gives
+      them `BusDown`, where before they waited forever. `ConnectionDeathTest` runs against a `dbus-daemon`
+      it starts and kills itself (`PrivateBus`, kept for the steps after this one). Its mutations fail it
+      for the in-band end, the late subscriber and `closed`. The `tryEmit` in `close()` survives its
+      mutation, because closing the socket wakes the pump, which usually sends the end before the scope's
+      cancellation reaches it; the `tryEmit` is what makes the end certain rather than likely, and the test
+      cannot tell the two apart.
       The constructors of the four providers change, which is a breaking change to their public API and
       every caller in kortex moves with it.
 

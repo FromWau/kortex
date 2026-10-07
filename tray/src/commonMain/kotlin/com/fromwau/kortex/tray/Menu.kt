@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
+import kotlinx.coroutines.flow.transformWhile
+import com.fromwau.kortex.dbus.DBusError
 
 /**
  * The menu an application exports beside its tray item, as data.
@@ -68,6 +70,7 @@ public class Menu internal constructor(
         connection.addMatch(rule).getOrElse { return@flow }
         emitAll(
             connection.signals(rule)
+                .mapNotNull { received -> (received as? Ok)?.value }
                 .filter { it.member == ACTIVATION_REQUESTED }
                 .mapNotNull { signal -> signal.body.firstOrNull()?.asInt32 },
         )
@@ -117,19 +120,34 @@ public class Menu internal constructor(
             return@channelFlow
         }
 
-        // Subscribed before the first read, so a menu that changes between the two is not missed.
-        val signals = Channel<Message.Signal>(Channel.UNLIMITED)
+        // Subscribed before the first read, so a menu that changes between the two is not missed. The
+        // connection's end arrives after its signals, and is passed on in that order.
+        val signals = Channel<Result<Message.Signal, DBusError>>(Channel.UNLIMITED)
         val subscribed = CompletableDeferred<Unit>()
         launch {
             connection.allSignals
                 .onSubscription { subscribed.complete(Unit) }
-                .filter { rule.matches(it) && it.member in CHANGED }
-                .collect { signal -> signals.send(signal) }
+                .transformWhile { received ->
+                    emit(received)
+                    received is Ok
+                }
+                .filter { received ->
+                    received !is Ok || (rule.matches(received.value) && received.value.member in CHANGED)
+                }
+                .collect { received -> signals.send(received) }
         }
         subscribed.await()
 
         this@channelFlow.send(readLayout())
-        for (changed in signals) this@channelFlow.send(readLayout())
+        for (received in signals) {
+            when (received) {
+                is Ok -> this@channelFlow.send(readLayout())
+                is Err -> {
+                    this@channelFlow.send(Err(TrayError.BusFailed(received.error)))
+                    return@channelFlow
+                }
+            }
+        }
     }.onCompletion { withContext(NonCancellable) { connection.removeMatch(rule) } }
 
     /**

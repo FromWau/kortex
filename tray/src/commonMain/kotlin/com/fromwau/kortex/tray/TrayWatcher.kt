@@ -33,6 +33,8 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlinx.coroutines.flow.transformWhile
+import com.fromwau.kortex.dbus.DBusError
 
 /**
  * The tray's registry, for a shell that is the only bar on the desktop.
@@ -164,7 +166,11 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
      * itself, which is the one peer whose word on this can be trusted.
      */
     private suspend fun watchForDepartures() {
-        connection.allSignals.collect { signal ->
+        // Ends with the connection: the registry it keeps is gone with it.
+        connection.allSignals.transformWhile { received ->
+            if (received is Ok) emit(received.value)
+            received is Ok
+        }.collect { signal ->
             if (signal.iface != Bus.INTERFACE || signal.member != Bus.NAME_OWNER_CHANGED) return@collect
 
             val gone = signal.body.getOrNull(0)?.asText ?: return@collect
@@ -283,10 +289,16 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
             val listening = scope.launch {
                 connection.allSignals
                     .onSubscription { subscribed.complete(Unit) }
+                    .transformWhile { received ->
+                        if (received is Ok) emit(received.value)
+                        received is Ok
+                    }
                     .filter { it.iface == Bus.INTERFACE && it.member == Bus.NAME_OWNER_CHANGED }
                     .filter { it.body.firstOrNull()?.asText == KDE_WATCHER.service }
                     .filter { it.body.getOrNull(2)?.asText.isNullOrEmpty() }
                     .collect { freed.send(Unit) }
+                // The connection ended, so no name will change hands on it again.
+                freed.close()
             }
             subscribed.await()
 
@@ -294,7 +306,10 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
             scope.launch {
                 try {
                     while (held.value.getOrNull() !is TrayRegistry.HeldHere) {
-                        freed.receive()
+                        if (freed.receiveCatching().isClosed) {
+                            held.value = Err(TrayError.BusFailed(connection.closed.value ?: DBusError.Disconnected))
+                            break
+                        }
                         held.value = claim(connection, scope)
                     }
                 } finally {

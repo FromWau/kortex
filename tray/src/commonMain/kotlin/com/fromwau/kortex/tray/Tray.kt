@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -115,17 +116,28 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         }
 
         // Subscribed before the first look for a watcher, so neither a watcher nor an item that arrives in
-        // between is missed.
+        // between is missed. Closed at the connection's end, after its last signal, so every loop below
+        // drains what arrived and stops.
         val signals = Channel<Message.Signal>(Channel.UNLIMITED)
         val subscribed = CompletableDeferred<Unit>()
         launch {
             connection.allSignals
                 .onSubscription { subscribed.complete(Unit) }
+                .transformWhile { received ->
+                    if (received is Ok) emit(received.value)
+                    received is Ok
+                }
                 .collect { signal -> signals.send(signal) }
+            signals.close()
         }
         subscribed.await()
 
         while (true) {
+            connection.closed.value?.let { death ->
+                send(Err(TrayError.BusFailed(death)))
+                return@channelFlow
+            }
+
             val watcher = findWatcher().getOrNull()
             if (watcher == null) {
                 send(Err(TrayError.NoWatcher))

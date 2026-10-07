@@ -18,9 +18,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -69,7 +73,7 @@ public class DBusConnection private constructor(
     private val serials = AtomicInteger(0)
     private val pending = ConcurrentHashMap<UInt, CompletableDeferred<Result<Message, DBusError>>>()
     private val writing = Mutex()
-    private val received = MutableSharedFlow<Message.Signal>(
+    private val received = MutableSharedFlow<Result<Message.Signal, DBusError>>(
         extraBufferCapacity = SIGNAL_BUFFER,
         onBufferOverflow = BufferOverflow.SUSPEND,
     )
@@ -85,20 +89,38 @@ public class DBusConnection private constructor(
     @Volatile
     private var death: DBusError? = null
 
+    private val dead = MutableStateFlow<DBusError?>(null)
+
+    /** Why the connection ended, or null while it is open. Once set it never changes back. */
+    public val closed: StateFlow<DBusError?> get() = dead.asStateFlow()
+
     /** The unique name the bus gave this connection, such as `:1.31`. */
     public val uniqueName: String get() = checkNotNull(name) { "the connection was used before Hello answered" }
 
     /**
-     * Every signal the bus has routed here, whatever asked for it.
+     * Every signal the bus has routed here, whatever asked for it, and then why the connection ended.
+     *
+     * Each signal arrives as `Ok`, and the connection's death as one `Err` after the last of them, so nothing
+     * the bus delivered before the end is cut off. A subscriber that arrives after the death is given the
+     * `Err` at once. The flow itself never completes, being shared, so a collector stops at the `Err`.
      *
      * A [SharedFlow] rather than a plain one so that a collector can act on `onSubscription`: nothing is
      * replayed, so a subscriber that reads its starting state before it is subscribed loses whatever
      * arrived in between.
      */
-    public val allSignals: SharedFlow<Message.Signal> get() = received.asSharedFlow()
+    public val allSignals: SharedFlow<Result<Message.Signal, DBusError>>
+        get() = received.onSubscription { death?.let { emit(Err(it)) } }
 
-    /** The signals [rule] asked for, picked out of everything the bus routes to this one socket. */
-    public fun signals(rule: MatchRule): Flow<Message.Signal> = received.filter(rule::matches)
+    /**
+     * The signals [rule] asked for, picked out of everything the bus routes to this one socket, and then
+     * why the connection ended: the `Err` is the last value, after which the flow completes.
+     */
+    public fun signals(rule: MatchRule): Flow<Result<Message.Signal, DBusError>> = allSignals
+        .filter { received -> received !is Ok || rule.matches(received.value) }
+        .transformWhile { received ->
+            emit(received)
+            received is Ok
+        }
 
     /**
      * Calls [member] and waits for the reply.
@@ -270,6 +292,9 @@ public class DBusConnection private constructor(
         // is what makes it return so the pump can end.
         runCatching { channel.close() }
         finish(DBusError.Disconnected)
+        // Not emit: this does not suspend, and the pump that would otherwise announce the end is being
+        // cancelled with the scope. A subscriber stalled past the buffer misses it, and is stalled anyway.
+        death?.let { received.tryEmit(Err(it)) }
         scope.cancel()
     }
 
@@ -305,7 +330,7 @@ public class DBusConnection private constructor(
             try {
                 while (true) {
                     val message = readMessage().getOrElse { error ->
-                        finish(error)
+                        end(error)
                         return@launch
                     }
                     deliver(message)
@@ -315,7 +340,7 @@ public class DBusConnection private constructor(
             } catch (failure: Throwable) {
                 // Errors included. Whatever ends this coroutine, nothing will read the socket again, and a
                 // connection that is deaf without being dead fails no waiter and refuses no new call.
-                finish(DBusError.ReaderFailed(failure.toString()))
+                end(DBusError.ReaderFailed(failure.toString()))
             }
         }
     }
@@ -324,7 +349,7 @@ public class DBusConnection private constructor(
         when (message) {
             is Message.Return -> pending[message.replySerial]?.complete(Ok(message))
             is Message.Failure -> pending[message.replySerial]?.complete(Ok(message))
-            is Message.Signal -> received.emit(message)
+            is Message.Signal -> received.emit(Ok(message))
             // Answered off the pump: a handler that takes its time would otherwise stop the socket being
             // read, and replies are matched by serial, so answering out of order is what the bus expects.
             is Message.Call -> scope.launch { answer(message) }
@@ -390,6 +415,13 @@ public class DBusConnection private constructor(
         val cause = death ?: error.also { death = it }
         pending.values.forEach { waiting -> waiting.complete(Err(cause)) }
         pending.clear()
+        dead.value = cause
+    }
+
+    /** The pump's own end: everything [finish] does, and the end told to every subscriber after its signals. */
+    private suspend fun end(error: DBusError) {
+        finish(error)
+        death?.let { received.emit(Err(it)) }
     }
 
     private fun readMessage(): Result<Message, DBusError> {

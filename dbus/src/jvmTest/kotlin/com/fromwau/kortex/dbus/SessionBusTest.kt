@@ -3,6 +3,8 @@ package com.fromwau.kortex.dbus
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.assertSuccess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -335,10 +337,10 @@ class SessionBusTest {
      * removes the race entirely.
      */
     private suspend fun CoroutineScope.collectWhile(
-        signals: Flow<Message.Signal>,
+        signals: Flow<Result<Message.Signal, DBusError>>,
         trigger: suspend () -> Unit,
     ): Message.Signal? {
-        val waiting = async(Dispatchers.IO) { signals.first() }
+        val waiting = async(Dispatchers.IO) { signals.first().assertSuccess() }
         return withTimeoutOrNull(10.seconds) {
             while (!waiting.isCompleted) {
                 trigger()
