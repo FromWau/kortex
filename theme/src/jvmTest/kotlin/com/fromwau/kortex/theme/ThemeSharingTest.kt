@@ -3,10 +3,10 @@ package com.fromwau.kortex.theme
 import androidx.compose.ui.graphics.Color
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.assertSuccess
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -38,8 +38,8 @@ class ThemeSharingTest {
             .onStart { reads++ }
             .stateIn(backgroundScope, SharingStarted.Eagerly, themeUnread(file))
 
-        assertIs<Ok<Theme>>(shared.firstRead())
-        assertIs<Ok<Theme>>(shared.firstRead())
+        shared.firstRead().assertSuccess()
+        shared.firstRead().assertSuccess()
 
         assertEquals(1, reads, "a shared theme read the file more than once")
     }
@@ -99,7 +99,7 @@ class ThemeSharingTest {
     private suspend fun Flow<Result<Theme, ColorSchemeError>>.firstRead() = first { read -> read is Ok }
 
     private suspend fun Flow<Result<Theme, ColorSchemeError>>.firstTheme(): Theme =
-        assertIs<Ok<Theme>>(firstRead()).value
+        firstRead().assertSuccess()
 
     /** A theme on disk, one per test, so no test can see a file another one wrote. */
     private fun themeFile(primary: String = BLUE): Path {

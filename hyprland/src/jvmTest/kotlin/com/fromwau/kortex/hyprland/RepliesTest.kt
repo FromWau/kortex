@@ -2,12 +2,12 @@ package com.fromwau.kortex.hyprland
 
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
-import com.fromwau.kern.result.getOrNull
+import com.fromwau.kern.result.assertError
+import com.fromwau.kern.result.assertSuccess
 import kotlinx.serialization.builtins.ListSerializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /** Hyprland's answers, as recorded from 0.56.2 under `src/jvmTest/resources/recorded`. */
@@ -28,7 +28,7 @@ class RepliesTest {
         val workspaces = decode(WORKSPACES, Recorded.workspaces, ListSerializer(WorkspaceReply.serializer()))
         val monitors = decode(MONITORS, Recorded.monitors, ListSerializer(MonitorReply.serializer()))
 
-        val decoded = monitorsFrom(workspaces.getOrNull()!!, monitors.getOrNull()!!, urgent = emptySet())
+        val decoded = monitorsFrom(workspaces.assertSuccess(), monitors.assertSuccess(), urgent = emptySet())
 
         assertEquals(
             listOf(
@@ -108,7 +108,7 @@ class RepliesTest {
 
     @Test
     fun recordedActiveWindowDecodes() {
-        val window = assertIs<Ok<ActiveWindow?>>(activeWindowFrom(Recorded.activeWindow)).value!!
+        val window = checkNotNull(activeWindowFrom(Recorded.activeWindow).assertSuccess())
 
         assertEquals(WindowAddress("0x55d7c479f890"), window.address)
         assertEquals("com.mitchellh.ghostty", window.appId)
@@ -130,7 +130,7 @@ class RepliesTest {
     fun jsonOfTheWrongShapeIsUnparseable() {
         val decoded = decode(WORKSPACES, """[{"id":"one"}]""", ListSerializer(WorkspaceReply.serializer()))
 
-        assertEquals(WORKSPACES, assertIs<HyprlandError.Unparseable>((decoded as Err).error).request)
+        assertEquals(WORKSPACES, decoded.assertError<HyprlandError.Unparseable>().request)
     }
 
     @Test

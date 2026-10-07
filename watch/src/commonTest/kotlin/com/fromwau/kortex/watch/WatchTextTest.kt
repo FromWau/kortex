@@ -6,6 +6,7 @@ import com.fromwau.kern.dirs.div
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.assertSuccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -19,7 +20,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -164,12 +164,12 @@ class WatchTextTest {
         val file = Path("/proc/meminfo")
 
         watching(file.readTextEvery(50.milliseconds)) { reads ->
-            val first = assertIs<Ok<String>>(reads.receive())
+            val first = reads.receive().assertSuccess()
             // Moves MemAvailable, so the next read differs without waiting on whatever else the machine does.
             val ballast = ByteArray(64 * 1024 * 1024) { 1 }
-            val second = assertIs<Ok<String>>(reads.receive())
+            val second = reads.receive().assertSuccess()
 
-            assertNotEquals(first.value, second.value, "two reads of /proc/meminfo were identical")
+            assertNotEquals(first, second, "two reads of /proc/meminfo were identical")
             assertEquals(1, ballast[0], "the allocation was optimised away, so nothing moved")
         }
     }

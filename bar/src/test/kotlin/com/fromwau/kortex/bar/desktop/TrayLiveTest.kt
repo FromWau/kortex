@@ -3,6 +3,7 @@ package com.fromwau.kortex.bar.desktop
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.assertError
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.tray.Tray
@@ -11,7 +12,6 @@ import com.fromwau.kortex.tray.TrayItem
 import com.fromwau.kortex.tray.TrayStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
@@ -38,7 +38,7 @@ class TrayLiveTest {
     @Test
     fun `the tray's first value is NotConnected, so a bar can tell nothing-yet from no-tray`() =
         withLiveTray { tray ->
-            assertEquals(TrayError.NotConnected, assertIs<Err<TrayError>>(tray.items.value).error)
+            assertEquals(TrayError.NotConnected, tray.items.value.assertError<TrayError>())
         }
 
     @Test

@@ -4,6 +4,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.getOrNull
+import com.fromwau.kern.result.assertSuccess
 import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.dbus.MatchRule
 import com.fromwau.kortex.dbus.asItems
@@ -60,8 +61,7 @@ class TrayWatcherTest {
     @Test
     fun `a shell that does not get the name is told who did`() = withWatcher { _, held ->
         onSecondConnection { connection, scope ->
-            val claimed = assertIs<Ok<TrayRegistry>>(TrayWatcher.claim(connection, scope))
-            val elsewhere = assertIs<TrayRegistry.HeldElsewhere>(claimed.value)
+            val elsewhere = assertIs<TrayRegistry.HeldElsewhere>(TrayWatcher.claim(connection, scope).assertSuccess())
 
             assertEquals(held.uniqueName, elsewhere.owner)
             assertEquals(ProcessHandle.current().pid().toInt(), elsewhere.pid, "found the wrong process")
@@ -154,7 +154,7 @@ class TrayWatcherTest {
                     tray.items.first { it != Err(TrayError.NotConnected) }
                 } ?: fail("the host never read its own registry, which is what a self-call deadlock does")
 
-                val items = assertIs<Ok<List<TrayItem>>>(settled).value
+                val items = settled.assertSuccess()
                 // Contains rather than equals: this runs against a live bus, and an application that
                 // re-registers the moment the name is taken is in the registry too.
                 assertContains(items.map { it.address }, ItemAddress(item.uniqueName, ItemAddress.DEFAULT_PATH))

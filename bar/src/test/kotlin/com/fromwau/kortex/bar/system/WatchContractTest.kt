@@ -1,9 +1,10 @@
 package com.fromwau.kortex.bar.system
 
 import com.fromwau.kern.dirs.FileError
-import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.assertError
+import com.fromwau.kern.result.assertSuccess
 import com.fromwau.kortex.watch.Pseudofilesystem
 import com.fromwau.kortex.watch.WatchError
 import com.fromwau.kortex.watch.readTextEvery
@@ -47,9 +48,9 @@ class WatchContractTest {
             Path("/proc/stat").readTextEvery(100.milliseconds).take(2).toList()
         }
 
-        val times = readings.map { reading -> assertIs<Ok<String>>(reading).value }.map(::parseCpuTimes)
-        val earlier = assertIs<Ok<CpuTimes>>(times.first()).value
-        val later = assertIs<Ok<CpuTimes>>(times.last()).value
+        val times = readings.map { reading -> reading.assertSuccess() }.map(::parseCpuTimes)
+        val earlier = times.first().assertSuccess()
+        val later = times.last().assertSuccess()
         assertTrue(later.total > earlier.total, "the jiffy counters did not move: $earlier then $later")
     }
 
@@ -58,7 +59,7 @@ class WatchContractTest {
         runBlocking {
             val first = withTimeout(TIMEOUT) { Path("/proc/meminfo").watchText().first() }
 
-            val refusal = assertIs<WatchError.Unwatchable>(assertIs<Err<WatchError>>(first).error)
+            val refusal = first.assertError<WatchError.Unwatchable>()
             assertEquals(Pseudofilesystem.Proc, refusal.filesystem)
         }
 
@@ -69,7 +70,7 @@ class WatchContractTest {
 
         val first = withTimeout(TIMEOUT) { sensor.value.input.watchText().first() }
 
-        val refusal = assertIs<WatchError.Unwatchable>(assertIs<Err<WatchError>>(first).error)
+        val refusal = first.assertError<WatchError.Unwatchable>()
         assertEquals(Pseudofilesystem.Sysfs, refusal.filesystem)
     }
 
@@ -92,7 +93,7 @@ class WatchContractTest {
                 }
             }
 
-            assertEquals(listOf("one"), readings.map { reading -> assertIs<Ok<String>>(reading).value })
+            assertEquals(listOf("one"), readings.map { reading -> reading.assertSuccess() })
         }
 
     @Test
@@ -113,9 +114,9 @@ class WatchContractTest {
             }
             val readings = collected
 
-            val missing = assertIs<WatchError.Unreadable>(assertIs<Err<WatchError>>(readings.first()).error)
+            val missing = readings.first().assertError<WatchError.Unreadable>()
             assertIs<FileError.NotFound>(missing.cause)
-            assertEquals("here now", assertIs<Ok<String>>(readings.last()).value)
+            assertEquals("here now", readings.last().assertSuccess())
         }
 
     @Test
@@ -125,7 +126,7 @@ class WatchContractTest {
                 Path("/proc/meminfo").readTextEvery(100.milliseconds, maxBytes = 8).first()
             }
 
-            val failure = assertIs<WatchError.Unreadable>(assertIs<Err<WatchError>>(first).error)
+            val failure = first.assertError<WatchError.Unreadable>()
             assertIs<FileError.TooLarge>(failure.cause)
         }
     }

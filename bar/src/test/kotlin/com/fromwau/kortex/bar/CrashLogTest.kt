@@ -1,6 +1,7 @@
 package com.fromwau.kortex.bar
 
 import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.assertError
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.compose.ContentFailure
 import com.fromwau.kortex.wayland.KortexError
@@ -8,7 +9,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -90,7 +90,7 @@ class CrashLogTest {
 
             val result = appendCrash(dir, crash)
 
-            assertIs<Err<CrashLogWriteFailed>>(result)
+            result.assertError<CrashLogWriteFailed>()
         } finally {
             dir.toFile().deleteRecursively()
         }

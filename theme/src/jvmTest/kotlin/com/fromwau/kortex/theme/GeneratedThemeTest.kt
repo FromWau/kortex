@@ -1,8 +1,8 @@
 package com.fromwau.kortex.theme
 
 import com.fromwau.kern.dirs.FileError
-import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.assertError
 import com.fromwau.kortex.watch.WatchError
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -46,9 +46,7 @@ class GeneratedThemeTest {
     fun `a theme file that does not exist is reported as unreadable`() = runTest {
         val missing = Path("$GENERATED.nothing-here")
 
-        val first = assertIs<Err<ColorSchemeError>>(themeIn(missing).first())
-
-        val unreadable = assertIs<ColorSchemeError.Unreadable>(first.error)
+        val unreadable = themeIn(missing).first().assertError<ColorSchemeError.Unreadable>()
         assertIs<FileError.NotFound>(assertIs<WatchError.Unreadable>(unreadable.cause).cause)
     }
 

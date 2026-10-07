@@ -3,6 +3,8 @@ package com.fromwau.kortex.shell
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.assertError
+import com.fromwau.kern.result.assertSuccess
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -15,7 +17,6 @@ import kotlin.io.path.readText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -53,7 +54,7 @@ class ShellTest {
     fun aMegabyteOnBothStreamsDoesNotStall() = runBlocking {
         val script = "head -c $MEGABYTE /dev/zero | tr '\\0' a; head -c $MEGABYTE /dev/zero | tr '\\0' b >&2"
 
-        val output = assertIs<Ok<ShellOutput>>(withTimeout(TIMEOUT) { shell(script) }).value
+        val output = withTimeout(TIMEOUT) { shell(script) }.assertSuccess()
 
         assertEquals(MEGABYTE, output.stdout.length)
         assertEquals(MEGABYTE, output.stderr.length)
@@ -74,7 +75,7 @@ class ShellTest {
         }
 
         assertEquals(Err(ShellError.TimedOut(500.milliseconds, "started\n")), result)
-        assertEquals(124, (result as Err).error.exitCode)
+        assertEquals(124, result.assertError<ShellError.TimedOut>().exitCode)
         assertGone(pidFile)
     }
 
@@ -124,12 +125,12 @@ class ShellTest {
     fun aShellThatCannotStartSaysSoWithTheCodeForIt() = runBlocking {
         val result = shell("echo hi", timeout = null, executable = "kortex-no-such-shell")
 
-        val error = assertIs<ShellError.NotStarted>((result as Err).error)
+        val error = result.assertError<ShellError.NotStarted>()
         assertEquals(127, error.exitCode)
     }
 
     private fun stdoutOf(result: Result<ShellOutput, ShellError>): String =
-        assertIs<Ok<ShellOutput>>(result).value.stdout
+        result.assertSuccess().stdout
 
     /** The process whose pid the script wrote to [pidFile] is no longer running. */
     private suspend fun assertGone(pidFile: Path) {

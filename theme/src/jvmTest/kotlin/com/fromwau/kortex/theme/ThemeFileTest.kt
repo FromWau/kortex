@@ -1,14 +1,13 @@
 package com.fromwau.kortex.theme
 
+import com.fromwau.kern.result.assertError
+import com.fromwau.kern.result.assertSuccess
 import androidx.compose.ui.graphics.Color
-import com.fromwau.kern.result.Err
-import com.fromwau.kern.result.Ok
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertIs
 import kotlin.test.assertSame
 
 /**
@@ -63,14 +62,12 @@ class ThemeFileTest {
     /** The keys the generator writes that this schema does not name, which must not fail the parse. */
     @Test
     fun `fields the schema does not declare are passed over`() {
-        assertIs<Ok<FileColorTheme>>(decode(themeText(mode = "dark")))
+        decode(themeText(mode = "dark")).assertSuccess()
     }
 
     @Test
     fun `a file naming a mode that does not exist is reported`() {
-        val failure = assertIs<Err<ColorSchemeError>>(decode(themeText(mode = "sepia")))
-
-        assertIs<ColorSchemeError.Unparseable>(failure.error)
+        decode(themeText(mode = "sepia")).assertError<ColorSchemeError.Unparseable>()
     }
 
     @Test
@@ -80,16 +77,14 @@ class ThemeFileTest {
 
     @Test
     fun `text that is not a theme at all is reported, not thrown`() {
-        val failure = assertIs<Err<ColorSchemeError>>(decode("not json"))
-
-        assertIs<ColorSchemeError.Unparseable>(failure.error)
+        decode("not json").assertError<ColorSchemeError.Unparseable>()
     }
 
     @Test
     fun `a theme missing one of its roles is reported, not half built`() {
         val missing = themeText(mode = "dark").replace("\"outline\":", "\"notARole\":")
 
-        assertIs<Err<ColorSchemeError>>(decode(missing))
+        decode(missing).assertError<ColorSchemeError>()
     }
 
     /**
@@ -130,7 +125,7 @@ class ThemeFileTest {
     private fun colorIn(text: String): Color = Json.decodeFromString(ColorSerializer, "\"$text\"")
 
     private fun themeOf(mode: String, wallpaper: String? = "/a/wall.png"): FileColorTheme =
-        assertIs<Ok<FileColorTheme>>(decode(themeText(mode, wallpaper))).value
+        decode(themeText(mode, wallpaper)).assertSuccess()
 
     /**
      * A theme file as the generator writes one: both schemes, and the three fields this schema ignores.

@@ -1,11 +1,10 @@
 package com.fromwau.kortex.bar.system
 
-import com.fromwau.kern.result.Err
-import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.assertError
+import com.fromwau.kern.result.assertSuccess
 import com.fromwau.kern.result.getOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class ProcfsTest {
@@ -30,26 +29,26 @@ class ProcfsTest {
         val earlier = CpuTimes(busy = 500, total = 1000)
         val later = CpuTimes(busy = 10, total = 20)
 
-        assertIs<ParseFailure.OutOfRange>(assertIs<Err<ParseFailure>>(CpuTimes.load(earlier, later)).error)
+        CpuTimes.load(earlier, later).assertError<ParseFailure.OutOfRange>()
     }
 
     @Test
     fun `two readings taken at the same moment are out of range rather than a division by zero`() {
         val same = CpuTimes(busy = 100, total = 1000)
 
-        assertIs<Err<ParseFailure>>(CpuTimes.load(same, same))
+        CpuTimes.load(same, same).assertError<ParseFailure>()
     }
 
     @Test
     fun `a stat file without the aggregate line names the line it wanted`() {
-        val failure = assertIs<Err<ParseFailure>>(parseCpuTimes("cpu0 1 2 3 4\nintr 0\n")).error
+        val failure = parseCpuTimes("cpu0 1 2 3 4\nintr 0\n").assertError<ParseFailure>()
 
         assertEquals(ParseFailure.MissingLine("cpu "), failure)
     }
 
     @Test
     fun `memory in use is what is not available, out of the machine's total`() {
-        val memory = assertIs<Ok<MemoryUse>>(parseMemoryUse(MEMINFO)).value
+        val memory = parseMemoryUse(MEMINFO).assertSuccess()
 
         assertEquals(MemoryUse(usedKib = 24_641_820, totalKib = 65_706_932), memory)
         assertTrue(memory.fraction in 0.37f..0.38f, "fraction was ${memory.fraction}")
@@ -57,14 +56,14 @@ class ProcfsTest {
 
     @Test
     fun `meminfo without MemAvailable names the line it wanted`() {
-        val failure = assertIs<Err<ParseFailure>>(parseMemoryUse("MemTotal:  100 kB\n")).error
+        val failure = parseMemoryUse("MemTotal:  100 kB\n").assertError<ParseFailure>()
 
         assertEquals(ParseFailure.MissingLine("MemAvailable:"), failure)
     }
 
     @Test
     fun `network totals skip the loopback, whose traffic never left the machine`() {
-        val totals = assertIs<Ok<NetworkTotals>>(parseNetworkTotals(NETDEV)).value
+        val totals = parseNetworkTotals(NETDEV).assertSuccess()
 
         // enp4s0's zeros plus wlan0's counters, with lo's 163402877 left out of both directions.
         assertEquals(NetworkTotals(receivedBytes = 96_005_768_839, sentBytes = 4_287_140_026), totals)
@@ -74,7 +73,7 @@ class ProcfsTest {
     fun `a netdev file with only a header has no interface to report`() {
         val header = NETDEV.lineSequence().take(2).joinToString("\n")
 
-        assertIs<Err<ParseFailure>>(parseNetworkTotals(header))
+        parseNetworkTotals(header).assertError<ParseFailure>()
     }
 
     @Test
@@ -121,7 +120,7 @@ class ProcfsTest {
 
     @Test
     fun `an hwmon input that is not a number says which field it was`() {
-        val failure = assertIs<Err<ParseFailure>>(parseMilliCelsius("n/a")).error
+        val failure = parseMilliCelsius("n/a").assertError<ParseFailure>()
 
         assertEquals(ParseFailure.NotANumber("temp_input", "n/a"), failure)
     }

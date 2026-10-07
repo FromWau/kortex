@@ -1,9 +1,9 @@
 package com.fromwau.kortex.hyprland
 
-import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrNull
+import com.fromwau.kern.result.assertError
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,7 +23,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -153,7 +152,7 @@ class HyprlandLiveTest {
     fun luaHyprlandCannotRunIsRefusedWithLuasOwnError() = runBlocking {
         val refused = hyprland.dispatch("hl.dsp.nope(")
 
-        val answer = assertIs<HyprlandError.Refused>((refused as Err).error).answer
+        val answer = refused.assertError<HyprlandError.Refused>().answer
         assertTrue(answer.startsWith("error:"), answer)
     }
 
