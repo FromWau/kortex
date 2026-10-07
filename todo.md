@@ -1775,18 +1775,53 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       call is started with `setsid` and its output redirected. (`ShellTest`, 11 tests, each kill and the
       concurrent read checked by a mutation that fails it)
 
-- [ ] **The connection never reconnects, so a bus restart kills every provider for good.** `death` is set
-      once and is final: `call` now fails fast on it, `send` reports it, and nothing anywhere reopens the
-      socket. A session bus does restart, and a socket does drop, and when it does the tray, every menu and
-      the notification server are gone until the process is restarted, with no path back.
-      This is the root of the rule above rather than one more instance of it: reattaching the tray to a new
-      watcher is pointless while the connection under it is dead, so this is the one to settle first. It is
-      also the hardest, because reconnecting means deciding what happens to the state the old connection
-      carried: the serials in flight, the match rules the bus has forgotten, the exported objects, and a
-      name like `org.freedesktop.Notifications` that somebody else may have taken in between. The shape is
-      probably that `DBusConnection` gains a `connected: StateFlow<Boolean>` and re-applies its own match
-      rules and exports on reconnect, so a provider sees a reconnect as a fresh start rather than having to
-      know it happened.
+- [ ] **The connection never reconnects, so a bus restart kills every provider for good.** Agreed design,
+      no code yet. `death` is set once and is final: `call` fails fast on it, `send` reports it, and nothing
+      reopens the socket. A session bus does restart and a socket does drop, and when it does the tray, every
+      menu and the notification server are gone until the process restarts. Worse than gone: `finish()`
+      fails the waiting calls but never touches the signal flow, so every subscriber to `allSignals` or
+      `signals(rule)` waits forever, and the tray freezes looking fine.
+      **No D-Bus library reconnects for you, and the spec says why.** zbus, GDBus, sd-bus, godbus,
+      dbus-next, dbus-java and QtDBus all report the close, fail what was waiting, end their streams and
+      leave the next connection and everything on it to the app; systemd's own reconnect example closes the
+      bus object and runs its whole `setup()` again. A new connection gets a new unique name, which "Message
+      Bus Names" says is never reused; a match rule belongs to the connection that added it; "When a
+      connection is closed, all the names that it owns are deleted", so another daemon may own one by the
+      time kortex is back; and a reply addressed to the old name can never arrive. So the earlier guess, a
+      connection that re-applies its own rules and exports, is out: a reconnected connection is a new peer.
+      **The design**, the reactive shape kotlinx's own `shareIn` documentation shows for a backend
+      connection:
+      - `DBusConnection` stays one socket and one life. It gains `closed: StateFlow<DBusError?>`, set in
+        the same step that fails the waiting calls, and `allSignals` and `signals(rule)` end at that death
+        instead of hanging. That half is a bug fix worth landing first and on its own.
+      - A new `SessionBus` in `:dbus` supervises it: `state: StateFlow<BusState>` with `Connecting`,
+        `Up(connection)` and `Down(reason, retryIn)`. It opens, publishes `Up`, waits for `closed`, publishes
+        `Down`, waits out the backoff and opens again. The backoff starts at 100 ms, doubles to a cap of
+        5 s, resets once a connection is up, and is the caller's to replace. It connects only while
+        something collects, like every provider, and a test points it at a bus of its own.
+      - Providers take the `SessionBus` instead of a `DBusConnection`: `Tray`, `Menu`, `TrayWatcher.serve`
+        and `NotificationServer`. Each runs its existing per-connection flow inside
+        `state.flatMapLatest`, so every connection starts from scratch with its own rules, subscriptions,
+        exports, name requests and first reads. That is the change the `channelFlow`s need least, since
+        each already builds everything from nothing.
+      - While the bus is down each flow carries a typed `BusDown(reason)`, added to `TrayError`,
+        `NotificationError` and the bar's errors, rather than its last value. A command sent then answers
+        the same at once.
+      - A name kortex owned, the notification server's or the tray watcher's, is claimed again after a
+        reconnect. Where another process took it in the gap, that process is reported and the name is
+        claimed the moment it lets go, which is the rule `TrayWatcher.serve` already keeps, now for both.
+      - A call in flight when the connection dies fails with that death and is never replayed. Whether to
+        retry it is the caller's business, which is how RSocket splits the same job.
+      - `:bar`'s `BusDesktop` owns one `SessionBus` instead of a lazily opened connection.
+      **Tests** follow the provider rule above, "kill it, bring it back", against no fake: the fake bus
+      written once was thrown away because it agreed with kortex's mistakes. A test starts its own
+      `dbus-daemon` (1.16.2 here, from Arch's `dbus` package) on a private socket, stops and restarts it,
+      and checks the `SessionBus` state sequence, signals ending with the connection, the tray reading
+      again, a menu reading again and the notification server serving again.
+      **Order:** the death made visible first, then `SessionBus`, then one provider at a time, then the bar.
+      The constructors of the four providers change, which is a breaking change to their public API and
+      every caller in kortex moves with it.
+
 - [x] **The tray follows its watcher, and a shell takes the registry over once its holder lets it go.** Both
       old entries were one rule, "watch the watcher's name and act on it", and it is written once. `track()`
       is a loop now: find a watcher, register as host, read, follow; a `NameOwnerChanged` on the watcher's
