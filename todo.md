@@ -500,6 +500,14 @@ where on the monitor the compositor put it.
 
 ## Polish
 
+- [ ] **A large surface that animates lags, because every frame is drawn on the CPU and sent whole.** Draft.
+      `renderNow` draws a frame with Skia straight into a shm buffer (`Surface.makeRasterDirect`) and
+      `attachWholeBuffer` marks the whole surface damaged, so the compositor uploads all of it each commit. On the
+      4096x2160 test monitor a full-screen surface is about 35 MB a frame: the polkit prompt, drawn on one at
+      first, lagged visibly from nothing more than a caret blinking and a progress bar. Content that sits still
+      costs nothing, since a surface renders only when its scene changes. The prompt now keeps its animation on a
+      small surface of its own. The fixes in kortex are separate and could be done one at a time: damage only what
+      changed, and draw on the GPU.
 - [x] **Cursor shapes.** kortex maps all 14 of `java.awt.Cursor`'s predefined types: `Default`, `Crosshair`,
       `Text`, `Hand`, `Move`, `Wait` and all eight resize directions, more than the reference's 10.
       `PointerIcon(java.awt.Cursor(type))` reaches its `KortexCursor` through one `PointerIcon`-keyed lookup
@@ -2114,28 +2122,50 @@ version the better one. None is designed.
       read closes the socket, since the stream is then at a place nobody knows; a write always runs to its
       end, so a message is never sent half. `:dbus` and `:hyprland` use it, each mapping `SocketError` to
       the errors its callers already match on, and `:polkit`'s helper socket will be the third.
-- [ ] **A polkit agent: `:polkit`, and the prompt as an app of its own.** Planned. polkitd never takes a
-      password from an agent. It calls the agent's `BeginAuthentication` (action, message, cookie, which
-      identities may answer), and the agent replies once it is over. The password goes to
+- [ ] **A polkit agent: `:polkit`, and the prompt as an app of its own.** Working; what is left is below. polkitd
+      never takes a password from an agent. It calls the agent's `BeginAuthentication` (action, message, cookie,
+      which identities may answer), and the agent replies once it is over. The password goes to
       `/run/polkit/agent-helper.socket`, which systemd runs as root: the agent writes the user name and the
       cookie, a line each, then answers the PAM lines the helper sends (`PAM_PROMPT_ECHO_OFF`,
-      `PAM_PROMPT_ECHO_ON`, `PAM_ERROR_MSG`, `PAM_TEXT_INFO`) until `SUCCESS` or `FAILURE`. The helper
-      tells polkitd itself. All read from polkit 127, the version here, whose helper is not setuid.
+      `PAM_PROMPT_ECHO_ON`, `PAM_ERROR_MSG`, `PAM_TEXT_INFO`, each through `g_strescape`) until `SUCCESS` or
+      `FAILURE`. The helper tells polkitd itself. All read from polkit 127, the version here, whose helper is not
+      setuid.
+      The conversation is `:auth`'s `AuthConversation`, shared with the greeter and the lock screen to come, which
+      hold the same PAM shaped exchange behind a different transport: greetd's socket, and libpam called in
+      process for the lock screen, the only one of the three that calls PAM itself. Each of the three gets a UI of
+      its own, since each serves a different purpose.
       In order:
-      1. `:polkit`, a provider with no UI: register on the system bus for the session, export the agent,
-         drive the helper, and hand out requests to answer or cancel. Tested against a fake polkitd on a
-         private bus; the helper only works against the real one.
-      2. Whether a Compose text field gets typed input on a kortex surface with keyboard focus. Unverified,
-         and the biggest risk, so a throwaway window settles it before the app. It takes focus, so ask first.
-      3. `:polkit-agent`, a small app beside `:bar`, so the password lives in a process holding nothing
-         else, and restarting the bar never cancels an authentication. The cost is a second JVM all session.
+      1. Done: `:polkit`, a provider with no UI. It registers on the system bus for the user's display session,
+         which logind gives as `User.Display`: a systemd user service sits in no session, and polkitd falls back
+         to `sd_uid_get_display` for it, so the subject has to name that one or polkitd refuses it as a different
+         session. Only polkitd's own connection may call the agent. Tested against a fake polkitd and logind on a
+         private bus and a fake helper; registering with the real polkitd while the KDE agent holds the session
+         answers `Refused` "already exists", which shows the subject is right. The helper itself only works
+         against the real polkitd, so the first password through it is the live run.
+      2. Done, and it was answered already: typing reaches a Compose text field on a kortex surface.
+         `KeyboardDeliveryTest` types into both kinds of field through a real keymap, `ClipboardFocusTest` pastes
+         into a focused field through a real shell, and `LiveKeyboardTest` shows a surface Hyprland gives the
+         keyboard focusing its field, all green in the full run of 2026-10-07. The bar demo's field was typed into
+         by hand.
+      3. Done, and run live on 2026-10-07 with the KDE agent stopped: `:polkit-agent`, a small app beside `:bar`,
+         so the password lives in a process holding nothing else, and restarting the bar never cancels an
+         authentication. The cost is a second JVM all session. Nothing is on screen until polkitd asks; then every
+         monitor dims to 80% under an `Overlay` layer surface, and a small card surface above the first one holds
+         the keyboard `Exclusive` until it is answered or cancelled. Enter answers, Escape cancels, a rejected
+         password asks again with PAM's words kept, and a card whose surface ends cancels its request. Live: a
+         wrong password asked again, the right one made `pkexec true` exit 0, and Escape made it say "Request
+         dismissed". The dimming and the card are separate surfaces because one full-screen surface lagged, which
+         the Polish entry on redrawing whole surfaces explains. The first monitor rather than the focused one, for
+         now.
+      Still open: the first prompt after the agent starts is a little laggy, and later ones are smooth, which
+      reads as the JVM and Compose warming up on the first composition. Composing the card once off screen at
+      startup would move that cost to where nobody waits on it. Unmeasured.
+      Not done yet: choosing who answers. The agent takes this user where polkitd offers it and otherwise the
+      first it offers, where polkit-gnome lets the dialog switch between them.
       Starting it: as a systemd user service, the way `startup.lua` starts `plasma-polkit-agent.service`.
-      That process sits in the user manager rather than the seat's session and still serves this
-      session, so a service works; which session id it registers for is still worth reading off the KDE
-      agent before writing ours.
-      Live: one agent per session, and the KDE agent holds this one, so a live run needs it stopped by
-      hand, the same as dunst for `:notification`. The password is never logged, and a JVM string cannot be
-      wiped, which is one more reason for the separate process.
+      Live: one agent per session, and the KDE agent holds this one, so a live run needs it stopped by hand, the
+      same as dunst for `:notification`. The password is never logged, and a JVM string cannot be wiped, which is
+      one more reason for the separate process; `AuthConversation.answer` takes a `CharArray` and zeroes it.
 - [ ] **greetd.** Draft. Quickshell has a greetd client, which makes a login screen. Further out than
       everything above.
 - [ ] **`:notification` against Quickshell's server.** Draft. Quickshell opts into capabilities one by one
