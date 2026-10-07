@@ -5,6 +5,7 @@ import com.fromwau.kortex.hyprland.HyprlandError
 import com.fromwau.kortex.mpris.MprisError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
+import com.fromwau.kortex.upower.UpowerError
 import com.fromwau.kortex.watch.WatchError
 import com.fromwau.kortex.bar.system.ParseFailure
 
@@ -30,6 +31,9 @@ sealed interface BarError : IError {
 
     /** The media players could not be read, as `:mpris` reported it. */
     data class NoMedia(val error: MprisError) : BarError
+
+    /** The machine's batteries could not be read, as `:upower` reported it. */
+    data class NoPower(val error: UpowerError) : BarError
 
     /** Hyprland's workspaces or focused window could not be read, as `:hyprland` reported it. */
     data class NoHyprland(val error: HyprlandError) : BarError

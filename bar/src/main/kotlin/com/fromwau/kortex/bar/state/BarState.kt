@@ -50,6 +50,7 @@ data class BarState(
     val memory: Reading<MemoryUse>,
     val network: Reading<NetworkRate>,
     val temperature: Reading<Temperature>,
+    val batteries: Reading<List<BatteryEntry>>,
     val timer: TimerFace,
     val tray: Reading<List<TrayEntry>>,
     /** Which tray item the pointer is over, whose hover text the tray widget shows beside its icons. */
@@ -83,6 +84,7 @@ data class BarState(
             memory = Reading.Pending,
             network = Reading.Pending,
             temperature = Reading.Pending,
+            batteries = Reading.Pending,
             timer = TimerFace.Idle,
             tray = Reading.Pending,
             hoveredTray = null,

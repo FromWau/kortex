@@ -31,6 +31,7 @@ import com.fromwau.kortex.notification.Urgency
 import com.fromwau.kortex.bar.state.BarAction
 import com.fromwau.kortex.bar.state.BarScheme
 import com.fromwau.kortex.bar.state.BarState
+import com.fromwau.kortex.bar.state.BatteryEntry
 import com.fromwau.kortex.bar.state.FocusedWindow
 import com.fromwau.kortex.bar.state.NowPlaying
 import com.fromwau.kortex.bar.state.Posted
@@ -102,6 +103,7 @@ fun BarContent(
         NotificationWidget(state.notifications)
         NetworkWidget(state.network)
         TemperatureWidget(state.temperature)
+        BatteryWidget(state.batteries)
         GaugeWidget(label = "CPU", fraction = state.cpuLoad, readout = ::percent)
         MemoryWidget(state.memory)
         KeyboardWidget(state.keyboardLayout)
@@ -500,6 +502,35 @@ private fun NowPlaying.line(): String =
 private fun NowPlaying.progress(): String? {
     val at = position ?: return null
     return listOfNotNull(at, length).joinToString("/") { it.inWholeSeconds.asClock() }
+}
+
+/**
+ * Each battery as a word and a percentage, a low one in the error colour and a charging one marked.
+ * Nothing at all on a machine with no battery anywhere.
+ */
+@Composable
+private fun BatteryWidget(batteries: Reading<List<BatteryEntry>>) {
+    when (batteries) {
+        Reading.Pending -> Unit
+
+        is Reading.Unavailable -> Widget {
+            Label("POWER")
+            Unavailable(batteries)
+        }
+
+        is Reading.Value -> if (batteries.value.isNotEmpty()) {
+            Widget {
+                batteries.value.forEach { battery ->
+                    Label(battery.label)
+                    Readout(
+                        text = "${battery.percent}%",
+                        color = if (battery.low) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                    )
+                    if (battery.charging) Label("CHG")
+                }
+            }
+        }
+    }
 }
 
 /** The tint behind an item asking to be noticed, and nothing behind one that is not. */

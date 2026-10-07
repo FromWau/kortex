@@ -103,3 +103,15 @@ data class NowPlaying(
     val position: kotlin.time.Duration?,
     val length: kotlin.time.Duration?,
 )
+
+/** One battery the bar shows: the machine's own, or a peripheral's. */
+data class BatteryEntry(
+    /** UPower's path for it, which keeps two devices of one kind apart. */
+    val path: String,
+    /** A word for what it is, such as "MOUSE" or "BAT". */
+    val label: String,
+    val percent: Int,
+    val charging: Boolean,
+    /** Low enough, and not charging, that it is worth catching the eye. */
+    val low: Boolean,
+)

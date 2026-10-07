@@ -210,6 +210,18 @@ class BarStateHolderTest {
     }
 
     @Test
+    fun `the batteries reach the state`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        val mouse = BatteryEntry("/org/freedesktop/UPower/devices/mouse", "MOUSE", 52, charging = false, low = false)
+
+        desktop.power.value = Reading.Value(listOf(mouse))
+        runCurrent()
+
+        assertEquals(Reading.Value(listOf(mouse)), holder.state.value.batteries)
+    }
+
+    @Test
     fun `what is playing reaches the state, and a click on it toggles that player`() = runTest {
         val desktop = FakeDesktop()
         val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
@@ -300,6 +312,7 @@ private class FakeDesktop : Desktop {
     val closed = mutableListOf<Pair<UInt, CloseReason>>()
     val focused = mutableListOf<Int>()
     val playing = MutableStateFlow<Reading<NowPlaying?>?>(null)
+    val power = MutableStateFlow<Reading<List<BatteryEntry>>?>(null)
     val toggled = mutableListOf<String>()
 
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
@@ -314,6 +327,7 @@ private class FakeDesktop : Desktop {
     override val keyboardLayout: Flow<Reading<String?>> get() = layout.answers()
     override val focusedWindow: Flow<Reading<FocusedWindow?>> get() = window.answers()
     override val media: Flow<Reading<NowPlaying?>> get() = playing.answers()
+    override val batteries: Flow<Reading<List<BatteryEntry>>> get() = power.answers()
 
     override suspend fun close(
         id: UInt,

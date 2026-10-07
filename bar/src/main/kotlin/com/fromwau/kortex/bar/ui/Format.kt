@@ -8,6 +8,7 @@ import com.fromwau.kortex.hyprland.HyprlandError
 import com.fromwau.kortex.mpris.MprisError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
+import com.fromwau.kortex.upower.UpowerError
 import com.fromwau.kortex.watch.WatchError
 import com.fromwau.kortex.bar.BarError
 import com.fromwau.kortex.bar.system.ParseFailure
@@ -48,6 +49,7 @@ fun BarError.shortly(): String = when (this) {
     is BarError.NoSensor -> "no sensor"
     is BarError.NoTray -> error.shortly()
     is BarError.NoMedia -> error.shortly()
+    is BarError.NoPower -> error.shortly()
     is BarError.NotServing -> error.shortly()
     is BarError.NoHyprland -> error.shortly()
 }
@@ -70,6 +72,13 @@ private fun WatchError.shortly(): String = when (this) {
     is WatchError.FolderUnreadable -> "cannot read the folder of ${path.name}"
     is WatchError.WatchRefused -> "watch refused for ${path.name}"
     is WatchError.WatchEnded -> "watch on ${path.name} ended"
+}
+
+private fun UpowerError.shortly(): String = when (this) {
+    UpowerError.NotConnected -> "connecting"
+    UpowerError.NotRunning -> "no upower"
+    is UpowerError.BusDown -> reason.shortly()
+    is UpowerError.BusFailed -> cause.shortly()
 }
 
 private fun MprisError.shortly(): String = when (this) {

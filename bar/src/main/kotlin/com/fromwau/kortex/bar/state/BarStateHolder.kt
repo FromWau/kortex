@@ -53,7 +53,8 @@ class BarStateHolder(
             metrics.memory.readings(),
             metrics.network.readings(),
             metrics.cpuTemperature.readings(),
-        ) { cpu, memory, network, temperature -> Machine(cpu, memory, network, temperature) },
+            desktop.batteries.pendingFirst(),
+        ) { cpu, memory, network, temperature, batteries -> Machine(cpu, memory, network, temperature, batteries) },
         combine(
             desktop.tray.pendingFirst(),
             desktop.notifications.pendingFirst(),
@@ -75,6 +76,7 @@ class BarStateHolder(
             memory = machine.memory,
             network = machine.network,
             temperature = machine.temperature,
+            batteries = machine.batteries,
             timer = mine.timer.face(at = (time as? Reading.Value)?.value),
             tray = services.tray,
             hoveredTray = mine.hovered,
@@ -166,6 +168,7 @@ class BarStateHolder(
         val memory: Reading<MemoryUse>,
         val network: Reading<NetworkRate>,
         val temperature: Reading<Temperature>,
+        val batteries: Reading<List<BatteryEntry>>,
     )
 
     /** The desktop's own services, combined for the same reason as [Machine]. */

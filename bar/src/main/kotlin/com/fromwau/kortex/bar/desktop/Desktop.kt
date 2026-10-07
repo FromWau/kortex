@@ -21,6 +21,9 @@ import com.fromwau.kortex.bar.state.Reading
 import com.fromwau.kortex.bar.state.TrayEntry
 import com.fromwau.kortex.bar.state.WorkspaceStrip
 import kotlinx.coroutines.CoroutineScope
+import com.fromwau.kortex.bar.state.BatteryEntry
+import com.fromwau.kortex.upower.Upower
+import com.fromwau.kortex.dbus.SystemBus
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -53,6 +56,9 @@ interface Desktop {
      * reading the bar shows rather than something that stops it starting.
      */
     val notifications: Flow<Reading<List<Posted>>>
+
+    /** The machine's battery and every peripheral's, empty on a machine with none. */
+    val batteries: Flow<Reading<List<BatteryEntry>>>
 
     /** The player the bar shows, with its position moving while it plays, and null while none has a track. */
     val media: Flow<Reading<NowPlaying?>>
@@ -111,6 +117,7 @@ class BusDesktop(
     scope: CoroutineScope,
     identity: ServerInformation,
     bus: SessionBus = SessionBus(scope),
+    systemBus: SystemBus = SystemBus(scope),
 ) : Desktop {
 
     /** Serves the tray's registry, and takes it over whenever another shell that held it lets it go. */
@@ -121,6 +128,15 @@ class BusDesktop(
     private val server = NotificationServer(bus, identity, scope)
 
     private val mpris = Mpris(bus, scope)
+
+    private val upower = Upower(systemBus, scope)
+
+    override val batteries: Flow<Reading<List<BatteryEntry>>> = upower.power.map { outcome ->
+        when (outcome) {
+            is Ok -> Reading.Value(outcome.value.batteries())
+            is Err -> outcome.error.batteries()
+        }
+    }
 
     override val trayRegistry: Flow<String?> = registry.map { held ->
         (held.getOrNull() as? TrayRegistry.HeldElsewhere)?.let { it.process ?: it.owner }
