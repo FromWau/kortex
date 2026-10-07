@@ -1941,9 +1941,10 @@ version the better one. None is designed.
 - [ ] **`:notification` against Quickshell's server.** Draft. Quickshell opts into capabilities one by one
       (actions, markup, images, persistence, inline reply) and has no expiry timer, leaving `expire()` to the
       user. kortex's server times nothing either, by design: it hands each notification the `Expiry` its
-      application asked for. The bar is where that goes wrong today, since `3287c0b` closes every
-      non-critical notification after one second whatever its `Expiry` says, and reports that as a
-      dismissal rather than an expiry. Compare the capabilities the server advertises as well.
+      application asked for, and the bar honours it now: `After(d)` closes after `d`, `Never` stays until
+      clicked, one that leaves it to the server stays two seconds, a critical one stays, and the close
+      tells the application `Expired` rather than `Dismissed`. Still open here: the capabilities the
+      server advertises against Quickshell's.
 
 **Runtime**
 

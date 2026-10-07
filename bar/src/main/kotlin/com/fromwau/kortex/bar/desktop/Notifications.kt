@@ -20,6 +20,7 @@ fun Notification.posted(): Posted = Posted(
     summary = summary,
     body = body,
     urgency = urgency,
+    expiry = expiry,
     image = image,
     iconName = listOfNotNull(imagePath, appIcon.ifBlank { null }).firstOrNull(),
 )

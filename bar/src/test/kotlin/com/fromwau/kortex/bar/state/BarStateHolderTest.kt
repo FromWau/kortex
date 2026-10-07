@@ -1,8 +1,10 @@
 package com.fromwau.kortex.bar.state
 
+import com.fromwau.kortex.notification.CloseReason
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kortex.notification.Expiry
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.ItemAddress
 import com.fromwau.kortex.tray.TrayIcon
@@ -184,15 +186,16 @@ class BarStateHolderTest {
         }
 
     @Test
-    fun `dismissing a notification tells the desktop, with the id it was drawn with`() = runTest {
+    fun `closing a notification tells the desktop its id and why`() = runTest {
         val desktop = FakeDesktop()
         val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
         runCurrent()
 
-        holder.onAction(BarAction.NotificationDismissed(42u))
+        holder.onAction(BarAction.NotificationClosed(42u, CloseReason.Dismissed))
+        holder.onAction(BarAction.NotificationClosed(43u, CloseReason.Expired))
         runCurrent()
 
-        assertEquals(listOf(42u), desktop.dismissed)
+        assertEquals(listOf(42u to CloseReason.Dismissed, 43u to CloseReason.Expired), desktop.closed)
     }
 
     @Test
@@ -279,7 +282,7 @@ private class FakeDesktop : Desktop {
     val mode = MutableStateFlow<Reading<String?>?>(null)
     val layout = MutableStateFlow<Reading<String?>?>(null)
     val window = MutableStateFlow<Reading<FocusedWindow?>?>(null)
-    val dismissed = mutableListOf<UInt>()
+    val closed = mutableListOf<Pair<UInt, CloseReason>>()
     val focused = mutableListOf<Int>()
 
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
@@ -294,8 +297,11 @@ private class FakeDesktop : Desktop {
     override val keyboardLayout: Flow<Reading<String?>> get() = layout.answers()
     override val focusedWindow: Flow<Reading<FocusedWindow?>> get() = window.answers()
 
-    override suspend fun dismiss(id: UInt) {
-        dismissed += id
+    override suspend fun close(
+        id: UInt,
+        reason: CloseReason,
+    ) {
+        closed += id to reason
     }
 
     override suspend fun focusWorkspace(id: Int) {
@@ -318,6 +324,7 @@ private fun posted(id: UInt): Posted = Posted(
     summary = "a summary",
     body = "",
     urgency = Urgency.Normal,
+    expiry = Expiry.ServerDefault,
     image = null,
     iconName = null,
 )

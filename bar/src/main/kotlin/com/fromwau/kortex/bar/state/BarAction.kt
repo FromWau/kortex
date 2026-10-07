@@ -1,5 +1,6 @@
 package com.fromwau.kortex.bar.state
 
+import com.fromwau.kortex.notification.CloseReason
 import com.fromwau.kortex.tray.ItemAddress
 
 /** Everything a person can do to the bar. */
@@ -25,8 +26,11 @@ sealed interface BarAction {
      */
     data class TrayHovered(val address: ItemAddress?) : BarAction
 
-    /** The notification with [id] was dismissed, which closes it and tells its application why. */
-    data class NotificationDismissed(val id: UInt) : BarAction
+    /** The notification with [id] was clicked away or ran out its time, and its application is told [reason]. */
+    data class NotificationClosed(
+        val id: UInt,
+        val reason: CloseReason,
+    ) : BarAction
 
     /** The workspace numbered [id] was clicked, which switches to it, making it if it is the empty one. */
     data class WorkspaceClicked(val id: Int) : BarAction

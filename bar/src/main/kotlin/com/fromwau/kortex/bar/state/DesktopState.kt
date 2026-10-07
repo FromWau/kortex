@@ -1,5 +1,7 @@
 package com.fromwau.kortex.bar.state
 
+import kotlin.time.Duration
+import com.fromwau.kortex.notification.Expiry
 import com.fromwau.kortex.notification.NotificationImage
 import com.fromwau.kortex.notification.Urgency
 import com.fromwau.kortex.tray.ItemAddress
@@ -23,6 +25,21 @@ data class TrayEntry(
     val needsAttention: Boolean,
 )
 
+/**
+ * How long [this] stays on screen before it expires, or null where it stays until somebody closes it.
+ *
+ * A critical notification stays, as the notification specification asks of one. Otherwise the application's
+ * own [Expiry] decides, and [default] is the time for one that left it to the server.
+ */
+fun Posted.showsFor(default: Duration): Duration? = when {
+    urgency == Urgency.Critical -> null
+    else -> when (val asked = expiry) {
+        Expiry.ServerDefault -> default
+        Expiry.Never -> null
+        is Expiry.After -> asked.duration
+    }
+}
+
 /** One posted notification, as the popup draws it. */
 data class Posted(
     val id: UInt,
@@ -32,6 +49,8 @@ data class Posted(
     val summary: String,
     val body: String,
     val urgency: Urgency,
+    /** How long the application asked for it to stay up. */
+    val expiry: Expiry,
     /** The image the application sent inline, or null where it sent none. */
     val image: NotificationImage?,
     /** The icon name the application named instead, which a theme may carry. */

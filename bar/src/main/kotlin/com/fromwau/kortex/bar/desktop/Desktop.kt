@@ -66,17 +66,21 @@ interface Desktop {
     val keyboardLayout: Flow<Reading<String?>>
 
     /**
-     * Takes the notification with [id] away and tells its application it was dismissed.
+     * Takes the notification with [id] away and tells its application [reason]: dismissed for a click,
+     * expired for one that stayed up as long as it should.
      *
      * Nothing is handed back: closing one that has already gone is the one failure a bar can provoke, and
      * the list it was drawn from is the thing that was out of date, which the next value fixes.
      */
-    suspend fun dismiss(id: UInt)
+    suspend fun close(
+        id: UInt,
+        reason: CloseReason,
+    )
 
     /**
      * Switches to the workspace numbered [id].
      *
-     * Nothing is handed back, for the reason [dismiss] gives: the strip shows the switch once it has
+     * Nothing is handed back, for the reason [close] gives: the strip shows the switch once it has
      * happened, and a switch that failed leaves the strip as it was, which is the honest picture.
      */
     suspend fun focusWorkspace(id: Int)
@@ -172,8 +176,11 @@ class BusDesktop(
         hyprland.focusWorkspace(id)
     }
 
-    override suspend fun dismiss(id: UInt) {
-        server.await().getOrNull()?.close(id, CloseReason.Dismissed)
+    override suspend fun close(
+        id: UInt,
+        reason: CloseReason,
+    ) {
+        server.await().getOrNull()?.close(id, reason)
     }
 
     /**

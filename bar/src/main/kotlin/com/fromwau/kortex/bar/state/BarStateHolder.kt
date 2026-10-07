@@ -98,7 +98,7 @@ class BarStateHolder(
             BarAction.TimerClicked -> own.update { mine -> mine.copy(timer = mine.timer.clicked()) }
             BarAction.TimerReset -> own.update { mine -> mine.copy(timer = Session.NotStarted) }
             is BarAction.TrayHovered -> own.update { mine -> mine.copy(hovered = action.address) }
-            is BarAction.NotificationDismissed -> scope.launch { desktop.dismiss(action.id) }
+            is BarAction.NotificationClosed -> scope.launch { desktop.close(action.id, action.reason) }
             is BarAction.WorkspaceClicked -> scope.launch { desktop.focusWorkspace(action.id) }
             BarAction.SchemeCycled -> own.update { mine -> mine.copy(scheme = mine.scheme.next()) }
         }

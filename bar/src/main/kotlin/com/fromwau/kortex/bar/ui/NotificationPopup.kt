@@ -1,5 +1,6 @@
 package com.fromwau.kortex.bar.ui
 
+import com.fromwau.kortex.notification.CloseReason
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.ui.graphics.painter.Painter
 import com.fromwau.kortex.tray.TrayIcon
 import androidx.compose.ui.Alignment
@@ -41,6 +43,7 @@ import com.fromwau.kortex.icons.rememberIconPainter
 import com.fromwau.kortex.bar.state.Reading
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.seconds
+import com.fromwau.kortex.bar.state.showsFor
 
 /**
  * The notifications this shell is holding, as a surface of their own in the top right of [monitor].
@@ -89,15 +92,16 @@ private fun NotificationStack(
         modifier = modifier.fillMaxSize().padding(EDGE_INSET),
         verticalArrangement = Arrangement.spacedBy(CARD_GAP),
     ) {
-        for (posted in notifications) {
-            LaunchedEffect(posted.id) {
-                if (posted.urgency == Urgency.Critical) return@LaunchedEffect
-                delay(1.seconds)
-                onAction(BarAction.NotificationDismissed(posted.id))
+        for (posted in notifications) key(posted.id) {
+            // Keyed on the revision too, so a notification replaced in place starts its time again.
+            LaunchedEffect(posted.revision) {
+                val stays = posted.showsFor(DEFAULT_EXPIRY) ?: return@LaunchedEffect
+                delay(stays)
+                onAction(BarAction.NotificationClosed(posted.id, CloseReason.Expired))
             }
             NotificationCard(
                 posted = posted,
-                onDismiss = { onAction(BarAction.NotificationDismissed(posted.id)) },
+                onDismiss = { onAction(BarAction.NotificationClosed(posted.id, CloseReason.Dismissed)) },
             )
         }
     }
@@ -182,6 +186,9 @@ private fun Urgency.colour(): Color = when (this) {
 
 /** How many notifications the popup shows at once; older ones are held but not drawn. */
 private const val MAX_CARDS = 4
+
+/** How long a notification stays whose application left the time to the server. */
+private val DEFAULT_EXPIRY = 2.seconds
 
 private val CARD_WIDTH = 340.dp
 private val CARD_HEIGHT = 78.dp
