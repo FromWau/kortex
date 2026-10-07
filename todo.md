@@ -2061,9 +2061,30 @@ version the better one. None is designed.
 - [ ] **Audio: PipeWire.** Draft. Quickshell binds libpipewire natively for nodes, volume and mute. Whether
       kortex reaches it through FFM, through WirePlumber's D-Bus, or through `wpctl` under `:shell` is the
       first decision.
-- [ ] **Polkit agent and greetd.** Draft. Quickshell has a polkit authentication agent and a greetd client,
-      which make a desktop's password prompts and its login screen. Both are further out than everything
-      above.
+- [ ] **A polkit agent: `:polkit`, and the prompt as an app of its own.** Planned. polkitd never takes a
+      password from an agent. It calls the agent's `BeginAuthentication` (action, message, cookie, which
+      identities may answer), and the agent replies once it is over. The password goes to
+      `/run/polkit/agent-helper.socket`, which systemd runs as root: the agent writes the user name and the
+      cookie, a line each, then answers the PAM lines the helper sends (`PAM_PROMPT_ECHO_OFF`,
+      `PAM_PROMPT_ECHO_ON`, `PAM_ERROR_MSG`, `PAM_TEXT_INFO`) until `SUCCESS` or `FAILURE`. The helper
+      tells polkitd itself. All read from polkit 127, the version here, whose helper is not setuid.
+      In order:
+      1. `:polkit`, a provider with no UI: register on the system bus for the session, export the agent,
+         drive the helper, and hand out requests to answer or cancel. Tested against a fake polkitd on a
+         private bus; the helper only works against the real one.
+      2. Whether a Compose text field gets typed input on a kortex surface with keyboard focus. Unverified,
+         and the biggest risk, so a throwaway window settles it before the app. It takes focus, so ask first.
+      3. `:polkit-agent`, a small app beside `:bar`, so the password lives in a process holding nothing
+         else, and restarting the bar never cancels an authentication. The cost is a second JVM all session.
+      Starting it: as a systemd user service, the way `startup.lua` starts `plasma-polkit-agent.service`.
+      That process sits in the user manager rather than the seat's session and still serves this
+      session, so a service works; which session id it registers for is still worth reading off the KDE
+      agent before writing ours.
+      Live: one agent per session, and the KDE agent holds this one, so a live run needs it stopped by
+      hand, the same as dunst for `:notification`. The password is never logged, and a JVM string cannot be
+      wiped, which is one more reason for the separate process.
+- [ ] **greetd.** Draft. Quickshell has a greetd client, which makes a login screen. Further out than
+      everything above.
 - [ ] **`:notification` against Quickshell's server.** Draft. Quickshell opts into capabilities one by one
       (actions, markup, images, persistence, inline reply) and has no expiry timer, leaving `expire()` to the
       user. kortex's server times nothing either, by design: it hands each notification the `Expiry` its
