@@ -46,7 +46,7 @@ class MenuItemTest {
     /** Both default to true when absent, which is the opposite of how a missing flag usually reads. */
     @Test
     fun `an entry that mentions neither enabled nor visible is both`() {
-        val item = assertNotNull(menuItemFrom(node(1, emptyMap())))
+        val item = assertNotNull(menuItemFrom(menuNode(1, emptyMap())))
 
         assertTrue(item.enabled)
         assertTrue(item.visible)
@@ -55,7 +55,7 @@ class MenuItemTest {
     @Test
     fun `an entry that says it is disabled or hidden is taken at its word`() {
         val item = assertNotNull(
-            menuItemFrom(node(1, mapOf("enabled" to DBusValue.Bool(false), "visible" to DBusValue.Bool(false)))),
+            menuItemFrom(menuNode(1, mapOf("enabled" to DBusValue.Bool(false), "visible" to DBusValue.Bool(false)))),
         )
 
         assertTrue(!item.enabled)
@@ -64,7 +64,7 @@ class MenuItemTest {
 
     @Test
     fun `a separator is marked as one and carries no label`() {
-        val item = assertNotNull(menuItemFrom(node(2, mapOf("type" to DBusValue.Text("separator")))))
+        val item = assertNotNull(menuItemFrom(menuNode(2, mapOf("type" to DBusValue.Text("separator")))))
 
         assertTrue(item.isSeparator)
         assertEquals("", item.label)
@@ -72,8 +72,8 @@ class MenuItemTest {
 
     @Test
     fun `an entry of the default type is not a separator`() {
-        assertFalseSeparator(assertNotNull(menuItemFrom(node(3, mapOf("type" to DBusValue.Text("standard"))))))
-        assertFalseSeparator(assertNotNull(menuItemFrom(node(3, emptyMap()))))
+        assertFalseSeparator(assertNotNull(menuItemFrom(menuNode(3, mapOf("type" to DBusValue.Text("standard"))))))
+        assertFalseSeparator(assertNotNull(menuItemFrom(menuNode(3, emptyMap()))))
     }
 
     @Test
@@ -95,9 +95,9 @@ class MenuItemTest {
 
     @Test
     fun `an entry that does not toggle carries no toggle at all`() {
-        assertNull(assertNotNull(menuItemFrom(node(4, emptyMap()))).toggle)
+        assertNull(assertNotNull(menuItemFrom(menuNode(4, emptyMap()))).toggle)
         assertNull(
-            assertNotNull(menuItemFrom(node(4, mapOf("toggle-type" to DBusValue.Text(""))))).toggle,
+            assertNotNull(menuItemFrom(menuNode(4, mapOf("toggle-type" to DBusValue.Text(""))))).toggle,
             "an empty toggle-type is how an application says it does not toggle",
         )
     }
@@ -107,9 +107,9 @@ class MenuItemTest {
     fun `icon data arrives as bytes or as the same bytes base64 encoded`() {
         val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
 
-        val asBytes = assertNotNull(menuItemFrom(node(5, mapOf("icon-data" to DBusValue.Bytes(png)))))
+        val asBytes = assertNotNull(menuItemFrom(menuNode(5, mapOf("icon-data" to DBusValue.Bytes(png)))))
         val asText = assertNotNull(
-            menuItemFrom(node(5, mapOf("icon-data" to DBusValue.Text(Base64.getEncoder().encodeToString(png))))),
+            menuItemFrom(menuNode(5, mapOf("icon-data" to DBusValue.Text(Base64.getEncoder().encodeToString(png))))),
         )
 
         assertContentEquals(png, asBytes.icon.data)
@@ -119,9 +119,9 @@ class MenuItemTest {
 
     @Test
     fun `an icon that is neither a name nor data is empty`() {
-        assertTrue(assertNotNull(menuItemFrom(node(6, emptyMap()))).icon.isEmpty)
+        assertTrue(assertNotNull(menuItemFrom(menuNode(6, emptyMap()))).icon.isEmpty)
         assertTrue(
-            assertNotNull(menuItemFrom(node(6, mapOf("icon-data" to DBusValue.Text("not base64 at all !!"))))).icon
+            assertNotNull(menuItemFrom(menuNode(6, mapOf("icon-data" to DBusValue.Text("not base64 at all !!"))))).icon
                 .isEmpty,
             "text that does not decode is no icon rather than an empty one",
         )
@@ -139,7 +139,7 @@ class MenuItemTest {
             ),
         )
 
-        val item = assertNotNull(menuItemFrom(node(7, mapOf("shortcut" to shortcut))))
+        val item = assertNotNull(menuItemFrom(menuNode(7, mapOf("shortcut" to shortcut))))
 
         assertEquals(listOf(listOf("Control", "S")), item.shortcuts)
     }
@@ -157,7 +157,7 @@ class MenuItemTest {
     @Test
     fun `an entry can say it has a submenu while carrying none of it yet`() {
         val item = assertNotNull(
-            menuItemFrom(node(8, mapOf("children-display" to DBusValue.Text("submenu")))),
+            menuItemFrom(menuNode(8, mapOf("children-display" to DBusValue.Text("submenu")))),
         )
 
         assertTrue(item.hasSubmenu)
@@ -172,8 +172,8 @@ class MenuItemTest {
      */
     @Test
     fun `a menu nested deeper than the parser stops instead of crashing`() {
-        var deepest = node(9_999, emptyMap())
-        repeat(200) { level -> deepest = node(level, emptyMap(), children = listOf(deepest)) }
+        var deepest = menuNode(9_999, emptyMap())
+        repeat(200) { level -> deepest = menuNode(level, emptyMap(), children = listOf(deepest)) }
 
         val root = assertNotNull(menuItemFrom(deepest), "a deep menu gave nothing at all")
 
@@ -197,7 +197,7 @@ class MenuItemTest {
 
     private fun toggleOf(kind: String, state: Int): MenuToggle? = assertNotNull(
         menuItemFrom(
-            node(
+            menuNode(
                 10,
                 mapOf("toggle-type" to DBusValue.Text(kind), "toggle-state" to DBusValue.I32(state)),
             ),
@@ -205,23 +205,7 @@ class MenuItemTest {
     ).toggle
 
     private fun dispositionOf(raw: String): MenuDisposition =
-        assertNotNull(menuItemFrom(node(11, mapOf("disposition" to DBusValue.Text(raw))))).disposition
-
-    /** One `(ia{sv}av)`, built the way an application would send it. */
-    private fun node(
-        id: Int,
-        properties: Map<String, DBusValue>,
-        children: List<DBusValue> = emptyList(),
-    ): DBusValue = DBusValue.Struct(
-        listOf(
-            DBusValue.I32(id),
-            DBusValue.Sequence(
-                DBusType.Pair(DBusType.Basic.Text, DBusType.Variant),
-                properties.map { (key, value) -> DBusValue.Pair(DBusValue.Text(key), DBusValue.Variant(value)) },
-            ),
-            DBusValue.Sequence(DBusType.Variant, children.map(DBusValue::Variant)),
-        ),
-    )
+        assertNotNull(menuItemFrom(menuNode(11, mapOf("disposition" to DBusValue.Text(raw))))).disposition
 
     private fun capturedLayout(): DBusValue {
         val hex = checkNotNull(javaClass.getResourceAsStream("/reply-getlayout.hex")) { "the capture is missing" }

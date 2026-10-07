@@ -75,30 +75,31 @@ nothing runs while nobody is collecting.
 
 ```kotlin
 suspend fun printTray(scope: CoroutineScope) {
-    val connection = DBusConnection.session().getOrElse { return }
-
-    Tray(connection, scope).items.collect { outcome ->
+    Tray(SessionBus(scope), scope).items.collect { outcome ->
         val items = outcome.getOrNull() ?: return@collect
         items.forEach { item -> println("${item.id}: ${item.title} (${item.status})") }
     }
 }
 ```
 
-Becoming the notification server is the one thing that succeeds or fails outright, because only one
-connection on a bus may hold the name:
+A `SessionBus` is the session bus as something that stays: it opens a connection while something
+collects, and opens a new one each time the bus restarts, and every provider built on it starts over on
+the new one by itself. One `SessionBus` is meant to be shared by every provider in a shell.
+
+Being the notification server holds a name only one connection on a bus may have, so while somebody else
+has it the error says who, and kortex takes the name the moment they let it go:
 
 ```kotlin
-suspend fun printNotifications(connection: DBusConnection) {
-    val server = NotificationServer
-        .start(connection, ServerInformation(name = "my-shell", vendor = "me", version = "0.1.0"))
-        .getOrElse { error ->
-            // AlreadyServed names the process already holding it, which is the difference between
-            // "it did not start" and "stop dunst first".
-            System.err.println("my-shell: $error")
-            return
-        }
-
-    server.notifications.collect { posted -> println(posted.map { it.summary }) }
+suspend fun printNotifications(bus: SessionBus, scope: CoroutineScope) {
+    val server = NotificationServer(bus, ServerInformation(name = "my-shell", vendor = "me", version = "0.1.0"), scope)
+    server.notifications.collect { outcome ->
+        outcome.fold(
+            { posted -> println(posted.map { it.summary }) },
+            // AlreadyServed names the process holding it, which is the difference between "it did not
+            // start" and "dunst is running".
+            { error -> System.err.println("my-shell: $error") },
+        )
+    }
 }
 ```
 
@@ -197,15 +198,12 @@ That makes the suite a demanding guest, and worth knowing about before you run i
 
 ```sh
 ./gradlew check                                     # everything that needs no special arrangement
-./gradlew check -Pkortex.notificationTests=true     # also the notification server, see below
 ./gradlew check -Pkortex.hotplugTests=true          # also output hotplug, see below
 ```
 
-Two groups are gated behind a property each, because opting into one is no reason to opt into the other.
-The notification server tests take `org.freedesktop.Notifications`, which only one connection may hold, so
-whatever holds it has to stop first; the name is D-Bus activatable, so the daemon comes back on its own the
-moment kortex releases it. The hotplug tests add and remove a real output on your running desktop, which
-some applications do not survive.
+The hotplug tests are gated behind a property, because they add and remove a real output on your running
+desktop, which some applications do not survive. The notification server and the bus-restart tests need
+`dbus-daemon` on the `PATH`, since each starts a bus of its own rather than touching your session's.
 
 ## Status
 

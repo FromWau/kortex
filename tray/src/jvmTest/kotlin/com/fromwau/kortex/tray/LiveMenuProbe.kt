@@ -3,7 +3,7 @@ package com.fromwau.kortex.tray
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.fold
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.dbus.SessionBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,34 +20,27 @@ import kotlin.system.exitProcess
  * it. Toggle something in an application's tray menu while this runs.
  */
 fun main(): Unit = runBlocking {
-    val connection = DBusConnection.session().getOrElse { error ->
-        System.err.println("no session bus: $error")
-        exitProcess(1)
-    }
-
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    connection.use {
-        val tray = Tray(connection, scope)
-        val items = tray.items.first { it != Err(TrayError.NotConnected) }
-            .getOrElse { error ->
-                System.err.println("the tray could not be read: $error")
-                exitProcess(1)
-            }
-
-        items.forEach { item ->
-            val menu = tray.menu(item) ?: return@forEach println("${item.address} offers no menu")
-            println("${item.address} -> ${item.menuPath}")
-            scope.launch {
-                menu.layout.collect { state ->
-                    state.fold({ root -> describe(root, "  ") }, { error -> println("  $error") })
-                }
-            }
+    val tray = Tray(SessionBus(scope), scope)
+    val items = tray.items.first { it != Err(TrayError.NotConnected) }
+        .getOrElse { error ->
+            System.err.println("the tray could not be read: $error")
+            exitProcess(1)
         }
 
-        println("watching; press Enter to stop")
-        readlnOrNull()
-        scope.cancel()
+    items.forEach { item ->
+        val menu = tray.menu(item) ?: return@forEach println("${item.address} offers no menu")
+        println("${item.address} -> ${item.menuPath}")
+        scope.launch {
+            menu.layout.collect { state ->
+                state.fold({ root -> describe(root, "  ") }, { error -> println("  $error") })
+            }
+        }
     }
+
+    println("watching; press Enter to stop")
+    readlnOrNull()
+    scope.cancel()
 }
 
 private fun describe(item: MenuItem, indent: String) {

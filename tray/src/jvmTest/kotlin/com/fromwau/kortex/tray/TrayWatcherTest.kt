@@ -1,18 +1,18 @@
 package com.fromwau.kortex.tray
 
-import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.assertSuccess
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.getOrNull
-import com.fromwau.kern.result.assertSuccess
 import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.dbus.MatchRule
+import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asItems
 import com.fromwau.kortex.dbus.asText
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -137,27 +137,32 @@ class TrayWatcherTest {
     }
 
     /**
-     * The self-call this whole file exists for: one connection serving the registry and reading it.
+     * The self-call this whole file exists for: one connection serving the registry and reading it, which
+     * is what a shell gets when its tray and its registry follow the same [SessionBus].
      *
      * A deadlock here does not fail an assertion, it times out, which is why the message says so.
      */
     @Test
-    fun `a host reads a registry its own process is serving`() = withWatcher { _, connection ->
+    fun `a host reads a registry its own process is serving`() = runBlocking<Unit> {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
+            val bus = SessionBus(scope)
+            val served = TrayWatcher.serve(bus, scope)
+            scope.launch { served.collect {} }
+            withTimeoutOrNull(SETTLE) { served.first { it.getOrNull() is TrayRegistry.HeldHere } }
+                ?: fail("never held the watcher name, last ${served.value}; stop it first, on this desktop `ags quit`")
+            val tray = Tray(bus, scope)
+
             onSecondConnection { item, _ ->
                 item.exportFakeItem()
-                item.register(ItemAddress(item.uniqueName, ItemAddress.DEFAULT_PATH).toString())
+                val address = ItemAddress(item.uniqueName, ItemAddress.DEFAULT_PATH)
+                item.register(address.toString())
 
-                val tray = Tray(connection, scope)
-                val settled = withTimeoutOrNull(SETTLE) {
-                    tray.items.first { it != Err(TrayError.NotConnected) }
-                } ?: fail("the host never read its own registry, which is what a self-call deadlock does")
-
-                val items = settled.assertSuccess()
                 // Contains rather than equals: this runs against a live bus, and an application that
                 // re-registers the moment the name is taken is in the registry too.
-                assertContains(items.map { it.address }, ItemAddress(item.uniqueName, ItemAddress.DEFAULT_PATH))
+                withTimeoutOrNull(SETTLE) {
+                    tray.items.first { state -> state.getOrNull().orEmpty().any { it.address == address } }
+                } ?: fail("the host never read its own registry, as a self-call deadlock would: ${tray.items.value}")
             }
         } finally {
             scope.cancel()

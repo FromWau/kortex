@@ -6,6 +6,7 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.getOrNull
 import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.dbus.SessionBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,8 +42,7 @@ class TrayReattachTest {
 
     @Test
     fun `a tray started before any watcher reads the first one that takes the name`() = runBlocking<Unit> {
-        val host = session()
-        val tray = Tray(host, scope).alsoWatched()
+        val tray = Tray(SessionBus(scope), scope).alsoWatched()
         tray.items.awaitValue("no watcher yet") { it == Err(TrayError.NoWatcher) }
 
         claimHere(session())
@@ -53,7 +53,7 @@ class TrayReattachTest {
 
     @Test
     fun `a tray follows the next watcher after the one it read from dies`() = runBlocking<Unit> {
-        val tray = Tray(session(), scope).alsoWatched()
+        val tray = Tray(SessionBus(scope), scope).alsoWatched()
         val first = session()
         claimHere(first)
         val item = registeredItem()
@@ -73,11 +73,13 @@ class TrayReattachTest {
     fun `serve takes the registry once the shell holding it is gone, and the tray follows`() = runBlocking<Unit> {
         val holder = session()
         claimHere(holder)
-        val bar = session()
+        val bar = SessionBus(scope)
 
-        val served = TrayWatcher.serve(bar, scope)
-        val elsewhere = assertIs<TrayRegistry.HeldElsewhere>(served.value.getOrNull(), "served ${served.value}")
-        assertEquals(holder.uniqueName, elsewhere.owner)
+        val served = TrayWatcher.serve(bar, scope).alsoWatched()
+        val elsewhere = served.awaitValue("the registry held elsewhere") {
+            it.getOrNull() is TrayRegistry.HeldElsewhere
+        }
+        assertEquals(holder.uniqueName, (elsewhere.getOrNull() as TrayRegistry.HeldElsewhere).owner)
         val tray = Tray(bar, scope).alsoWatched()
 
         holder.close()
@@ -89,14 +91,14 @@ class TrayReattachTest {
 
     @Test
     fun `once serve holds the registry, stopping gives it back for good`() = runBlocking<Unit> {
-        val bar = session()
-        val served = TrayWatcher.serve(bar, scope)
-        val here = assertIs<TrayRegistry.HeldHere>(served.value.getOrNull(), "served ${served.value}")
+        val served = TrayWatcher.serve(SessionBus(scope), scope).alsoWatched()
+        val held = served.awaitValue("the registry held here") { it.getOrNull() is TrayRegistry.HeldHere }
+        val here = held.getOrNull() as TrayRegistry.HeldHere
 
         assertEquals(Ok(Unit), here.watcher.stop())
         delay(SETTLE_AFTER_STOP)
 
-        assertNull(bar.nameOwner(KDE_WATCHER.service).getOrNull(), "serve took the name back after stop")
+        assertNull(session().nameOwner(KDE_WATCHER.service).getOrNull(), "serve took the name back after stop")
     }
 
     /** A connection to the session bus, closed after the test unless the test closes it first. */
@@ -122,7 +124,9 @@ class TrayReattachTest {
     }
 
     /** Keeps [Tray.items] collected, so it runs between the reads a test makes of it. */
-    private fun Tray.alsoWatched(): Tray = also { tray -> scope.launch { tray.items.collect {} } }
+    private fun Tray.alsoWatched(): Tray = also { tray -> tray.items.alsoWatched() }
+
+    private fun <T> StateFlow<T>.alsoWatched(): StateFlow<T> = also { flow -> scope.launch { flow.collect {} } }
 
     private fun Result<List<TrayItem>, TrayError>.holds(item: FakeItem): Boolean =
         getOrNull().orEmpty().any { it.address == item.address }

@@ -13,21 +13,21 @@ import kotlin.io.path.exists
  * runs with the session configuration and binds the same socket path every time it starts, so a connection
  * opened after [restart] reaches the new daemon at the address the old one had.
  */
-internal class PrivateBus : AutoCloseable {
+public class PrivateBus : AutoCloseable {
     private val folder: Path = Files.createTempDirectory("kortex-bus")
 
     /** The socket a connection opens, the same across restarts. */
-    val socket: String = folder.resolve("bus").toString()
+    public val socket: String = folder.resolve("bus").toString()
 
     private var daemon: Process = start()
 
     /** Ends the daemon the way a crash does: every connection to it loses its socket at once. */
-    fun kill() {
+    public fun kill() {
         daemon.destroyForcibly().waitFor(5, TimeUnit.SECONDS)
         Path.of(socket).deleteIfExists()
     }
 
-    fun restart() {
+    public fun restart() {
         kill()
         daemon = start()
     }

@@ -3,12 +3,15 @@ package com.fromwau.kortex.tray
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.getOrNull
 import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.dbus.SessionBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
@@ -41,8 +44,7 @@ class MenuLiveTest {
 
     @Test
     fun `a live menu reads back as a tree of entries`() = withTray { tray ->
-        val item = tray.settleItems().firstOrNull { it.menuPath != null }
-            ?: fail("no application in the tray exports a menu; this test needs one that does")
+        val item = tray.itemWithMenu()
         val menu = assertNotNull(tray.menu(item))
 
         val root = menu.settle()
@@ -66,8 +68,7 @@ class MenuLiveTest {
     /** A flow always holds a value, and the one before anybody looks must not read as an empty menu. */
     @Test
     fun `a menu nobody is collecting says so rather than saying it is empty`() = withTray { tray ->
-        val item = tray.settleItems().firstOrNull { it.menuPath != null }
-            ?: fail("no application in the tray exports a menu; this test needs one that does")
+        val item = tray.itemWithMenu()
 
         assertEquals(Err(TrayError.NotConnected), assertNotNull(tray.menu(item)).layout.value)
     }
@@ -76,6 +77,15 @@ class MenuLiveTest {
         withTimeoutOrNull(SETTLE) { items.first { it != Err(TrayError.NotConnected) } }
             ?.getOrElse { error -> fail("the tray could not be read: $error") }
             ?: fail("the tray never left NotConnected")
+
+    /**
+     * Waits for an item with a menu rather than taking the first reading, since applications register again
+     * one by one whenever the watcher name changes hands, which the test before this one may just have done.
+     */
+    private suspend fun Tray.itemWithMenu(): TrayItem =
+        withTimeoutOrNull(SETTLE) {
+            items.mapNotNull { state -> state.getOrNull()?.firstOrNull { it.menuPath != null } }.first()
+        } ?: fail("no application in the tray exports a menu; this test needs one that does")
 
     private suspend fun Menu.settle(): Result<MenuItem, TrayError>? =
         withTimeoutOrNull(SETTLE) { layout.first { it != Err(TrayError.NotConnected) } }
@@ -90,7 +100,7 @@ class MenuLiveTest {
                     // Serves the registry only where nothing else does, so a menu is readable whether or
                     // not a bar is running. See the same line in TrayLiveTest.
                     TrayWatcher.claim(connection, scope)
-                    body(Tray(connection, scope))
+                    body(Tray(SessionBus(scope), scope))
                 } finally {
                     scope.cancel()
                 }

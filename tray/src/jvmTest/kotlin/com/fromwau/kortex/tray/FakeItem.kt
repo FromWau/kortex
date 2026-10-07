@@ -51,3 +51,41 @@ private fun properties(): DBusValue = DBusValue.Sequence(
         ),
     ),
 )
+
+/** A menu at [path] whose root holds one entry, labelled [label], which is all a test needs to tell two apart. */
+internal fun DBusConnection.exportFakeMenu(path: String, label: String) {
+    export(path) { call ->
+        when {
+            call.iface == DBUSMENU && call.member == "GetLayout" -> Ok(
+                listOf(
+                    DBusValue.U32(1u),
+                    menuNode(
+                        id = 0,
+                        properties = mapOf("children-display" to DBusValue.Text("submenu")),
+                        children = listOf(menuNode(1, mapOf("label" to DBusValue.Text(label)))),
+                    ),
+                ),
+            )
+
+            else -> Err(CallRejected.unknownMethod(call))
+        }
+    }
+}
+
+/** One `(ia{sv}av)`, built the way an application would send it. */
+internal fun menuNode(
+    id: Int,
+    properties: Map<String, DBusValue>,
+    children: List<DBusValue> = emptyList(),
+): DBusValue = DBusValue.Struct(
+    listOf(
+        DBusValue.I32(id),
+        DBusValue.Sequence(
+            DBusType.Pair(DBusType.Basic.Text, DBusType.Variant),
+            properties.map { (key, value) -> DBusValue.Pair(DBusValue.Text(key), DBusValue.Variant(value)) },
+        ),
+        DBusValue.Sequence(DBusType.Variant, children.map(DBusValue::Variant)),
+    ),
+)
+
+private const val DBUSMENU = "com.canonical.dbusmenu"

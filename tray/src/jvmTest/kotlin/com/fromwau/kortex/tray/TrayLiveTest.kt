@@ -8,13 +8,14 @@ import com.fromwau.kern.result.getOrNull
 import com.fromwau.kortex.dbus.Bus
 import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.dbus.DBusValue
+import com.fromwau.kortex.dbus.SessionBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
@@ -193,7 +194,7 @@ class TrayLiveTest {
                     // whether a bar is running or not. AlreadyServed is the ordinary answer on a desktop
                     // that has one, and means the tray below is that bar's rather than ours.
                     TrayWatcher.claim(connection, scope)
-                    body(Tray(connection, scope), connection)
+                    body(Tray(SessionBus(scope), scope), connection)
                 } finally {
                     scope.cancel()
                 }

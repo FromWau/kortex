@@ -1,15 +1,13 @@
 package com.fromwau.kortex.tray
 
 import com.fromwau.kern.result.fold
-import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.dbus.SessionBus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlin.system.exitProcess
 
 /**
  * Prints the tray and everything that happens to it, until Enter.
@@ -18,14 +16,9 @@ import kotlin.system.exitProcess
  * changed it. Open and close something that sits in the tray while this runs.
  */
 fun main(): Unit = runBlocking {
-    val connection = DBusConnection.session().getOrElse { error ->
-        System.err.println("no session bus: $error")
-        exitProcess(1)
-    }
-
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val watching = scope.launch {
-        Tray(connection, scope).items.collect { state ->
+        Tray(SessionBus(scope), scope).items.collect { state ->
             state.fold(
                 { items ->
                     println("--- ${items.size} item(s) ---")
@@ -40,7 +33,6 @@ fun main(): Unit = runBlocking {
     readlnOrNull()
     watching.cancel()
     scope.cancel()
-    connection.close()
 }
 
 private fun describe(item: TrayItem) {

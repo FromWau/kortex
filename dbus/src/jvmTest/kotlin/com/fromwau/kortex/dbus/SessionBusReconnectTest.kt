@@ -8,6 +8,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -19,6 +20,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
+import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -103,7 +105,59 @@ class SessionBusReconnectTest {
 
             assertNotNull(withTimeout(SETTLE) { up.connection.closed.first { it != null } })
             assertEquals(1, opened.get())
+            // Read rather than collected: a collector would start the bus again and see Connecting regardless.
+            withTimeout(SETTLE) { while (session.state.value is BusState.Up) delay(10.milliseconds) }
+            assertEquals(BusState.Connecting, session.state.value)
         }
+
+    @Test
+    fun `watchers that come one after another share a connection, rather than each closing the next one's`() =
+        runBlocking<Unit> {
+            val opened = AtomicInteger()
+            val session = SessionBus(scope, FAST) {
+                opened.incrementAndGet()
+                DBusConnection.open(bus.socket)
+            }
+
+            val first = awaitUp(session)
+            delay(GAP)
+            val second = awaitUp(session)
+
+            assertEquals(first.connection, second.connection)
+            assertNull(second.connection.closed.value)
+            assertEquals(1, opened.get())
+        }
+
+    @Test
+    fun `following runs a flow per connection and says why in between`() = runBlocking<Unit> {
+        val session = SessionBus.at(bus.socket, scope, FAST)
+        val seen = MutableStateFlow<List<Any>>(emptyList())
+        scope.launch {
+            session
+                .following<Any>({ state -> state }) { connection -> flowOf(connection) }
+                .collect { one -> seen.update { it + one } }
+        }
+        val first = withTimeout(SETTLE) { seen.first { it.any { one -> one is DBusConnection } } }.last()
+
+        bus.kill()
+        withTimeout(SETTLE) { seen.first { it.any { one -> one is BusState.Down } } }
+        bus.restart()
+
+        val second = withTimeout(SETTLE) { seen.first { it.count { one -> one is DBusConnection } == 2 } }.last()
+        assertNotSame(first, second, "the second flow ran on the first connection")
+    }
+
+    @Test
+    fun `withConnection answers at once while the bus is down`() = runBlocking<Unit> {
+        val session = SessionBus.at(bus.socket, scope, FAST).recorded()
+        awaitUp(session)
+        bus.kill()
+        withTimeout(SETTLE) { session.state.first { it is BusState.Down } }
+
+        val answer = withTimeout(SETTLE) { session.withConnection({ "down" }) { "up" } }
+
+        assertEquals("down", answer)
+    }
 
     @Test
     fun `the wait doubles and stops at the cap`() {
@@ -127,5 +181,8 @@ class SessionBusReconnectTest {
     private companion object {
         val FAST = Backoff(first = 20.milliseconds, cap = 80.milliseconds)
         val SETTLE = 10.seconds
+
+        /** Between two watchers: long enough for the connection to close, were it closed at once. */
+        val GAP = 300.milliseconds
     }
 }

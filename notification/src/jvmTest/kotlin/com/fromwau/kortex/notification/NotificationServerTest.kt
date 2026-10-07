@@ -2,22 +2,34 @@ package com.fromwau.kortex.notification
 
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.assertSuccess
 import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
-import com.fromwau.kern.result.assertSuccess
+import com.fromwau.kern.result.getOrNull
+import com.fromwau.kortex.dbus.Backoff
+import com.fromwau.kortex.dbus.BusState
 import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
 import com.fromwau.kortex.dbus.Message
+import com.fromwau.kortex.dbus.PrivateBus
+import com.fromwau.kortex.dbus.SessionBus
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -25,24 +37,35 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Kortex as the notification server this session is actually using.
+ * Kortex as the notification server, on a `dbus-daemon` of the test's own.
  *
- * Only one connection on a bus may hold `org.freedesktop.Notifications`, so whatever daemon usually holds
- * it has to be stopped for any of this to run: `systemctl --user stop dunst.service`. That is the subject
- * of the test rather than an inconvenience, since being the only server is the whole job, and it is why the
- * class is [TakesTheName] and opted into rather than run by default.
+ * Only one connection on a bus may hold `org.freedesktop.Notifications`, and being that one is the whole
+ * job. A bus of its own is where a test can have the name without taking it from the desktop's daemon,
+ * and can kill and start the bus again, which is a session bus restarting under a running shell.
  *
  * The applications posting here are a second real connection and, in one case, `notify-send` itself.
  */
-@TakesTheName
 class NotificationServerTest {
+    private val bus = PrivateBus()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val opened = mutableListOf<DBusConnection>()
+    private val session = SessionBus.at(bus.socket, scope, FAST)
+
+    @AfterTest
+    fun tearDown() {
+        scope.cancel()
+        opened.forEach { it.close() }
+        bus.close()
+    }
+
     @Test
     fun `kortex becomes the server and answers for it`() = withServer { server, client, hosting ->
         assertEquals(Ok(hosting.uniqueName), hosting.nameOwner(NotificationServer.INTERFACE))
-        assertTrue(server.notifications.value.isEmpty(), "nothing has been posted yet")
+        assertEquals(Ok(emptyList()), server.notifications.value, "nothing has been posted yet")
 
         val information = client.notifications("GetServerInformation")
 
@@ -101,7 +124,7 @@ class NotificationServerTest {
             "--category=test.category",
             "a summary from notify-send",
             "and a body",
-        ).start().waitFor()
+        ).apply { environment()["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=${bus.socket}" }.start().waitFor()
 
         assertEquals(0, sent, "notify-send did not exit cleanly")
         val posted = server.settle(1).single()
@@ -144,6 +167,7 @@ class NotificationServerTest {
                 .onSubscription { subscribed.complete(Unit) }
                 .drop(1)
                 .first()
+                .assertSuccess()
         }
         subscribed.await()
 
@@ -240,34 +264,85 @@ class NotificationServerTest {
      * `/proc/<pid>/comm` says it is, which is the whole reason for looking either of them up.
      */
     @Test
-    fun `a second server is refused and told who already holds the name`() = withServer { _, _, hosting ->
-        DBusConnection.session().getOrElse { fail("a second connection did not open: $it") }.use { second ->
-            val refused = NotificationServer.start(second, INFORMATION)
+    fun `a second server is told who already holds the name`() = withServer { _, _, hosting ->
+        val second = NotificationServer(SessionBus.at(bus.socket, scope, FAST), INFORMATION, scope).alsoServing()
 
-            val error = assertIs<NotificationError.AlreadyServed>(
-                refused.errorOrNull(),
-                "a second server was allowed to start",
-            )
-            assertEquals(hosting.uniqueName, error.owner)
-            assertEquals(ProcessHandle.current().pid().toInt(), error.pid, "both connections are this process")
-            assertNotNull(error.process, "the pid was never turned into a name")
+        val refused = second.notifications.awaitValue("the second server refused") {
+            it.errorOrNull() is NotificationError.AlreadyServed
         }
+        val error = refused.errorOrNull() as NotificationError.AlreadyServed
+        assertEquals(hosting.uniqueName, error.owner)
+        assertEquals(ProcessHandle.current().pid().toInt(), error.pid, "both connections are this process")
+        assertNotNull(error.process, "the pid was never turned into a name")
     }
 
     @Test
-    fun `a server that has stopped gives the name back`() = runBlocking {
-        DBusConnection.session().getOrElse { fail("the connection did not open: $it") }.use { connection ->
-            val server = NotificationServer.start(connection, INFORMATION)
-                .getOrElse { error -> fail("kortex could not become the server: $error") }
+    fun `a server waiting on the name takes it once its holder lets go`() = runBlocking<Unit> {
+        val first = NotificationServer(session, INFORMATION, scope)
+        val holding = scope.launch { first.notifications.collect {} }
+        first.notifications.awaitValue("the first server serving") { it is Ok }
+        val second = NotificationServer(SessionBus.at(bus.socket, scope, FAST), INFORMATION, scope).alsoServing()
+        second.notifications.awaitValue("the second server waiting") {
+            it.errorOrNull() is NotificationError.AlreadyServed
+        }
 
-            assertEquals(Ok(connection.uniqueName), connection.nameOwner(NotificationServer.INTERFACE))
-            assertEquals(Ok(Unit), server.stop())
-            assertTrue(
-                connection.nameOwner(NotificationServer.INTERFACE) != Ok(connection.uniqueName),
-                "the name was still held after stopping",
+        holding.cancel()
+
+        second.notifications.awaitValue("the second server serving") { it is Ok }
+    }
+
+    /** With the bus itself still watched, as a shell's tray watches it, so the connection stays open. */
+    @Test
+    fun `nobody collecting gives the name back`() = runBlocking<Unit> {
+        scope.launch { session.state.collect {} }
+        val server = NotificationServer(session, INFORMATION, scope)
+        val holding = scope.launch { server.notifications.collect {} }
+        server.notifications.awaitValue("the server serving") { it is Ok }
+        val other = connect()
+
+        holding.cancel()
+
+        withTimeoutOrNull(BUDGET) {
+            while (other.nameOwner(NotificationServer.INTERFACE) is Ok) delay(50.milliseconds)
+        } ?: fail("the name was still held after the last collector left")
+    }
+
+    @Test
+    fun `the server serves again once the bus is back, with what was posted before`() =
+        withServer { server, client, _ ->
+            val before = client.notify(notifyBody(summary = "posted before the restart"))
+            server.settle(1)
+
+            bus.kill()
+            server.notifications.awaitValue("the server saying the bus is down") {
+                it.errorOrNull() is NotificationError.BusDown
+            }
+            bus.restart()
+            server.notifications.awaitValue("the server serving again") { it is Ok }
+
+            val after = connect().notify(notifyBody(summary = "posted after the restart"))
+            assertTrue(after > before, "an id was handed out again after the restart")
+            assertEquals(
+                listOf("posted before the restart", "posted after the restart"),
+                server.settle(2).map { it.summary },
             )
         }
-    }
+
+    @Test
+    fun `closing while the bus is down takes it away and says the application was not told`() =
+        withServer { server, client, _ ->
+            val id = client.notify(notifyBody(summary = "closed while the bus is down"))
+            server.settle(1)
+
+            bus.kill()
+            server.notifications.awaitValue("the server saying the bus is down") {
+                it.errorOrNull() is NotificationError.BusDown
+            }
+
+            assertIs<NotificationError.BusDown>(server.close(id, CloseReason.Dismissed).errorOrNull())
+            bus.restart()
+            assertTrue(server.settle(0).isEmpty())
+        }
 
     @Test
     fun `the exported object introspects, so the bus can be asked what kortex offers`() =
@@ -335,34 +410,36 @@ class NotificationServerTest {
         return withTimeoutOrNull(BUDGET) { waiting.await() } ?: fail("no $member arrived within the budget")
     }
 
+    /** A server that has taken the name, a client connection to post with, and the connection serving. */
     private fun withServer(
         body: suspend CoroutineScope.(NotificationServer, DBusConnection, DBusConnection) -> Unit,
-    ) = runBlocking {
-        DBusConnection.session().getOrElse { fail("the server connection did not open: $it") }.use { hosting ->
-            val server = NotificationServer.start(hosting, INFORMATION).getOrElse { error ->
-                fail(
-                    "kortex could not become the notification server: $error. " +
-                        "Stop whatever holds the name first: systemctl --user stop dunst.service",
-                )
-            }
-            try {
-                DBusConnection.session().getOrElse { fail("the client connection did not open: $it") }.use { client ->
-                    body(server, client, hosting)
-                }
-            } finally {
-                // The name outlives a failed test otherwise, and every test after it reads as AlreadyServed.
-                server.stop()
-            }
-        }
+    ) = runBlocking<Unit> {
+        val server = NotificationServer(session, INFORMATION, scope).alsoServing()
+        server.notifications.awaitValue("kortex serving") { it is Ok }
+        val hosting = assertIs<BusState.Up>(session.state.value).connection
+        body(server, connect(), hosting)
     }
+
+    /** Keeps [NotificationServer.notifications] collected, which is what holds the name. */
+    private fun NotificationServer.alsoServing(): NotificationServer =
+        also { server -> scope.launch { server.notifications.collect {} } }
+
+    private suspend fun connect(): DBusConnection =
+        DBusConnection.open(bus.socket).assertSuccess().also { opened += it }
+
+    private suspend fun <T> StateFlow<T>.awaitValue(
+        what: String,
+        until: (T) -> Boolean,
+    ): T = withTimeoutOrNull(BUDGET) { first(until) } ?: fail("never saw $what within $BUDGET: last was $value")
 
     /** Waits for the posted list to hold [count], since a post crosses two connections to get here. */
     private suspend fun NotificationServer.settle(count: Int): List<Notification> =
-        withTimeoutOrNull(BUDGET) { notifications.first { it.size == count } }
-            ?: fail("the server carries ${notifications.value.size} notifications, not $count")
+        withTimeoutOrNull(BUDGET) { notifications.mapNotNull { it.getOrNull() }.first { it.size == count } }
+            ?: fail("the server carries ${notifications.value}, not $count notifications")
 
     private companion object {
         val BUDGET = 10.seconds
+        val FAST = Backoff(first = 20.milliseconds, cap = 200.milliseconds)
 
         val INFORMATION = ServerInformation(
             name = "kortex",

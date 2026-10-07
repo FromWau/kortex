@@ -12,16 +12,20 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.transformWhile
@@ -250,6 +254,42 @@ public class DBusConnection private constructor(
         member = "ReleaseName",
         args = listOf(DBusValue.Text(name)),
     ).map { }
+
+    /**
+     * The moments worth asking for [name]: one as soon as this is watching, then one each time the name is
+     * left without an owner.
+     *
+     * ```kotlin
+     * connection.chancesToClaim(NAME)
+     *     .map { chance -> chance.flatMap { connection.requestName(NAME) } }
+     *     .first { it.getOrNull() == NameRequest.Held }
+     * ```
+     *
+     * Watching starts before the first chance, so a holder that lets go while you are still asking is not
+     * missed, and chances that arrive while you are busy with one are folded into the next. It ends with the
+     * connection, and an `Err` is the one chance there is when the bus would not start watching.
+     */
+    public fun chancesToClaim(name: String): Flow<Result<Unit, DBusError>> = channelFlow {
+        val rule = MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED)
+        addMatch(rule).getOrElse {
+            send(Err(it))
+            return@channelFlow
+        }
+        try {
+            allSignals
+                .onSubscription { send(Ok(Unit)) }
+                .transformWhile { received ->
+                    if (received is Ok) emit(received.value)
+                    received is Ok
+                }
+                .filter { it.iface == Bus.INTERFACE && it.member == Bus.NAME_OWNER_CHANGED }
+                .filter { it.body.firstOrNull()?.asText == name }
+                .filter { it.body.getOrNull(2)?.asText.isNullOrEmpty() }
+                .collect { send(Ok(Unit)) }
+        } finally {
+            withContext(NonCancellable) { removeMatch(rule) }
+        }
+    }.buffer(Channel.CONFLATED)
 
     /** Who owns [name] right now, or [DBusError.CallFailed] where nobody does. */
     public suspend fun nameOwner(name: String): Result<String, DBusError> = call(

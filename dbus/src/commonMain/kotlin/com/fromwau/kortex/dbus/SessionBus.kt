@@ -4,12 +4,19 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.WhileSubscribed
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -17,8 +24,11 @@ import kotlin.time.Duration.Companion.seconds
 
 /** Where a [SessionBus] is: opening a connection, holding one, or waiting to try again. */
 public sealed interface BusState {
+    /** Any state with no connection to use. */
+    public sealed interface Unavailable : BusState
+
     /** A connection is being opened. */
-    public data object Connecting : BusState
+    public data object Connecting : Unavailable
 
     /** [connection] is open, and stays the one to use until the state moves on. */
     public data class Up(public val connection: DBusConnection) : BusState
@@ -27,7 +37,7 @@ public sealed interface BusState {
     public data class Down(
         public val reason: DBusError,
         public val retryIn: Duration,
-    ) : BusState
+    ) : Unavailable
 }
 
 /**
@@ -55,8 +65,9 @@ public data class Backoff(
  * [BusState.Up] carries a new one that whoever uses it sets up from nothing. Calls in flight when the old one
  * ended failed with its reason and are not sent again.
  *
- * Nothing is opened while nobody collects [state], and the connection is closed when the last collector
- * leaves.
+ * Nothing is opened while nobody collects [state]. The connection is closed a second after the last
+ * collector leaves, so calls made one after another share one connection rather than each closing the one
+ * the next would use. Once it is closed the state is [BusState.Connecting] again.
  */
 public class SessionBus internal constructor(
     scope: CoroutineScope,
@@ -93,9 +104,56 @@ public class SessionBus internal constructor(
             delay(wait)
             wait = backoff.after(wait)
         }
-    }.stateIn(scope, SharingStarted.WhileSubscribed(), BusState.Connecting)
+    }.stateIn(
+        scope,
+        SharingStarted.WhileSubscribed(stopTimeout = LINGER, replayExpiration = Duration.ZERO),
+        BusState.Connecting,
+    )
+
+    /**
+     * [onConnection] for every connection the bus comes up on, each run from nothing, and [unavailable] for
+     * the state in between.
+     *
+     * ```kotlin
+     * val items = bus.following(TrayError::of) { connection -> readItems(connection) }
+     * ```
+     *
+     * A connection's flow is cancelled the moment the bus moves on from it, so it needs no end of its own.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    public fun <T> following(
+        unavailable: (BusState.Unavailable) -> T,
+        onConnection: (DBusConnection) -> Flow<T>,
+    ): Flow<T> = state.flatMapLatest { state ->
+        when (state) {
+            is BusState.Unavailable -> flowOf(unavailable(state))
+            is BusState.Up -> onConnection(state.connection)
+        }
+    }
+
+    /**
+     * [command] on the connection the bus is up on, or [down] at once while it is down.
+     *
+     * While a connection is being opened this waits for it. It watches the bus until [command] returns, so
+     * the connection is not closed for want of a watcher while it is in use.
+     */
+    public suspend fun <T> withConnection(
+        down: (BusState.Down) -> T,
+        command: suspend (DBusConnection) -> T,
+    ): T = state
+        .filter { it !is BusState.Connecting }
+        .map { state ->
+            when (state) {
+                is BusState.Up -> command(state.connection)
+                is BusState.Down -> down(state)
+                BusState.Connecting -> error("filtered out above")
+            }
+        }
+        .first()
 
     public companion object {
+        private val LINGER = 1.seconds
+
         /** Follows the bus listening on [socket], which is how a test points this at a bus of its own. */
         public fun at(
             socket: String,

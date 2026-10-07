@@ -8,6 +8,7 @@ import com.fromwau.kern.result.getOrElse
 import com.fromwau.kortex.dbus.CallRejected
 import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.dbus.DBusValue
+import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asInt32
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -134,7 +135,7 @@ class TrayCommandsTest {
     fun `an entry the application asks to activate arrives by its id`() = runBlocking<Unit> {
         val application = session()
         exportMenuOn(application)
-        val menu = Menu(session(), application.uniqueName, MENU_PATH, scope)
+        val menu = Menu(SessionBus(scope), application.uniqueName, MENU_PATH, scope)
 
         val requested = async { menu.activationRequests.first() }
         // Sent until it lands, since nothing says when the collector's match rule has reached the bus.
@@ -168,7 +169,7 @@ class TrayCommandsTest {
         return arrived.first()
     }
 
-    private fun tray(): Tray = Tray(session(), scope)
+    private fun tray(): Tray = Tray(SessionBus(scope), scope)
 
     /** An item that records every call on [answersOn] and refuses every other interface. */
     private fun exportedItem(answersOn: String = KDE_ITEM): ItemAddress {
@@ -189,7 +190,7 @@ class TrayCommandsTest {
     private fun exportedMenu(): Menu {
         val application = session()
         exportMenuOn(application)
-        return Menu(session(), application.uniqueName, MENU_PATH, scope)
+        return Menu(SessionBus(scope), application.uniqueName, MENU_PATH, scope)
     }
 
     /** A menu that records every call and changes itself only when [CHANGES_ON_SHOW] is about to show. */

@@ -24,6 +24,7 @@ kotlin {
             dependencies {
                 implementation(libs.kotlin.test)
                 implementation(libs.kern.result.test)
+                implementation(project(":dbus-test"))
             }
         }
     }

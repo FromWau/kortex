@@ -44,10 +44,9 @@ plugins {
 gradle.lifecycle.beforeProject {
     // Tests that change something the whole desktop shares, so each is opted into rather than run by
     // default. Each annotation carries the same tag and property as its entry here: Hotplug.kt under
-    // wayland/src/jvmTest, and TakesTheName.kt under notification/src/jvmTest.
+    // wayland/src/jvmTest.
     val gatedByProperty = mapOf(
         "hotplug" to "kortex.hotplugTests",
-        "notification-server" to "kortex.notificationTests",
     )
     val optedIn = gatedByProperty.filterValues { property ->
         providers.gradleProperty(property).getOrElse("false").toBoolean()
@@ -67,6 +66,7 @@ include("theme")
 include("compose")
 include("wayland")
 include("dbus")
+include("dbus-test")
 include("watch")
 include("icons")
 include("tray")

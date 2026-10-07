@@ -15,6 +15,7 @@ import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
 import com.fromwau.kortex.dbus.Message
+import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asDictionary
 import com.fromwau.kortex.dbus.asItems
 import com.fromwau.kortex.dbus.asText
@@ -45,10 +46,11 @@ public enum class ScrollOrientation(internal val wireName: String) {
  * Reads what applications have put in the tray and passes on what a user did to one. It draws nothing and
  * decides nothing about drawing: an icon arrives as a theme name or as ARGB bytes and stays that way.
  *
- * Nothing runs while nobody collects [items]. The match rules go up on the first collector and come down
- * with the last one, so an unwatched tray costs the bus no routing.
+ * It follows [bus] across restarts: each connection the bus comes up on is read from nothing, and while there
+ * is none the tray says why. Nothing runs while nobody collects [items]. The match rules go up on the first
+ * collector and come down with the last one, so an unwatched tray costs the bus no routing.
  */
-public class Tray(private val connection: DBusConnection, private val scope: CoroutineScope) {
+public class Tray(private val bus: SessionBus, private val scope: CoroutineScope) {
     /**
      * Every item in the tray, or why there are none.
      *
@@ -56,7 +58,8 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
      * is [TrayError.NotConnected] because a flow always holds one and an empty list would read the same
      * as a tray nobody has put anything in.
      */
-    public val items: StateFlow<Result<List<TrayItem>, TrayError>> = track()
+    public val items: StateFlow<Result<List<TrayItem>, TrayError>> = bus
+        .following(::unavailable) { connection -> TrayOnConnection(connection).track() }
         .stateIn(scope, SharingStarted.WhileSubscribed(), Err(TrayError.NotConnected))
 
     /** Tells the item it was clicked, at the screen position it was clicked at. */
@@ -94,9 +97,15 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
      * caller had asked for.
      */
     public fun menu(item: TrayItem): Menu? =
-        item.menuPath?.let { path -> Menu(connection, item.address.service, path, scope) }
+        item.menuPath?.let { path -> Menu(bus, item.address.service, path, scope) }
 
     private suspend fun command(address: ItemAddress, member: String, args: List<DBusValue>): EmptyResult<TrayError> =
+        bus.withConnection(::busDown) { connection -> TrayOnConnection(connection).command(address, member, args) }
+}
+
+/** The tray as one connection sees it, which the next connection replaces rather than continues. */
+private class TrayOnConnection(private val connection: DBusConnection) {
+    suspend fun command(address: ItemAddress, member: String, args: List<DBusValue>): EmptyResult<TrayError> =
         onItemInterface(address) { iface ->
             connection.call(address.service, address.path, iface, member, args)
         }.map { }
@@ -107,7 +116,7 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
      * Applications re-register with whichever watcher holds the name, since they follow it themselves, so
      * all a host has to do is notice the change and register again with the new one.
      */
-    private fun track(): Flow<Result<List<TrayItem>, TrayError>> = channelFlow {
+    fun track(): Flow<Result<List<TrayItem>, TrayError>> = channelFlow {
         RULES.forEach { rule ->
             connection.addMatch(rule).getOrElse {
                 send(Err(TrayError.BusFailed(it)))
@@ -133,10 +142,8 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         subscribed.await()
 
         while (true) {
-            connection.closed.value?.let { death ->
-                send(Err(TrayError.BusFailed(death)))
-                return@channelFlow
-            }
+            // The bus reports the death itself and the next connection starts over, so this pass just ends.
+            if (connection.closed.value != null) return@channelFlow
 
             val watcher = findWatcher().getOrNull()
             if (watcher == null) {

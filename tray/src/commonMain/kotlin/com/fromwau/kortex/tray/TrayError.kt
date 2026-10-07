@@ -1,6 +1,9 @@
 package com.fromwau.kortex.tray
 
+import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
+import com.fromwau.kern.result.Result
+import com.fromwau.kortex.dbus.BusState
 import com.fromwau.kortex.dbus.DBusError
 
 /** Why [Tray.items] is carrying no items. */
@@ -24,6 +27,9 @@ public sealed interface TrayError : IError {
      */
     public data object NoWatcher : TrayError
 
+    /** The bus is not there, for [reason], and the tray reads again on its own once it is back. */
+    public data class BusDown(public val reason: DBusError) : TrayError
+
     /** The bus itself failed, and [cause] says how. */
     public data class BusFailed(public val cause: DBusError) : TrayError
 
@@ -35,3 +41,11 @@ public sealed interface TrayError : IError {
      */
     public data object MenuUnreadable : TrayError
 }
+
+/** Why the tray has nothing while the bus is in [state]. */
+internal fun <T> unavailable(state: BusState.Unavailable): Result<T, TrayError> = when (state) {
+    BusState.Connecting -> Err(TrayError.NotConnected)
+    is BusState.Down -> busDown(state)
+}
+
+internal fun <T> busDown(state: BusState.Down): Result<T, TrayError> = Err(TrayError.BusDown(state.reason))

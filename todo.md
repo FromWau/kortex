@@ -1842,6 +1842,32 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       dropped again, since a connection that never failed first is already at `first`.
       The constructors of the four providers change, which is a breaking change to their public API and
       every caller in kortex moves with it.
+      **Step 3 is done.** `Tray(bus, scope)`, `Menu`, `TrayWatcher.serve(bus, scope)` and
+      `NotificationServer(bus, information, scope)` take the `SessionBus` and run their per-connection
+      flow inside `state.flatMapLatest`, carrying `NotConnected` before the first connection and
+      `BusDown(reason)` while there is none. A command answers `BusDown` at once while the bus is down.
+      `NotificationServer.start` and `stop` are gone: `notifications` is a
+      `StateFlow<Result<List<Notification>, NotificationError>>` like every other provider, collecting it
+      claims the name, `AlreadyServed` waits for the holder to let go and then takes it, and the last
+      collector leaving gives it back. Posted notifications and the id counter outlive a bus restart.
+      `SessionBus` now keeps an idle connection for a second and resets to `Connecting` when it closes,
+      because `TrayCommandsTest` showed a command right after another getting the replayed `Up` of the
+      connection the first one had just closed. `PrivateBus` moved to a `:dbus-test` module, and
+      `NotificationServerTest` runs on one, so the `@TakesTheName` gate and `-Pkortex.notificationTests`
+      are gone and its 18 tests run in a plain `check`; `notify-send` is pointed at the private bus.
+      `TrayBusRestartTest` kills and restarts a bus under the tray, a menu and `serve`. Mutations caught:
+      `Down` read as `NotConnected` (both in flows and commands), following only the first connection,
+      giving up on a taken name, no `releaseName`, posted notifications dropped per connection, and the
+      linger and the reset each. `:bar` does not compile until step 4 moves `BusDesktop` over.
+      The two rules the providers shared live once, in `:dbus`. `SessionBus.following(unavailable, …)`
+      runs a flow per connection and maps the new sealed `BusState.Unavailable` (`Connecting`, `Down`) to
+      a provider's own value, and `SessionBus.withConnection(down, …)` is the command half; each module
+      keeps only its one-line mapping to its error type. `DBusConnection.chancesToClaim(name)` is one
+      chance at once and one each time the name loses its owner, watching from before the first so a
+      holder that lets go is not missed, and owns the match rule; `TrayWatcher.serve` and
+      `NotificationServer` both claim through it. `ClaimingANameTest` and two `SessionBusReconnectTest`
+      cases pin it, and their mutations (no first chance, the wrong name, a command waiting for `Up`,
+      nothing emitted in between) each fail one.
 
 - [x] **The tray follows its watcher, and a shell takes the registry over once its holder lets it go.** Both
       old entries were one rule, "watch the watcher's name and act on it", and it is written once. `track()`

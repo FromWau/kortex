@@ -4,6 +4,8 @@ import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
+import com.fromwau.kern.result.errorOrNull
+import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.getOrNull
 import com.fromwau.kern.result.mapError
@@ -14,13 +16,24 @@ import com.fromwau.kortex.dbus.DBusType
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.Message
 import com.fromwau.kortex.dbus.NameRequest
+import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asUInt32
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -43,33 +56,42 @@ public data class ServerInformation(
  * Kortex as the notification server, rather than a client of one.
  *
  * `org.freedesktop.Notifications` is what `notify-send` calls, and a shell that shows notifications is
- * what answers it. Only one connection on a bus can hold that name, so becoming the server is something
- * that succeeds or fails outright, which is why [start] is the only way to get one of these.
+ * what answers it. Only one connection on a bus can hold that name. While somebody collects
+ * [notifications] this takes it on every connection [bus] comes up on: at once where it is free, and
+ * otherwise as soon as its holder lets it go. The name goes back when the last collector leaves.
  *
  * Nothing here draws or times anything. A notification carries the [Expiry] its application asked for and
  * stays in [notifications] until somebody calls [close]: a caller that animates one away knows when it is
- * gone and kortex does not, so kortex does not guess.
+ * gone and kortex does not, so kortex does not guess. Posted notifications outlive a bus restart, and so
+ * do their ids, so an application that comes back can still close what it posted.
  */
-public class NotificationServer private constructor(
-    private val connection: DBusConnection,
+public class NotificationServer(
+    private val bus: SessionBus,
     private val information: ServerInformation,
+    scope: CoroutineScope,
 ) {
     private val posted = MutableStateFlow<List<Notification>>(emptyList())
     private val ids = AtomicInteger(0)
     private val posting = Mutex()
 
+    /** The connection holding the name right now, which is the one signals about a notification go out on. */
+    private val holding = MutableStateFlow<DBusConnection?>(null)
+
     /**
-     * Every notification currently posted, oldest first.
+     * Every notification currently posted, oldest first, while this is the server.
      *
-     * No `Result` around it, which is the one place this module departs from the other providers. The
-     * error those carry answers "why is there no data", and here that cannot be a failure: holding one of
-     * these means [start] already proved the name was taken and the object exported, so an empty list can
-     * only mean nothing has been posted.
+     * Otherwise why not: [NotificationError.AlreadyServed] while another process holds the name,
+     * [NotificationError.BusDown] while there is no bus, and [NotificationError.NotConnected] before the
+     * first connection is up.
      */
-    public val notifications: StateFlow<List<Notification>> = posted.asStateFlow()
+    public val notifications: StateFlow<Result<List<Notification>, NotificationError>> = bus
+        .following(::unavailable) { connection -> servingOn(connection) }
+        .stateIn(scope, SharingStarted.WhileSubscribed(), Err(NotificationError.NotConnected))
 
     /**
      * Takes a notification away and tells its application why.
+     *
+     * It is taken away even when the application cannot be told, which is what the error then says.
      *
      * @return [NotificationError.NoSuchNotification] where nothing with that id is posted, which is what a
      *   caller closing the same one twice gets.
@@ -95,15 +117,35 @@ public class NotificationServer private constructor(
         return close(id, CloseReason.Dismissed)
     }
 
-    /** Gives the name back and stops answering, so another daemon can take over. */
-    public suspend fun stop(): EmptyResult<NotificationError> {
-        connection.unexport(PATH)
-        return connection.releaseName(INTERFACE).mapError(NotificationError::BusFailed)
+    /**
+     * Holds the name on [connection] for as long as this pass runs, and the posted notifications once it
+     * does. Once held, this stops watching for it, and the name is given back when the pass ends.
+     */
+    private fun servingOn(connection: DBusConnection): Flow<Result<List<Notification>, NotificationError>> =
+        channelFlow {
+            connection.chancesToClaim(INTERFACE)
+                .map { chance -> chance.mapError(NotificationError::BusFailed).flatMap { claim(connection) } }
+                .onEach { claimed -> if (claimed is Err) send(claimed) }
+                .firstOrNull { it is Ok }
+                ?: return@channelFlow
+
+            connection.export(PATH, introspection = INTROSPECTION) { call -> handle(call) }
+            holding.value = connection
+            posted.collect { send(Ok(it)) }
+        }.onCompletion {
+            if (holding.compareAndSet(connection, null)) {
+                withContext(NonCancellable) {
+                    connection.unexport(PATH)
+                    connection.releaseName(INTERFACE)
+                }
+            }
+        }
+
+    private suspend fun announce(member: String, args: List<DBusValue>): EmptyResult<NotificationError> {
+        val connection = holding.value
+            ?: return Err(notifications.value.errorOrNull() ?: NotificationError.NotConnected)
+        return connection.emit(PATH, INTERFACE, member, args).mapError(NotificationError::BusFailed)
     }
-
-    private suspend fun announce(member: String, args: List<DBusValue>): EmptyResult<NotificationError> =
-        connection.emit(PATH, INTERFACE, member, args).mapError(NotificationError::BusFailed)
-
     private fun remove(id: UInt): Boolean {
         var removed = false
         posted.update { current ->
@@ -181,29 +223,16 @@ public class NotificationServer private constructor(
         private const val NO_ID: UInt = 0u
         private const val NOTIFY_SIGNATURE = "susssasa{sv}i"
 
-        /**
-         * Becomes the notification server, or says who already is.
-         *
-         * It does not queue. `RequestName` goes out asking not to be, because a shell that has started,
-         * looks well, and shows no notification until a daemon nobody is watching happens to exit is the
-         * harder of the two to diagnose.
-         */
-        public suspend fun start(
-            connection: DBusConnection,
-            information: ServerInformation,
-        ): Result<NotificationServer, NotificationError> {
+        /** The name for [connection], or who holds it instead. */
+        private suspend fun claim(connection: DBusConnection): EmptyResult<NotificationError> {
             val requested = connection
                 .requestName(INTERFACE)
                 .mapError(NotificationError::BusFailed)
                 .getOrElse { return Err(it) }
-            when (requested) {
-                NameRequest.Held, NameRequest.AlreadyHeld -> Unit
-                NameRequest.Taken, NameRequest.Unknown -> return Err(whoHasIt(connection))
+            return when (requested) {
+                NameRequest.Held, NameRequest.AlreadyHeld -> Ok(Unit)
+                NameRequest.Taken, NameRequest.Unknown -> Err(whoHasIt(connection))
             }
-
-            val server = NotificationServer(connection, information)
-            connection.export(PATH, introspection = INTROSPECTION) { call -> server.handle(call) }
-            return Ok(server)
         }
 
         /**
