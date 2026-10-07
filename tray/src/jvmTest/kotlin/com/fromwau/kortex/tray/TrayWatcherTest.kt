@@ -4,11 +4,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.getOrNull
-import com.fromwau.kortex.dbus.Bus
-import com.fromwau.kortex.dbus.CallRejected
 import com.fromwau.kortex.dbus.DBusConnection
-import com.fromwau.kortex.dbus.DBusType
-import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
 import com.fromwau.kortex.dbus.asItems
 import com.fromwau.kortex.dbus.asText
@@ -213,52 +209,12 @@ class TrayWatcherTest {
         return seen
     }
 
-    private suspend fun DBusConnection.register(entry: String) {
-        call(
-            destination = KDE_WATCHER.service,
-            path = WATCHER_PATH,
-            iface = KDE_WATCHER.iface,
-            member = REGISTER_ITEM,
-            args = listOf(DBusValue.Text(entry)),
-        ).getOrElse { fail("the watcher refused a registration: $it") }
-    }
-
     private suspend fun DBusConnection.readRegistry(): List<String> =
         property(KDE_WATCHER.service, WATCHER_PATH, KDE_WATCHER.iface, REGISTERED_ITEMS)
             .getOrElse { fail("the registry property could not be read: $it") }
             .asItems
             ?.mapNotNull { it.asText }
             .orEmpty()
-
-    /**
-     * Enough of an item for a host to accept it: a non-empty property map on KDE's interface.
-     *
-     * A host drops an address whose peer answers nothing, so without this the registry would carry the
-     * item and the tray would still be empty, and the test would be measuring the wrong thing.
-     */
-    private fun DBusConnection.exportFakeItem() {
-        export(ItemAddress.DEFAULT_PATH) { call ->
-            when {
-                call.iface == Bus.PROPERTIES && call.member == "GetAll" &&
-                    call.body.firstOrNull()?.asText == "org.kde.StatusNotifierItem" -> Ok(listOf(properties()))
-
-                else -> Err(CallRejected.unknownMethod(call))
-            }
-        }
-    }
-
-    private fun properties(): DBusValue = DBusValue.Sequence(
-        DBusType.Pair(DBusType.Basic.Text, DBusType.Variant),
-        listOf(
-            DBusValue.Pair(DBusValue.Text("Id"), DBusValue.Variant(DBusValue.Text("probe"))),
-            DBusValue.Pair(DBusValue.Text("Title"), DBusValue.Variant(DBusValue.Text("Probe"))),
-            DBusValue.Pair(DBusValue.Text("Status"), DBusValue.Variant(DBusValue.Text("Active"))),
-            DBusValue.Pair(
-                DBusValue.Text("Category"),
-                DBusValue.Variant(DBusValue.Text("ApplicationStatus")),
-            ),
-        ),
-    )
 
     /**
      * A watcher on its own connection and scope for one test.

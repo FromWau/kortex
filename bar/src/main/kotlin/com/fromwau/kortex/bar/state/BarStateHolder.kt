@@ -86,7 +86,7 @@ class BarStateHolder(
     }.stateIn(scope, SharingStarted.Eagerly, BarState.Pending)
 
     init {
-        // Into the bar's own state rather than another arm of the combines: this answers once at startup.
+        // Into the bar's own state rather than another arm of the combines, as a fact about the shell.
         scope.launch {
             desktop.trayRegistry.collect { holder -> own.update { mine -> mine.copy(trayRegistry = holder) } }
         }

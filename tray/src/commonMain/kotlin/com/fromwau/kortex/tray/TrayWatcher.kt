@@ -18,7 +18,13 @@ import com.fromwau.kortex.dbus.Message
 import com.fromwau.kortex.dbus.NameRequest
 import com.fromwau.kortex.dbus.asText
 import com.fromwau.kortex.dbus.asUInt32
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,9 +56,9 @@ import java.nio.file.Path
  * themselves again, with nothing restarted, so a watcher started after them adopts the tray that is
  * already there rather than only the applications that come later.
  *
- * It does not take the name back if it loses it, and does not wait for a name somebody else holds to be
- * given up. Taking a name out from under another bar on its next restart is the worse failure, and a
- * desktop running two bars is the owner's business rather than this module's.
+ * It never takes the name from a process that holds it: taking it out from under another bar is the worse
+ * failure, and a desktop running two bars is the owner's business rather than this module's. [serve] does
+ * take it once that process has let it go, so a tray outlives the bar that was serving it.
  */
 /**
  * Who holds the tray's registry, once a shell has asked for it.
@@ -244,6 +250,59 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
             scope.launch { watcher.watchForDepartures() }
 
             return Ok(TrayRegistry.HeldHere(watcher))
+        }
+
+        /**
+         * Claims the registry now if the name is free, and otherwise as soon as its holder lets it go.
+         *
+         * The value starts as [claim]'s answer. While another process holds the name it is that process. When
+         * that process lets the name go, by exiting or by giving it up, this claims it and turns
+         * [TrayRegistry.HeldHere]. Another shell that gets there first is reported as the new holder and
+         * waited out in turn, and a claim the bus failed is tried again the next time the name is free. Once
+         * this holds the name it stops watching, so [stop] gives it back for good.
+         *
+         * ```kotlin
+         * TrayWatcher.serve(connection, scope).collect { registry ->
+         *     val elsewhere = registry.getOrNull() as? TrayRegistry.HeldElsewhere
+         *     hint(elsewhere?.let { "tray registry: ${it.process ?: it.owner}" })
+         * }
+         * ```
+         *
+         * [scope] is where the watching runs, and where the registry's own subscription runs once claimed.
+         */
+        public suspend fun serve(
+            connection: DBusConnection,
+            scope: CoroutineScope,
+        ): StateFlow<Result<TrayRegistry, TrayError>> {
+            val rule = MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED)
+            connection.addMatch(rule).getOrElse { return MutableStateFlow(Err(TrayError.BusFailed(it))) }
+
+            // Subscribed before the first claim, so a holder that leaves in between is not missed.
+            val subscribed = CompletableDeferred<Unit>()
+            val freed = Channel<Unit>(Channel.CONFLATED)
+            val listening = scope.launch {
+                connection.allSignals
+                    .onSubscription { subscribed.complete(Unit) }
+                    .filter { it.iface == Bus.INTERFACE && it.member == Bus.NAME_OWNER_CHANGED }
+                    .filter { it.body.firstOrNull()?.asText == KDE_WATCHER.service }
+                    .filter { it.body.getOrNull(2)?.asText.isNullOrEmpty() }
+                    .collect { freed.send(Unit) }
+            }
+            subscribed.await()
+
+            val held = MutableStateFlow(claim(connection, scope))
+            scope.launch {
+                try {
+                    while (held.value.getOrNull() !is TrayRegistry.HeldHere) {
+                        freed.receive()
+                        held.value = claim(connection, scope)
+                    }
+                } finally {
+                    listening.cancel()
+                    withContext(NonCancellable) { connection.removeMatch(rule) }
+                }
+            }
+            return held.asStateFlow()
         }
 
         /** Turns "the name is taken" into "ags is already the watcher". */

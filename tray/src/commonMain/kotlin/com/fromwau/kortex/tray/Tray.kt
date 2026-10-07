@@ -100,12 +100,13 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
             connection.call(address.service, address.path, iface, member, args)
         }.map { }
 
+    /**
+     * The tray, followed across the watcher coming, going and being replaced.
+     *
+     * Applications re-register with whichever watcher holds the name, since they follow it themselves, so
+     * all a host has to do is notice the change and register again with the new one.
+     */
     private fun track(): Flow<Result<List<TrayItem>, TrayError>> = channelFlow {
-        val watcher = findWatcher().getOrElse {
-            send(Err(it))
-            return@channelFlow
-        }
-
         RULES.forEach { rule ->
             connection.addMatch(rule).getOrElse {
                 send(Err(TrayError.BusFailed(it)))
@@ -113,7 +114,8 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
             }
         }
 
-        // Subscribed before the first read, so an item that registers between the two is not missed.
+        // Subscribed before the first look for a watcher, so neither a watcher nor an item that arrives in
+        // between is missed.
         val signals = Channel<Message.Signal>(Channel.UNLIMITED)
         val subscribed = CompletableDeferred<Unit>()
         launch {
@@ -123,23 +125,36 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
         }
         subscribed.await()
 
-        connection.post(
-            destination = watcher.service,
-            path = WATCHER_PATH,
-            iface = watcher.iface,
-            member = "RegisterStatusNotifierHost",
-            args = listOf(DBusValue.Text(connection.uniqueName)),
-        )
+        while (true) {
+            val watcher = findWatcher().getOrNull()
+            if (watcher == null) {
+                send(Err(TrayError.NoWatcher))
+                signals.awaitOwnerChange(WATCHERS.map { it.service }.toSet(), appearing = true)
+                continue
+            }
 
-        var known = readAll(watcher).getOrElse {
-            send(Err(it))
-            return@channelFlow
-        }
-        send(Ok(known.asItems()))
+            connection.post(
+                destination = watcher.service,
+                path = WATCHER_PATH,
+                iface = watcher.iface,
+                member = "RegisterStatusNotifierHost",
+                args = listOf(DBusValue.Text(connection.uniqueName)),
+            )
 
-        for (signal in signals) {
-            known = known.after(signal, watcher) ?: continue
+            var known = readAll(watcher).getOrElse { failure ->
+                send(Err(failure))
+                // Read again once the watcher changes, rather than giving up on a tray that may recover.
+                signals.awaitOwnerChange(setOf(watcher.service), appearing = false)
+                continue
+            }
             send(Ok(known.asItems()))
+
+            for (signal in signals) {
+                // Gone or replaced, either way the next pass finds out which and starts over with it.
+                if (signal.ownerChangeOf(setOf(watcher.service)) != null) break
+                known = known.after(signal, watcher) ?: continue
+                send(Ok(known.asItems()))
+            }
         }
     }.onCompletion {
         // NonCancellable: this runs as the last collector goes away, which is usually a cancellation, and
@@ -219,6 +234,28 @@ public class Tray(private val connection: DBusConnection, private val scope: Cor
      */
     private fun Known.addressOf(signal: Message.Signal): ItemAddress? =
         entries.firstOrNull { it.value.owner == signal.sender && it.key.path == signal.path }?.key
+
+    /**
+     * Waits for one of [names] to change owner: to gain one where [appearing], to change at all where not.
+     *
+     * Every other signal is dropped, which is right for both callers: neither holds items worth updating.
+     */
+    private suspend fun Channel<Message.Signal>.awaitOwnerChange(
+        names: Set<String>,
+        appearing: Boolean,
+    ) {
+        for (signal in this) {
+            val newOwner = signal.ownerChangeOf(names) ?: continue
+            if (!appearing || newOwner.isNotEmpty()) return
+        }
+    }
+
+    /** The new owner of one of [names] where this signal announces one changing, empty for none, else null. */
+    private fun Message.Signal.ownerChangeOf(names: Set<String>): String? {
+        if (iface != Bus.INTERFACE || member != Bus.NAME_OWNER_CHANGED) return null
+        if (body.firstOrNull()?.asText !in names) return null
+        return body.getOrNull(2)?.asText
+    }
 
     private suspend fun findWatcher(): Result<Watcher, TrayError> {
         WATCHERS.forEach { candidate ->

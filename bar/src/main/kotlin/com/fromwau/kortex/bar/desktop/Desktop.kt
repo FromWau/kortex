@@ -99,7 +99,8 @@ class BusDesktop(
     private val connection = scope.async(start = CoroutineStart.LAZY) { DBusConnection.session() }
 
     /**
-     * Asks to be the tray's registry before building the host, so applications have somewhere to register.
+     * Serves the tray's registry before building the host, so applications have somewhere to register, and
+     * takes it over whenever another shell that held it lets it go.
      *
      * Order matters only this far: a shell that hosts without ever claiming reads an empty registry on a
      * desktop where nothing else serves one, which is a tray that looks fine and is permanently empty.
@@ -107,7 +108,7 @@ class BusDesktop(
     private val registry = scope.async(start = CoroutineStart.LAZY) {
         when (val bus = connection.await()) {
             is Err -> Err(BarError.NoBus(bus.error))
-            is Ok -> TrayWatcher.claim(bus.value, scope).mapError(BarError::NoTray)
+            is Ok -> Ok(TrayWatcher.serve(bus.value, scope))
         }
     }
 
@@ -127,8 +128,14 @@ class BusDesktop(
     }
 
     override val trayRegistry: Flow<String?> = flow {
-        val held = registry.await().getOrNull() as? TrayRegistry.HeldElsewhere
-        emit(held?.let { it.process ?: it.owner })
+        when (val served = registry.await()) {
+            is Err -> emit(null)
+            is Ok -> emitAll(
+                served.value.map { held ->
+                    (held.getOrNull() as? TrayRegistry.HeldElsewhere)?.let { it.process ?: it.owner }
+                },
+            )
+        }
     }.flowOn(Dispatchers.IO)
 
     override val tray: Flow<Reading<List<TrayEntry>>> = flow {
