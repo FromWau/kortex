@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
+import kotlin.concurrent.Volatile
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -95,6 +96,9 @@ public sealed interface TrayRegistry {
 public class TrayWatcher private constructor(private val connection: DBusConnection) {
     private val registry = MutableStateFlow<Set<ItemAddress>>(emptySet())
 
+    @Volatile
+    private var stopped = false
+
     /**
      * Every item that has registered here, which is the list a host reads over the bus.
      *
@@ -105,8 +109,11 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
 
     /** Gives the name back and stops answering, so another bar can take the role. */
     public suspend fun stop(): EmptyResult<TrayError> {
+        stopped = true
+        // The name goes first, so a host never reaches the name with nothing exported behind it.
+        val released = connection.releaseName(KDE_WATCHER.service).mapError(TrayError::BusFailed)
         connection.unexport(WATCHER_PATH)
-        return connection.releaseName(KDE_WATCHER.service).mapError(TrayError::BusFailed)
+        return released
     }
 
     private suspend fun handle(call: Message.Call): Result<List<DBusValue>, CallRejected> = when {
@@ -239,17 +246,25 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
             connection: DBusConnection,
             scope: CoroutineScope,
         ): Result<TrayRegistry, TrayError> {
+            // Exported before the name is taken, so a host never reaches the name with nothing behind it.
+            val watcher = TrayWatcher(connection)
+            connection.export(WATCHER_PATH, introspection = INTROSPECTION) { call -> watcher.handle(call) }
+
             val requested = connection
                 .requestName(KDE_WATCHER.service)
                 .mapError(TrayError::BusFailed)
-                .getOrElse { return Err(it) }
+                .getOrElse { failure ->
+                    connection.unexport(WATCHER_PATH)
+                    return Err(failure)
+                }
             when (requested) {
                 NameRequest.Held, NameRequest.AlreadyHeld -> Unit
-                NameRequest.Taken, NameRequest.Unknown -> return Ok(whoHasIt(connection))
-            }
 
-            val watcher = TrayWatcher(connection)
-            connection.export(WATCHER_PATH, introspection = INTROSPECTION) { call -> watcher.handle(call) }
+                NameRequest.Taken, NameRequest.Unknown -> {
+                    connection.unexport(WATCHER_PATH)
+                    return Ok(whoHasIt(connection))
+                }
+            }
 
             connection
                 .addMatch(MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED))
@@ -278,23 +293,38 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
          * }
          * ```
          *
-         * Nothing is claimed while nobody collects the flow, and the registry it serves lives as long as
-         * somebody does.
+         * Nothing is claimed until something collects the flow. Once claimed, the registry lives as long as
+         * its connection and [scope], however often collectors come and go, so the items registered with it
+         * stay: an application registers again only when the name changes hands, and here it never did.
          */
         public fun serve(
             bus: SessionBus,
             scope: CoroutineScope,
-        ): StateFlow<Result<TrayRegistry, TrayError>> = bus
-            .following(::unavailable) { connection -> servingOn(connection) }
-            .stateIn(scope, SharingStarted.WhileSubscribed(), Err(TrayError.NotConnected))
+        ): StateFlow<Result<TrayRegistry, TrayError>> {
+            val kept = MutableStateFlow<TrayWatcher?>(null)
+            return bus
+                .following(::unavailable) { connection -> servingOn(connection, scope, kept) }
+                .stateIn(scope, SharingStarted.WhileSubscribed(), Err(TrayError.NotConnected))
+        }
 
-        private fun servingOn(connection: DBusConnection): Flow<Result<TrayRegistry, TrayError>> = channelFlow {
-            // This pass is the registry's scope, so the registry lives exactly as long as the pass.
-            connection.chancesToClaim(KDE_WATCHER.service)
-                .map { chance -> chance.mapError(TrayError::BusFailed).flatMap { claim(connection, this) } }
+        private fun servingOn(
+            connection: DBusConnection,
+            scope: CoroutineScope,
+            kept: MutableStateFlow<TrayWatcher?>,
+        ): Flow<Result<TrayRegistry, TrayError>> = channelFlow {
+            // Claiming again would answer AlreadyHeld and export a new, empty registry over the one in use.
+            val held = kept.value?.takeIf { it.connection == connection && !it.stopped }
+            if (held != null) {
+                send(Ok(TrayRegistry.HeldHere(held)))
+                awaitCancellation()
+            }
+
+            val claimed = connection.chancesToClaim(KDE_WATCHER.service)
+                .map { chance -> chance.mapError(TrayError::BusFailed).flatMap { claim(connection, scope) } }
                 .onEach { send(it) }
                 .firstOrNull { it.getOrNull() is TrayRegistry.HeldHere }
                 ?: return@channelFlow
+            kept.value = (claimed.getOrNull() as TrayRegistry.HeldHere).watcher
             awaitCancellation()
         }
 

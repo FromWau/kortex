@@ -22,17 +22,19 @@ public sealed interface WatchError : IError {
     /**
      * The watcher has stopped, so nothing further will arrive and the flow is over.
      *
-     * Either a watch that never started or one that was live and ended. Match this where the question is
-     * whether to wait, and the cases under it where the question is what to tell somebody. The overload
-     * that reads on an interval never answers one of these, because it places no watch to lose.
+     * Usually a watch that never started, though one can stop later where the system refuses the watch it
+     * moves to. Match this where the question is whether to wait, and the cases under it where the question
+     * is what to tell somebody. The overload that reads on an interval never answers one of these, because
+     * it places no watch to lose.
      */
     public sealed interface Stopped : WatchError
 
     /**
-     * The directory that has to be watched could not be read; [cause] is kern's reason, and names it.
+     * The directory that has to be watched may not be read; [cause] is kern's reason, and names it.
      *
-     * The directory above the file is what a watch is really placed on, so a missing or unreadable one
-     * stops the watch before the file is ever reached.
+     * The directory above the file is what a watch is really placed on, or the nearest one above that while
+     * it is missing. A missing directory is waited for, but one this process may not read is never going to
+     * report anything.
      */
     public data class FolderUnreadable(
         override val path: Path,
@@ -53,9 +55,6 @@ public sealed interface WatchError : IError {
         override val path: Path,
         public val filesystem: Pseudofilesystem,
     ) : Stopped
-
-    /** The watch was live and has stopped: the directory above [path] was deleted or unmounted. */
-    public data class WatchEnded(override val path: Path) : Stopped
 
     /**
      * The system refused the watch itself, with the directory readable; [detail] is its own wording.

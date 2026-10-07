@@ -1492,14 +1492,17 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       sees the file as it now stands, it catches the regression that matters, a per-path cache with replay.
       What is left is the shell's half. Nothing shares one theme across several surfaces yet, which is the
       `stateIn` the docs recommend, and `:bar` demonstrates the single-surface call instead.
-- [ ] **A push file watcher stops for good when the directory under it goes.** `watchText` answers
-      `WatchError.Stopped` and completes, and its KDoc calls that intended, which the rule above makes a
-      bug: delete the directory holding a config file and recreate it, which an atomic config deploy, a
-      `git checkout` of a dotfiles repo and `rm -rf` followed by a restore all do, and the watcher is dead
-      for the life of the process. The interval overload is unaffected, because it only ever reads.
-      The fix is to watch the nearest existing ancestor and re-register when the path reappears, which is
-      what `WatchEnded` should trigger rather than report. `Stopped` then narrows to the cases that really
-      are final, and `watchText`'s doc loses the paragraph that called this a feature.
+- [x] **A push file watcher follows its directory away and back.** `watchText` used to answer
+      `WatchError.WatchEnded` and stop when the directory above the file was deleted, so a `git checkout` of
+      a dotfiles repository, an atomic deploy or `rm -rf` and a restore left it dead for the life of the
+      process. A directory missing at the start was `FolderUnreadable`, final in the same way. Now a missing
+      directory is watched from the nearest ancestor that exists, for creations only, stepping down as each
+      level appears and back up when one is deleted, and every move is a signal, so the file reads as
+      missing and then as its contents again. `WatchEnded` is gone, and `FolderUnreadable` means only a
+      directory this process may not read. Pinned by a two-level arrival, a delete and remake, and a locked
+      folder on the JVM; two mutations, a dead key ending the watch and an ancestor that never steps down,
+      each fail them. One gap is named rather than handled: a filesystem unmounted and mounted again over the
+      watched directory leaves the watch on the directory underneath, which inotify never reports on.
 - [x] **`:tray` serves the registry now, so a kortex bar is a tray on its own.** It was the host side only:
       it found an existing `StatusNotifierWatcher`, registered as a host, and answered `TrayError.NoWatcher`
       where none existed, so the tray worked only while some *other* bar was running. On this desktop that
@@ -1745,7 +1748,10 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       started. So either `rememberMonitors()` went empty, which draws no bar and no popup, or the layer surface
       went away without its state hearing of it. Restarted under `WAYLAND_DEBUG=client` and clicked the same
       way, it did not happen again. Unexplained; the next occurrence should be caught with the process left
-      running and protocol logging on, since the wire shows which of the two it was.
+      running and protocol logging on, since the wire shows which of the two it was. Of the two, the empty
+      monitor list is the likelier: a compositor closing the surface ends it as `ClosedByCompositor`, which
+      shows the crash popup, and none showed. The bar now prints `kortex-bar: monitors [...]` to stderr on
+      every change, so the next occurrence says whether the list went empty without a protocol log.
 - [ ] **Typed `:hyprland` commands for the actions a bar might run, taken from a real `bindings.lua`.** Designed,
       not agreed. Each sends one `dispatch` and answers `EmptyResult`; a command on a window takes
       `window: WindowAddress? = null`, null meaning the focused one. `exec(command)` (`exec_cmd`, so Hyprland
@@ -1935,12 +1941,16 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       `PowerProfiles`, `Tray`, `Menu`, `TrayWatcher` and `chancesToClaim` use them. `WatchingTest` pins
       each promise, and each of seven mutations fails a test.
 
-- [ ] **Two test suites race on the real session bus.** `TrayReattachTest` serves a tray watcher on the
-      session bus this machine runs, and Gradle runs `:tray` and `:bar` in parallel, so `:bar`'s
-      `TrayLiveTest` can read the watcher mid-teardown: the name still held, the object already gone, and
-      `UnknownObject` where it expects items or `NoWatcher`. Seen once, 2026-10-07; `:bar` alone passes.
-      Open: move the reattach tests onto a `PrivateBus`, or let the live test treat a watcher that vanishes
-      while being read as no watcher.
+- [x] **Two test suites raced on the real session bus, and the race was a bug in `TrayWatcher`.** `:bar`'s
+      `TrayLiveTest` once read `UnknownObject` from a watcher `:tray`'s tests were stopping. `stop()` took the
+      object away and then gave up the name, so for one round trip the name answered with nothing behind it,
+      which a host reads as a broken watcher rather than as none; `claim()` had the mirror window, taking the
+      name before exporting. Both now order it the other way. Pinned by a host reading through fifty claims
+      and stops on a private bus, which fails on the old `stop()` order every time; the old `claim()` order is
+      not caught, since the name's grant reaches the claiming connection before any call routed through it,
+      so that window is microseconds wide in practice. `TrayWatcherTest` and `TrayReattachTest` test kortex's
+      own watcher with fake items and moved to a `PrivateBus`, so they no longer need the bar or ags stopped
+      and no longer touch the desktop's tray. The live suites still claim the real name when it is free.
 - [x] **A tray item can be clicked, and its menu is drawn by the bar.** A right click opens the item's own
       `com.canonical.dbusmenu` menu as a `ContextMenu` just below the bar, sized from its labels; an item
       with no such menu is asked to show its own. A left click activates the item, or opens the menu where
@@ -1950,15 +1960,28 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       entry on a click. A press a widget answers is consumed, so the bar's own right-click menu no longer
       opens on top, which it also did over the timer. Tried with Discord: its menu opens, each entry works,
       a click away dismisses it, and left and middle clicks bring its window up.
-- [ ] **An Electron app's tray item is gone after the bar restarts, until the app restarts too.** Seen with
-      Discord, every time: with no watcher it answers everything with "Method is no longer available", and
-      a watcher that appears later never hears from it. The specification has an item register again when
-      the watcher changes hands; Chromium does not. Nothing for kortex to fix, but worth knowing before
-      calling an empty tray a kortex bug.
-- [ ] **The watcher once dropped a live Discord item.** 2026-10-07, after a restart: registered, then gone
-      from `RegisteredStatusNotifierItems` within a minute while its connection still answered `GetAll`, and
-      the watcher had not changed hands. Not seen again in two more restarts, one with the bus recorded.
-      Open: record the bus the next time the tray empties on its own.
+- [ ] **An app started while no tray watcher runs never gets a tray item, so the watcher should outlive the
+      bar.** Chromium, and with it every Electron app, asks once as its tray icon is made whether anyone holds
+      `org.kde.StatusNotifierWatcher` (`NameHasOwner`, in `status_icon_linux_dbus.cc`), and on no answer drops
+      the D-Bus item for good: Discord started that way exports no tray object at all, so there is nothing to
+      pick up later, and D-Bus activation would not help since `NameHasOwner` starts nothing. An item that did
+      start follows the watcher across restarts: measured 2026-10-07, Discord registered at 14:24:49 and again
+      at 14:27:13.94, the instant a restarted bar took the name, with Discord untouched. This corrects the note
+      that stood here, which said Chromium never re-registers; the earlier sessions had started Discord while
+      no watcher ran. Planned fix: the watcher as a small standalone app started first in the session, beside
+      the `:polkit-agent` plan, which a bar reads as `HeldElsewhere`, so a bar that crashes or starts late costs
+      no application its tray. Starting the bar before the apps in `startup.lua` is the stopgap, and a race.
+- [x] **The watcher dropped live items whenever `serve` was collected again.** Seen once with Discord:
+      registered, then gone from `RegisteredStatusNotifierItems` while its connection still answered and the
+      name never changed hands. `serve` is `WhileSubscribed`, so a moment with no collector stopped its claim,
+      while the bus connection lingered and kept the name. The next collection claimed again, the bus answered
+      `AlreadyHeld`, and `claim` exported a new, empty watcher over the one in use. No application registers
+      again for a name that never changed hands, so the items were gone for good. The departure watch also ran
+      in that collection's scope, so an application leaving in the gap stayed listed. `serve` now keeps the
+      watcher it claimed on a connection and hands it back on the next collection, and watches for departures
+      on its own scope. Pinned on a private bus with the connection kept up as a bar's tray keeps it: one test
+      collects `serve` again and checks the registry, one closes an application between collections. Each
+      fails on its own mutant, the reuse removed and the departure watch put back in the collection.
 - [ ] **Four tray paths are written and no live item has ever sent them.** Draft, and deliberately not
       work: the code exists, the unit tests cover it, and what is missing is an application that sends the
       thing. Left open so that the next time one turns up it is read rather than assumed, and so nobody

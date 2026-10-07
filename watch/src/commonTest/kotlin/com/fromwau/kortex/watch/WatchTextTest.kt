@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -123,14 +124,26 @@ class WatchTextTest {
         assertEquals(listOf(Err(WatchError.Unwatchable(file, Pseudofilesystem.Proc))), values)
     }
 
+    /**
+     * Two levels missing, so the watch has to step down twice before it reaches the file. The second save is
+     * the proof it got there: the first can be caught by the read that stepping down makes anyway.
+     */
     @Test
-    fun `a file whose directory is not there says so about the directory`() = watchTest {
-        val folder = newTempDir() / "missing"
+    fun `a file whose directories are not there yet is watched once they and it arrive`() = watchTest {
+        val outer = newTempDir() / "outer"
+        val folder = outer / "inner"
         val file = folder / "config"
 
-        val values = file.watchText().toList()
+        watching(file.watchText()) { reads ->
+            assertEquals(Err(WatchError.Unreadable(file, FileError.NotFound(file))), reads.receive())
 
-        assertEquals(listOf(Err(WatchError.FolderUnreadable(file, FileError.NotFound(folder)))), values)
+            SystemFileSystem.createDirectories(folder)
+            file.saveOver("here now")
+            reads.until(Ok("here now"))
+
+            file.saveOver("and changed")
+            assertEquals(Ok("and changed"), reads.receive())
+        }
     }
 
     @Test
@@ -142,19 +155,28 @@ class WatchTextTest {
         assertEquals(listOf(Err(WatchError.NoFolderAbove(root))), values)
     }
 
-    /** A watch that was live and stops is its own answer, and not the same as one that never started. */
+    /**
+     * What a `git checkout` of a dotfiles repository does to the directory a config file is in. The save
+     * after the return is the proof the watch is back on the directory, as in the test above.
+     */
     @Test
-    fun `a watch whose directory is deleted ends and says so`() = watchTest {
-        val folder = newTempDir()
-        val file = (folder / "config").writeRaw("one")
+    fun `a directory deleted and made again is followed back`() = watchTest {
+        val folder = newTempDir() / "config.d"
+        val file = (folder.also(SystemFileSystem::createDirectories) / "config").writeRaw("one")
 
         watching(file.watchText()) { reads ->
             assertEquals(Ok("one"), reads.receive())
 
             file.deleteRaw()
             folder.deleteRaw()
+            reads.until(Err(WatchError.Unreadable(file, FileError.NotFound(file))))
 
-            reads.until(Err(WatchError.WatchEnded(file)))
+            SystemFileSystem.createDirectories(folder)
+            file.saveOver("back")
+            reads.until(Ok("back"))
+
+            file.saveOver("and changed")
+            assertEquals(Ok("and changed"), reads.receive())
         }
     }
 

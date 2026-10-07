@@ -2,10 +2,14 @@ package com.fromwau.kortex.tray
 
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.assertSuccess
+import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.getOrNull
+import com.fromwau.kortex.dbus.Bus
 import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.dbus.MatchRule
+import com.fromwau.kortex.dbus.PrivateBus
 import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asItems
 import com.fromwau.kortex.dbus.asText
@@ -19,9 +23,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -32,10 +38,7 @@ import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * kortex as the tray's registry, against the session bus this machine is running.
- *
- * Needs the watcher name free, so **whatever holds it has to be stopped first**, the same bargain the
- * notification server's tests take. On this desktop that is ags, and `ags --quit` is the way.
+ * kortex as the tray's registry, on a bus of the test's own, so nothing on the desktop has to give up the name.
  *
  * The one these exist for is `a host reads a registry its own process is serving`: a shell that serves
  * and draws makes a property call to a name it owns itself, which the bus loops back through the same
@@ -43,6 +46,11 @@ import kotlin.time.Duration.Companion.seconds
  * the pump does not sit waiting on itself.
  */
 class TrayWatcherTest {
+    private val bus = PrivateBus()
+
+    @AfterTest
+    fun tearDown() = bus.close()
+
     @Test
     fun `a watcher takes the name applications call`() = withWatcher { _, connection ->
         assertEquals(
@@ -125,7 +133,7 @@ class TrayWatcherTest {
     /** An application that exits does not unregister first, so the bus leaving is the only notice. */
     @Test
     fun `an item goes when its application leaves the bus`() = withWatcher { watcher, _ ->
-        val departed = DBusConnection.session().getOrElse { fail("no session bus: $it") }
+        val departed = DBusConnection.open(bus.socket).getOrElse { fail("no connection: $it") }
         val address = ItemAddress(departed.uniqueName, ItemAddress.DEFAULT_PATH)
         departed.register(address.toString())
         watcher.await(address)
@@ -146,20 +154,18 @@ class TrayWatcherTest {
     fun `a host reads a registry its own process is serving`() = runBlocking<Unit> {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val bus = SessionBus(scope)
-            val served = TrayWatcher.serve(bus, scope)
+            val session = SessionBus.at(bus.socket, scope)
+            val served = TrayWatcher.serve(session, scope)
             scope.launch { served.collect {} }
             withTimeoutOrNull(SETTLE) { served.first { it.getOrNull() is TrayRegistry.HeldHere } }
-                ?: fail("never held the watcher name, last ${served.value}; stop it first, on this desktop `ags quit`")
-            val tray = Tray(bus, scope)
+                ?: fail("never held the watcher name, last ${served.value}")
+            val tray = Tray(session, scope)
 
             onSecondConnection { item, _ ->
                 item.exportFakeItem()
                 val address = ItemAddress(item.uniqueName, ItemAddress.DEFAULT_PATH)
                 item.register(address.toString())
 
-                // Contains rather than equals: this runs against a live bus, and an application that
-                // re-registers the moment the name is taken is in the registry too.
                 withTimeoutOrNull(SETTLE) {
                     tray.items.first { state -> state.getOrNull().orEmpty().any { it.address == address } }
                 } ?: fail("the host never read its own registry, as a self-call deadlock would: ${tray.items.value}")
@@ -180,11 +186,36 @@ class TrayWatcherTest {
     }
 
     /**
-     * Waits for one address, rather than for the registry to be non-empty.
-     *
-     * Taking this name makes applications already running register themselves again, so the registry
-     * this file watches is never empty for long and never only holds what a test put there.
+     * A host reading while the registry changes hands finds the watcher or nobody, never the name held with
+     * nothing exported behind it, which reads as a broken watcher rather than a missing one.
      */
+    @Test
+    fun `a host never finds the name held with no watcher behind it`() = runBlocking<Unit> {
+        onSecondConnection { host, scope ->
+            val broken = MutableStateFlow<DBusError?>(null)
+            val reading = scope.launch {
+                while (isActive) {
+                    val failure = host
+                        .property(KDE_WATCHER.service, WATCHER_PATH, KDE_WATCHER.iface, REGISTERED_ITEMS)
+                        .errorOrNull()
+                    val nobody = (failure as? DBusError.CallFailed)?.name == Bus.SERVICE_UNKNOWN
+                    if (failure != null && !nobody) broken.compareAndSet(null, failure)
+                }
+            }
+
+            onSecondConnection { serving, servingScope ->
+                repeat(HANDOVERS) {
+                    val registry = TrayWatcher.claim(serving, servingScope).assertSuccess()
+                    assertIs<TrayRegistry.HeldHere>(registry).watcher.stop().assertSuccess()
+                }
+            }
+            reading.cancel()
+
+            assertNull(broken.value, "a host read the name between the watcher and nobody")
+        }
+    }
+
+    /** Waits for one address to be in the registry. */
     private suspend fun TrayWatcher.await(address: ItemAddress) {
         withTimeoutOrNull(SETTLE) { registered.first { address in it } }
             ?: fail("$address never registered within $SETTLE")
@@ -230,18 +261,15 @@ class TrayWatcherTest {
      */
     private fun withWatcher(body: suspend (TrayWatcher, DBusConnection) -> Unit) = runBlocking {
         DBusConnection
-            .session()
-            .getOrElse { error -> fail("no session bus answered: $error") }
+            .open(bus.socket)
+            .getOrElse { error -> fail("the private bus did not answer: $error") }
             .use { connection ->
                 val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
                 try {
                     val registry = TrayWatcher.claim(connection, scope).getOrElse { error ->
                         fail("the bus would not answer a claim for the name: $error")
                     }
-                    val here = assertIs<TrayRegistry.HeldHere>(
-                        registry,
-                        "something else holds the watcher name; stop it first, on this desktop `ags quit`",
-                    )
+                    val here = assertIs<TrayRegistry.HeldHere>(registry)
                     body(here.watcher, connection)
                 } finally {
                     scope.cancel()
@@ -252,8 +280,8 @@ class TrayWatcherTest {
     /** A second connection, which is what makes a registration arrive from somewhere else. */
     private suspend fun onSecondConnection(body: suspend (DBusConnection, CoroutineScope) -> Unit) {
         DBusConnection
-            .session()
-            .getOrElse { error -> fail("no second session connection: $error") }
+            .open(bus.socket)
+            .getOrElse { error -> fail("no second connection: $error") }
             .use { connection ->
                 val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
                 try {
@@ -266,6 +294,9 @@ class TrayWatcherTest {
 
     private companion object {
         val SETTLE = 5.seconds
+
+        /** Enough claims and stops that a window between the name and the object would be read through. */
+        const val HANDOVERS = 50
 
         /** Long enough for a second announcement to have arrived if the watcher were going to send one. */
         val FORGERY_WINDOW = 1.seconds

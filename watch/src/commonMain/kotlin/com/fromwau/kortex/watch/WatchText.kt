@@ -44,8 +44,9 @@ import kotlin.time.Duration.Companion.seconds
  * filesystem, and want [readTextEvery] instead.
  *
  * A file that is not there yet is not an error that ends anything: the first value says it is missing, and
- * the contents arrive if it is created. A file saved by writing a temporary copy and renaming it over the
- * original, which is how editors save, is followed across the rename.
+ * the contents arrive if it is created. The same holds for its directory, missing from the start or deleted
+ * and made again, which a `git checkout` of a dotfiles repository does. A file saved by writing a temporary
+ * copy and renaming it over the original, which is how editors save, is followed across the rename.
  *
  * Finding the file is yours, not this module's. A sysfs reading rarely has a path you can write down:
  * `/sys/class/hwmon/hwmonN` is numbered in probe order and not stable across boots, and which `tempN_input`

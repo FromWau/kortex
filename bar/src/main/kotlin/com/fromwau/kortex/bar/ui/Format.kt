@@ -73,7 +73,6 @@ private fun WatchError.shortly(): String = when (this) {
     is WatchError.NoFolderAbove -> "no folder above ${path.name}"
     is WatchError.FolderUnreadable -> "cannot read the folder of ${path.name}"
     is WatchError.WatchRefused -> "watch refused for ${path.name}"
-    is WatchError.WatchEnded -> "watch on ${path.name} ended"
 }
 
 private fun UpowerError.shortly(): String = when (this) {

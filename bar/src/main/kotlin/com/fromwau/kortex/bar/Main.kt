@@ -58,6 +58,9 @@ fun main() {
         val desktop = rememberDesktop()
         val monitors by rememberMonitors()
 
+        // An empty list draws no bar and no crash popup, so this line is the only trace that it happened.
+        LaunchedEffect(monitors) { System.err.println("kortex-bar: monitors ${monitors.map { it.name }}") }
+
         for ((index, monitor) in monitors.withIndex()) key(monitor) {
             val bar = rememberSurfaceState()
             var stopped by remember { mutableStateOf<Stopped>(Stopped.NotYet) }
