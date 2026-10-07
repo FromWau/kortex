@@ -19,6 +19,7 @@ import com.fromwau.kortex.dbus.NameRequest
 import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asText
 import com.fromwau.kortex.dbus.asUInt32
+import com.fromwau.kortex.dbus.nameOwnerChange
 import kotlinx.coroutines.CoroutineScope
 import com.fromwau.kern.result.flatMap
 import kotlinx.coroutines.flow.firstOrNull
@@ -166,9 +167,8 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
     /**
      * Watches the bus for connections going away, which is the only notice an item's departure gets.
      *
-     * `NameOwnerChanged` with an empty new owner is a connection that has gone, and every item it
-     * registered goes with it. Unfiltered by sender here only because the rule already pins it to the bus
-     * itself, which is the one peer whose word on this can be trusted.
+     * A name given up with no new owner is a connection that has gone, and every item it registered goes
+     * with it.
      */
     private suspend fun watchForDepartures() {
         // Ends with the connection: the registry it keeps is gone with it.
@@ -176,10 +176,8 @@ public class TrayWatcher private constructor(private val connection: DBusConnect
             if (received is Ok) emit(received.value)
             received is Ok
         }.collect { signal ->
-            if (signal.iface != Bus.INTERFACE || signal.member != Bus.NAME_OWNER_CHANGED) return@collect
-
-            val gone = signal.body.getOrNull(0)?.asText ?: return@collect
-            if (signal.body.getOrNull(2)?.asText.isNullOrEmpty()) forget(gone)
+            val change = signal.nameOwnerChange ?: return@collect
+            if (change.newOwner == null) forget(change.name)
         }
     }
 

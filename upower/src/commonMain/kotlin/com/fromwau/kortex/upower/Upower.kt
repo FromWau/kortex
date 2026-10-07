@@ -16,21 +16,13 @@ import com.fromwau.kortex.dbus.asBoolean
 import com.fromwau.kortex.dbus.asDictionary
 import com.fromwau.kortex.dbus.asItems
 import com.fromwau.kortex.dbus.asObjectPath
-import com.fromwau.kortex.dbus.asText
-import kotlinx.coroutines.CompletableDeferred
+import com.fromwau.kortex.dbus.nameOwnerChange
+import com.fromwau.kortex.dbus.watching
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.onCompletion
-import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.transformWhile
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * The machine's power, from UPower on the system bus: whether it runs on battery, its battery, and every
@@ -55,54 +47,30 @@ public class Upower(
         .following(::unavailable) { connection -> track(connection) }
         .stateIn(scope, SharingStarted.WhileSubscribed(), Err(UpowerError.NotConnected))
 
-    /**
-     * The power state on one connection: read once, then kept up from signals.
-     *
-     * Subscribed before the first read, so a device that appears or changes in between is not missed.
-     */
-    private fun track(connection: DBusConnection): Flow<Result<Power, UpowerError>> = channelFlow {
-        RULES.forEach { rule ->
-            connection.addMatch(rule).getOrElse {
-                send(Err(UpowerError.BusFailed(it)))
-                return@channelFlow
-            }
-        }
+    /** The power state on one connection: read once, then kept up from signals. */
+    private fun track(connection: DBusConnection): Flow<Result<Power, UpowerError>> =
+        connection.watching(RULES, ruleFailed = { send(Err(UpowerError.BusFailed(it))) }) { signals ->
+            var known: Result<Known, UpowerError> = readAll(connection)
+            send(known.snapshot())
+            for (signal in signals) {
+                val current = known
+                val handover = signal.nameOwnerChange?.takeIf { it.name == SERVICE }
+                val next = when {
+                    // Whatever was known, UPower leaving or coming back decides what is known next.
+                    handover != null -> when (handover.newOwner) {
+                        null -> Err(UpowerError.NotRunning)
+                        else -> readAll(connection)
+                    }
 
-        val signals = Channel<Message.Signal>(Channel.UNLIMITED)
-        val subscribed = CompletableDeferred<Unit>()
-        launch {
-            connection.allSignals
-                .onSubscription { subscribed.complete(Unit) }
-                .transformWhile { received ->
-                    if (received is Ok) emit(received.value)
-                    received is Ok
+                    current is Ok -> applied(connection, current.value, signal)
+                    else -> current
                 }
-                .collect { signals.send(it) }
-            // The connection ended, which the bus reports itself, so this pass just ends with it.
-            signals.close()
-        }
-        subscribed.await()
-
-        var known: Result<Known, UpowerError> = readAll(connection)
-        send(known.snapshot())
-        for (signal in signals) {
-            val current = known
-            val next = when {
-                // Whatever was known, UPower leaving or coming back decides what is known next.
-                ownerChanged(signal) -> when {
-                    cameBack(signal) -> readAll(connection)
-                    else -> Err(UpowerError.NotRunning)
+                if (next != known) {
+                    known = next
+                    send(known.snapshot())
                 }
-
-                current is Ok -> applied(connection, current.value, signal)
-                else -> current
-            }
-            if (next != known) {
-                known = next
-                send(known.snapshot())
             }
         }
-    }.onCompletion { withContext(NonCancellable) { RULES.forEach { connection.removeMatch(it) } } }
 
     /** [known] with [signal] folded in. */
     private suspend fun applied(
@@ -202,14 +170,6 @@ public class Upower(
             MatchRule(sender = SERVICE, iface = SERVICE),
             MatchRule(sender = SERVICE, iface = Bus.PROPERTIES, member = PROPERTIES_CHANGED, pathNamespace = PATH),
         )
-
-        fun ownerChanged(signal: Message.Signal): Boolean =
-            signal.iface == Bus.INTERFACE &&
-                signal.member == Bus.NAME_OWNER_CHANGED &&
-                signal.body.firstOrNull()?.asText == SERVICE
-
-        /** UPower taking its name again, rather than giving it up. */
-        fun cameBack(signal: Message.Signal): Boolean = !signal.body.getOrNull(2)?.asText.isNullOrEmpty()
 
         fun DBusError.asUpowerError(): UpowerError = when {
             this is DBusError.CallFailed && name == Bus.SERVICE_UNKNOWN -> UpowerError.NotRunning

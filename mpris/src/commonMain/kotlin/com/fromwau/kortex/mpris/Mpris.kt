@@ -13,15 +13,15 @@ import com.fromwau.kortex.dbus.DBusConnection
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
 import com.fromwau.kortex.dbus.Message
+import com.fromwau.kortex.dbus.NameOwnerChange
 import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asDictionary
 import com.fromwau.kortex.dbus.asItems
 import com.fromwau.kortex.dbus.asText
-import kotlinx.coroutines.CompletableDeferred
+import com.fromwau.kortex.dbus.nameOwnerChange
+import com.fromwau.kortex.dbus.watching
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -32,12 +32,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onCompletion
-import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.transformWhile
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
@@ -152,112 +147,91 @@ public class Mpris(
             connection.setProperty(player.busName, PATH, PLAYER, property, value).mapError(MprisError::BusFailed)
         }
 
-    /**
-     * The players on one connection: read once, then kept up from signals.
-     *
-     * Subscribed before the first read, so a player that appears or changes in between is not missed.
-     */
-    private fun track(connection: DBusConnection): Flow<Result<List<Player>, MprisError>> = channelFlow {
-        RULES.forEach { rule ->
-            connection.addMatch(rule).getOrElse {
-                send(Err(MprisError.BusFailed(it)))
-                return@channelFlow
-            }
-        }
-
-        val signals = Channel<Message.Signal>(Channel.UNLIMITED)
-        val subscribed = CompletableDeferred<Unit>()
-        launch {
-            connection.allSignals
-                .onSubscription { subscribed.complete(Unit) }
-                .transformWhile { received ->
-                    if (received is Ok) emit(received.value)
-                    received is Ok
+    /** The players on one connection: read once, then kept up from signals. */
+    private fun track(connection: DBusConnection): Flow<Result<List<Player>, MprisError>> =
+        connection.watching(RULES, ruleFailed = { send(Err(MprisError.BusFailed(it))) }) { signals ->
+            val names = connection
+                .call(Bus.NAME, Bus.PATH, Bus.INTERFACE, "ListNames")
+                .getOrElse {
+                    send(Err(MprisError.BusFailed(it)))
+                    return@watching
                 }
-                .collect { signals.send(it) }
-            // The connection ended, which the bus reports itself, so this pass just ends with it.
-            signals.close()
-        }
-        subscribed.await()
+                .firstOrNull()
+                ?.asItems
+                ?.mapNotNull { it.asText }
+                .orEmpty()
 
-        val names = connection
-            .call(Bus.NAME, Bus.PATH, Bus.INTERFACE, "ListNames")
-            .getOrElse {
-                send(Err(MprisError.BusFailed(it)))
-                return@channelFlow
+            val known = mutableMapOf<String, Known>()
+            names.filter(::isPlayer).forEach { name -> read(connection, name)?.let { known[name] = it } }
+            send(Ok(known.snapshot()))
+
+            for (signal in signals) {
+                if (apply(connection, known, signal)) send(Ok(known.snapshot()))
             }
-            .firstOrNull()
-            ?.asItems
-            ?.mapNotNull { it.asText }
-            .orEmpty()
-
-        val known = mutableMapOf<String, Known>()
-        names.filter(::isPlayer).forEach { name -> read(connection, name)?.let { known[name] = it } }
-        send(Ok(known.snapshot()))
-
-        for (signal in signals) {
-            if (apply(connection, known, signal)) send(Ok(known.snapshot()))
         }
-    }.onCompletion { withContext(NonCancellable) { RULES.forEach { connection.removeMatch(it) } } }
 
     /** Folds one signal into [known], and says whether anything a caller sees changed. */
     private suspend fun apply(
         connection: DBusConnection,
         known: MutableMap<String, Known>,
         signal: Message.Signal,
+    ): Boolean {
+        signal.nameOwnerChange?.let { change -> return handedOver(connection, known, change) }
+        return when {
+            signal.path != PATH -> false
+
+            signal.iface == Bus.PROPERTIES && signal.member == PROPERTIES_CHANGED -> {
+                val name = known.nameOwnedBy(signal.sender) ?: return false
+                val current = known.getValue(name)
+                val iface = signal.body.getOrNull(0)?.asText
+                val changed = signal.body.getOrNull(1)?.asDictionary.orEmpty()
+                val invalidated = signal.body.getOrNull(2)?.asItems.orEmpty().isNotEmpty()
+
+                // An invalidated property says it changed without saying to what, so the bag is read again.
+                suspend fun updated(iface: String, bag: Map<String, DBusValue>) =
+                    if (invalidated) reread(connection, name, iface, bag) else bag + changed
+
+                known[name] = when (iface) {
+                    ROOT -> current.copy(root = updated(ROOT, current.root))
+
+                    PLAYER -> {
+                        val player = updated(PLAYER, current.player)
+                        // Position sends no change of its own, so whatever makes it jump is when to read it again.
+                        val jumped = changed.keys.any { it in MOVES_POSITION }
+                        current.copy(
+                            player = player,
+                            position = if (jumped) readPosition(connection, name) else current.position,
+                        )
+                    }
+
+                    else -> current
+                }
+                true
+            }
+
+            signal.iface == PLAYER && signal.member == SEEKED -> {
+                val name = known.nameOwnedBy(signal.sender) ?: return false
+                val at = signal.body.firstOrNull()?.asMicroseconds ?: return false
+                known[name] = known.getValue(name).copy(position = PlayPosition(at, TimeSource.Monotonic.markNow()))
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    /** A player arriving, leaving or changing hands, and whether a caller sees any of it. */
+    private suspend fun handedOver(
+        connection: DBusConnection,
+        known: MutableMap<String, Known>,
+        change: NameOwnerChange,
     ): Boolean = when {
-        signal.iface == Bus.INTERFACE && signal.member == Bus.NAME_OWNER_CHANGED -> {
-            val name = signal.body.getOrNull(0)?.asText.orEmpty()
-            val owner = signal.body.getOrNull(2)?.asText.orEmpty()
-            when {
-                !isPlayer(name) -> false
-                owner.isEmpty() -> known.remove(name) != null
-                else -> {
-                    read(connection, name)?.let { known[name] = it }
-                    true
-                }
-            }
-        }
-
-        signal.path != PATH -> false
-
-        signal.iface == Bus.PROPERTIES && signal.member == PROPERTIES_CHANGED -> {
-            val name = known.nameOwnedBy(signal.sender) ?: return false
-            val current = known.getValue(name)
-            val iface = signal.body.getOrNull(0)?.asText
-            val changed = signal.body.getOrNull(1)?.asDictionary.orEmpty()
-            val invalidated = signal.body.getOrNull(2)?.asItems.orEmpty().isNotEmpty()
-
-            // An invalidated property says it changed without saying to what, so the bag is read again.
-            suspend fun updated(iface: String, bag: Map<String, DBusValue>) =
-                if (invalidated) reread(connection, name, iface, bag) else bag + changed
-
-            known[name] = when (iface) {
-                ROOT -> current.copy(root = updated(ROOT, current.root))
-
-                PLAYER -> {
-                    val player = updated(PLAYER, current.player)
-                    // Position sends no change of its own, so whatever makes it jump is when to read it again.
-                    val jumped = changed.keys.any { it in MOVES_POSITION }
-                    current.copy(
-                        player = player,
-                        position = if (jumped) readPosition(connection, name) else current.position,
-                    )
-                }
-
-                else -> current
-            }
+        !isPlayer(change.name) -> false
+        change.newOwner == null -> known.remove(change.name) != null
+        else -> {
+            read(connection, change.name)?.let { known[change.name] = it }
             true
         }
-
-        signal.iface == PLAYER && signal.member == SEEKED -> {
-            val name = known.nameOwnedBy(signal.sender) ?: return false
-            val at = signal.body.firstOrNull()?.asMicroseconds ?: return false
-            known[name] = known.getValue(name).copy(position = PlayPosition(at, TimeSource.Monotonic.markNow()))
-            true
-        }
-
-        else -> false
     }
 
     /** Everything about one player, or null where it left the bus before it could be read. */

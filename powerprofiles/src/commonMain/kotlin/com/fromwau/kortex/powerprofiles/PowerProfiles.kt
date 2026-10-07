@@ -16,21 +16,13 @@ import com.fromwau.kortex.dbus.Message
 import com.fromwau.kortex.dbus.SystemBus
 import com.fromwau.kortex.dbus.asDictionary
 import com.fromwau.kortex.dbus.asItems
-import com.fromwau.kortex.dbus.asText
-import kotlinx.coroutines.CompletableDeferred
+import com.fromwau.kortex.dbus.nameOwnerChange
+import com.fromwau.kortex.dbus.watching
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.onCompletion
-import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.transformWhile
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * The machine's power profiles, from power-profiles-daemon on the system bus, and the switch between them.
@@ -73,54 +65,30 @@ public class PowerProfiles(
                 .mapError { it.asPowerProfilesError() }
         }
 
-    /**
-     * The profiles on one connection: read once, then kept up from signals.
-     *
-     * Subscribed before the first read, so a change in between is not missed.
-     */
-    private fun track(connection: DBusConnection): Flow<Result<ProfileState, PowerProfilesError>> = channelFlow {
-        RULES.forEach { rule ->
-            connection.addMatch(rule).getOrElse {
-                send(Err(PowerProfilesError.BusFailed(it)))
-                return@channelFlow
-            }
-        }
+    /** The profiles on one connection: read once, then kept up from signals. */
+    private fun track(connection: DBusConnection): Flow<Result<ProfileState, PowerProfilesError>> =
+        connection.watching(RULES, ruleFailed = { send(Err(PowerProfilesError.BusFailed(it))) }) { signals ->
+            var known = readAll(connection)
+            send(known.flatMap(::profileStateFrom))
+            for (signal in signals) {
+                val current = known
+                val handover = signal.nameOwnerChange?.takeIf { it.name == SERVICE }
+                val next = when {
+                    // Whatever was known, the daemon leaving or coming back decides what is known next.
+                    handover != null -> when (handover.newOwner) {
+                        null -> Err(PowerProfilesError.NotRunning)
+                        else -> readAll(connection)
+                    }
 
-        val signals = Channel<Message.Signal>(Channel.UNLIMITED)
-        val subscribed = CompletableDeferred<Unit>()
-        launch {
-            connection.allSignals
-                .onSubscription { subscribed.complete(Unit) }
-                .transformWhile { received ->
-                    if (received is Ok) emit(received.value)
-                    received is Ok
+                    current is Ok -> applied(connection, current.value, signal)
+                    else -> current
                 }
-                .collect { signals.send(it) }
-            // The connection ended, which the bus reports itself, so this pass just ends with it.
-            signals.close()
-        }
-        subscribed.await()
-
-        var known = readAll(connection)
-        send(known.flatMap(::profileStateFrom))
-        for (signal in signals) {
-            val current = known
-            val next = when {
-                // Whatever was known, the daemon leaving or coming back decides what is known next.
-                ownerChanged(signal) -> when {
-                    cameBack(signal) -> readAll(connection)
-                    else -> Err(PowerProfilesError.NotRunning)
+                if (next != known) {
+                    known = next
+                    send(known.flatMap(::profileStateFrom))
                 }
-
-                current is Ok -> applied(connection, current.value, signal)
-                else -> current
-            }
-            if (next != known) {
-                known = next
-                send(known.flatMap(::profileStateFrom))
             }
         }
-    }.onCompletion { withContext(NonCancellable) { RULES.forEach { connection.removeMatch(it) } } }
 
     /** [known] with [signal] folded in. */
     private suspend fun applied(
@@ -152,14 +120,6 @@ public class PowerProfiles(
             MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED),
             MatchRule(sender = SERVICE, iface = Bus.PROPERTIES, member = PROPERTIES_CHANGED, path = PATH),
         )
-
-        fun ownerChanged(signal: Message.Signal): Boolean =
-            signal.iface == Bus.INTERFACE &&
-                signal.member == Bus.NAME_OWNER_CHANGED &&
-                signal.body.firstOrNull()?.asText == SERVICE
-
-        /** The daemon taking its name again, rather than giving it up. */
-        fun cameBack(signal: Message.Signal): Boolean = !signal.body.getOrNull(2)?.asText.isNullOrEmpty()
 
         fun DBusError.asPowerProfilesError(): PowerProfilesError = when {
             this is DBusError.CallFailed && name == Bus.SERVICE_UNKNOWN -> PowerProfilesError.NotRunning

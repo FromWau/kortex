@@ -9,23 +9,19 @@ import com.fromwau.kern.result.map
 import com.fromwau.kern.result.mapError
 import com.fromwau.kortex.dbus.BusState
 import com.fromwau.kortex.dbus.DBusConnection
-import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.dbus.DBusType
 import com.fromwau.kortex.dbus.DBusValue
 import com.fromwau.kortex.dbus.MatchRule
-import com.fromwau.kortex.dbus.Message
 import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.dbus.asBoolean
 import com.fromwau.kortex.dbus.asInt32
-import kotlinx.coroutines.CompletableDeferred
+import com.fromwau.kortex.dbus.watching
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
@@ -33,10 +29,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.onCompletion
-import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.transformWhile
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
@@ -132,38 +125,14 @@ public class Menu internal constructor(
             .map { body -> body.firstOrNull()?.asBoolean == true }
     }
 
-    private fun track(connection: DBusConnection): Flow<Result<MenuItem, TrayError>> = channelFlow {
-        connection.addMatch(rule).getOrElse {
+    private fun track(connection: DBusConnection): Flow<Result<MenuItem, TrayError>> =
+        connection.watching(listOf(rule), ruleFailed = { send(Err(TrayError.BusFailed(it))) }) { signals ->
             // Qualified because this class's own send is what a caller uses to report a click.
-            this@channelFlow.send(Err(TrayError.BusFailed(it)))
-            return@channelFlow
+            this@watching.send(readLayout(connection))
+            for (signal in signals) {
+                if (rule.matches(signal) && signal.member in CHANGED) this@watching.send(readLayout(connection))
+            }
         }
-
-        // Subscribed before the first read, so a menu that changes between the two is not missed. The
-        // connection's end arrives after its signals, and is passed on in that order.
-        val signals = Channel<Result<Message.Signal, DBusError>>(Channel.UNLIMITED)
-        val subscribed = CompletableDeferred<Unit>()
-        launch {
-            connection.allSignals
-                .onSubscription { subscribed.complete(Unit) }
-                .transformWhile { received ->
-                    emit(received)
-                    received is Ok
-                }
-                .filter { received ->
-                    received !is Ok || (rule.matches(received.value) && received.value.member in CHANGED)
-                }
-                .collect { received -> signals.send(received) }
-        }
-        subscribed.await()
-
-        this@channelFlow.send(readLayout(connection))
-        // An Err is the connection's end, which the bus reports itself, so this pass just ends with it.
-        for (received in signals) {
-            if (received !is Ok) return@channelFlow
-            this@channelFlow.send(readLayout(connection))
-        }
-    }.onCompletion { withContext(NonCancellable) { connection.removeMatch(rule) } }
 
     /**
      * The whole tree, every time anything about it changes.

@@ -12,7 +12,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
@@ -25,7 +24,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.transformWhile
@@ -275,25 +273,14 @@ public class DBusConnection private constructor(
      * missed, and chances that arrive while you are busy with one are folded into the next. It ends with the
      * connection, and an `Err` is the one chance there is when the bus would not start watching.
      */
-    public fun chancesToClaim(name: String): Flow<Result<Unit, DBusError>> = channelFlow {
-        val rule = MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED)
-        addMatch(rule).getOrElse {
-            send(Err(it))
-            return@channelFlow
-        }
-        try {
-            allSignals
-                .onSubscription { send(Ok(Unit)) }
-                .transformWhile { received ->
-                    if (received is Ok) emit(received.value)
-                    received is Ok
-                }
-                .filter { it.iface == Bus.INTERFACE && it.member == Bus.NAME_OWNER_CHANGED }
-                .filter { it.body.firstOrNull()?.asText == name }
-                .filter { it.body.getOrNull(2)?.asText.isNullOrEmpty() }
-                .collect { send(Ok(Unit)) }
-        } finally {
-            withContext(NonCancellable) { removeMatch(rule) }
+    public fun chancesToClaim(name: String): Flow<Result<Unit, DBusError>> = watching(
+        rules = listOf(MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED)),
+        ruleFailed = { send(Err(it)) },
+    ) { signals ->
+        send(Ok(Unit))
+        for (signal in signals) {
+            val change = signal.nameOwnerChange ?: continue
+            if (change.name == name && change.newOwner == null) send(Ok(Unit))
         }
     }.buffer(Channel.CONFLATED)
 

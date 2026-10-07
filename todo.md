@@ -1924,14 +1924,13 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       and its scope only to drop them. `HandshakeTest` covers a refusal and a bus that hangs up mid-login,
       which nothing covered before.
 
-- [ ] **Five providers repeat one loop, and one rule about a service leaving lives in each.** `Mpris`,
-      `Upower`, `PowerProfiles`, `Tray` and `Menu` each add their rules, subscribe to `allSignals` with
-      `onSubscription` before the first read, copy signals into an unlimited channel, and remove the
-      rules in `onCompletion`. Most of them also take `NameOwnerChanged` apart by index. The copies have
-      already drifted once: a read cut short by the service leaving left `Upower` and `PowerProfiles` at
-      `BusFailed` for good, and the fix had to land in both by hand.
-      Open: whether `:dbus` should own the loop (rules in, signals out, read after subscribing) and a
-      typed `NameOwnerChanged`, which changes its public surface and every provider.
+- [x] **Five providers repeated one loop, and one rule about a service leaving lived in each.**
+      `:dbus` owns both now. `connection.watching(rules, ruleFailed) { signals -> }` adds the rules and
+      subscribes before the block runs, closes `signals` when the connection ends, ends the flow when the
+      block returns, and removes the rules however it ends. `Message.Signal.nameOwnerChange` is a typed
+      `NameOwnerChange(name, oldOwner, newOwner)` that only believes the bus itself. `Mpris`, `Upower`,
+      `PowerProfiles`, `Tray`, `Menu`, `TrayWatcher` and `chancesToClaim` use them. `WatchingTest` pins
+      each promise, and each of seven mutations fails a test.
 
 - [ ] **Four tray paths are written and no live item has ever sent them.** Draft, and deliberately not
       work: the code exists, the unit tests cover it, and what is missing is an application that sends the
