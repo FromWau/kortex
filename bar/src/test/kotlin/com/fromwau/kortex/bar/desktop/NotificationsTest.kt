@@ -1,8 +1,13 @@
 package com.fromwau.kortex.bar.desktop
 
+import com.fromwau.kern.result.Err
+import com.fromwau.kern.result.Ok
+import com.fromwau.kortex.bar.BarError
+import com.fromwau.kortex.bar.state.Reading
 import com.fromwau.kortex.notification.Expiry
 import com.fromwau.kortex.notification.Notification
 import com.fromwau.kortex.notification.NotificationAction
+import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.notification.NotificationImage
 import com.fromwau.kortex.notification.Urgency
 import kotlin.test.Test
@@ -82,6 +87,21 @@ class NotificationsTest {
         assertEquals(Urgency.Critical, posted.urgency)
         assertNull(posted.image)
         assertNull(posted.iconName)
+    }
+
+    @Test
+    fun `a server not connected yet is pending, and one somebody else holds the name of says who`() {
+        assertEquals(Reading.Pending, Err(NotificationError.NotConnected).readable())
+
+        val taken = NotificationError.AlreadyServed(owner = ":1.7", pid = 1, process = "dunst")
+        assertEquals(Reading.Unavailable(BarError.NotServing(taken)), Err(taken).readable())
+    }
+
+    @Test
+    fun `a server that is serving hands over what is posted`() {
+        val posted = Ok(listOf(notification(appIcon = "thunderbird"))).readable()
+
+        assertEquals(listOf("thunderbird"), (posted as Reading.Value).value.map { it.iconName })
     }
 }
 

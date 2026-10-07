@@ -45,7 +45,6 @@ fun BarError.shortly(): String = when (this) {
     is BarError.Unreadable -> error.shortly()
     is BarError.Unparseable -> error.shortly()
     is BarError.NoSensor -> "no sensor"
-    is BarError.NoBus -> error.shortly()
     is BarError.NoTray -> error.shortly()
     is BarError.NotServing -> error.shortly()
     is BarError.NoHyprland -> error.shortly()
@@ -75,6 +74,7 @@ private fun TrayError.shortly(): String = when (this) {
     TrayError.NotConnected -> "connecting"
     TrayError.NoWatcher -> "no watcher"
     TrayError.MenuUnreadable -> "menu unreadable"
+    is TrayError.BusDown -> reason.shortly()
     is TrayError.BusFailed -> cause.shortly()
 }
 
@@ -86,7 +86,9 @@ private fun TrayError.shortly(): String = when (this) {
  * serves" rather than ":1.1860 serves", which is the difference between a readout and a riddle.
  */
 private fun NotificationError.shortly(): String = when (this) {
+    NotificationError.NotConnected -> "connecting"
     is NotificationError.AlreadyServed -> "${process ?: owner} serves"
+    is NotificationError.BusDown -> reason.shortly()
     is NotificationError.BusFailed -> cause.shortly()
     is NotificationError.NoSuchNotification -> "no notification $id"
 }

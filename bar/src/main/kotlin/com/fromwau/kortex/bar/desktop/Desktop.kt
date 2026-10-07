@@ -4,8 +4,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.getOrNull
-import com.fromwau.kern.result.mapError
-import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.hyprland.Hyprland
 import com.fromwau.kortex.notification.CloseReason
 import com.fromwau.kortex.notification.NotificationServer
@@ -22,13 +21,8 @@ import com.fromwau.kortex.bar.state.Reading
 import com.fromwau.kortex.bar.state.TrayEntry
 import com.fromwau.kortex.bar.state.WorkspaceStrip
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 /** What the desktop's own services report, as the bar's widgets want it. */
@@ -87,7 +81,7 @@ interface Desktop {
 }
 
 /**
- * The [Desktop] over one connection to the session bus.
+ * The [Desktop] over the session bus, followed across restarts.
  *
  * One of these belongs to a whole shell rather than to one bar: the bus connection, the tray's match
  * rules and the notification name are all the application's, and a second bar is another collector rather
@@ -97,68 +91,27 @@ interface Desktop {
  * means the name is taken when the first collector arrives and not when this is built.
  */
 class BusDesktop(
-    private val scope: CoroutineScope,
+    scope: CoroutineScope,
     identity: ServerInformation,
+    bus: SessionBus = SessionBus(scope),
 ) : Desktop {
-    private val connection = scope.async(start = CoroutineStart.LAZY) { DBusConnection.session() }
 
-    /**
-     * Serves the tray's registry before building the host, so applications have somewhere to register, and
-     * takes it over whenever another shell that held it lets it go.
-     *
-     * Order matters only this far: a shell that hosts without ever claiming reads an empty registry on a
-     * desktop where nothing else serves one, which is a tray that looks fine and is permanently empty.
-     */
-    private val registry = scope.async(start = CoroutineStart.LAZY) {
-        when (val bus = connection.await()) {
-            is Err -> Err(BarError.NoBus(bus.error))
-            is Ok -> Ok(TrayWatcher.serve(bus.value, scope))
-        }
+    /** Serves the tray's registry, and takes it over whenever another shell that held it lets it go. */
+    private val registry = TrayWatcher.serve(bus, scope)
+
+    private val trayItems = Tray(bus, scope).items
+
+    private val server = NotificationServer(bus, identity, scope)
+
+    override val trayRegistry: Flow<String?> = registry.map { held ->
+        (held.getOrNull() as? TrayRegistry.HeldElsewhere)?.let { it.process ?: it.owner }
     }
 
-    private val trayOnBus = scope.async(start = CoroutineStart.LAZY) {
-        registry.await()
-        when (val bus = connection.await()) {
-            is Err -> Err(BarError.NoBus(bus.error))
-            is Ok -> Ok(Tray(bus.value, scope))
-        }
-    }
+    // The registry is collected too, so a bar drawing the tray serves one wherever nothing else does.
+    override val tray: Flow<Reading<List<TrayEntry>>> =
+        combine(registry, trayItems) { _, outcome -> outcome.drawable() }
 
-    private val server = scope.async(start = CoroutineStart.LAZY) {
-        when (val bus = connection.await()) {
-            is Err -> Err(BarError.NoBus(bus.error))
-            is Ok -> NotificationServer.start(bus.value, identity).mapError(BarError::NotServing)
-        }
-    }
-
-    override val trayRegistry: Flow<String?> = flow {
-        when (val served = registry.await()) {
-            is Err -> emit(null)
-            is Ok -> emitAll(
-                served.value.map { held ->
-                    (held.getOrNull() as? TrayRegistry.HeldElsewhere)?.let { it.process ?: it.owner }
-                },
-            )
-        }
-    }.flowOn(Dispatchers.IO)
-
-    override val tray: Flow<Reading<List<TrayEntry>>> = flow {
-        when (val provider = trayOnBus.await()) {
-            is Err -> emit(Reading.Unavailable(provider.error))
-            is Ok -> emitAll(provider.value.items.map { outcome -> outcome.drawable() })
-        }
-    }.flowOn(Dispatchers.IO)
-
-    override val notifications: Flow<Reading<List<Posted>>> = flow {
-        when (val serving = server.await()) {
-            is Err -> emit(Reading.Unavailable(serving.error))
-            is Ok -> emitAll(
-                serving.value.notifications.map { posted ->
-                    Reading.Value(posted.map { notification -> notification.posted() })
-                },
-            )
-        }
-    }.flowOn(Dispatchers.IO)
+    override val notifications: Flow<Reading<List<Posted>>> = server.notifications.map { outcome -> outcome.readable() }
 
     // Not on the bus: Hyprland has sockets of its own, and connects only once something collects.
     private val hyprland = Hyprland(scope)
@@ -180,7 +133,7 @@ class BusDesktop(
         id: UInt,
         reason: CloseReason,
     ) {
-        server.await().getOrNull()?.close(id, reason)
+        server.close(id, reason)
     }
 
     /**

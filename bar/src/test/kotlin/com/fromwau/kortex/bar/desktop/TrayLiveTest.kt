@@ -4,8 +4,7 @@ import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.assertError
-import com.fromwau.kern.result.getOrElse
-import com.fromwau.kortex.dbus.DBusConnection
+import com.fromwau.kortex.dbus.SessionBus
 import com.fromwau.kortex.tray.Tray
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.tray.TrayItem
@@ -13,7 +12,6 @@ import com.fromwau.kortex.tray.TrayStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import kotlin.test.fail
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -111,23 +109,14 @@ class TrayLiveTest {
     }
 }
 
-/**
- * [block] against the session bus, with the connection and the scope the tray lives on cleaned up after.
- *
- * The scope is cancelled before the connection closes, so the match rules the tray put up come down over
- * a connection that is still open rather than over a socket that has already gone.
- */
+/** [block] against the session bus, with the scope the tray and its connection live on cancelled after. */
 private fun withLiveTray(block: suspend (Tray) -> Unit) = runBlocking {
-    val bus = DBusConnection.session().getOrElse { error ->
-        fail("this test reads the live session bus, and there is none: $error")
-    }
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     try {
-        block(Tray(bus, scope))
+        block(Tray(SessionBus(scope), scope))
     } finally {
         scope.cancel()
-        bus.close()
     }
 }
 

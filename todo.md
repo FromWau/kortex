@@ -1775,8 +1775,8 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       call is started with `setsid` and its output redirected. (`ShellTest`, 11 tests, each kill and the
       concurrent read checked by a mutation that fails it)
 
-- [ ] **The connection never reconnects, so a bus restart kills every provider for good.** Agreed design,
-      no code yet. `death` is set once and is final: `call` fails fast on it, `send` reports it, and nothing
+- [x] **The connection never reconnects, so a bus restart kills every provider for good.** Done in four
+      steps, recorded below. `death` is set once and is final: `call` fails fast on it, `send` reports it, and nothing
       reopens the socket. A session bus does restart and a socket does drop, and when it does the tray, every
       menu and the notification server are gone until the process restarts. Worse than gone: `finish()`
       fails the waiting calls but never touches the signal flow, so every subscriber to `allSignals` or
@@ -1868,6 +1868,17 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       `NotificationServer` both claim through it. `ClaimingANameTest` and two `SessionBusReconnectTest`
       cases pin it, and their mutations (no first chance, the wrong name, a command waiting for `Up`,
       nothing emitted in between) each fail one.
+      **Step 4 is done.** `BusDesktop` holds one `SessionBus`, shared by the registry, the tray and the
+      notification server, and takes one as a parameter so `BusDesktopTest` runs it on a private bus.
+      `BarError.NoBus` is gone, since a bus that is not there is now each provider's `BusDown`, and
+      `Format` reads `BusDown` as the bus's own failure and `NotConnected` as "connecting". A bar that
+      draws the tray keeps the registry collected with it, so it serves one where nothing else does
+      without also having to show who holds it; the old code got the same from building the tray after
+      the claim, and dropping that is the mutation `BusDesktopTest` fails. `readable()` makes a
+      notification server that is not connected yet `Pending` rather than a failure, as the tray already
+      did. `NotificationNameTest` is gone: it read the live desktop's notification daemon, which
+      `NotificationServerTest` now covers on a private bus, and a server that waits for the name would
+      have taken it the moment dunst exited during the run.
 
 - [x] **The tray follows its watcher, and a shell takes the registry over once its holder lets it go.** Both
       old entries were one rule, "watch the watcher's name and act on it", and it is written once. `track()`

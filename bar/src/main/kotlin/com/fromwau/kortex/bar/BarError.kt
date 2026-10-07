@@ -1,7 +1,6 @@
 package com.fromwau.kortex.bar
 
 import com.fromwau.kern.result.IError
-import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.hyprland.HyprlandError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
@@ -21,9 +20,6 @@ sealed interface BarError : IError {
 
     /** Nothing under [lookedIn] reports what the widget needs, so there is no file to watch. */
     data class NoSensor(val lookedIn: String) : BarError
-
-    /** The session bus could not be reached, so neither the tray nor notifications can be. */
-    data class NoBus(val error: DBusError) : BarError
 
     /** The tray could not be read, as `:tray` reported it. */
     data class NoTray(val error: TrayError) : BarError

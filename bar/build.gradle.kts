@@ -27,6 +27,7 @@ dependencies {
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kern.result.test)
+    testImplementation(project(":dbus-test"))
     testImplementation(libs.kotlinx.coroutines.test)
 }
 

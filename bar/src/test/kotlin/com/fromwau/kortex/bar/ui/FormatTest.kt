@@ -35,12 +35,13 @@ class FormatTest {
 
     @Test
     fun `a session with no bus at all says that, which is the one bus failure a person can act on`() {
-        assertEquals("no session bus", BarError.NoBus(DBusError.NoSessionBus).shortly())
+        assertEquals("no session bus", BarError.NoTray(TrayError.BusDown(DBusError.NoSessionBus)).shortly())
+        assertEquals("no session bus", BarError.NotServing(NotificationError.BusDown(DBusError.NoSessionBus)).shortly())
     }
 
     @Test
     fun `a protocol failure a bar can do nothing about reads as one sentence rather than eighteen`() {
-        assertEquals("bus failed", BarError.NoBus(DBusError.NestingTooDeep(depth = 64)).shortly())
-        assertEquals("bus failed", BarError.NoBus(DBusError.TruncatedMessage).shortly())
+        assertEquals("bus failed", BarError.NoTray(TrayError.BusDown(DBusError.NestingTooDeep(depth = 64))).shortly())
+        assertEquals("bus failed", BarError.NoTray(TrayError.BusFailed(DBusError.TruncatedMessage)).shortly())
     }
 }
