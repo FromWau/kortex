@@ -23,6 +23,9 @@ import com.fromwau.kortex.bar.state.WorkspaceStrip
 import kotlinx.coroutines.CoroutineScope
 import com.fromwau.kortex.bar.state.BatteryEntry
 import com.fromwau.kortex.upower.Upower
+import com.fromwau.kortex.powerprofiles.PowerProfile
+import com.fromwau.kortex.powerprofiles.PowerProfiles
+import com.fromwau.kortex.bar.state.ProfileEntry
 import com.fromwau.kortex.dbus.SystemBus
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
@@ -59,6 +62,9 @@ interface Desktop {
 
     /** The machine's battery and every peripheral's, empty on a machine with none. */
     val batteries: Flow<Reading<List<BatteryEntry>>>
+
+    /** The machine's power profile, and null where nothing offers profiles. */
+    val powerProfile: Flow<Reading<ProfileEntry?>>
 
     /** The player the bar shows, with its position moving while it plays, and null while none has a track. */
     val media: Flow<Reading<NowPlaying?>>
@@ -101,6 +107,13 @@ interface Desktop {
      * Nothing is handed back, for the reason [close] gives: [media] shows whether it took.
      */
     suspend fun playPause(player: String)
+
+    /**
+     * Switches the machine to [profile].
+     *
+     * Nothing is handed back, for the reason [close] gives: [powerProfile] shows whether it took.
+     */
+    suspend fun chooseProfile(profile: PowerProfile)
 }
 
 /**
@@ -130,6 +143,15 @@ class BusDesktop(
     private val mpris = Mpris(bus, scope)
 
     private val upower = Upower(systemBus, scope)
+
+    private val profiles = PowerProfiles(systemBus, scope)
+
+    override val powerProfile: Flow<Reading<ProfileEntry?>> = profiles.state.map { outcome ->
+        when (outcome) {
+            is Ok -> Reading.Value(outcome.value.entry())
+            is Err -> outcome.error.entry()
+        }
+    }
 
     override val batteries: Flow<Reading<List<BatteryEntry>>> = upower.power.map { outcome ->
         when (outcome) {
@@ -176,6 +198,10 @@ class BusDesktop(
 
     override suspend fun playPause(player: String) {
         mpris.players.value.getOrNull()?.firstOrNull { it.busName == player }?.let { mpris.playPause(it) }
+    }
+
+    override suspend fun chooseProfile(profile: PowerProfile) {
+        profiles.choose(profile)
     }
 
     override suspend fun focusWorkspace(id: Int) {

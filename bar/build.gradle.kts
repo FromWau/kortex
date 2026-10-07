@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":notification"))
     implementation(project(":mpris"))
     implementation(project(":upower"))
+    implementation(project(":powerprofiles"))
     implementation(project(":hyprland"))
     implementation(project(":watch"))
     implementation(project(":dbus"))

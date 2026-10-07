@@ -51,6 +51,8 @@ data class BarState(
     val network: Reading<NetworkRate>,
     val temperature: Reading<Temperature>,
     val batteries: Reading<List<BatteryEntry>>,
+    /** The machine's power profile, a [Reading.Value] of null where nothing offers profiles. */
+    val powerProfile: Reading<ProfileEntry?>,
     val timer: TimerFace,
     val tray: Reading<List<TrayEntry>>,
     /** Which tray item the pointer is over, whose hover text the tray widget shows beside its icons. */
@@ -85,6 +87,7 @@ data class BarState(
             network = Reading.Pending,
             temperature = Reading.Pending,
             batteries = Reading.Pending,
+            powerProfile = Reading.Pending,
             timer = TimerFace.Idle,
             tray = Reading.Pending,
             hoveredTray = null,

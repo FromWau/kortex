@@ -53,8 +53,11 @@ class BarStateHolder(
             metrics.memory.readings(),
             metrics.network.readings(),
             metrics.cpuTemperature.readings(),
-            desktop.batteries.pendingFirst(),
-        ) { cpu, memory, network, temperature, batteries -> Machine(cpu, memory, network, temperature, batteries) },
+            combine(
+                desktop.batteries.pendingFirst(),
+                desktop.powerProfile.pendingFirst(),
+            ) { batteries, profile -> Power(batteries, profile) },
+        ) { cpu, memory, network, temperature, power -> Machine(cpu, memory, network, temperature, power) },
         combine(
             desktop.tray.pendingFirst(),
             desktop.notifications.pendingFirst(),
@@ -76,7 +79,8 @@ class BarStateHolder(
             memory = machine.memory,
             network = machine.network,
             temperature = machine.temperature,
-            batteries = machine.batteries,
+            batteries = machine.power.batteries,
+            powerProfile = machine.power.profile,
             timer = mine.timer.face(at = (time as? Reading.Value)?.value),
             tray = services.tray,
             hoveredTray = mine.hovered,
@@ -107,6 +111,7 @@ class BarStateHolder(
             is BarAction.NotificationClosed -> scope.launch { desktop.close(action.id, action.reason) }
             is BarAction.WorkspaceClicked -> scope.launch { desktop.focusWorkspace(action.id) }
             is BarAction.MediaClicked -> scope.launch { desktop.playPause(action.player) }
+            is BarAction.ProfileClicked -> scope.launch { desktop.chooseProfile(action.next) }
             BarAction.SchemeCycled -> own.update { mine -> mine.copy(scheme = mine.scheme.next()) }
         }
     }
@@ -168,7 +173,13 @@ class BarStateHolder(
         val memory: Reading<MemoryUse>,
         val network: Reading<NetworkRate>,
         val temperature: Reading<Temperature>,
+        val power: Power,
+    )
+
+    /** The machine's power, combined for the same reason as [Machine]. */
+    private data class Power(
         val batteries: Reading<List<BatteryEntry>>,
+        val profile: Reading<ProfileEntry?>,
     )
 
     /** The desktop's own services, combined for the same reason as [Machine]. */

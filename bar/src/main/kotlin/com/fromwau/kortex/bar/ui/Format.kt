@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import com.fromwau.kortex.dbus.DBusError
 import com.fromwau.kortex.hyprland.HyprlandError
 import com.fromwau.kortex.mpris.MprisError
+import com.fromwau.kortex.powerprofiles.PowerProfilesError
 import com.fromwau.kortex.notification.NotificationError
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.upower.UpowerError
@@ -50,6 +51,7 @@ fun BarError.shortly(): String = when (this) {
     is BarError.NoTray -> error.shortly()
     is BarError.NoMedia -> error.shortly()
     is BarError.NoPower -> error.shortly()
+    is BarError.NoProfiles -> error.shortly()
     is BarError.NotServing -> error.shortly()
     is BarError.NoHyprland -> error.shortly()
 }
@@ -79,6 +81,16 @@ private fun UpowerError.shortly(): String = when (this) {
     UpowerError.NotRunning -> "no upower"
     is UpowerError.BusDown -> reason.shortly()
     is UpowerError.BusFailed -> cause.shortly()
+}
+
+private fun PowerProfilesError.shortly(): String = when (this) {
+    PowerProfilesError.NotConnected -> "connecting"
+    PowerProfilesError.NotRunning -> "no daemon"
+    PowerProfilesError.NotAuthorized -> "not allowed"
+    is PowerProfilesError.UnknownProfile -> name
+    is PowerProfilesError.Unavailable -> "unavailable"
+    is PowerProfilesError.BusDown -> reason.shortly()
+    is PowerProfilesError.BusFailed -> cause.shortly()
 }
 
 private fun MprisError.shortly(): String = when (this) {

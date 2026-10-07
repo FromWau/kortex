@@ -32,6 +32,8 @@ import com.fromwau.kortex.bar.state.BarAction
 import com.fromwau.kortex.bar.state.BarScheme
 import com.fromwau.kortex.bar.state.BarState
 import com.fromwau.kortex.bar.state.BatteryEntry
+import com.fromwau.kortex.bar.state.ProfileEntry
+import com.fromwau.kortex.powerprofiles.PowerProfile
 import com.fromwau.kortex.bar.state.FocusedWindow
 import com.fromwau.kortex.bar.state.NowPlaying
 import com.fromwau.kortex.bar.state.Posted
@@ -104,6 +106,10 @@ fun BarContent(
         NetworkWidget(state.network)
         TemperatureWidget(state.temperature)
         BatteryWidget(state.batteries)
+        ProfileWidget(
+            profile = state.powerProfile,
+            onClick = { next -> onAction(BarAction.ProfileClicked(next)) },
+        )
         GaugeWidget(label = "CPU", fraction = state.cpuLoad, readout = ::percent)
         MemoryWidget(state.memory)
         KeyboardWidget(state.keyboardLayout)
@@ -528,6 +534,32 @@ private fun BatteryWidget(batteries: Reading<List<BatteryEntry>>) {
                     )
                     if (battery.charging) Label("CHG")
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The active power profile, in the error colour while performance is held back. Clicking it switches to
+ * the next profile the machine offers. Nothing at all where nothing offers profiles.
+ */
+@Composable
+private fun ProfileWidget(profile: Reading<ProfileEntry?>, onClick: (next: PowerProfile) -> Unit) {
+    when (profile) {
+        Reading.Pending -> Unit
+
+        is Reading.Unavailable -> Widget {
+            Label("PROFILE")
+            Unavailable(profile)
+        }
+
+        is Reading.Value -> profile.value?.let { entry ->
+            Widget(onClick = entry.next?.let { next -> { onClick(next) } }) {
+                Label("PROFILE")
+                Readout(
+                    text = entry.label,
+                    color = if (entry.degraded) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                )
             }
         }
     }

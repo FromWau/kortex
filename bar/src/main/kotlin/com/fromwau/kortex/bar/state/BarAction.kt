@@ -1,6 +1,7 @@
 package com.fromwau.kortex.bar.state
 
 import com.fromwau.kortex.notification.CloseReason
+import com.fromwau.kortex.powerprofiles.PowerProfile
 import com.fromwau.kortex.tray.ItemAddress
 
 /** Everything a person can do to the bar. */
@@ -37,6 +38,9 @@ sealed interface BarAction {
 
     /** The now-playing widget was clicked, which plays the player at the bus name [player] or pauses it. */
     data class MediaClicked(val player: String) : BarAction
+
+    /** The power profile was clicked, which switches to [next]. */
+    data class ProfileClicked(val next: PowerProfile) : BarAction
 
     /** The scheme button was clicked, which moves to the next of [BarScheme]. */
     data object SchemeCycled : BarAction

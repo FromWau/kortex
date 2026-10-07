@@ -1,5 +1,6 @@
 package com.fromwau.kortex.bar.state
 
+import com.fromwau.kortex.powerprofiles.PowerProfile
 import kotlin.time.Duration
 import com.fromwau.kortex.notification.Expiry
 import com.fromwau.kortex.notification.NotificationImage
@@ -102,6 +103,16 @@ data class NowPlaying(
     val playing: Boolean,
     val position: kotlin.time.Duration?,
     val length: kotlin.time.Duration?,
+)
+
+/** The machine's power profile, and the one a click switches to. */
+data class ProfileEntry(
+    /** A word for the active profile, such as "SAVER". */
+    val label: String,
+    /** The profile after the active one among those the machine offers, null where it offers only one. */
+    val next: PowerProfile?,
+    /** Whether the performance profile is held back, which is worth catching the eye. */
+    val degraded: Boolean,
 )
 
 /** One battery the bar shows: the machine's own, or a peripheral's. */

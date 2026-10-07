@@ -1,5 +1,6 @@
 package com.fromwau.kortex.bar.state
 
+import com.fromwau.kortex.powerprofiles.PowerProfile
 import com.fromwau.kortex.notification.CloseReason
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -222,6 +223,21 @@ class BarStateHolderTest {
     }
 
     @Test
+    fun `the power profile reaches the state, and a click on it switches to the next one`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        val balanced = ProfileEntry("BALANCED", next = PowerProfile.Performance, degraded = false)
+
+        desktop.profile.value = Reading.Value(balanced)
+        runCurrent()
+        holder.onAction(BarAction.ProfileClicked(PowerProfile.Performance))
+        runCurrent()
+
+        assertEquals(Reading.Value(balanced), holder.state.value.powerProfile)
+        assertEquals(listOf(PowerProfile.Performance), desktop.chosen)
+    }
+
+    @Test
     fun `what is playing reaches the state, and a click on it toggles that player`() = runTest {
         val desktop = FakeDesktop()
         val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
@@ -314,6 +330,8 @@ private class FakeDesktop : Desktop {
     val playing = MutableStateFlow<Reading<NowPlaying?>?>(null)
     val power = MutableStateFlow<Reading<List<BatteryEntry>>?>(null)
     val toggled = mutableListOf<String>()
+    val profile = MutableStateFlow<Reading<ProfileEntry?>?>(null)
+    val chosen = mutableListOf<PowerProfile>()
 
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
     override val trayRegistry: Flow<String?> get() = registry
@@ -328,6 +346,7 @@ private class FakeDesktop : Desktop {
     override val focusedWindow: Flow<Reading<FocusedWindow?>> get() = window.answers()
     override val media: Flow<Reading<NowPlaying?>> get() = playing.answers()
     override val batteries: Flow<Reading<List<BatteryEntry>>> get() = power.answers()
+    override val powerProfile: Flow<Reading<ProfileEntry?>> get() = profile.answers()
 
     override suspend fun close(
         id: UInt,
@@ -342,6 +361,10 @@ private class FakeDesktop : Desktop {
 
     override suspend fun playPause(player: String) {
         toggled += player
+    }
+
+    override suspend fun chooseProfile(profile: PowerProfile) {
+        chosen += profile
     }
 }
 

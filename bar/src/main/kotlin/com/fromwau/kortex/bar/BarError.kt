@@ -4,6 +4,7 @@ import com.fromwau.kern.result.IError
 import com.fromwau.kortex.hyprland.HyprlandError
 import com.fromwau.kortex.mpris.MprisError
 import com.fromwau.kortex.notification.NotificationError
+import com.fromwau.kortex.powerprofiles.PowerProfilesError
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.upower.UpowerError
 import com.fromwau.kortex.watch.WatchError
@@ -34,6 +35,9 @@ sealed interface BarError : IError {
 
     /** The machine's batteries could not be read, as `:upower` reported it. */
     data class NoPower(val error: UpowerError) : BarError
+
+    /** The power profiles could not be read or switched, as `:powerprofiles` reported it. */
+    data class NoProfiles(val error: PowerProfilesError) : BarError
 
     /** Hyprland's workspaces or focused window could not be read, as `:hyprland` reported it. */
     data class NoHyprland(val error: HyprlandError) : BarError
