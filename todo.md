@@ -2028,9 +2028,16 @@ version the better one. None is designed.
       that names no track rather than sending a call the specification says it will ignore. Tests run a
       fake player on a private bus, and each of nine mutations fails one; `MprisLiveTest` only reads.
       Not yet drawn by the bar.
-- [ ] **Power: UPower and power profiles.** Draft. Quickshell has the display device, every device, on
-      battery, and a writable profile. Battery is where `/sys/class/power_supply` through `:watch` says less
-      than UPower does, which the `:sysinfo` entry left for when the system bus exists.
+- [x] **Power: UPower.** Quickshell has the display device, every device, on battery, and a writable
+      profile, and never recovers from UPower restarting. `Upower(systemBus, scope).power` is one snapshot,
+      `Power(onBattery, display, devices)`, read from `EnumerateDevices` and kept up from `DeviceAdded`,
+      `DeviceRemoved` and `PropertiesChanged`; UPower leaving the bus is `NotRunning`, and its coming back
+      is read from nothing. `display` is null on a machine with no battery of its own, as here. The bar
+      shows the display battery and every peripheral's, a low one in the error colour, and nothing where
+      there is none. Tests run a fake UPower on a private bus, and each of eleven mutations fails one;
+      `UpowerLiveTest` only reads, and finds this desktop's mouse and headset.
+- [ ] **Power profiles.** Draft. `power-profiles-daemon` is its own service, with a writable profile.
+      Not installed on this machine, so there is nothing live to test against yet.
 - [ ] **Network: NetworkManager.** Draft. Quickshell does Wi-Fi and Ethernet, connecting with a PSK, and has
       no secret agent, so a network needing a password it does not have fails as `NoSecrets`. A secret agent
       is where kortex could do better.
