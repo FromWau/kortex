@@ -2011,9 +2011,6 @@ version the better one. None is designed.
       monitors and workspaces; `:hyprland` reads the focused window only. Its actions are a string sent with
       nothing returned, which the typed commands already planned above improve on. That entry stands; this
       one adds the window list.
-- [ ] **A provider for i3 and Sway.** Draft. Quickshell's `Quickshell.I3` speaks i3's binary IPC for both,
-      with workspaces and outputs but no windows. Whether kortex wants a second compositor's IPC at all is the
-      first question.
 
 **Services**
 
@@ -2103,8 +2100,6 @@ version the better one. None is designed.
 - [ ] **Hot reload.** Draft, and the one that does not translate directly. Quickshell builds a new QML engine
       per reload and keeps windows alive across it. kortex is compiled Kotlin, so the question is whether
       Compose Hot Reload can reach content under a kortex surface.
-- [ ] **X11.** Not a draft but a decision to record: Quickshell backs `PanelWindow` with struts on X11, and
-      kortex requires `zwlr_layer_shell_v1`. If X11 stays out it belongs under Deliberately not doing.
 
 ## Where the work stands
 
@@ -2719,6 +2714,11 @@ What the review asked for that is deliberately still open:
 
 ## Deliberately not doing
 
+- **X11.** Quickshell backs `PanelWindow` with struts on X11; kortex requires `zwlr_layer_shell_v1` and
+  refuses to start without it, and stays that way.
+- **A provider for i3 and Sway.** Quickshell's `Quickshell.I3` speaks i3's binary IPC for both, with
+  workspaces and outputs but no windows. Hyprland is the compositor kortex follows; the protocol drafts
+  (`ext-workspace-v1`, foreign toplevel) are the compositor-neutral route if another is ever wanted.
 - **`toImageBitmap()` converters in `:compose` for the two providers' raw pixels.** Written, tested and
   deleted the same hour, which is the useful part of the entry. Compose Desktop already decodes encoded
   images: `loadImageBitmap(InputStream)` is `readAllBytes().decodeToImageBitmap()`, `loadSvgPainter` is
