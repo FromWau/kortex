@@ -248,8 +248,9 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
 
 - [ ] **A tooltip on hover, which turns out to be a question about sizing rather than a missing preset.**
       Asked for by the first bar built on kortex from the outside, where it wants one for the CPU and memory
-      widgets and the tray already fakes one by drawing its hovered item's text inside the bar, because
-      there is nowhere else to put it. A bar is only as tall as the bar, so a tooltip cannot be drawn on the
+      widgets. The tray used to fake one by drawing its hovered item's text inside the bar, and that is gone:
+      the text widened the widget, which moved the icon out from under the pointer, which took the text away
+      again, so the whole tray jumped back and forth while hovered. A bar is only as tall as the bar, so a tooltip cannot be drawn on the
       surface that triggers it.
       **`Popup` is already the primitive.** `Popup(at, width, height)` is `PopupCall(grab = false)`: a
       surface placed at a point that takes no grab, which is exactly what a tooltip is, and a tooltip that
@@ -262,9 +263,10 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
       measured, which is the chicken and the egg, and nothing in kortex resolves it today, so the honest
       shape of this entry is "can a surface be sized by what it draws, and at what cost in frames" rather
       than "add a `Tooltip`".
-      Worth settling first, because it is not only tooltips: a notification popup, a menu built from a
-      `DBusMenu` of unknown depth, and an OSD whose text is a track title all want it, and all of them
-      currently guess a size and clip.
+      Worth settling first, because it is not only tooltips: a notification popup and an OSD whose text is a
+      track title want it too, and both currently guess a size and clip. The bar's tray menu does without:
+      it measures its labels with a `TextMeasurer` on the bar before opening, which works for anything whose
+      every line is known up front, and not for content that wraps or loads.
 
 - [x] **The presets are composables a host calls.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`,
       `Osd`, `AppMenu` and `ContextMenu` (`Presets.kt`) are composable functions, each taking the parameters
@@ -1939,6 +1941,24 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       `UnknownObject` where it expects items or `NoWatcher`. Seen once, 2026-10-07; `:bar` alone passes.
       Open: move the reattach tests onto a `PrivateBus`, or let the live test treat a watcher that vanishes
       while being read as no watcher.
+- [x] **A tray item can be clicked, and its menu is drawn by the bar.** A right click opens the item's own
+      `com.canonical.dbusmenu` menu as a `ContextMenu` just below the bar, sized from its labels; an item
+      with no such menu is asked to show its own. A left click activates the item, or opens the menu where
+      the item says it is only a menu; a middle click is the secondary activation. The application hears
+      `AboutToShow` and `opened` before the menu is read and `closed` after, and a pick as `clicked`.
+      Hidden entries stay hidden, access-key underscores come out of labels, and a submenu opens beside its
+      entry on a click. A press a widget answers is consumed, so the bar's own right-click menu no longer
+      opens on top, which it also did over the timer. Tried with Discord: its menu opens, each entry works,
+      a click away dismisses it, and left and middle clicks bring its window up.
+- [ ] **An Electron app's tray item is gone after the bar restarts, until the app restarts too.** Seen with
+      Discord, every time: with no watcher it answers everything with "Method is no longer available", and
+      a watcher that appears later never hears from it. The specification has an item register again when
+      the watcher changes hands; Chromium does not. Nothing for kortex to fix, but worth knowing before
+      calling an empty tray a kortex bug.
+- [ ] **The watcher once dropped a live Discord item.** 2026-10-07, after a restart: registered, then gone
+      from `RegisteredStatusNotifierItems` within a minute while its connection still answered `GetAll`, and
+      the watcher had not changed hands. Not seen again in two more restarts, one with the bus recorded.
+      Open: record the bus the next time the tray empties on its own.
 - [ ] **Four tray paths are written and no live item has ever sent them.** Draft, and deliberately not
       work: the code exists, the unit tests cover it, and what is missing is an application that sends the
       thing. Left open so that the next time one turns up it is read rather than assumed, and so nobody

@@ -9,6 +9,10 @@ import com.fromwau.kortex.bar.system.Temperature
 import java.time.Duration
 import java.time.LocalDateTime
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -44,6 +48,20 @@ class BarStateHolder(
 ) {
     private val own = MutableStateFlow(OwnState())
 
+    /** The open tray menu with its entries, read from its application for as long as it stays open. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val trayMenu: Flow<OpenTrayMenu?> = own
+        .map { mine -> mine.trayMenu }
+        .distinctUntilChanged()
+        .flatMapLatest { at ->
+            when (at) {
+                null -> flowOf(null)
+                else -> desktop.trayMenu(at.address).pendingFirst().map { entries ->
+                    OpenTrayMenu(at.address, at.x, entries)
+                }
+            }
+        }
+
     val state: StateFlow<BarState> = combine(
         clock.map<LocalDateTime, Reading<LocalDateTime>> { time -> Reading.Value(time) }
             .onStart { emit(Reading.Pending) },
@@ -59,7 +77,10 @@ class BarStateHolder(
             ) { batteries, profile -> Power(batteries, profile) },
         ) { cpu, memory, network, temperature, power -> Machine(cpu, memory, network, temperature, power) },
         combine(
-            desktop.tray.pendingFirst(),
+            combine(
+                desktop.tray.pendingFirst(),
+                trayMenu,
+            ) { tray, menu -> TrayReadings(tray, menu) },
             desktop.notifications.pendingFirst(),
             desktop.workspacesOn(monitor).pendingFirst(),
             desktop.focusedWindow.pendingFirst(),
@@ -82,8 +103,8 @@ class BarStateHolder(
             batteries = machine.power.batteries,
             powerProfile = machine.power.profile,
             timer = mine.timer.face(at = (time as? Reading.Value)?.value),
-            tray = services.tray,
-            hoveredTray = mine.hovered,
+            tray = services.tray.items,
+            trayMenu = services.tray.menu,
             notifications = services.notifications,
             workspaces = services.workspaces,
             media = services.media,
@@ -107,12 +128,44 @@ class BarStateHolder(
             BarAction.ClockClicked -> own.update { mine -> mine.copy(showDetail = !mine.showDetail) }
             BarAction.TimerClicked -> own.update { mine -> mine.copy(timer = mine.timer.clicked()) }
             BarAction.TimerReset -> own.update { mine -> mine.copy(timer = Session.NotStarted) }
-            is BarAction.TrayHovered -> own.update { mine -> mine.copy(hovered = action.address) }
+            is BarAction.TrayClicked -> trayClicked(action)
+            is BarAction.TrayMenuEntryPicked -> {
+                val open = own.value.trayMenu ?: return
+                own.update { mine -> mine.copy(trayMenu = null) }
+                scope.launch { desktop.tellTrayItem(open.address, TrayCommand.MenuEntryClicked(action.id)) }
+            }
+
+            BarAction.TrayMenuDismissed -> own.update { mine -> mine.copy(trayMenu = null) }
             is BarAction.NotificationClosed -> scope.launch { desktop.close(action.id, action.reason) }
             is BarAction.WorkspaceClicked -> scope.launch { desktop.focusWorkspace(action.id) }
             is BarAction.MediaClicked -> scope.launch { desktop.playPause(action.player) }
             is BarAction.ProfileClicked -> scope.launch { desktop.chooseProfile(action.next) }
             BarAction.SchemeCycled -> own.update { mine -> mine.copy(scheme = mine.scheme.next()) }
+        }
+    }
+
+    /**
+     * What a click on a tray item means: a menu the bar draws where there is one to draw, and otherwise the
+     * application told, which then shows its window or a menu of its own.
+     */
+    private fun trayClicked(click: BarAction.TrayClicked) {
+        val item = (state.value.tray as? Reading.Value)
+            ?.value
+            ?.firstOrNull { it.address == click.address }
+            ?: return
+        val wantsMenu = click.button == TrayButton.Right || (click.button == TrayButton.Left && item.isMenu)
+
+        when {
+            wantsMenu && item.hasMenu -> own.update { mine -> mine.copy(trayMenu = MenuAt(item.address, click.x)) }
+
+            else -> {
+                val command = when {
+                    wantsMenu -> TrayCommand.ShowOwnMenu
+                    click.button == TrayButton.Middle -> TrayCommand.SecondaryActivate
+                    else -> TrayCommand.Activate
+                }
+                scope.launch { desktop.tellTrayItem(item.address, command) }
+            }
         }
     }
 
@@ -162,9 +215,21 @@ class BarStateHolder(
     private data class OwnState(
         val showDetail: Boolean = false,
         val timer: Session = Session.NotStarted,
-        val hovered: ItemAddress? = null,
         val scheme: BarScheme = BarScheme.Starting,
         val trayRegistry: String? = null,
+        val trayMenu: MenuAt? = null,
+    )
+
+    /** Which tray item's menu is open, and where, before its entries have been read. */
+    private data class MenuAt(
+        val address: ItemAddress,
+        val x: Int,
+    )
+
+    /** The tray and its open menu, combined for the same reason as [Machine]. */
+    private data class TrayReadings(
+        val items: Reading<List<TrayEntry>>,
+        val menu: OpenTrayMenu?,
     )
 
     /** The machine readings, combined so the whole bar fits one typed `combine`. */
@@ -184,7 +249,7 @@ class BarStateHolder(
 
     /** The desktop's own services, combined for the same reason as [Machine]. */
     private data class Services(
-        val tray: Reading<List<TrayEntry>>,
+        val tray: TrayReadings,
         val notifications: Reading<List<Posted>>,
         val workspaces: Reading<WorkspaceStrip>,
         val window: Reading<FocusedWindow?>,

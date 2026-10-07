@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import com.fromwau.kortex.tray.ItemAddress
 import com.fromwau.kortex.notification.Urgency
 import com.fromwau.kortex.bar.state.BarAction
+import com.fromwau.kortex.bar.state.TrayButton
+import androidx.compose.ui.input.pointer.PointerButton
 import com.fromwau.kortex.bar.state.BarScheme
 import com.fromwau.kortex.bar.state.BarState
 import com.fromwau.kortex.bar.state.BatteryEntry
@@ -99,8 +101,7 @@ fun BarContent(
         )
         TrayWidget(
             tray = state.tray,
-            hovered = state.hoveredTray,
-            onHover = { address -> onAction(BarAction.TrayHovered(address)) },
+            onPress = { address, button, x -> onAction(BarAction.TrayClicked(address, button, x)) },
         )
         NotificationWidget(state.notifications)
         NetworkWidget(state.network)
@@ -236,17 +237,13 @@ private fun NetworkWidget(network: Reading<NetworkRate>) {
 }
 
 /**
- * The system tray: one icon per item, and the hovered item's own text beside them.
- *
- * Nothing here is clickable. A host that activates a tray item opens that application's window or its
- * menu, which is not something a bar under test should do to somebody's session, so this one reads the
- * tray and does not touch it.
+ * The system tray, one icon per item. A press on an icon is passed on with its button and where on the bar
+ * it landed, since a menu opened from it opens there.
  */
 @Composable
 private fun TrayWidget(
     tray: Reading<List<TrayEntry>>,
-    hovered: ItemAddress?,
-    onHover: (ItemAddress?) -> Unit,
+    onPress: (ItemAddress, TrayButton, Int) -> Unit,
 ) {
     Widget {
         Label("TRAY")
@@ -255,7 +252,7 @@ private fun TrayWidget(
             is Reading.Unavailable -> Unavailable(tray)
             is Reading.Value -> when {
                 tray.value.isEmpty() -> Readout("empty")
-                else -> TrayIcons(items = tray.value, hovered = hovered, onHover = onHover)
+                else -> TrayIcons(items = tray.value, onPress = onPress)
             }
         }
     }
@@ -264,23 +261,17 @@ private fun TrayWidget(
 @Composable
 private fun TrayIcons(
     items: List<TrayEntry>,
-    hovered: ItemAddress?,
-    onHover: (ItemAddress?) -> Unit,
+    onPress: (ItemAddress, TrayButton, Int) -> Unit,
 ) {
     for (item in items) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(item.attentionTint())
-                .hover(onEnter = { onHover(item.address) }, onExit = { onHover(null) }),
+                .presses { button, x -> button.asTrayButton()?.let { onPress(item.address, it, x) } },
         ) {
             Artwork(painter = rememberIconPainter(item.icon, TRAY_ICON), label = item.id, side = TRAY_ICON)
         }
-    }
-
-    // Capped, because an item's tooltip is its own text and a long one would push the clock off the bar.
-    items.firstOrNull { item -> item.address == hovered }?.let { item ->
-        Readout(text = item.hover, modifier = Modifier.widthIn(max = HOVER_WIDTH))
     }
 }
 
@@ -667,4 +658,10 @@ private const val TRACK_ALPHA = 0.2f
 private val TRAY_ICON = 18.dp
 private val PILL_WIDTH = 22.dp
 private const val EMPTY_ALPHA = 0.45f
-private val HOVER_WIDTH = 220.dp
+
+private fun PointerButton.asTrayButton(): TrayButton? = when (this) {
+    PointerButton.Primary -> TrayButton.Left
+    PointerButton.Tertiary -> TrayButton.Middle
+    PointerButton.Secondary -> TrayButton.Right
+    else -> null
+}

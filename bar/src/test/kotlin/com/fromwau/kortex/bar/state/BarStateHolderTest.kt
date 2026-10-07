@@ -21,6 +21,7 @@ import java.time.LocalDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -159,22 +160,6 @@ class BarStateHolderTest {
     }
 
     @Test
-    fun `the pointer moving onto a tray item puts it in the state, and off every one takes it out`() = runTest {
-        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON))
-        runCurrent()
-
-        assertEquals(null, holder.state.value.hoveredTray)
-
-        holder.onAction(BarAction.TrayHovered(ADDRESS))
-        runCurrent()
-        assertEquals(ADDRESS, holder.state.value.hoveredTray)
-
-        holder.onAction(BarAction.TrayHovered(null))
-        runCurrent()
-        assertEquals(null, holder.state.value.hoveredTray)
-    }
-
-    @Test
     fun `a shell that is not the notification server shows which process is, rather than showing nothing`() =
         runTest {
             val desktop = FakeDesktop()
@@ -220,6 +205,87 @@ class BarStateHolderTest {
         runCurrent()
 
         assertEquals(Reading.Value(listOf(mouse)), holder.state.value.batteries)
+    }
+
+    @Test
+    fun `a right click on an item with a menu opens it where it was clicked, with the application's entries`() =
+        runTest {
+            val desktop = FakeDesktop()
+            val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+            val open = TrayMenuEntry(1, "Open", enabled = true, isSeparator = false, checked = null, emptyList())
+            desktop.trayItems.value = Reading.Value(listOf(entry("discord", hasMenu = true)))
+            desktop.menus.value = Reading.Value(listOf(open))
+            runCurrent()
+
+            holder.onAction(BarAction.TrayClicked(ADDRESS, TrayButton.Right, x = 640))
+            runCurrent()
+
+            assertEquals(OpenTrayMenu(ADDRESS, 640, Reading.Value(listOf(open))), holder.state.value.trayMenu)
+            assertEquals(emptyList<Pair<ItemAddress, TrayCommand>>(), desktop.told)
+        }
+
+    @Test
+    fun `picking an entry tells the application which, and closes the menu`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        desktop.trayItems.value = Reading.Value(listOf(entry("discord", hasMenu = true)))
+        desktop.menus.value = Reading.Value(emptyList())
+        runCurrent()
+        holder.onAction(BarAction.TrayClicked(ADDRESS, TrayButton.Right, x = 0))
+        runCurrent()
+
+        holder.onAction(BarAction.TrayMenuEntryPicked(7))
+        runCurrent()
+
+        assertEquals(listOf<Pair<ItemAddress, TrayCommand>>(ADDRESS to TrayCommand.MenuEntryClicked(7)), desktop.told)
+        assertNull(holder.state.value.trayMenu)
+    }
+
+    @Test
+    fun `a left click activates an item, and a middle click activates it the other way`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        desktop.trayItems.value = Reading.Value(listOf(entry("discord", hasMenu = true)))
+        runCurrent()
+
+        holder.onAction(BarAction.TrayClicked(ADDRESS, TrayButton.Left, x = 0))
+        holder.onAction(BarAction.TrayClicked(ADDRESS, TrayButton.Middle, x = 0))
+        runCurrent()
+
+        assertEquals(
+            listOf(ADDRESS to TrayCommand.Activate, ADDRESS to TrayCommand.SecondaryActivate),
+            desktop.told,
+        )
+        assertNull(holder.state.value.trayMenu)
+    }
+
+    @Test
+    fun `an item that is only a menu opens it on a left click too`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        desktop.trayItems.value = Reading.Value(listOf(entry("nm-applet", hasMenu = true, isMenu = true)))
+        desktop.menus.value = Reading.Value(emptyList())
+        runCurrent()
+
+        holder.onAction(BarAction.TrayClicked(ADDRESS, TrayButton.Left, x = 0))
+        runCurrent()
+
+        assertEquals(ADDRESS, holder.state.value.trayMenu?.address)
+        assertEquals(emptyList<Pair<ItemAddress, TrayCommand>>(), desktop.told)
+    }
+
+    @Test
+    fun `a right click on an item with no menu to draw asks the application for its own`() = runTest {
+        val desktop = FakeDesktop()
+        val holder = holder(FakeMetrics(), clock = MutableStateFlow(NOON), desktop = desktop)
+        desktop.trayItems.value = Reading.Value(listOf(entry("steam")))
+        runCurrent()
+
+        holder.onAction(BarAction.TrayClicked(ADDRESS, TrayButton.Right, x = 0))
+        runCurrent()
+
+        assertEquals(listOf<Pair<ItemAddress, TrayCommand>>(ADDRESS to TrayCommand.ShowOwnMenu), desktop.told)
+        assertNull(holder.state.value.trayMenu)
     }
 
     @Test
@@ -332,6 +398,9 @@ private class FakeDesktop : Desktop {
     val toggled = mutableListOf<String>()
     val profile = MutableStateFlow<Reading<ProfileEntry?>?>(null)
     val chosen = mutableListOf<PowerProfile>()
+    val menus = MutableStateFlow<Reading<List<TrayMenuEntry>>?>(null)
+    val menusAskedFor = mutableListOf<ItemAddress>()
+    val told = mutableListOf<Pair<ItemAddress, TrayCommand>>()
 
     override val tray: Flow<Reading<List<TrayEntry>>> get() = trayItems.answers()
     override val trayRegistry: Flow<String?> get() = registry
@@ -347,6 +416,18 @@ private class FakeDesktop : Desktop {
     override val media: Flow<Reading<NowPlaying?>> get() = playing.answers()
     override val batteries: Flow<Reading<List<BatteryEntry>>> get() = power.answers()
     override val powerProfile: Flow<Reading<ProfileEntry?>> get() = profile.answers()
+
+    override fun trayMenu(address: ItemAddress): Flow<Reading<List<TrayMenuEntry>>> {
+        menusAskedFor += address
+        return menus.answers()
+    }
+
+    override suspend fun tellTrayItem(
+        address: ItemAddress,
+        command: TrayCommand,
+    ) {
+        told += address to command
+    }
 
     override suspend fun close(
         id: UInt,
@@ -368,12 +449,18 @@ private class FakeDesktop : Desktop {
     }
 }
 
-private fun entry(id: String): TrayEntry = TrayEntry(
-    address = ADDRESS,
+private fun entry(
+    id: String,
+    address: ItemAddress = ADDRESS,
+    hasMenu: Boolean = false,
+    isMenu: Boolean = false,
+): TrayEntry = TrayEntry(
+    address = address,
     id = id,
-    hover = id,
     icon = TrayIcon(name = id),
     needsAttention = false,
+    hasMenu = hasMenu,
+    isMenu = isMenu,
 )
 
 private fun posted(id: UInt): Posted = Posted(

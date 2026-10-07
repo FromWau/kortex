@@ -27,6 +27,7 @@ import com.fromwau.kortex.bar.state.BarStateHolder
 import com.fromwau.kortex.bar.system.ProcfsMetrics
 import com.fromwau.kortex.bar.system.secondTicks
 import com.fromwau.kortex.bar.ui.BarContent
+import com.fromwau.kortex.bar.ui.TrayMenu
 import com.fromwau.kortex.bar.ui.BarMenu
 import com.fromwau.kortex.bar.ui.DemoWindow
 import com.fromwau.kortex.bar.ui.Menu
@@ -127,6 +128,8 @@ private fun Shell(
                                 val event = awaitPointerEvent()
                                 if (event.type != PointerEventType.Press) continue
                                 if (event.button != PointerButton.Secondary) continue
+                                // A widget that answers a right click of its own has consumed it.
+                                if (event.changes.any { it.isConsumed }) continue
                                 // This scope's Density is the buffer scale the offset was produced at, so
                                 // it converts exactly into the logical space ContextMenu wants.
                                 val x = (event.changes.first().position.x / density).roundToInt()
@@ -145,6 +148,10 @@ private fun Shell(
                 notifications = state.notifications,
                 onAction = holder::onAction,
             )
+        }
+
+        state.trayMenu?.let { open ->
+            TrayMenu(menu = open, below = THICKNESS, colors = colorsFor(state.scheme), onAction = holder::onAction)
         }
 
         when (val open = menu) {

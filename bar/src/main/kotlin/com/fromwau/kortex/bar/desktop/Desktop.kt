@@ -14,6 +14,15 @@ import com.fromwau.kortex.tray.TrayRegistry
 import com.fromwau.kortex.tray.TrayWatcher
 import com.fromwau.kortex.tray.TrayError
 import com.fromwau.kortex.tray.TrayItem
+import com.fromwau.kortex.tray.ItemAddress
+import com.fromwau.kortex.tray.Menu
+import com.fromwau.kortex.tray.MenuEvent
+import com.fromwau.kortex.bar.state.TrayCommand
+import com.fromwau.kortex.bar.state.TrayMenuEntry
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
 import com.fromwau.kortex.bar.BarError
 import com.fromwau.kortex.bar.state.FocusedWindow
 import com.fromwau.kortex.bar.state.Posted
@@ -59,6 +68,14 @@ interface Desktop {
      * reading the bar shows rather than something that stops it starting.
      */
     val notifications: Flow<Reading<List<Posted>>>
+
+    /**
+     * The menu of the tray item at [address], for as long as this is collected.
+     *
+     * The application is told its menu opened when collecting starts and that it closed when it ends, so
+     * collect it exactly while the menu is on screen.
+     */
+    fun trayMenu(address: ItemAddress): Flow<Reading<List<TrayMenuEntry>>>
 
     /** The machine's battery and every peripheral's, empty on a machine with none. */
     val batteries: Flow<Reading<List<BatteryEntry>>>
@@ -109,6 +126,17 @@ interface Desktop {
     suspend fun playPause(player: String)
 
     /**
+     * Tells the tray item at [address] what was done to it.
+     *
+     * Nothing is handed back, for the reason [close] gives: an application answers by what it does, such
+     * as showing its window, and an item that has gone away has nothing left to tell.
+     */
+    suspend fun tellTrayItem(
+        address: ItemAddress,
+        command: TrayCommand,
+    )
+
+    /**
      * Switches the machine to [profile].
      *
      * Nothing is handed back, for the reason [close] gives: [powerProfile] shows whether it took.
@@ -136,7 +164,9 @@ class BusDesktop(
     /** Serves the tray's registry, and takes it over whenever another shell that held it lets it go. */
     private val registry = TrayWatcher.serve(bus, scope)
 
-    private val trayItems = Tray(bus, scope).items
+    private val trayHost = Tray(bus, scope)
+
+    private val trayItems = trayHost.items
 
     private val server = NotificationServer(bus, identity, scope)
 
@@ -169,6 +199,30 @@ class BusDesktop(
         combine(registry, trayItems) { _, outcome -> outcome.drawable() }
 
     override val notifications: Flow<Reading<List<Posted>>> = server.notifications.map { outcome -> outcome.readable() }
+
+    override fun trayMenu(address: ItemAddress): Flow<Reading<List<TrayMenuEntry>>> = flow {
+        val menu = menuOf(address)
+        if (menu == null) {
+            emit(Reading.Value(emptyList()))
+            return@flow
+        }
+
+        // An application may build its menu only once it is about to be shown, so it is told before reading.
+        menu.aboutToShow(MENU_ROOT)
+        menu.send(MENU_ROOT, MenuEvent.Opened)
+        try {
+            emitAll(
+                menu.layout.map { outcome ->
+                    when (outcome) {
+                        is Ok -> Reading.Value(outcome.value.entries())
+                        is Err -> outcome.error.menuReading()
+                    }
+                },
+            )
+        } finally {
+            withContext(NonCancellable) { menu.send(MENU_ROOT, MenuEvent.Closed) }
+        }
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     override val media: Flow<Reading<NowPlaying?>> = mpris.players
@@ -204,6 +258,24 @@ class BusDesktop(
         profiles.choose(profile)
     }
 
+    override suspend fun tellTrayItem(
+        address: ItemAddress,
+        command: TrayCommand,
+    ) {
+        when (command) {
+            TrayCommand.Activate -> trayHost.activate(address)
+            TrayCommand.SecondaryActivate -> trayHost.secondaryActivate(address)
+            TrayCommand.ShowOwnMenu -> trayHost.contextMenu(address)
+            is TrayCommand.MenuEntryClicked -> menuOf(address)?.send(command.id, MenuEvent.Clicked)
+        }
+    }
+
+    /** The menu of the tray item at [address], or null where there is no such item or it has no menu. */
+    private fun menuOf(address: ItemAddress): Menu? = trayItems.value
+        .getOrNull()
+        ?.firstOrNull { it.address == address }
+        ?.let(trayHost::menu)
+
     override suspend fun focusWorkspace(id: Int) {
         hyprland.focusWorkspace(id)
     }
@@ -231,3 +303,6 @@ class BusDesktop(
             }
         }
 }
+
+/** The entry every other one in a tray menu hangs off, which is never drawn itself. */
+private const val MENU_ROOT = 0

@@ -3,7 +3,6 @@ package com.fromwau.kortex.bar.desktop
 import com.fromwau.kortex.bar.state.TrayEntry
 import com.fromwau.kortex.tray.TrayItem
 import com.fromwau.kortex.tray.TrayStatus
-import com.fromwau.kortex.tray.label
 
 /**
  * [this] as the bar draws it, carrying the icon's description rather than its pixels.
@@ -18,8 +17,9 @@ internal fun TrayItem.asEntry(): TrayEntry {
     return TrayEntry(
         address = address,
         id = id,
-        hover = toolTip?.title?.ifBlank { null } ?: label,
         icon = if (attention) attentionIcon else icon,
         needsAttention = attention,
+        hasMenu = menuPath != null,
+        isMenu = isMenu,
     )
 }

@@ -18,14 +18,18 @@ sealed interface BarAction {
     /** The focus timer was right-clicked, which abandons the session whatever it was doing. */
     data object TimerReset : BarAction
 
-    /**
-     * The pointer moved onto the tray item at [address], or off every one of them when it is null.
-     *
-     * The bar has no room for a tooltip beside every icon, so one item's hover text is shown at a time
-     * and the bar is the thing that knows which. A tray item is never clicked: a host that activates one
-     * opens somebody's window, and this bar only reads.
-     */
-    data class TrayHovered(val address: ItemAddress?) : BarAction
+    /** The tray item at [address] was clicked with [button], [x] logical pixels from the bar's left edge. */
+    data class TrayClicked(
+        val address: ItemAddress,
+        val button: TrayButton,
+        val x: Int,
+    ) : BarAction
+
+    /** The entry with [id] in the open tray menu was picked, which also closes the menu. */
+    data class TrayMenuEntryPicked(val id: Int) : BarAction
+
+    /** The open tray menu went away without anything in it being picked. */
+    data object TrayMenuDismissed : BarAction
 
     /** The notification with [id] was clicked away or ran out its time, and its application is told [reason]. */
     data class NotificationClosed(
@@ -44,4 +48,11 @@ sealed interface BarAction {
 
     /** The scheme button was clicked, which moves to the next of [BarScheme]. */
     data object SchemeCycled : BarAction
+}
+
+/** Which button clicked a tray item. */
+enum class TrayButton {
+    Left,
+    Middle,
+    Right,
 }

@@ -66,16 +66,14 @@ class TrayLiveTest {
      *
      * Resolving a name through the theme directories and decoding what it finds both belong to `:icons`
      * now, and are tested there. What is left here is the choosing: an item that asked to be noticed is
-     * drawn with its attention icon, and every entry carries hover text, since an empty tooltip is worse
-     * than none.
+     * drawn with its attention icon.
      */
     @Test
-    fun `every live item carries an icon to draw and something to say on hover`() =
+    fun `every live item carries the icon its status asks for`() =
         withLiveTray { tray ->
             tray.items().forEach { item ->
                 val entry = item.asEntry()
 
-                assertTrue(entry.hover.isNotBlank(), "${item.id} has a hover with nothing in it")
                 assertEquals(item.status == TrayStatus.NeedsAttention, entry.needsAttention)
                 val expected = if (entry.needsAttention) item.attentionIcon else item.icon
                 assertEquals(expected, entry.icon, "the wrong one of an item's two icons was chosen")

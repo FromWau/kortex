@@ -55,8 +55,8 @@ data class BarState(
     val powerProfile: Reading<ProfileEntry?>,
     val timer: TimerFace,
     val tray: Reading<List<TrayEntry>>,
-    /** Which tray item the pointer is over, whose hover text the tray widget shows beside its icons. */
-    val hoveredTray: ItemAddress?,
+    /** The tray menu on screen, null while none is. */
+    val trayMenu: OpenTrayMenu?,
     val notifications: Reading<List<Posted>>,
     val workspaces: Reading<WorkspaceStrip>,
     /** The player the bar shows, which is a [Reading.Value] of null while no player has a track. */
@@ -90,7 +90,7 @@ data class BarState(
             powerProfile = Reading.Pending,
             timer = TimerFace.Idle,
             tray = Reading.Pending,
-            hoveredTray = null,
+            trayMenu = null,
             notifications = Reading.Pending,
             workspaces = Reading.Pending,
             media = Reading.Pending,

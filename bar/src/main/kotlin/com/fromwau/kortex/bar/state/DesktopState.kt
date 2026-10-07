@@ -13,8 +13,6 @@ data class TrayEntry(
     val address: ItemAddress,
     /** The item's own id, which is what tells two items of one application apart. */
     val id: String,
-    /** What to show on hover: the tooltip where the item offers one, and its title where it does not. */
-    val hover: String,
     /**
      * The icon as the item described it, resolved where it is drawn rather than here.
      *
@@ -24,6 +22,47 @@ data class TrayEntry(
     val icon: TrayIcon,
     /** The item asked to be noticed, so its attention icon is the one to draw and it is worth marking. */
     val needsAttention: Boolean,
+    /** The item exports a menu the bar can draw itself. */
+    val hasMenu: Boolean,
+    /** The item is only a menu, so a left click opens it rather than activating the application. */
+    val isMenu: Boolean,
+)
+
+/** What the bar tells a tray item a person did to it. */
+sealed interface TrayCommand {
+    /** A left click, which applications take as "show yourself". */
+    data object Activate : TrayCommand
+
+    /** A middle click. */
+    data object SecondaryActivate : TrayCommand
+
+    /** A right click on an item with no menu for the bar to draw, so the application shows one of its own. */
+    data object ShowOwnMenu : TrayCommand
+
+    /** The entry with [id] in the item's menu was picked. */
+    data class MenuEntryClicked(val id: Int) : TrayCommand
+}
+
+/** The tray menu that is open, and where on the bar it was opened from. */
+data class OpenTrayMenu(
+    val address: ItemAddress,
+    /** Where it opens, in logical pixels from the bar's left edge. */
+    val x: Int,
+    val entries: Reading<List<TrayMenuEntry>>,
+)
+
+/** One entry of a tray item's menu, as the bar draws it. */
+data class TrayMenuEntry(
+    /** The application's id for it, which is what a click is reported with. */
+    val id: Int,
+    /** The label with the application's access-key marks taken out. */
+    val label: String,
+    val enabled: Boolean,
+    val isSeparator: Boolean,
+    /** Checked or not, where the entry is a checkbox or a radio button, and null where it is neither. */
+    val checked: Boolean?,
+    /** The submenu under it, empty for an entry that has none. */
+    val children: List<TrayMenuEntry>,
 )
 
 /**
