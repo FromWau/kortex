@@ -2122,14 +2122,13 @@ version the better one. None is designed.
       read closes the socket, since the stream is then at a place nobody knows; a write always runs to its
       end, so a message is never sent half. `:dbus` and `:hyprland` use it, each mapping `SocketError` to
       the errors its callers already match on, and `:polkit`'s helper socket will be the third.
-- [ ] **A polkit agent: `:polkit`, and the prompt as an app of its own.** Working; what is left is below. polkitd
-      never takes a password from an agent. It calls the agent's `BeginAuthentication` (action, message, cookie,
-      which identities may answer), and the agent replies once it is over. The password goes to
-      `/run/polkit/agent-helper.socket`, which systemd runs as root: the agent writes the user name and the
-      cookie, a line each, then answers the PAM lines the helper sends (`PAM_PROMPT_ECHO_OFF`,
-      `PAM_PROMPT_ECHO_ON`, `PAM_ERROR_MSG`, `PAM_TEXT_INFO`, each through `g_strescape`) until `SUCCESS` or
-      `FAILURE`. The helper tells polkitd itself. All read from polkit 127, the version here, whose helper is not
-      setuid.
+- [x] **A polkit agent: `:polkit`, and the prompt as an app of its own.** Done. polkitd never takes a password
+      from an agent. It calls the agent's `BeginAuthentication` (action, message, cookie, which identities may
+      answer), and the agent replies once it is over. The password goes to `/run/polkit/agent-helper.socket`,
+      which systemd runs as root: the agent writes the user name and the cookie, a line each, then answers the PAM
+      lines the helper sends (`PAM_PROMPT_ECHO_OFF`, `PAM_PROMPT_ECHO_ON`, `PAM_ERROR_MSG`, `PAM_TEXT_INFO`, each
+      through `g_strescape`) until `SUCCESS` or `FAILURE`. The helper tells polkitd itself. All read from polkit
+      127, the version here, whose helper is not setuid.
       The conversation is `:auth`'s `AuthConversation`, shared with the greeter and the lock screen to come, which
       hold the same PAM shaped exchange behind a different transport: greetd's socket, and libpam called in
       process for the lock screen, the only one of the three that calls PAM itself. Each of the three gets a UI of
@@ -2159,9 +2158,9 @@ version the better one. None is designed.
          when the request arrives, and stays there while it is open, since following focus would move it and its
          keyboard mid-answer; the first monitor where that one is gone or Hyprland cannot be read. Unit tested,
          not yet seen live.
-      Still open: the first prompt after the agent starts is a little laggy, and later ones are smooth, which
-      reads as the JVM and Compose warming up on the first composition. Composing the card once off screen at
-      startup would move that cost to where nobody waits on it. Unmeasured.
+      Kept as it is: the first prompt after the agent starts is a little laggy, and later ones are smooth, which
+      reads as the JVM and Compose warming up on the first composition. Decided on 2026-10-08 that a JVM app may
+      take that, rather than composing the card off screen at startup to hide it.
       Choosing who answers: every user polkitd offers is on the request, this process's own first, and
       `PolkitRequest.switchUser` hangs up the attempt in progress and asks the helper again as the one picked. The
       card shows a chip per user where there is more than one, as polkit-gnome shows a list. Tested against the
@@ -2210,28 +2209,17 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **661 tests on `master`: 397 in `:wayland`, 73 in `:dbus`, 60 in `:bar`, 41 in `:tray`, 27 in
-  `:compose`, 20 in `:theme`, 15 in `:watch`, 14 each in `:notification` and `:icons`. 570 of them have
-  been seen green in one run, which was before `:icons`, `:theme`, the tray's watcher and the bar merge,
-  so no whole-suite run has covered what is on `master` now. Everything outside `:wayland` has been green
-  on its own: `:tray`'s 41 with ags stopped, which is the configuration that could not pass at all before
-  the watcher, and `:bar`'s 60, `:theme`'s 20 and `:icons`' 14 after the icon swap.**
-  **`:tray`'s 41 need whatever holds `org.kde.StatusNotifierWatcher` stopped**, which is `ags quit` on this
-  desktop, because the watcher tests claim that name themselves. That is the mirror of the old problem
-  rather than the same one: the suite used to need another bar running and now needs it not to be.
-  No failures, no errors, nothing skipped, run with `--rerun-tasks` so none of it came from the cache, and
-  with the session free, which needs saying because a suite that takes focus and drives the pointer is not
-  being measured while the desktop is in use.
-  That is what a plain `check` runs. `NotificationServerTest`'s fifteen make 578 in all and passed in a run
-  of their own earlier the same day, before `:watch` existed, which is why no single run has shown 578. It is
-  `@TakesTheName` and wants `-Pkortex.notificationTests=true` and whoever holds
-  `org.freedesktop.Notifications` stopped. **Stopping it is not the end of it**: the name is D-Bus
-  activatable, so dunst comes back on its own as soon as kortex releases it, which invalidated a run that
-  started a minute after the stop. Stop it and start the run in the one command.
-  The seven `@Hotplug` tests make `:wayland` 397 with `-Pkortex.hotplugTests=true`, and the run that first
-  did it on this machine is written up under its own entry above. They did not run this time: they hotplug
-  the live desktop, GTK 4.22.5 fixed the crash that banned them but Steam's was a different bug with no
-  fix, and Steam was open.
+- **911 tests on `master`, all green in one run on 2026-10-08:** 397 in `:wayland`, 105 in `:bar`, 103 in `:dbus`,
+  60 in `:tray`, 37 in `:hyprland`, 32 in `:notification`, 27 in `:compose`, 24 in `:polkit`, 20 in `:theme`, 18
+  in `:mpris`, 16 each in `:watch` and `:powerprofiles`, 14 in `:icons`, 13 in `:upower`, 11 in `:shell`, 10 in
+  `:socket` and 8 in `:polkit-agent`. `./gradlew check --continue --rerun-tasks` with the session free, so none of
+  it came from the cache and nothing was measured while the desktop was in use: no failures, no errors, nothing
+  skipped, and no compiler or Gradle warnings.
+  Nothing on the desktop has to be stopped first any more. `:tray`, `:notification` and `:polkit` test against a
+  private bus rather than the session's or the system's, so ags, dunst and the polkit agent can stay up.
+  The `@Hotplug` tests are not among the 911. They hotplug the live desktop, so a plain `check` leaves them out by
+  tag and `-Pkortex.hotplugTests=true` opts in; `HotplugCoverageTest` lists them. The run that first did it on
+  this machine is written up under its own entry above.
   **The suite empties the clipboard.** `ClipboardFocusTest` ends with `wl-copy --clear`, which clears rather
   than restores, so whatever was copied before a run is gone after it.
 

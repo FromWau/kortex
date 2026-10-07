@@ -26,3 +26,8 @@ kotlin {
         }
     }
 }
+
+// KeymapFailureTest hands xkb keymaps it cannot parse on purpose, and xkb reports each to stderr itself.
+tasks.withType<Test>().configureEach {
+    environment("XKB_LOG_LEVEL", "critical")
+}
