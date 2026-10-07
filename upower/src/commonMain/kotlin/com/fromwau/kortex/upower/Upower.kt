@@ -86,10 +86,16 @@ public class Upower(
         var known: Result<Known, UpowerError> = readAll(connection)
         send(known.snapshot())
         for (signal in signals) {
-            val next = when (val current = known) {
-                is Ok -> applied(connection, current.value, signal)
-                // Only UPower coming back can change an error; every other signal waits for that.
-                is Err -> if (cameBack(signal)) readAll(connection) else current
+            val current = known
+            val next = when {
+                // Whatever was known, UPower leaving or coming back decides what is known next.
+                ownerChanged(signal) -> when {
+                    cameBack(signal) -> readAll(connection)
+                    else -> Err(UpowerError.NotRunning)
+                }
+
+                current is Ok -> applied(connection, current.value, signal)
+                else -> current
             }
             if (next != known) {
                 known = next
@@ -104,12 +110,6 @@ public class Upower(
         known: Known,
         signal: Message.Signal,
     ): Result<Known, UpowerError> = when {
-        signal.iface == Bus.INTERFACE && signal.member == Bus.NAME_OWNER_CHANGED -> when {
-            signal.body.firstOrNull()?.asText != SERVICE -> Ok(known)
-            cameBack(signal) -> readAll(connection)
-            else -> Err(UpowerError.NotRunning)
-        }
-
         signal.iface == SERVICE && signal.member == DEVICE_ADDED -> {
             val path = signal.body.firstOrNull()?.asObjectPath
             val properties = path?.let { device(connection, it) }
@@ -197,24 +197,22 @@ public class Upower(
         const val DEVICE_REMOVED = "DeviceRemoved"
         const val PROPERTIES_CHANGED = "PropertiesChanged"
 
-        /** What the bus answers for a name nobody holds and nothing can start. */
-        const val SERVICE_UNKNOWN = "org.freedesktop.DBus.Error.ServiceUnknown"
-
         val RULES = listOf(
             MatchRule(sender = Bus.NAME, iface = Bus.INTERFACE, member = Bus.NAME_OWNER_CHANGED),
             MatchRule(sender = SERVICE, iface = SERVICE),
             MatchRule(sender = SERVICE, iface = Bus.PROPERTIES, member = PROPERTIES_CHANGED, pathNamespace = PATH),
         )
 
-        /** UPower taking its name again, which is the one thing that ends [UpowerError.NotRunning]. */
-        fun cameBack(signal: Message.Signal): Boolean =
+        fun ownerChanged(signal: Message.Signal): Boolean =
             signal.iface == Bus.INTERFACE &&
                 signal.member == Bus.NAME_OWNER_CHANGED &&
-                signal.body.firstOrNull()?.asText == SERVICE &&
-                !signal.body.getOrNull(2)?.asText.isNullOrEmpty()
+                signal.body.firstOrNull()?.asText == SERVICE
+
+        /** UPower taking its name again, rather than giving it up. */
+        fun cameBack(signal: Message.Signal): Boolean = !signal.body.getOrNull(2)?.asText.isNullOrEmpty()
 
         fun DBusError.asUpowerError(): UpowerError = when {
-            this is DBusError.CallFailed && name == SERVICE_UNKNOWN -> UpowerError.NotRunning
+            this is DBusError.CallFailed && name == Bus.SERVICE_UNKNOWN -> UpowerError.NotRunning
             else -> UpowerError.BusFailed(this)
         }
     }

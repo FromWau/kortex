@@ -1927,6 +1927,15 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       because moving responsibilities is a design change, and the gain is a smaller file rather than a
       reader who was confused.
 
+- [ ] **Five providers repeat one loop, and one rule about a service leaving lives in each.** `Mpris`,
+      `Upower`, `PowerProfiles`, `Tray` and `Menu` each add their rules, subscribe to `allSignals` with
+      `onSubscription` before the first read, copy signals into an unlimited channel, and remove the
+      rules in `onCompletion`. Most of them also take `NameOwnerChanged` apart by index. The copies have
+      already drifted once: a read cut short by the service leaving left `Upower` and `PowerProfiles` at
+      `BusFailed` for good, and the fix had to land in both by hand.
+      Open: whether `:dbus` should own the loop (rules in, signals out, read after subscribing) and a
+      typed `NameOwnerChanged`, which changes its public surface and every provider.
+
 - [ ] **Four tray paths are written and no live item has ever sent them.** Draft, and deliberately not
       work: the code exists, the unit tests cover it, and what is missing is an application that sends the
       thing. Left open so that the next time one turns up it is read rather than assumed, and so nobody
@@ -2036,8 +2045,14 @@ version the better one. None is designed.
       shows the display battery and every peripheral's, a low one in the error colour, and nothing where
       there is none. Tests run a fake UPower on a private bus, and each of eleven mutations fails one;
       `UpowerLiveTest` only reads, and finds this desktop's mouse and headset.
-- [ ] **Power profiles.** Draft. `power-profiles-daemon` is its own service, with a writable profile.
-      Not installed on this machine, so there is nothing live to test against yet.
+- [x] **Power profiles.** `PowerProfiles(systemBus, scope).state` is `ProfileState(active, available,
+      degraded, holds)` from `org.freedesktop.UPower.PowerProfiles`, kept up from `PropertiesChanged`, and
+      `choose(profile)` writes `ActiveProfile`. A profile the machine does not offer is `Unavailable` before
+      the daemon is asked, and polkit's refusal is `NotAuthorized`. The daemon leaving is `NotRunning` in
+      whatever state it leaves from: a read cut short by its going had left the state at `BusFailed`
+      for good, and `Upower` had the same fold, so both changed. The bar shows the active profile, and a
+      click goes round the ones on offer. This desktop has only the placeholder driver, so it offers
+      power-saver and balanced and switching changes nothing; the laptop is where it gets tried for real.
 - [ ] **Network: NetworkManager.** Draft. Quickshell does Wi-Fi and Ethernet, connecting with a PSK, and has
       no secret agent, so a network needing a password it does not have fails as `NoSecrets`. A secret agent
       is where kortex could do better.

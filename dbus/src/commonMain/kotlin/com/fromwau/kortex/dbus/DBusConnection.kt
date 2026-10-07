@@ -56,6 +56,12 @@ public object Bus {
 
     /** The bus telling every interested peer that a name changed hands, or was taken, or was given up. */
     public const val NAME_OWNER_CHANGED: String = "NameOwnerChanged"
+
+    /** The error a call gets for a name nobody holds and nothing can start. */
+    public const val SERVICE_UNKNOWN: String = "org.freedesktop.DBus.Error.ServiceUnknown"
+
+    /** The error a call gets from a service that refused the caller, as polkit does. */
+    public const val ACCESS_DENIED: String = "org.freedesktop.DBus.Error.AccessDenied"
 }
 
 /**
@@ -326,6 +332,21 @@ public class DBusConnection private constructor(
         member = "GetAll",
         args = listOf(DBusValue.Text(iface)),
     ).map { body -> body.singleOrNull()?.asDictionary.orEmpty() }
+
+    /** Writes one property; [value] is wrapped in the variant `Set` expects. */
+    public suspend fun setProperty(
+        destination: String,
+        path: String,
+        iface: String,
+        name: String,
+        value: DBusValue,
+    ): EmptyResult<DBusError> = call(
+        destination = destination,
+        path = path,
+        iface = Bus.PROPERTIES,
+        member = "Set",
+        args = listOf(DBusValue.Text(iface), DBusValue.Text(name), DBusValue.Variant(value)),
+    ).map { }
 
     override fun close() {
         // The channel first: a blocking read does not notice a cancelled coroutine, and closing the socket

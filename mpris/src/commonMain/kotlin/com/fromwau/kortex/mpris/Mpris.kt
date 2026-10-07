@@ -149,16 +149,7 @@ public class Mpris(
 
     private suspend fun set(player: Player, property: String, value: DBusValue): EmptyResult<MprisError> =
         bus.withConnection(::busDown) { connection ->
-            connection
-                .call(
-                    player.busName,
-                    PATH,
-                    Bus.PROPERTIES,
-                    "Set",
-                    listOf(DBusValue.Text(PLAYER), DBusValue.Text(property), DBusValue.Variant(value)),
-                )
-                .mapError(MprisError::BusFailed)
-                .map { }
+            connection.setProperty(player.busName, PATH, PLAYER, property, value).mapError(MprisError::BusFailed)
         }
 
     /**
