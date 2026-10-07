@@ -22,6 +22,7 @@ import com.fromwau.kern.result.errorOrNull
 import com.fromwau.kern.result.getOrNull
 import com.fromwau.kern.result.onError
 import com.fromwau.kortex.dbus.SystemBus
+import com.fromwau.kortex.hyprland.Hyprland
 import com.fromwau.kortex.polkit.PolkitAgent
 import com.fromwau.kortex.polkit.PolkitError
 import com.fromwau.kortex.polkit.PolkitRequest
@@ -48,7 +49,7 @@ import kotlin.system.exitProcess
 /**
  * This session's polkit agent, as a process of its own so the password lives where nothing else does.
  *
- * Nothing is on screen until polkitd asks for a password. Then every monitor dims and the first one shows the
+ * Nothing is on screen until polkitd asks for a password. Then every monitor dims and the focused one shows the
  * prompt, holding the keyboard until it is answered or cancelled. Requests that arrive meanwhile wait their turn.
  */
 fun main() {
@@ -60,6 +61,9 @@ fun main() {
 
         val served by remember { PolkitAgent.serve(SystemBus(scope), scope) }.collectAsState()
         val monitors by rememberMonitors()
+        // Collected all along, so the focused monitor is already known when a request arrives.
+        val hyprland by remember { Hyprland(scope).monitors }.collectAsState()
+        val focused = hyprland.getOrNull()?.firstOrNull { it.focused }?.name
         val colors = rememberColors()
 
         LaunchedEffect(served) {
@@ -71,7 +75,7 @@ fun main() {
         }
 
         served.getOrNull()?.firstOrNull()?.let { request ->
-            key(request) { Prompt(request, monitors, colors) }
+            key(request) { Prompt(request, monitors, focused, colors) }
         }
     }.onError { failure ->
         System.err.println("kortex-polkit-agent: $failure")
@@ -80,7 +84,7 @@ fun main() {
 }
 
 /**
- * The dimmed screens for [request], and the prompt on the first of [monitors].
+ * The dimmed screens for [request], and the prompt on the monitor that was [focused] when it arrived.
  *
  * The dimming and the card are separate surfaces because every frame redraws a surface whole: the card's caret
  * and progress bar redrawing a full-screen buffer made the prompt lag, and the dimming alone never redraws.
@@ -89,8 +93,11 @@ fun main() {
 private fun Prompt(
     request: PolkitRequest,
     monitors: List<Monitor>,
+    focused: String?,
     colors: ColorScheme,
 ) {
+    // Kept from when the request arrived: following focus would move the card, and its keyboard, mid-answer.
+    val cardName = remember(request) { focused }
     val holder = remember(request) { PromptHolder(request.message, request.user, request.conversation) }
     val state by holder.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -115,7 +122,7 @@ private fun Prompt(
         }
     }
 
-    val cardOn = monitors.firstOrNull() ?: return
+    val cardOn = cardMonitor(monitors, cardName, Monitor::name) ?: return
     key(cardOn) {
         val surface = rememberSurfaceState()
         val status = surface.status
@@ -146,6 +153,13 @@ private fun Prompt(
         }
     }
 }
+
+/** The monitor named [name] where it is one of [monitors], and the first of them where it is not. */
+internal fun <M> cardMonitor(
+    monitors: List<M>,
+    name: String?,
+    nameOf: (M) -> String,
+): M? = monitors.firstOrNull { nameOf(it) == name } ?: monitors.firstOrNull()
 
 /** The generated theme the bar draws with, and material3's dark one while there is none to read. */
 @Composable

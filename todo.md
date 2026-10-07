@@ -2155,8 +2155,10 @@ version the better one. None is designed.
          password asks again with PAM's words kept, and a card whose surface ends cancels its request. Live: a
          wrong password asked again, the right one made `pkexec true` exit 0, and Escape made it say "Request
          dismissed". The dimming and the card are separate surfaces because one full-screen surface lagged, which
-         the Polish entry on redrawing whole surfaces explains. The first monitor rather than the focused one, for
-         now.
+         the Polish entry on redrawing whole surfaces explains. The card opens on the monitor Hyprland has focused
+         when the request arrives, and stays there while it is open, since following focus would move it and its
+         keyboard mid-answer; the first monitor where that one is gone or Hyprland cannot be read. Unit tested,
+         not yet seen live.
       Still open: the first prompt after the agent starts is a little laggy, and later ones are smooth, which
       reads as the JVM and Compose warming up on the first composition. Composing the card once off screen at
       startup would move that cost to where nobody waits on it. Unmeasured.

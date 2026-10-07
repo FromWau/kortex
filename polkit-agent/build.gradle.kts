@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":wayland"))
     implementation(project(":theme"))
     implementation(project(":polkit"))
+    implementation(project(":hyprland"))
     implementation(libs.kern.result)
     implementation(libs.compose.material3)
     implementation(compose.desktop.currentOs)
