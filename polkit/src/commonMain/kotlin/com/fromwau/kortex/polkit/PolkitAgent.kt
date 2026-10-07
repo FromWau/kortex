@@ -204,16 +204,18 @@ public object PolkitAgent {
                 return Err(CallRejected(CallRejected.INVALID_ARGS, "BeginAuthentication wants (sssa{ss}sa(sa{sv}))"))
             }
 
-            val user = chooseUser(identities.mapNotNull(::uidOf))
-                ?: return Err(CallRejected(FAILED, "no identity polkitd offered is a user this agent can name"))
-            val conversation = HelperConversation(helper, user, cookie, scope)
+            val users = namedUsers(identities.mapNotNull(::uidOf))
+            if (users.isEmpty()) {
+                return Err(CallRejected(FAILED, "no identity polkitd offered is a user this agent can name"))
+            }
+            val conversation = HelperConversation(helper, users.first(), cookie, scope)
             val request = PolkitRequest(
                 action = action,
                 message = message,
                 icon = icon.ifEmpty { null },
                 details = details.mapValues { (_, value) -> value.asText.orEmpty() },
-                user = user,
-                conversation = conversation,
+                users = users,
+                helper = conversation,
                 cookie = cookie,
             )
             requests.update { it + request }
@@ -239,11 +241,11 @@ public object PolkitAgent {
         return fields.getOrNull(1)?.asDictionary?.get("uid")?.asUInt32
     }
 
-    /** This process's own user where polkitd offers it, and otherwise the first it offers that has a name. */
-    private suspend fun chooseUser(uids: List<UInt>): String? {
+    /** The names of the users polkitd offers, this process's own first and those without a name left out. */
+    private suspend fun namedUsers(uids: List<UInt>): List<String> {
         val own = ownUid()
         val ordered = uids.filter { it == own } + uids.filter { it != own }
-        return ordered.firstNotNullOfOrNull { uid -> userName(uid) }
+        return ordered.distinct().mapNotNull { uid -> userName(uid) }
     }
 
     private fun ownUid(): UInt? = try {

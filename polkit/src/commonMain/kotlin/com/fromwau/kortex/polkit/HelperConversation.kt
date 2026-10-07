@@ -18,7 +18,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
 import java.nio.CharBuffer
 import java.nio.charset.CharacterCodingException
@@ -32,13 +35,21 @@ import kotlin.concurrent.Volatile
  */
 internal class HelperConversation(
     private val helper: String,
-    private val user: String,
+    user: String,
     private val cookie: String,
     private val scope: CoroutineScope,
 ) : AuthConversation {
     private val current = MutableStateFlow<AuthState>(AuthState.Waiting(emptyList()))
 
+    private val answering = MutableStateFlow(user)
+
+    /** Starting, retrying, restarting and cancelling an attempt, one at a time. */
+    private val attempts = Mutex()
+
     override val state: StateFlow<AuthState> = current.asStateFlow()
+
+    /** The user the helper is asked to authenticate. */
+    val user: StateFlow<String> = answering.asStateFlow()
 
     @Volatile
     private var socket: UnixSocket? = null
@@ -77,20 +88,32 @@ internal class HelperConversation(
         }
     }
 
-    override suspend fun retry(): EmptyResult<ConversationError> {
+    override suspend fun retry(): EmptyResult<ConversationError> = attempts.withLock {
         val rejected = current.value as? AuthState.Rejected
             ?: return Err(refusal(ConversationError.NotRejected))
         if (!current.compareAndSet(rejected, AuthState.Waiting(emptyList()))) {
             return Err(refusal(ConversationError.NotRejected))
         }
         start()
-        return Ok(Unit)
+        Ok(Unit)
+    }
+
+    /** Drops the attempt in progress, whatever state it is in, and starts again as [user], with no notes. */
+    suspend fun restartAs(user: String): EmptyResult<ConversationError.AlreadyEnded> = attempts.withLock {
+        attempt?.cancelAndJoin()
+        val restarted = current.updateAndGet { now ->
+            if (now is AuthState.Ended) now else AuthState.Waiting(emptyList())
+        }
+        if (restarted is AuthState.Ended) return Err(ConversationError.AlreadyEnded(restarted.outcome))
+        answering.value = user
+        start()
+        Ok(Unit)
     }
 
     override suspend fun cancel() {
         end(Err(AuthError.Cancelled))
         // A read cut short closes the socket, which is how the helper hears the attempt is over.
-        attempt?.cancelAndJoin()
+        attempts.withLock { attempt?.cancelAndJoin() }
     }
 
     private suspend fun converse() {
@@ -99,7 +122,7 @@ internal class HelperConversation(
         }
         this.socket = socket
         socket.use {
-            socket.write("$user\n$cookie\n".encodeToByteArray()).getOrElse { failure ->
+            socket.write("${answering.value}\n$cookie\n".encodeToByteArray()).getOrElse { failure ->
                 return end(Err(AuthError.Unreachable(failure)))
             }
             do {

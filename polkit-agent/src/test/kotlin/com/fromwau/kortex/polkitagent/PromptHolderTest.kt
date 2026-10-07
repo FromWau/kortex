@@ -20,7 +20,15 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalCoroutinesApi::class)
 class PromptHolderTest {
     private val conversation = ScriptedConversation()
-    private val holder = PromptHolder("Restart sshd.service?", "alice", conversation)
+    private val user = MutableStateFlow("alice")
+    private val switches = mutableListOf<String>()
+    private val holder = PromptHolder(
+        message = "Restart sshd.service?",
+        users = listOf("alice", "root"),
+        user = user,
+        conversation = conversation,
+        switchUser = { name -> switches += name },
+    )
 
     @Test
     fun `a prompt is drawn with what PAM said before it`() = runTest(UnconfinedTestDispatcher()) {
@@ -47,6 +55,29 @@ class PromptHolderTest {
 
         conversation.state.value = AuthState.Asking(Prompt.Secret("Password: "), emptyList())
         assertEquals(listOf(failure), holder.state.value.rejected, "the next prompt lost why the last one failed")
+        running.cancel()
+    }
+
+    @Test
+    fun `switching user forgets why the last user's answer was rejected`() = runTest(UnconfinedTestDispatcher()) {
+        val running = launch { holder.run() }
+        conversation.state.value = AuthState.Rejected(listOf(Note.Problem("Authentication failure")))
+
+        holder.onAction(PromptAction.SwitchUser("root"))
+
+        assertEquals(listOf("root"), switches)
+        assertEquals(null, holder.state.value.rejected)
+        running.cancel()
+    }
+
+    @Test
+    fun `the prompt names whoever is being asked now`() = runTest(UnconfinedTestDispatcher()) {
+        val running = launch { holder.run() }
+
+        user.value = "root"
+
+        assertEquals("root", holder.state.value.user)
+        assertEquals(listOf("alice", "root"), holder.state.value.users)
         running.cancel()
     }
 

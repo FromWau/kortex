@@ -1,8 +1,10 @@
 package com.fromwau.kortex.polkit
 
+import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.IError
 import com.fromwau.kern.result.Result
+import com.fromwau.kortex.auth.AuthError
 import com.fromwau.kortex.dbus.BusState
 import com.fromwau.kortex.dbus.DBusError
 
@@ -35,4 +37,13 @@ public sealed interface PolkitError : IError {
 internal fun <T> unavailable(state: BusState.Unavailable): Result<T, PolkitError> = when (state) {
     BusState.Connecting -> Err(PolkitError.NotConnected)
     is BusState.Down -> Err(PolkitError.BusDown(state.reason))
+}
+
+/** Why [PolkitRequest.switchUser] did not switch. */
+public sealed interface UserSwitchError : IError {
+    /** polkitd did not offer [user] for this request. */
+    public data class NotOffered(public val user: String) : UserSwitchError
+
+    /** The conversation is over, with [outcome]. */
+    public data class AlreadyEnded(public val outcome: EmptyResult<AuthError>) : UserSwitchError
 }

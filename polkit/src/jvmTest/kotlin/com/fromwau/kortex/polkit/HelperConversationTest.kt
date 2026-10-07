@@ -98,6 +98,40 @@ class HelperConversationTest {
     }
 
     @Test
+    fun `a restart as another user hangs up the attempt in progress and starts again as them`() = runBlocking<Unit> {
+        val conversation = started()
+        helper.accept().use { attempt ->
+            attempt.skipGreeting()
+            attempt.send("PAM_ERROR_MSG Authentication failure")
+            attempt.send("PAM_PROMPT_ECHO_OFF Password: ")
+            conversation.reach<AuthState.Asking>()
+
+            conversation.restartAs("bob").assertSuccess()
+
+            assertNull(withTimeout(SETTLE) { attempt.readLine() }, "the attempt in progress was not hung up on")
+        }
+        helper.accept().use { attempt ->
+            assertEquals("bob", attempt.readLine())
+            assertEquals(COOKIE, attempt.readLine())
+            attempt.send("PAM_PROMPT_ECHO_OFF Password: ")
+            assertEquals(ASKED, conversation.reach<AuthState.Asking>(), "the new attempt kept the old one's notes")
+        }
+        assertEquals("bob", conversation.user.value)
+    }
+
+    @Test
+    fun `an ended conversation does not restart`() = runBlocking<Unit> {
+        val conversation = started()
+        conversation.cancel()
+
+        assertEquals(
+            ConversationError.AlreadyEnded(Err(AuthError.Cancelled)),
+            conversation.restartAs("bob").assertError(),
+        )
+        assertEquals("alice", conversation.user.value)
+    }
+
+    @Test
     fun `an answer is wiped once it is given`() = runBlocking<Unit> {
         val conversation = started()
         helper.accept().use { attempt ->
@@ -145,7 +179,7 @@ class HelperConversationTest {
             conversation.cancel()
 
             assertEquals(AuthState.Ended(Err(AuthError.Cancelled)), conversation.state.value)
-            assertNull(attempt.readLine(), "the helper was not hung up on")
+            assertNull(withTimeout(SETTLE) { attempt.readLine() }, "the helper was not hung up on")
             assertEquals(
                 ConversationError.AlreadyEnded(Err(AuthError.Cancelled)),
                 conversation.answer("late".toCharArray()).assertError(),

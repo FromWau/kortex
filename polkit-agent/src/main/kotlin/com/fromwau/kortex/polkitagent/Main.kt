@@ -98,7 +98,16 @@ private fun Prompt(
 ) {
     // Kept from when the request arrived: following focus would move the card, and its keyboard, mid-answer.
     val cardName = remember(request) { focused }
-    val holder = remember(request) { PromptHolder(request.message, request.user, request.conversation) }
+    val holder = remember(request) {
+        PromptHolder(
+            message = request.message,
+            users = request.users,
+            user = request.user,
+            conversation = request.conversation,
+            // Refused only for a user it did not offer or a request already over, and neither is on the card.
+            switchUser = { user -> request.switchUser(user) },
+        )
+    }
     val state by holder.state.collectAsState()
     val scope = rememberCoroutineScope()
     val onAction: (PromptAction) -> Unit = { action -> scope.launch { holder.onAction(action) } }

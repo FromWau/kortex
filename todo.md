@@ -2162,8 +2162,10 @@ version the better one. None is designed.
       Still open: the first prompt after the agent starts is a little laggy, and later ones are smooth, which
       reads as the JVM and Compose warming up on the first composition. Composing the card once off screen at
       startup would move that cost to where nobody waits on it. Unmeasured.
-      Not done yet: choosing who answers. The agent takes this user where polkitd offers it and otherwise the
-      first it offers, where polkit-gnome lets the dialog switch between them.
+      Choosing who answers: every user polkitd offers is on the request, this process's own first, and
+      `PolkitRequest.switchUser` hangs up the attempt in progress and asks the helper again as the one picked. The
+      card shows a chip per user where there is more than one, as polkit-gnome shows a list. Tested against the
+      fake helper and polkitd; not seen live, since here polkitd offers only this user, the one member of `wheel`.
       Starting it: `polkit-agent/packaging/arch` builds an Arch package that installs the app under
       `/usr/lib/kortex-polkit-agent` and a user unit, `kortex-polkit-agent.service`. Built and smoke tested from
       the package on 2026-10-07, not installed: run while the KDE agent held the session, it reached polkitd and

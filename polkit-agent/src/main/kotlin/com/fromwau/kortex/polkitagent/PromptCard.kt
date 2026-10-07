@@ -2,11 +2,14 @@ package com.fromwau.kortex.polkitagent
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -79,11 +82,19 @@ internal fun PromptCard(
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            Text(
-                text = "as ${state.user}",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            when {
+                state.users.size > 1 -> UserPicker(
+                    users = state.users,
+                    user = state.user,
+                    onPick = { user -> onAction(PromptAction.SwitchUser(user)) },
+                )
+
+                else -> Text(
+                    text = "as ${state.user}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             when (asking) {
                 null -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -146,6 +157,25 @@ private fun AnswerField(
     )
 
     LaunchedEffect(focus) { focus.requestFocus() }
+}
+
+/** One chip per user whose password would do, the one being asked for selected. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UserPicker(
+    users: List<String>,
+    user: String,
+    onPick: (String) -> Unit,
+) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        users.forEach { name ->
+            FilterChip(
+                selected = name == user,
+                onClick = { if (name != user) onPick(name) },
+                label = { Text(name) },
+            )
+        }
+    }
 }
 
 /** What PAM said: about the last rejected answer first, then during this attempt. */

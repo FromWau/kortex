@@ -39,6 +39,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.seconds
 
 /** The agent on a bus of the test's own, with polkitd, logind and the helper all played by the test. */
@@ -86,7 +87,7 @@ class PolkitAgentTest {
         assertEquals("Authentication is required to restart a unit.", request.message)
         assertEquals("system-run", request.icon)
         assertEquals(mapOf("unit" to "sshd.service"), request.details)
-        assertEquals(ownName(), request.user)
+        assertEquals(ownName(), request.user.value)
 
         helper.accept().use { attempt ->
             assertEquals(ownName(), attempt.readLine())
@@ -139,6 +140,63 @@ class PolkitAgentTest {
         withTimeout(SETTLE) { reply.await() }.assertError<DBusError.CallFailed>()
         assertIs<AuthState.Ended>(request.conversation.state.value)
         withTimeout(SETTLE) { requests.first { it == Ok(emptyList<PolkitRequest>()) } }
+    }
+
+    @Test
+    fun `every user polkitd offers is listed, this process's own first`() = runBlocking<Unit> {
+        logind(display = "2")
+        val polkitd = polkitd()
+        val requests = served()
+
+        polkitd.begin(uids = listOf(ROOT, ownUid()))
+        val request = withTimeout(SETTLE) { requests.first { it.getOrNull()?.isNotEmpty() == true } }
+            .assertSuccess()
+            .single()
+
+        assertEquals(listOf(ownName(), "root"), request.users)
+        assertEquals(ownName(), request.user.value)
+    }
+
+    @Test
+    fun `switching user asks the helper again, as that user`() = runBlocking<Unit> {
+        logind(display = "2")
+        val polkitd = polkitd()
+        val requests = served()
+
+        polkitd.begin(uids = listOf(ownUid(), ROOT))
+        val request = withTimeout(SETTLE) { requests.first { it.getOrNull()?.isNotEmpty() == true } }
+            .assertSuccess()
+            .single()
+        helper.accept().use { first ->
+            assertEquals(ownName(), first.readLine())
+            first.readLine()
+            first.send("PAM_PROMPT_ECHO_OFF Password: ")
+            withTimeout(SETTLE) { request.conversation.state.first { it is AuthState.Asking } }
+
+            request.switchUser("root").assertSuccess()
+
+            assertNull(withTimeout(SETTLE) { first.readLine() }, "the first attempt was not hung up on")
+        }
+        helper.accept().use { second ->
+            assertEquals("root", second.readLine())
+            assertEquals(COOKIE, second.readLine())
+        }
+        assertEquals("root", request.user.value)
+    }
+
+    @Test
+    fun `a user polkitd did not offer is refused`() = runBlocking<Unit> {
+        logind(display = "2")
+        val polkitd = polkitd()
+        val requests = served()
+
+        polkitd.begin()
+        val request = withTimeout(SETTLE) { requests.first { it.getOrNull()?.isNotEmpty() == true } }
+            .assertSuccess()
+            .single()
+
+        assertEquals(UserSwitchError.NotOffered("root"), request.switchUser("root").assertError())
+        assertEquals(ownName(), request.user.value)
     }
 
     @Test
@@ -249,8 +307,8 @@ class PolkitAgentTest {
     }
 
     private inner class Polkitd(val connection: DBusConnection) {
-        /** Asks the agent to authenticate, and holds the reply that comes once it is over. */
-        suspend fun begin(): Deferred<Result<List<DBusValue>, DBusError>> {
+        /** Asks the agent to authenticate one of [uids], and holds the reply that comes once it is over. */
+        suspend fun begin(uids: List<UInt> = listOf(ownUid())): Deferred<Result<List<DBusValue>, DBusError>> {
             val agent = agentName()
             return scope.async {
                 connection.call(
@@ -258,7 +316,7 @@ class PolkitAgentTest {
                     path = AGENT_PATH,
                     iface = AGENT,
                     member = "BeginAuthentication",
-                    args = beginArguments(),
+                    args = beginArguments(uids),
                     timeout = SETTLE * 2,
                 )
             }
@@ -269,7 +327,7 @@ class PolkitAgentTest {
         authorityCalls.first { calls -> calls.any { it.member == "RegisterAuthenticationAgent" } }
     }.first { it.member == "RegisterAuthenticationAgent" }.sender
 
-    private fun beginArguments(): List<DBusValue> = listOf(
+    private fun beginArguments(uids: List<UInt> = listOf(ownUid())): List<DBusValue> = listOf(
         DBusValue.Text("org.freedesktop.systemd1.manage-units"),
         DBusValue.Text("Authentication is required to restart a unit."),
         DBusValue.Text("system-run"),
@@ -280,17 +338,17 @@ class PolkitAgentTest {
         DBusValue.Text(COOKIE),
         DBusValue.Sequence(
             DBusType.Struct(listOf(DBusType.Basic.Text, DBusType.Sequence(VARDICT))),
-            listOf(
+            uids.map { uid ->
                 DBusValue.Struct(
                     listOf(
                         DBusValue.Text("unix-user"),
                         DBusValue.Sequence(
                             VARDICT,
-                            listOf(DBusValue.Pair(DBusValue.Text("uid"), DBusValue.Variant(DBusValue.U32(ownUid())))),
+                            listOf(DBusValue.Pair(DBusValue.Text("uid"), DBusValue.Variant(DBusValue.U32(uid)))),
                         ),
                     ),
-                ),
-            ),
+                )
+            },
         ),
     )
 
@@ -315,6 +373,7 @@ class PolkitAgentTest {
         const val COOKIE = "3-a1b2c3-4-d5e6f7"
         const val FAILED = "org.freedesktop.PolicyKit1.Error.Failed"
         const val SESSION_PATH = "/org/freedesktop/login1/session/_32"
+        const val ROOT = 0u
         val VARDICT = DBusType.Pair(DBusType.Basic.Text, DBusType.Variant)
         val SETTLE = 10.seconds
     }
