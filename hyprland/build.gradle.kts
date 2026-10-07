@@ -1,18 +1,9 @@
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
+    id("kortex-library")
     alias(libs.plugins.kotlinSerialization)
 }
 
-group = "com.fromwau.kortex"
-version = libs.versions.kortexVersion.get()
-
 kotlin {
-    explicitApi()
-
-    jvmToolchain(libs.versions.jdk.get().toInt())
-
-    jvm()
-
     sourceSets {
         commonMain {
             dependencies {
@@ -20,13 +11,6 @@ kotlin {
                 api(libs.kern.result)
                 api(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
-            }
-        }
-
-        jvmTest {
-            dependencies {
-                implementation(libs.kotlin.test)
-                implementation(libs.kern.result.test)
             }
         }
     }

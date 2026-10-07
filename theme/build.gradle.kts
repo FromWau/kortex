@@ -1,20 +1,11 @@
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
+    id("kortex-library")
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
 }
 
-group = "com.fromwau.kortex"
-version = libs.versions.kortexVersion.get()
-
 kotlin {
-    explicitApi()
-
-    jvmToolchain(libs.versions.jdk.get().toInt())
-
-    jvm()
-
     sourceSets {
         commonMain {
             dependencies {
@@ -35,8 +26,6 @@ kotlin {
 
         jvmTest {
             dependencies {
-                implementation(libs.kotlin.test)
-                implementation(libs.kern.result.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skiko.awt.runtime.linux.x64)
             }

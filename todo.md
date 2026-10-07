@@ -924,14 +924,15 @@ where on the monitor the compositor put it.
 
 ## Housekeeping
 
-- [ ] **Three module build files share 21 of their 30 lines, and the probe task is now copied three times.**
-      `dbus`, `tray` and `notification` differ only in their dependencies; `compose` and `wayland` share the
-      same opening. The `probe` task, a `JavaExec` over a test compilation's classpath, is pasted into
-      `wayland`, `tray` and `notification` verbatim. When the second copy went in the note was that a third
-      would justify extracting it, and there is now a third.
-      Open: a convention plugin in a `build-logic` included build, which is what Gradle's own guidance asks
-      for, carrying the toolchain, `explicitApi`, the `jvm()` target and the probe task. Each module would
-      keep only its dependencies. Noted rather than done because a new included build is a design change.
+- [x] **The module build files shared most of their lines, and the probe task was copied three times.**
+      `build-logic`, an included build, carries two conventions. `kortex-library` is what every
+      multiplatform module shared: the plugin, group and version, `explicitApi()`, the toolchain, `jvm()`
+      and the test libraries. `kortex-probe` adds the `probe` task. Each module keeps its other plugins and
+      its dependencies. `icons` and `bar` stay as they were: one is plain JVM on purpose, the other an
+      application. The root build declares `kortex-library` with `apply false`, so the Kotlin plugin loads
+      once; without it Gradle warned that a call the plugin makes goes away in Gradle 10. Every module's
+      resolved classpaths matched before and after, bar `dbus-test`, which has no tests and now gets the
+      test libraries too.
 
 - [x] **`WlSurfaceListener` has a file of its own.** `wl_surface` is a core interface, not part of the
       wlroots extension, so its listener sits in `WlSurfaceListener.kt` and `LayerShell.kt` keeps the

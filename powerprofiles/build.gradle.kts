@@ -1,17 +1,8 @@
 plugins {
-    alias(libs.plugins.kotlinMultiplatform)
+    id("kortex-library")
 }
 
-group = "com.fromwau.kortex"
-version = libs.versions.kortexVersion.get()
-
 kotlin {
-    explicitApi()
-
-    jvmToolchain(libs.versions.jdk.get().toInt())
-
-    jvm()
-
     sourceSets {
         commonMain {
             dependencies {
@@ -22,8 +13,6 @@ kotlin {
 
         jvmTest {
             dependencies {
-                implementation(libs.kotlin.test)
-                implementation(libs.kern.result.test)
                 implementation(project(":dbus-test"))
             }
         }
