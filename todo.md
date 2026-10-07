@@ -2017,9 +2017,17 @@ version the better one. None is designed.
       are handled by the same code for both. `SystemBusTest` reads the real system bus, and proves it is
       that bus by finding logind's name, which the session bus does not carry; opening the session address
       instead fails both of its tests.
-- [ ] **`:mpris`, with a position that moves.** Draft, already in the providers table. Quickshell's
-      `position` is deliberately not reactive and the docs tell the user to poll it from a timer. A flow that
-      extrapolates while playing and corrects on `Seeked` is the better shape.
+- [x] **`:mpris`, with a position that moves.** Quickshell's `position` is deliberately not reactive and
+      the docs tell the user to poll it from a timer. `Mpris(bus, scope).players` lists every
+      `org.mpris.MediaPlayer2.*` player but `playerctld`, which mirrors the last one used and would show
+      its track twice, and keeps each up from `NameOwnerChanged`, `PropertiesChanged` and `Seeked`. A
+      `Player` carries a `PlayPosition`, a reading and when it was taken, and `position(player, tick)`
+      carries it forward at the player's rate while playing; it is read again on `Seeked` and whenever
+      the status, rate or track changes, since `Position` announces nothing of its own. Commands cover the
+      transport, seeking, volume, loop, shuffle and raise, and `setPosition` answers `NoTrack` for a player
+      that names no track rather than sending a call the specification says it will ignore. Tests run a
+      fake player on a private bus, and each of nine mutations fails one; `MprisLiveTest` only reads.
+      Not yet drawn by the bar.
 - [ ] **Power: UPower and power profiles.** Draft. Quickshell has the display device, every device, on
       battery, and a writable profile. Battery is where `/sys/class/power_supply` through `:watch` says less
       than UPower does, which the `:sysinfo` entry left for when the system bus exists.
