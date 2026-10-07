@@ -1,0 +1,5 @@
+# makepkg build artifacts; only the PKGBUILD and the unit are tracked.
+/src/
+/pkg/
+*.pkg.tar.zst
+*.pkg.tar.zst.sig

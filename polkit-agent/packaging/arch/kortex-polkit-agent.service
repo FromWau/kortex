@@ -1,0 +1,10 @@
+[Unit]
+Description=kortex polkit authentication agent
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/kortex-polkit-agent
+Slice=background.slice
+TimeoutStopSec=5sec
+Restart=on-failure

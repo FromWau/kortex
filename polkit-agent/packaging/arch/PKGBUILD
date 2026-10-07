@@ -1,0 +1,46 @@
+# Maintainer: FromWau <tobias.frommhund@aon.at>
+#
+# Packages kortex's polkit agent for Arch, built straight from the checkout this file sits in, so it packages the
+# current tree (committed or not). The app carries its own Java runtime, so it needs no JDK installed to run.
+#
+# Building it needs, on the build machine rather than as pacman deps, a JDK for Gradle and a populated Gradle cache
+# or network access. Override the checkout with `KORTEX_REPO=/path/to/kortex makepkg`. Do not run another Gradle
+# build in the same tree while makepkg runs; they share build/ directories.
+#
+# Only one agent serves a session, so start this one in place of any other:
+#   systemctl --user start kortex-polkit-agent.service
+
+_repo="${KORTEX_REPO:-$(cd "$startdir/../../.." && pwd)}"
+
+_kortex_version() {
+    sed -n 's/^kortexVersion *= *"\(.*\)"/\1/p' "$_repo/gradle/libs.versions.toml"
+}
+
+pkgname=kortex-polkit-agent
+pkgver=$(_kortex_version)
+pkgrel=1
+pkgdesc="A polkit authentication agent for Wayland, drawn with Compose on a layer-shell overlay"
+arch=('x86_64')
+url="https://github.com/FromWau/kortex"
+license=('Apache-2.0')
+# kortex itself loads wayland and libxkbcommon; Skia and the bundled runtime's AWT need the rest.
+depends=('glibc' 'libstdc++' 'polkit' 'wayland' 'libxkbcommon' 'fontconfig' 'libglvnd' 'libx11' 'libxext' 'libxi'
+    'libxrender' 'libxtst')
+makedepends=('jdk-openjdk')
+
+_app="$_repo/polkit-agent/build/compose/binaries/main/app/$pkgname"
+
+build() {
+    cd "$_repo"
+    ./gradlew --no-daemon :polkit-agent:createDistributable
+}
+
+package() {
+    install -d "$pkgdir/usr/lib/$pkgname" "$pkgdir/usr/bin"
+    # Not cp -a: copying extended attributes under fakeroot fails with "payload not recognized".
+    cp -r "$_app/." "$pkgdir/usr/lib/$pkgname/"
+    ln -s "/usr/lib/$pkgname/bin/$pkgname" "$pkgdir/usr/bin/$pkgname"
+
+    install -Dm644 "$startdir/$pkgname.service" "$pkgdir/usr/lib/systemd/user/$pkgname.service"
+    install -Dm644 "$_repo/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

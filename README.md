@@ -58,12 +58,15 @@ Library versions all live in `gradle/libs.versions.toml`, which is the only plac
 | `:mpris` | the media players, with a position that moves, and their transport | `:dbus` |
 | `:upower` | the machine's battery and every peripheral's, from UPower on the system bus | `:dbus` |
 | `:powerprofiles` | the machine's power profile, and the switch between them, from power-profiles-daemon | `:dbus` |
+| `:auth` | an authentication in progress, PAM's prompts and the answers to them, for whatever draws it | `:socket` |
+| `:polkit` | kortex as this session's polkit agent, handing each request out as an `:auth` conversation | `:dbus`, `:auth` |
 | `:watch` | a file's text, again whenever it changes | `kern:dirs` |
 | `:hyprland` | Hyprland's monitors and their workspaces, the focused window, the submap and the keyboard layout, and its dispatchers, over its own sockets | `:socket` |
 | `:shell` | a bash script's output and exit code, for whatever no provider covers | nothing of kortex's |
 | `:icons` | a provider's icon as something Compose can draw | `:tray`, `:notification`, Compose |
 | `:theme` | a watched JSON file as a Material `ColorScheme`, so a bar retints itself | `:watch`, Compose, material3 |
 | `:bar` | a bar you could run, and a demo of the toolkit's other surfaces behind a right click | most of the above |
+| `:polkit-agent` | the polkit prompt as an app of its own, so the password lives in a process holding nothing else | `:polkit`, `:wayland`, `:theme` |
 
 Twelve surfaces are composables: `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`, `Osd`, `AppMenu`
 and `ContextMenu`, the `LayerSurface` they are all presets of, and `Window`, `Dialog` and `Popup` over
@@ -159,6 +162,10 @@ Use the wrapper.
 ./gradlew :bar:run       # the demo bar, on every monitor
 ./gradlew :bar:packageDeb
 ```
+
+On Arch, `makepkg -si` in [`polkit-agent/packaging/arch`](polkit-agent/packaging/arch/PKGBUILD) builds and
+installs the polkit agent with a systemd user unit, `kortex-polkit-agent.service`. polkit takes one agent per
+session, so stop the one serving it now before starting this one.
 
 Nothing is published yet. Publishing waits until development settles, so for now a consumer builds from
 source: `includeBuild("path/to/kortex")` in your `settings.gradle.kts` and then the ordinary coordinate,

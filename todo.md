@@ -2162,7 +2162,10 @@ version the better one. None is designed.
       startup would move that cost to where nobody waits on it. Unmeasured.
       Not done yet: choosing who answers. The agent takes this user where polkitd offers it and otherwise the
       first it offers, where polkit-gnome lets the dialog switch between them.
-      Starting it: as a systemd user service, the way `startup.lua` starts `plasma-polkit-agent.service`.
+      Starting it: `polkit-agent/packaging/arch` builds an Arch package that installs the app under
+      `/usr/lib/kortex-polkit-agent` and a user unit, `kortex-polkit-agent.service`. Built and smoke tested from
+      the package on 2026-10-07, not installed: run while the KDE agent held the session, it reached polkitd and
+      exited with the refusal. Switching `startup.lua` from `plasma-polkit-agent.service` to it is still to do.
       Live: one agent per session, and the KDE agent holds this one, so a live run needs it stopped by hand, the
       same as dunst for `:notification`. The password is never logged, and a JVM string cannot be wiped, which is
       one more reason for the separate process; `AuthConversation.answer` takes a `CharArray` and zeroes it.
