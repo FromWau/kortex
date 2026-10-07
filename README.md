@@ -84,7 +84,8 @@ suspend fun printTray(scope: CoroutineScope) {
 
 A `SessionBus` is the session bus as something that stays: it opens a connection while something
 collects, and opens a new one each time the bus restarts, and every provider built on it starts over on
-the new one by itself. One `SessionBus` is meant to be shared by every provider in a shell.
+the new one by itself. One `SessionBus` is meant to be shared by every provider in a shell. `SystemBus` is
+the same for the system bus, and each provider's constructor names the one its service lives on.
 
 Being the notification server holds a name only one connection on a bus may have, so while somebody else
 has it the error says who, and kortex takes the name the moment they let it go:

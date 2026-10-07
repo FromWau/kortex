@@ -509,7 +509,15 @@ public class DBusConnection private constructor(
         public suspend fun session(
             replyTimeout: Duration = DEFAULT_REPLY_TIMEOUT,
         ): Result<DBusConnection, DBusError> {
-            val address = BusAddress.fromEnvironment().getOrElse { return Err(it) }
+            val address = BusAddress.session().getOrElse { return Err(it) }
+            return open(address.path, replyTimeout)
+        }
+
+        /** Opens the system bus, authenticates, and learns this connection's own name. */
+        public suspend fun system(
+            replyTimeout: Duration = DEFAULT_REPLY_TIMEOUT,
+        ): Result<DBusConnection, DBusError> {
+            val address = BusAddress.system().getOrElse { return Err(it) }
             return open(address.path, replyTimeout)
         }
 

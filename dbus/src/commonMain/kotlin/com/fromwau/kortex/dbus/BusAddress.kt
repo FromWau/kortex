@@ -5,10 +5,14 @@ import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import java.nio.file.Path
 
-/** Where the session bus listens, as much of the address grammar as a JVM socket can reach. */
+/** Where a bus listens, as much of the address grammar as a JVM socket can reach. */
 internal data class BusAddress(val path: String) {
     companion object {
         private const val SESSION_VARIABLE = "DBUS_SESSION_BUS_ADDRESS"
+        private const val SYSTEM_VARIABLE = "DBUS_SYSTEM_BUS_ADDRESS"
+
+        /** Where the specification says to look when [SYSTEM_VARIABLE] is not set. */
+        private const val SYSTEM_DEFAULT = "/var/run/dbus/system_bus_socket"
         private const val RUNTIME_VARIABLE = "XDG_RUNTIME_DIR"
         private const val UNIX = "unix:"
 
@@ -18,12 +22,16 @@ internal data class BusAddress(val path: String) {
          * `DBUS_SESSION_BUS_ADDRESS` first, then the `$XDG_RUNTIME_DIR/bus` that systemd puts there and
          * that the specification names as the fallback.
          */
-        fun fromEnvironment(environment: (String) -> String? = System::getenv): Result<BusAddress, DBusError> {
+        fun session(environment: (String) -> String? = System::getenv): Result<BusAddress, DBusError> {
             environment(SESSION_VARIABLE)?.let { return parse(it) }
 
             val runtime = environment(RUNTIME_VARIABLE) ?: return Err(DBusError.NoSessionBus)
             return Ok(BusAddress("$runtime/bus"))
         }
+
+        /** Where the system bus is: `DBUS_SYSTEM_BUS_ADDRESS`, or the socket the specification names. */
+        fun system(environment: (String) -> String? = System::getenv): Result<BusAddress, DBusError> =
+            environment(SYSTEM_VARIABLE)?.let(::parse) ?: Ok(BusAddress(SYSTEM_DEFAULT))
 
         /**
          * One address out of the semicolon-separated list the variable may hold.

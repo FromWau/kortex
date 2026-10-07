@@ -56,7 +56,7 @@ class BusAddressTest {
     fun `the session variable is preferred over the runtime directory`() {
         assertEquals(
             Ok(BusAddress("/from/the/variable")),
-            BusAddress.fromEnvironment(
+            BusAddress.session(
                 mapOf(
                     "DBUS_SESSION_BUS_ADDRESS" to "unix:path=/from/the/variable",
                     "XDG_RUNTIME_DIR" to "/run/user/1000",
@@ -69,13 +69,29 @@ class BusAddressTest {
     fun `the runtime directory is the fallback the specification names`() {
         assertEquals(
             Ok(BusAddress("/run/user/1000/bus")),
-            BusAddress.fromEnvironment(mapOf("XDG_RUNTIME_DIR" to "/run/user/1000")::get),
+            BusAddress.session(mapOf("XDG_RUNTIME_DIR" to "/run/user/1000")::get),
         )
     }
 
     @Test
     fun `neither variable set means there is nowhere to look`() {
-        assertEquals(Err(DBusError.NoSessionBus), BusAddress.fromEnvironment(emptyMap<String, String>()::get))
+        assertEquals(Err(DBusError.NoSessionBus), BusAddress.session(emptyMap<String, String>()::get))
+    }
+
+    @Test
+    fun `the system bus is where its variable says`() {
+        assertEquals(
+            Ok(BusAddress("/elsewhere/system")),
+            BusAddress.system(mapOf("DBUS_SYSTEM_BUS_ADDRESS" to "unix:path=/elsewhere/system")::get),
+        )
+    }
+
+    @Test
+    fun `without the variable the system bus is the socket the specification names`() {
+        assertEquals(
+            Ok(BusAddress("/var/run/dbus/system_bus_socket")),
+            BusAddress.system(emptyMap<String, String>()::get),
+        )
     }
 
     /**

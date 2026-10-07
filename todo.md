@@ -2008,10 +2008,15 @@ version the better one. None is designed.
 
 **Services**
 
-- [ ] **The system bus in `:dbus`, with restarts handled.** Draft, and the prerequisite for UPower,
-      NetworkManager, BlueZ, polkit and logind. Quickshell watches some services' names and not others, and
-      UPower and BlueZ never recover from a daemon restart there. The reconnect entry under Providers is the
-      session-bus half of the same problem.
+- [x] **The system bus in `:dbus`, with restarts handled.** The prerequisite for UPower, NetworkManager,
+      BlueZ, polkit and logind. Quickshell watches some services' names and not others, and UPower and BlueZ
+      never recover from a daemon restart there. `DBusConnection.system()` reads `DBUS_SYSTEM_BUS_ADDRESS`
+      and otherwise the `/var/run/dbus/system_bus_socket` the specification names, with the same `EXTERNAL`
+      handshake. The supervisor is a sealed `FollowedBus` with two kinds, `SessionBus` and `SystemBus`, so
+      a provider's constructor says which bus it needs and handing it the other does not compile; restarts
+      are handled by the same code for both. `SystemBusTest` reads the real system bus, and proves it is
+      that bus by finding logind's name, which the session bus does not carry; opening the session address
+      instead fails both of its tests.
 - [ ] **`:mpris`, with a position that moves.** Draft, already in the providers table. Quickshell's
       `position` is deliberately not reactive and the docs tell the user to poll it from a timer. A flow that
       extrapolates while playing and corrects on `Seeked` is the better shape.
