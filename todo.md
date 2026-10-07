@@ -1832,6 +1832,14 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       mutation, because closing the socket wakes the pump, which usually sends the end before the scope's
       cancellation reaches it; the `tryEmit` is what makes the end certain rather than likely, and the test
       cannot tell the two apart.
+      **Step 2 is done.** `SessionBus(scope, backoff)` follows the session bus and `SessionBus.at(socket, …)`
+      a bus on a given socket. While something collects `state` it opens a connection, publishes `Up`,
+      waits for that connection's `closed`, publishes `Down(reason, retryIn)`, waits and opens again; the
+      connection is closed when the last collector leaves. `Backoff(first, cap)` doubles from `first` up to
+      `cap`, and a connection that was up sends the next wait back to `first`. `SessionBusReconnectTest`
+      kills and restarts its own daemon for every part of that, and each part's mutation fails it; the
+      reset needed a test of its own, a bus down long enough to reach the cap before it came up and
+      dropped again, since a connection that never failed first is already at `first`.
       The constructors of the four providers change, which is a breaking change to their public API and
       every caller in kortex moves with it.
 
