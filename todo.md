@@ -1960,17 +1960,20 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       entry on a click. A press a widget answers is consumed, so the bar's own right-click menu no longer
       opens on top, which it also did over the timer. Tried with Discord: its menu opens, each entry works,
       a click away dismisses it, and left and middle clicks bring its window up.
-- [ ] **An app started while no tray watcher runs never gets a tray item, so the watcher should outlive the
-      bar.** Chromium, and with it every Electron app, asks once as its tray icon is made whether anyone holds
-      `org.kde.StatusNotifierWatcher` (`NameHasOwner`, in `status_icon_linux_dbus.cc`), and on no answer drops
-      the D-Bus item for good: Discord started that way exports no tray object at all, so there is nothing to
-      pick up later, and D-Bus activation would not help since `NameHasOwner` starts nothing. An item that did
-      start follows the watcher across restarts: measured 2026-10-07, Discord registered at 14:24:49 and again
-      at 14:27:13.94, the instant a restarted bar took the name, with Discord untouched. This corrects the note
-      that stood here, which said Chromium never re-registers; the earlier sessions had started Discord while
-      no watcher ran. Planned fix: the watcher as a small standalone app started first in the session, beside
-      the `:polkit-agent` plan, which a bar reads as `HeldElsewhere`, so a bar that crashes or starts late costs
-      no application its tray. Starting the bar before the apps in `startup.lua` is the stopgap, and a race.
+- [x] **An app started while no tray watcher runs never gets a tray item.** Chromium, and with it every Electron
+      app, asks once as its tray icon is made whether anyone holds `org.kde.StatusNotifierWatcher`
+      (`NameHasOwner`, in `status_icon_linux_dbus.cc`), and on no answer drops the D-Bus item for good: Discord
+      started that way exports no tray object at all, so there is nothing to pick up later, and D-Bus activation
+      would not help since `NameHasOwner` starts nothing. An item that did start follows the watcher across
+      restarts: measured 2026-10-07, Discord registered at 14:24:49 and again at 14:27:13.94, the instant a
+      restarted bar took the name, with Discord untouched. This corrects the note that stood here, which said
+      Chromium never re-registers; the earlier sessions had started Discord while no watcher ran. So only an
+      application that starts while no watcher runs loses its tray. Decided 2026-10-07: no standalone watcher,
+      which would be a JVM process to hold a list of strings. The bar keeps serving it, and ordering covers the
+      rest: once the bar replaces ags it starts as a systemd user unit, and any Electron application added to
+      autostart starts after it holds `org.kde.StatusNotifierWatcher`. Today nothing needs it: Discord and Steam
+      are started by hand, Steam follows a new watcher on its own (back in the registry within a second of a bar
+      restart), and `kdeconnect-indicator` is the only tray app `startup.lua` launches.
 - [x] **The watcher dropped live items whenever `serve` was collected again.** Seen once with Discord:
       registered, then gone from `RegisteredStatusNotifierItems` while its connection still answered and the
       name never changed hands. `serve` is `WhileSubscribed`, so a moment with no collector stopped its claim,
