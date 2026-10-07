@@ -2167,12 +2167,14 @@ version the better one. None is designed.
       card shows a chip per user where there is more than one, as polkit-gnome shows a list. Tested against the
       fake helper and polkitd; not seen live, since here polkitd offers only this user, the one member of `wheel`.
       Starting it: `polkit-agent/packaging/arch` builds an Arch package that installs the app under
-      `/usr/lib/kortex-polkit-agent` and a user unit, `kortex-polkit-agent.service`. Built and smoke tested from
-      the package on 2026-10-07, not installed: run while the KDE agent held the session, it reached polkitd and
-      exited with the refusal. Switching `startup.lua` from `plasma-polkit-agent.service` to it is still to do.
-      Live: one agent per session, and the KDE agent holds this one, so a live run needs it stopped by hand, the
-      same as dunst for `:notification`. The password is never logged, and a JVM string cannot be wiped, which is
-      one more reason for the separate process; `AuthConversation.answer` takes a `CharArray` and zeroes it.
+      `/usr/lib/kortex-polkit-agent` and a user unit, `kortex-polkit-agent.service`. Installed on 2026-10-08 in
+      place of `plasma-polkit-agent.service`, and `startup.lua` starts it after
+      `dbus-update-activation-environment`, so it never starts without `WAYLAND_DISPLAY`. Through the installed
+      copy, `pkexec true` asked and exited 0.
+      Live: one agent per session, and the installed one holds this one now, so running a build from the tree
+      needs `kortex-polkit-agent.service` stopped first. The password is never logged, and a JVM string cannot be
+      wiped, which is one more reason for the separate process; `AuthConversation.answer` takes a `CharArray` and
+      zeroes it.
 - [ ] **greetd.** Draft. Quickshell has a greetd client, which makes a login screen. Further out than
       everything above.
 - [ ] **`:notification` against Quickshell's server.** Draft. Quickshell opts into capabilities one by one
