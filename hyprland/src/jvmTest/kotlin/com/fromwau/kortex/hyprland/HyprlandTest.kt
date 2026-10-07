@@ -208,7 +208,7 @@ class HyprlandTest {
     }
 
     @Test
-    fun aDroppedEventSocketIsReportedAndThenReattached() = runBlocking {
+    fun aDroppedEventSocketIsReportedAndThenReattached() = runBlocking<Unit> {
         val seen = CopyOnWriteArrayList<Result<List<Monitor>, HyprlandError>>()
         val watcher = launch(Dispatchers.Default) { hyprland.monitors.collect { seen += it } }
         hyprland.monitors.awaitOk()

@@ -1785,22 +1785,30 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       probably that `DBusConnection` gains a `connected: StateFlow<Boolean>` and re-applies its own match
       rules and exports on reconnect, so a provider sees a reconnect as a fresh start rather than having to
       know it happened.
-- [ ] **The tray does not notice its own watcher dying.** `afterNameOwnerChanged` removes items whose
-      service or owner matches a departed name, which covers an application dying, and the watcher's own
-      name is neither of those. So when ags restarts, the tray keeps showing the items it last knew, learns
-      of no new ones, and never re-registers as a host with the watcher that replaced it. It freezes while
-      looking fine, which is the shape this codebase keeps finding and keeps deciding it dislikes.
-      Fixed together with the entry below, since both are "watch the watcher's name and act on it" and
-      splitting them would mean writing that rule twice.
-- [ ] **A missing watcher is treated as permanent, so a bar that starts first never gets a tray.**
-      `track()` answers `Err(NoWatcher)` and returns, which ends the flow, and with
-      `stateIn(WhileSubscribed)` and something collecting continuously `items` stays that way for the life
-      of the process. That is the normal case for a shell rather than an edge: the bar comes up before the
-      desktop's tray daemon, every login. It is also what a kortex bar shows today with ags stopped, and no
-      watcher appearing later can rescue it.
-      The fix is small and worth doing whether or not the watcher above gets built: add a match rule for
-      `NameOwnerChanged` on both watcher names, and start tracking when one appears instead of giving up.
-      `NoWatcher` stays the honest first value; what changes is that it stops being the last one.
+- [x] **The tray follows its watcher, and a shell takes the registry over once its holder lets it go.** Both
+      old entries were one rule, "watch the watcher's name and act on it", and it is written once. `track()`
+      is a loop now: find a watcher, register as host, read, follow; a `NameOwnerChanged` on the watcher's
+      name ends the pass and the next one finds out whether it was replaced or is gone. With none, the tray
+      carries `NoWatcher` and waits for a watcher name to gain an owner instead of ending, which is what used
+      to leave a bar that started first with no tray for its whole life. Applications re-register with the
+      new watcher on their own, so its `ItemRegistered` signals bring the items back.
+      Following alone was not enough: when the process holding the registry dies and was the only server,
+      nothing serves it again. `TrayWatcher.serve` claims at once where the name is free and otherwise
+      reports the holder and claims the moment it lets the name go, and stops watching once it holds it, so
+      `stop` still gives it back for good. That is not the takeover ruled out earlier, since nobody holds the
+      name at that point. The bar serves with it, and its `tray registry: …` hint now clears when it takes
+      over. (`TrayReattachTest`: a tray that starts before any watcher, one that follows the next watcher
+      after its own died, serve taking over and the tray following, and stop staying stopped; each with a
+      mutation that fails it)
+- [x] **Four tests returned a value, so JUnit never ran them.** A `@Test fun x() = runBlocking { … }` whose block
+      ends in an expression, `assertIs(...)` or a flow's `first`, has that expression's type rather than
+      `Unit`, and the JUnit platform skips a test method that returns something, silently. Three new tray
+      tests did it and so did `HyprlandTest.aDroppedEventSocketIsReportedAndThenReattached`, which had never
+      run since it was written. Its mutation check, removing the reconnect, had been reported as caught, but
+      the `--tests` filter matched no executed test, so the failure was Gradle's "no tests found" rather
+      than the test. All four are `runBlocking<Unit>` now, and the reconnect mutation was redone and fails
+      the test for real. Comparing each class's `@Test` count against its result XML is the cheap check, and
+      every other mismatch in the repository is a `@Hotplug` test excluded by its tag.
 
 - [ ] **Seven public commands in `:tray` have no test, and the server side made them testable.** Every
       write in that module: `Tray.activate`, `secondaryActivate`, `contextMenu` and `scroll`, and
