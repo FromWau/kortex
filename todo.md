@@ -1933,6 +1933,12 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       `PowerProfiles`, `Tray`, `Menu`, `TrayWatcher` and `chancesToClaim` use them. `WatchingTest` pins
       each promise, and each of seven mutations fails a test.
 
+- [ ] **Two test suites race on the real session bus.** `TrayReattachTest` serves a tray watcher on the
+      session bus this machine runs, and Gradle runs `:tray` and `:bar` in parallel, so `:bar`'s
+      `TrayLiveTest` can read the watcher mid-teardown: the name still held, the object already gone, and
+      `UnknownObject` where it expects items or `NoWatcher`. Seen once, 2026-10-07; `:bar` alone passes.
+      Open: move the reattach tests onto a `PrivateBus`, or let the live test treat a watcher that vanishes
+      while being read as no watcher.
 - [ ] **Four tray paths are written and no live item has ever sent them.** Draft, and deliberately not
       work: the code exists, the unit tests cover it, and what is missing is an application that sends the
       thing. Left open so that the next time one turns up it is read rather than assumed, and so nobody
