@@ -1704,7 +1704,8 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       back as `Refused` with Hyprland's own answer, which for Lua it cannot run is Lua's error. Neither returns
       the new state, which arrives through the flows. Through the provider rather than `hyprctl` in a shell:
       0.56 changed `dispatch` to Lua, which broke every `hyprctl dispatch workspace 1` in a script that does
-      not read the answer and is one line here, and a name spliced into Lua inside a shell is an injection waiting to happen.
+      not read the answer and is one line here, and a name spliced into Lua inside a shell is an injection
+      waiting to happen.
       On the bar a click sends `WorkspaceClicked`, and the empty slot past the end creates its workspace.
       (`HyprlandTest`, `HyprlandLiveTest`, `BarStateHolderTest`)
 - [x] **`:hyprland` groups workspaces under their monitor, and follows urgency, specials, the submap and the
@@ -1729,7 +1730,8 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       On the bar each strip is its own monitor's: its numbered workspaces, the gaps no other monitor holds and
       the next number no other monitor holds, which may be one of its own empty persistent workspaces, so one
       monitor draws what it did before. A pill fills with the error container while a window on it is urgent,
-      which lasts until that window takes focus rather than until the workspace is visited, as in Hyprland, an open special workspace shows as a named pill after the numbers, a
+      which lasts until that window takes focus rather than until the workspace is visited, as in Hyprland, an
+      open special workspace shows as a named pill after the numbers, a
       `MODE` chip appears only outside the default submap and `KB US` sits beside the clock.
       (`HyprlandTest`, `RepliesTest`, `HyprlandLiveTest`, `HyprlandReadingsTest`, `BarStateHolderTest`)
 - [ ] **The bar's surface vanished once, on a click on the clock, and nothing reported it.** 2026-10-02, on the
@@ -1858,6 +1860,100 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       while every module depends on Compose. A provider must not, so the first Compose-free module ended that
       freeride. `kotlinx-coroutines-core` is in the catalog now and `:dbus` takes it as `api`, its own surface
       being a `SharedFlow`. Nothing relies on the older one Compose supplies transitively any more.
+
+## Parity with Quickshell, and better
+
+Quickshell is the closest thing to what kortex is for: primitives and data back ends, with every visible
+piece of UI written by the user. A survey of its upstream v0.3.1 (commit `11ca60b`) gave the items below,
+which are what kortex lacks against it. What they say about Quickshell comes from that survey and was not
+re-read in its source here. Quickshell is LGPL-3.0, so it is read for structure only and nothing is copied.
+
+"Better" has a fixed meaning across all of these, the rules every provider here already keeps: every source
+is a flow carrying a `Result` with typed errors, every command answers whether it worked, nothing runs while
+nobody is watching, and every source reattaches when what it reads restarts, with a "kill it, bring it back"
+test to prove it. The report's own list of where Quickshell falls short of that is the measure: errors only
+logged, fire-and-forget dispatch, optimistic D-Bus writes never rolled back, no restart handling for
+UPower and BlueZ, and MPRIS position, Hyprland geometry and file watching that have to be polled by hand.
+
+All of these are drafts: what Quickshell has, what kortex has instead, and the angle that would make kortex's
+version the better one. None is designed.
+
+**Wayland protocols**
+
+- [ ] **A real lock screen: `ext-session-lock-v1`, and PAM to unlock it.** Draft. Quickshell has
+      `WlSessionLock` with one surface per screen that follows hotplug, a `secure` flag once the compositor
+      confirms the lock, and a PAM module that forks a child per conversation. kortex's `LockScreen` preset
+      is an overlay that takes the keyboard, which locks nothing. Better: the lock's states and PAM's
+      answers as typed values, so a wrong password and a PAM that cannot run are different things.
+- [ ] **The desktop's windows from the protocol: `ext-foreign-toplevel-list` / wlr foreign toplevel.**
+      Draft. Quickshell's `ToplevelManager` lists every window with title, app id and state, and links each
+      to Hyprland's own through `hyprland-toplevel-mapping-v1`. It is what a taskbar is made of, and it works
+      on any compositor that speaks it, where `:hyprland` only works on Hyprland.
+- [ ] **Screen and window capture: `ext-image-copy-capture`, wlr screencopy, Hyprland toplevel export.**
+      Draft. Quickshell's `ScreencopyView` draws a live output or window, which is what window previews and
+      a workspace overview are made of.
+- [ ] **Idle: `ext-idle-notify`, `idle-inhibit`, and the keyboard shortcuts inhibitor.** Draft. Quickshell
+      has `IdleMonitor`, `IdleInhibitor` and `ShortcutInhibitor`: dim or lock after a while, keep the screen
+      on during a video, let a game have the keys.
+- [ ] **Workspaces from the protocol: `ext-workspace-v1`.** Draft. Quickshell's generic `Windowset` model
+      has this as its only provider. It is the compositor-neutral counterpart of `:hyprland`'s workspaces.
+- [ ] **Hyprland's own protocols: focus grab and global shortcuts.** Draft. `hyprland-focus-grab-v1` tells a
+      layer surface the user clicked elsewhere: a panel or an OSD that should close on an outside click,
+      which an `xdg_popup` grab does not cover since they are not popups.
+      `hyprland-global-shortcuts-v1` lets a keybind in `hyprland.lua` call into kortex. Quickshell crashes
+      the second process that registers the same shortcut; a typed error is the better answer.
+- [ ] **Background blur: `ext-background-effect`.** Draft. Quickshell's `BackgroundEffect`. Whether Hyprland
+      speaks it is unchecked; it blurs behind layer surfaces through its own layer rules today.
+
+**Compositor IPC**
+
+- [ ] **Hyprland's windows, and typed actions.** Draft. Quickshell keeps `Hyprland.toplevels` beside
+      monitors and workspaces; `:hyprland` reads the focused window only. Its actions are a string sent with
+      nothing returned, which the typed commands already planned above improve on. That entry stands; this
+      one adds the window list.
+- [ ] **A provider for i3 and Sway.** Draft. Quickshell's `Quickshell.I3` speaks i3's binary IPC for both,
+      with workspaces and outputs but no windows. Whether kortex wants a second compositor's IPC at all is the
+      first question.
+
+**Services**
+
+- [ ] **The system bus in `:dbus`, with restarts handled.** Draft, and the prerequisite for UPower,
+      NetworkManager, BlueZ, polkit and logind. Quickshell watches some services' names and not others, and
+      UPower and BlueZ never recover from a daemon restart there. The reconnect entry under Providers is the
+      session-bus half of the same problem.
+- [ ] **`:mpris`, with a position that moves.** Draft, already in the providers table. Quickshell's
+      `position` is deliberately not reactive and the docs tell the user to poll it from a timer. A flow that
+      extrapolates while playing and corrects on `Seeked` is the better shape.
+- [ ] **Power: UPower and power profiles.** Draft. Quickshell has the display device, every device, on
+      battery, and a writable profile. Battery is the reading `:watch` gave up on when `:sysinfo` was dropped.
+- [ ] **Network: NetworkManager.** Draft. Quickshell does Wi-Fi and Ethernet, connecting with a PSK, and has
+      no secret agent, so a network needing a password it does not have fails as `NoSecrets`. A secret agent
+      is where kortex could do better.
+- [ ] **Bluetooth: BlueZ.** Draft. Quickshell does power, discovery, connect, pair, forget and battery, and
+      has no `Agent1`, so no PIN or passkey flow. The agent is the better-than.
+- [ ] **Audio: PipeWire.** Draft. Quickshell binds libpipewire natively for nodes, volume and mute. Whether
+      kortex reaches it through FFM, through WirePlumber's D-Bus, or through `wpctl` under `:shell` is the
+      first decision.
+- [ ] **Polkit agent and greetd.** Draft. Quickshell has a polkit authentication agent and a greetd client,
+      which make a desktop's password prompts and its login screen. Both are further out than everything
+      above.
+- [ ] **`:notification` against Quickshell's server.** Draft. Quickshell opts into capabilities one by one
+      (actions, markup, images, persistence, inline reply) and has no expiry timer, leaving `expire()` to the
+      user. Compare what kortex's server advertises and whether it honours a notification's own timeout,
+      rather than leaving that to the bar as `3287c0b` does.
+
+**Runtime**
+
+- [ ] **Commands into a running shell.** Draft. Quickshell's `IpcHandler` exposes typed functions and
+      properties over a socket, called with `qs ipc call`, which is how a keybind opens a launcher or toggles
+      a panel. kortex has nothing a keybind can reach.
+- [ ] **Desktop entries, for a launcher.** Draft. Quickshell's `DesktopEntries` reads `.desktop` files.
+      `:icons` already resolves the icons such a list would show.
+- [ ] **Hot reload.** Draft, and the one that does not translate directly. Quickshell builds a new QML engine
+      per reload and keeps windows alive across it. kortex is compiled Kotlin, so the question is whether
+      Compose Hot Reload can reach content under a kortex surface.
+- [ ] **X11.** Not a draft but a decision to record: Quickshell backs `PanelWindow` with struts on X11, and
+      kortex requires `zwlr_layer_shell_v1`. If X11 stays out it belongs under Deliberately not doing.
 
 ## Where the work stands
 
