@@ -11,6 +11,7 @@ kotlin {
                 api(libs.kern.result)
                 api(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
+                implementation(project(":socket"))
             }
         }
     }

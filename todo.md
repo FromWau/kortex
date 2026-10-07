@@ -2055,6 +2055,13 @@ version the better one. None is designed.
 - [ ] **Audio: PipeWire.** Draft. Quickshell binds libpipewire natively for nodes, volume and mute. Whether
       kortex reaches it through FFM, through WirePlumber's D-Bus, or through `wpctl` under `:shell` is the
       first decision.
+- [x] **`:socket`, the one place kortex speaks to a Unix socket.** `UnixSocket.connect(path)`, then `write`,
+      `finishWriting`, `readExactly`, `readLine`, `readToEnd` and `lines()`, every one a `Result` with a
+      typed `SocketError`: `NotFound`, `Closed` or `Failed`. One buffered reader serves all the reads, so a
+      protocol that turns from lines to bytes, as the bus login does, loses nothing in between. Cancelling a
+      read closes the socket, since the stream is then at a place nobody knows; a write always runs to its
+      end, so a message is never sent half. `:dbus` and `:hyprland` use it, each mapping `SocketError` to
+      the errors its callers already match on, and `:polkit`'s helper socket will be the third.
 - [ ] **A polkit agent: `:polkit`, and the prompt as an app of its own.** Planned. polkitd never takes a
       password from an agent. It calls the agent's `BeginAuthentication` (action, message, cookie, which
       identities may answer), and the agent replies once it is over. The password goes to

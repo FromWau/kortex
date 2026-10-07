@@ -7,6 +7,9 @@ import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.fold
 import com.fromwau.kern.result.getOrElse
 import com.fromwau.kern.result.map
+import com.fromwau.kern.result.mapError
+import com.fromwau.kortex.socket.SocketError
+import com.fromwau.kortex.socket.UnixSocket
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
@@ -33,11 +36,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
-import java.net.StandardProtocolFamily
-import java.net.UnixDomainSocketAddress
-import java.nio.ByteBuffer
-import java.nio.channels.ClosedChannelException
-import java.nio.channels.SocketChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
@@ -72,7 +70,7 @@ public object Bus {
  * a rule nobody has asked for costs the bus nothing and delivers nothing.
  */
 public class DBusConnection private constructor(
-    private val channel: SocketChannel,
+    private val socket: UnixSocket,
     private val replyTimeout: Duration,
 ) : AutoCloseable {
     private val scope = CoroutineScope(
@@ -336,9 +334,8 @@ public class DBusConnection private constructor(
     ).map { }
 
     override fun close() {
-        // The channel first: a blocking read does not notice a cancelled coroutine, and closing the socket
-        // is what makes it return so the pump can end.
-        runCatching { channel.close() }
+        // The socket first: closing it is what ends the pump's waiting read, so the pump can end.
+        socket.close()
         finish(DBusError.Disconnected)
         // Not emit: this does not suspend, and the pump that would otherwise announce the end is being
         // cancelled with the scope. A subscriber stalled past the buffer misses it, and is stalled anyway.
@@ -359,15 +356,10 @@ public class DBusConnection private constructor(
     private suspend fun send(message: Message): EmptyResult<DBusError> {
         val raw = message.encode().getOrElse { return Err(it) }
         return writing.withLock {
-            withContext(Dispatchers.IO) {
-                try {
-                    val bytes = ByteBuffer.wrap(raw)
-                    while (bytes.hasRemaining()) channel.write(bytes)
-                    Ok(Unit)
-                } catch (_: ClosedChannelException) {
-                    Err(death ?: DBusError.Disconnected)
-                } catch (failure: IOException) {
-                    Err(DBusError.SocketFailed(failure.message.orEmpty()))
+            socket.write(raw).mapError { failure ->
+                when (failure) {
+                    SocketError.Closed -> death ?: DBusError.Disconnected
+                    else -> failure.asDBusError()
                 }
             }
         }
@@ -472,26 +464,11 @@ public class DBusConnection private constructor(
         death?.let { received.emit(Err(it)) }
     }
 
-    private fun readMessage(): Result<Message, DBusError> {
-        val header = readFully(FIXED_HEADER_LENGTH).getOrElse { return Err(it) }
+    private suspend fun readMessage(): Result<Message, DBusError> {
+        val header = socket.readExactly(FIXED_HEADER_LENGTH).getOrElse { return Err(it.asDBusError()) }
         val length = lengthOf(header).getOrElse { return Err(it) }
-        val rest = readFully(length - FIXED_HEADER_LENGTH).getOrElse { return Err(it) }
+        val rest = socket.readExactly(length - FIXED_HEADER_LENGTH).getOrElse { return Err(it.asDBusError()) }
         return Message.decode(header + rest)
-    }
-
-    private fun readFully(count: Int): Result<ByteArray, DBusError> {
-        val bytes = ByteBuffer.allocate(count)
-        while (bytes.hasRemaining()) {
-            val read = try {
-                channel.read(bytes)
-            } catch (_: ClosedChannelException) {
-                return Err(DBusError.Disconnected)
-            } catch (failure: IOException) {
-                return Err(DBusError.SocketFailed(failure.message.orEmpty()))
-            }
-            if (read < 0) return Err(DBusError.Disconnected)
-        }
-        return Ok(bytes.array())
     }
 
     public companion object {
@@ -535,19 +512,12 @@ public class DBusConnection private constructor(
             replyTimeout: Duration = DEFAULT_REPLY_TIMEOUT,
         ): Result<DBusConnection, DBusError> = withContext(Dispatchers.IO) {
             val uid = currentUid().getOrElse { return@withContext Err(it) }
-            val channel = try {
-                SocketChannel.open(StandardProtocolFamily.UNIX).also {
-                    it.connect(UnixDomainSocketAddress.of(path))
-                }
-            } catch (failure: IOException) {
-                return@withContext Err(DBusError.SocketFailed(failure.message.orEmpty()))
-            }
-
-            channel.authenticate(uid).getOrElse {
-                channel.close()
+            val socket = UnixSocket.connect(path).getOrElse { return@withContext Err(it.asDBusError()) }
+            socket.authenticate(uid).getOrElse {
+                socket.close()
                 return@withContext Err(it)
             }
-            val connection = DBusConnection(channel, replyTimeout)
+            val connection = DBusConnection(socket, replyTimeout)
             connection.pump()
             connection.hello().getOrElse {
                 connection.close()
@@ -595,4 +565,11 @@ public enum class NameRequest {
             else -> Unknown
         }
     }
+}
+
+/** A socket failure in the terms a caller of `:dbus` already matches on. */
+internal fun SocketError.asDBusError(): DBusError = when (this) {
+    is SocketError.NotFound -> DBusError.SocketFailed("no socket at $path")
+    SocketError.Closed -> DBusError.Disconnected
+    is SocketError.Failed -> DBusError.SocketFailed(detail)
 }

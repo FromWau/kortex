@@ -51,14 +51,15 @@ Library versions all live in `gradle/libs.versions.toml`, which is the only plac
 | --- | --- | --- |
 | `:wayland` | the toolkit: surfaces, input, the clipboard, drag and drop, monitors | `:compose` |
 | `:compose` | hosting Compose content on a surface, with no Wayland in it | Compose runtime, ui, foundation |
-| `:dbus` | a D-Bus client and server, public so you can write a provider of your own | nothing of kortex's |
+| `:socket` | a Unix socket read as bytes, lines or the whole stream, with typed errors | nothing of kortex's |
+| `:dbus` | a D-Bus client and server, public so you can write a provider of your own | `:socket` |
 | `:tray` | the system tray, as the host that draws it and the registry applications register with | `:dbus` |
 | `:notification` | kortex as the notification server, not a client of one | `:dbus` |
 | `:mpris` | the media players, with a position that moves, and their transport | `:dbus` |
 | `:upower` | the machine's battery and every peripheral's, from UPower on the system bus | `:dbus` |
 | `:powerprofiles` | the machine's power profile, and the switch between them, from power-profiles-daemon | `:dbus` |
 | `:watch` | a file's text, again whenever it changes | `kern:dirs` |
-| `:hyprland` | Hyprland's monitors and their workspaces, the focused window, the submap and the keyboard layout, and its dispatchers, over its own sockets | nothing of kortex's |
+| `:hyprland` | Hyprland's monitors and their workspaces, the focused window, the submap and the keyboard layout, and its dispatchers, over its own sockets | `:socket` |
 | `:shell` | a bash script's output and exit code, for whatever no provider covers | nothing of kortex's |
 | `:icons` | a provider's icon as something Compose can draw | `:tray`, `:notification`, Compose |
 | `:theme` | a watched JSON file as a Material `ColorScheme`, so a bar retints itself | `:watch`, Compose, material3 |
