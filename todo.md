@@ -1812,20 +1812,18 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       the test for real. Comparing each class's `@Test` count against its result XML is the cheap check, and
       every other mismatch in the repository is a `@Hotplug` test excluded by its tag.
 
-- [ ] **Seven public commands in `:tray` have no test, and the server side made them testable.** Every
-      write in that module: `Tray.activate`, `secondaryActivate`, `contextMenu` and `scroll`, and
-      `Menu.send`, `aboutToShow` and `activationRequests`. No test names any of them. The reading half is
-      covered twice over, by unit tests and against three live items, and the half that acts is covered not
-      at all, which is the wrong way round: a `scroll` that sends the wrong argument order or an `activate`
-      that quotes the wrong path fails silently and looks like an application ignoring it.
-      They were skipped because exercising them against a live item means really activating it, opening
-      Discord's window or Steam's menu, which is a side effect on somebody's desktop. That reason expired
-      when `:dbus` gained `export`: a test can export its own object implementing
-      `org.kde.StatusNotifierItem`, register it with the real watcher through `RegisterStatusNotifierItem`,
-      let `Tray` discover it, then call `activate` and assert the handler was given `Activate(x, y)`. Real
-      bus, real watcher, kortex on both ends, and nothing visible happens because the item it drives is the
-      test's own. `ExportedObjectTest` is the shape to copy.
-      Open: that test class, and whether the same trick covers `DBusMenu`'s `Event` and `AboutToShow`.
+- [x] **Seven public commands in `:tray` had no test, and now each does.** `Tray.activate`,
+      `secondaryActivate`, `contextMenu` and `scroll`, and `Menu.send`, `aboutToShow` and
+      `activationRequests`, the whole half of the module that acts rather than reads. They were skipped
+      because driving them against a live item really opens somebody's window. `TrayCommandsTest` exports its
+      own item and its own menu on a second session connection and drives those, so nothing on the desktop
+      moves, and it needs no watcher since a command goes to the item's address directly. It pins the
+      arguments in order (`activate` sends x then y, `scroll` the delta then the orientation), the fallback
+      to `org.freedesktop.StatusNotifierItem` for an item that refuses KDE's interface, a refusal on both
+      being `BusFailed`, an `Event` carrying its entry, name, empty data and time, `AboutToShow`'s answer
+      read rather than assumed, and an `ItemActivationRequested` arriving by its id. Each has a mutation that
+      fails it: swapped coordinates, swapped scroll arguments, no fallback, the answer ignored, the time
+      dropped and the wrong signal filtered.
 
 - [ ] **`DBusConnection.kt` is 538 lines and one piece of it is a different protocol.** The rest is
       cohesive, all of it things done with a connection: calls, signals, match rules, name ownership,
