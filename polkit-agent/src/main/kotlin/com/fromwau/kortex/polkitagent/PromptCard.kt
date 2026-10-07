@@ -37,7 +37,7 @@ import com.fromwau.kortex.auth.Prompt
 /**
  * The card that asks for the password: what is about to happen, as whom, and the field to answer in.
  *
- * Enter answers and Escape cancels, since the keyboard is all a held keyboard leaves to reach it with.
+ * Enter answers and Escape cancels, so it can be answered without reaching for the mouse.
  */
 @Composable
 internal fun PromptCard(

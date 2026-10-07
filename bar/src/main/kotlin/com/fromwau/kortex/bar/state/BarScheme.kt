@@ -1,5 +1,6 @@
 package com.fromwau.kortex.bar.state
 
+import com.fromwau.kortex.theme.GENERATED_THEME
 import kotlinx.io.files.Path
 
 /**
@@ -20,9 +21,9 @@ sealed interface BarScheme {
     sealed interface Custom : BarScheme {
         val file: Path
 
-        data class Light(override val file: Path = DEFAULT) : Custom
+        data class Light(override val file: Path = GENERATED_THEME) : Custom
 
-        data class Dark(override val file: Path = DEFAULT) : Custom
+        data class Dark(override val file: Path = GENERATED_THEME) : Custom
     }
 
     /** The one a click moves to, so the bar can cycle every scheme from a single target. */
@@ -38,22 +39,8 @@ sealed interface BarScheme {
          * What the bar draws before anybody has clicked, in the one place both the state and its holder
          * read it from, so the first frame and the first settled state cannot disagree.
          *
-         * The generated theme, since following the wallpaper is what the bar is for. A getter because
-         * [Custom.Dark] defaults to [DEFAULT], declared below: a property here would read it during
-         * companion initialisation, before it has a value.
+         * The generated theme, since following the wallpaper is what the bar is for.
          */
-        val Starting: BarScheme get() = Custom.Dark()
-
-        /**
-         * Where a generator leaves a theme on this desktop.
-         *
-         * `XDG_CACHE_HOME` first, because a generated file belongs in a cache and somebody who moved
-         * theirs did so deliberately.
-         */
-        val DEFAULT: Path = Path(
-            System.getenv("XDG_CACHE_HOME") ?: "${System.getProperty("user.home")}/.cache",
-            "matugen",
-            "colors.json",
-        )
+        val Starting: BarScheme = Custom.Dark()
     }
 }

@@ -17,6 +17,16 @@ import kotlinx.io.files.Path
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
+/**
+ * Where a generator leaves the theme on this desktop: `matugen/colors.json` in the cache directory, which is
+ * `XDG_CACHE_HOME` where that is set and `~/.cache` where it is not.
+ */
+public val GENERATED_THEME: Path = Path(
+    System.getenv("XDG_CACHE_HOME") ?: "${System.getProperty("user.home")}/.cache",
+    "matugen",
+    "colors.json",
+)
+
 private val json = Json {
     ignoreUnknownKeys = true
     isLenient = true

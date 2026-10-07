@@ -265,7 +265,7 @@ public object PolkitAgent {
     }
 
     private fun AuthError.asRejection(): CallRejected = when (this) {
-        AuthError.Cancelled -> CallRejected(CANCELLED, "the user dismissed the authentication")
+        AuthError.Cancelled -> CallRejected(CANCELLED, "the authentication was cancelled")
         is AuthError.Unreachable -> CallRejected(FAILED, "polkit's helper could not be reached: $cause")
         is AuthError.Broken -> CallRejected(FAILED, "polkit's helper sent a line it should not: $received")
     }

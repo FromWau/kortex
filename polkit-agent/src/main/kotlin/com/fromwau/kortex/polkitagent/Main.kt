@@ -25,6 +25,7 @@ import com.fromwau.kortex.dbus.SystemBus
 import com.fromwau.kortex.polkit.PolkitAgent
 import com.fromwau.kortex.polkit.PolkitError
 import com.fromwau.kortex.polkit.PolkitRequest
+import com.fromwau.kortex.theme.GENERATED_THEME
 import com.fromwau.kortex.theme.rememberFileTheme
 import com.fromwau.kortex.wayland.Edge
 import com.fromwau.kortex.wayland.ExclusiveZone
@@ -42,7 +43,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.io.files.Path
 import kotlin.system.exitProcess
 
 /**
@@ -150,7 +150,7 @@ private fun Prompt(
 /** The generated theme the bar draws with, and material3's dark one while there is none to read. */
 @Composable
 private fun rememberColors(): ColorScheme =
-    rememberFileTheme(THEME_FILE).getOrNull()?.active ?: darkColorScheme()
+    rememberFileTheme(GENERATED_THEME).getOrNull()?.active ?: darkColorScheme()
 
 private fun PolkitError.saidPlainly(): String = when (this) {
     is PolkitError.Refused ->
@@ -166,10 +166,3 @@ private val SCRIM = Color.Black.copy(alpha = 0.8f)
 // Room for the card with a few of PAM's notes under it; what the card does not fill stays transparent.
 private val CARD_ROOM_WIDTH = 480.dp
 private val CARD_ROOM_HEIGHT = 480.dp
-
-/** Where matugen leaves a theme, the same file the bar reads. */
-private val THEME_FILE = Path(
-    System.getenv("XDG_CACHE_HOME") ?: "${System.getProperty("user.home")}/.cache",
-    "matugen",
-    "colors.json",
-)
