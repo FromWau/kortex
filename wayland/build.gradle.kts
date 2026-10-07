@@ -25,6 +25,7 @@ kotlin {
         jvmTest {
             dependencies {
                 implementation(libs.kotlin.test)
+                implementation(libs.kern.result.test)
                 implementation(libs.skiko.awt.runtime.linux.x64)
                 implementation(libs.kotlinx.serialization.json)
                 // Tests only, and for one probe: a transfer key arrives on the Wayland wire and means

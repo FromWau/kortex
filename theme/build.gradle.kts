@@ -36,6 +36,7 @@ kotlin {
         jvmTest {
             dependencies {
                 implementation(libs.kotlin.test)
+                implementation(libs.kern.result.test)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.skiko.awt.runtime.linux.x64)
             }

@@ -26,6 +26,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.kern.result.test)
     testImplementation(libs.kotlinx.coroutines.test)
 }
 

@@ -25,6 +25,12 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        // kern builds published to this machine only, ahead of the release repository: 0.4.3 and its
+        // result-test are not released yet, so the build resolves only where they have been published locally.
+        // TODO: remove this mavenLocal block once kern 0.4.3 and result-test are on maven.frommhund.xyz.
+        mavenLocal {
+            mavenContent { includeGroupAndSubgroups("com.fromwau") }
+        }
         maven("https://maven.frommhund.xyz/releases") {
             mavenContent { includeGroupAndSubgroups("com.fromwau") }
         }
