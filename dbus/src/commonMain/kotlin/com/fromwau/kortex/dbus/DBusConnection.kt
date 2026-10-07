@@ -556,12 +556,11 @@ public class DBusConnection private constructor(
                 return@withContext Err(DBusError.SocketFailed(failure.message.orEmpty()))
             }
 
+            channel.authenticate(uid).getOrElse {
+                channel.close()
+                return@withContext Err(it)
+            }
             val connection = DBusConnection(channel, replyTimeout)
-            connection.handshake(uid)
-                .getOrElse {
-                    channel.close()
-                    return@withContext Err(it)
-                }
             connection.pump()
             connection.hello().getOrElse {
                 connection.close()
@@ -571,50 +570,12 @@ public class DBusConnection private constructor(
         }
     }
 
-    private fun handshake(uid: Int): EmptyResult<DBusError> {
-        // Not part of the line: the protocol opens with a zero byte, which is what carries credentials on
-        // the platforms that attach them to one.
-        writeAscii("\u0000").getOrElse { return Err(it) }
-        writeAscii("AUTH EXTERNAL ${uid.toString().hexed()}\r\n").getOrElse { return Err(it) }
-
-        val answer = readLine().getOrElse { return Err(it) }
-        if (!answer.startsWith("OK")) return Err(DBusError.AuthenticationRejected(answer))
-
-        // Not NEGOTIATE_UNIX_FD: kortex cannot receive a descriptor, so it must not claim it can.
-        return writeAscii("BEGIN\r\n")
-    }
-
     private suspend fun hello(): EmptyResult<DBusError> = call(
         destination = Bus.NAME,
         path = Bus.PATH,
         iface = Bus.INTERFACE,
         member = "Hello",
     ).map { body -> name = body.firstOrNull()?.asText }
-
-    private fun writeAscii(line: String): EmptyResult<DBusError> = try {
-        val bytes = ByteBuffer.wrap(line.toByteArray(Charsets.US_ASCII))
-        while (bytes.hasRemaining()) channel.write(bytes)
-        Ok(Unit)
-    } catch (failure: IOException) {
-        Err(DBusError.SocketFailed(failure.message.orEmpty()))
-    }
-
-    /** One byte at a time, because over-reading here would eat the binary stream that follows. */
-    private fun readLine(): Result<String, DBusError> {
-        val line = StringBuilder()
-        val one = ByteBuffer.allocate(1)
-        while (!line.endsWith("\r\n")) {
-            one.clear()
-            val read = try {
-                channel.read(one)
-            } catch (failure: IOException) {
-                return Err(DBusError.SocketFailed(failure.message.orEmpty()))
-            }
-            if (read < 0) return Err(DBusError.AuthenticationRejected(line.toString()))
-            line.append(one.flip().get().toInt().toChar())
-        }
-        return Ok(line.trim().toString())
-    }
 }
 
 /** What the bus answered a `RequestName` with. */
@@ -647,9 +608,4 @@ public enum class NameRequest {
             else -> Unknown
         }
     }
-}
-
-/** The uid as `EXTERNAL` wants it: its decimal spelling, then that hex-encoded. */
-private fun String.hexed(): String = toByteArray(Charsets.US_ASCII).joinToString(separator = "") { byte ->
-    "%02x".format(byte)
 }

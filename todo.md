@@ -1918,14 +1918,11 @@ is a provider for when the system bus exists rather than a reason to keep a modu
       fails it: swapped coordinates, swapped scroll arguments, no fallback, the answer ignored, the time
       dropped and the wrong signal filtered.
 
-- [ ] **`DBusConnection.kt` is 538 lines and one piece of it is a different protocol.** The rest is
-      cohesive, all of it things done with a connection: calls, signals, match rules, name ownership,
-      property reads, the exported side and the pump. The handshake is not. `handshake`, `writeAscii` and
-      `readLine` speak SASL over text lines, before a single D-Bus message exists, and they are the only
-      code in the file that reads a `\r\n`-terminated string off the socket.
-      Open: whether to move those three, and nothing else, to a file of their own. Noted rather than done
-      because moving responsibilities is a design change, and the gain is a smaller file rather than a
-      reader who was confused.
+- [x] **`DBusConnection.kt` and one piece of it that is a different protocol.** The SASL login now lives
+      in `Handshake.kt` as `SocketChannel.authenticate(uid)`, the only code that reads a `\r\n` line off the
+      socket. It runs before the connection object exists, so a refused login no longer builds a connection
+      and its scope only to drop them. `HandshakeTest` covers a refusal and a bus that hangs up mid-login,
+      which nothing covered before.
 
 - [ ] **Five providers repeat one loop, and one rule about a service leaving lives in each.** `Mpris`,
       `Upower`, `PowerProfiles`, `Tray` and `Menu` each add their rules, subscribe to `allSignals` with
