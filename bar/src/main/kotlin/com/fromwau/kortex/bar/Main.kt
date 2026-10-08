@@ -61,7 +61,8 @@ fun main() {
         // An empty list draws no bar and no crash popup, so this line is the only trace that it happened.
         LaunchedEffect(monitors) { System.err.println("kortex-bar: monitors ${monitors.map { it.name }}") }
 
-        for ((index, monitor) in monitors.withIndex()) key(monitor) {
+        val shown = monitors.filterNot { it.name == HYPRLAND_FALLBACK_OUTPUT }
+        for ((index, monitor) in shown.withIndex()) key(monitor) {
             val bar = rememberSurfaceState()
             var stopped by remember { mutableStateOf<Stopped>(Stopped.NotYet) }
             val status = bar.status
@@ -256,6 +257,9 @@ internal fun KortexError.saidPlainly(): String = when (this) {
 
 private val THICKNESS = 34.dp
 private const val NAMESPACE = "kortex-bar"
+
+// The headless output Hyprland adds while no real monitor is on, which nobody can see a bar on.
+private const val HYPRLAND_FALLBACK_OUTPUT = "FALLBACK"
 
 /** What this shell tells an application about itself when it asks the notification server who it is. */
 private val IDENTITY = ServerInformation(

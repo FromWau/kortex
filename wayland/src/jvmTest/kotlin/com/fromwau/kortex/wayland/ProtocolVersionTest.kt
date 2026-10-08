@@ -91,8 +91,10 @@ class ProtocolVersionTest {
             val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
 
             withScene { scene ->
-                val pointer = assertNotNull(seat.attachPointer(scene, scale = 1f), "the seat announced no pointer")
-                val keyboard = assertNotNull(seat.attachKeyboard(scene), "the seat announced no keyboard")
+                val pointer =
+                    assertNotNull(seat.attachPointer(scene, scale = 1f, LISTENER_SURFACE), "the seat announced no pointer")
+                val keyboard =
+                    assertNotNull(seat.attachKeyboard(scene, LISTENER_SURFACE), "the seat announced no keyboard")
                 // The keymap and, from v4 on, repeat_info land here; a listener short a slot dies on this line.
                 wayland.roundtrip()
 

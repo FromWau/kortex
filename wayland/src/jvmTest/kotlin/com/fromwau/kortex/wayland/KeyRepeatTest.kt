@@ -212,7 +212,9 @@ class KeyRepeatTest {
                     shell.useOrFail {
                         awaitPlaced(shell, count = 2)
                         val (first, second) = shell.shownSurfaces.map { surface ->
-                            assertNotNull(seat.attachKeyboard(scene), "the seat announced no keyboard")
+                            val keyboard = seat.attachKeyboard(scene, LISTENER_SURFACE)
+                            assertNotNull(keyboard, "the seat announced no keyboard")
+                                .apply { enter() }
                                 .also { surface.keyboardInput = it }
                         }
                         // The compositor sends each new keyboard its keymap, without which no key is understood.
@@ -271,7 +273,7 @@ class KeyRepeatTest {
 
                 val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
                 val keyboard = assertNotNull(
-                    seat.attachKeyboard(scene, textInput = { open.get() }),
+                    seat.attachKeyboard(scene, LISTENER_SURFACE, textInput = { open.get() })?.apply { enter() },
                     "the seat announced no keyboard",
                 )
                 // The compositor sends the keymap as soon as the keyboard exists.

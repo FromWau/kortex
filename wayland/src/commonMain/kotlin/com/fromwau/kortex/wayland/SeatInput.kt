@@ -29,6 +29,8 @@ internal class PointerInput(
     private val scene: KortexScene,
     // Mutable because a surface can move to an output with a different scale; see KortexSurface.maybeRescale.
     var scale: Float,
+    // The compositor sends every wl_pointer of this client each event, whichever of its surfaces the pointer is on.
+    private val ownSurface: MemorySegment,
     // Absent when a caller only needs event delivery, e.g. a test with no surface behind it.
     private val cursorTheme: WlCursorTheme? = null,
     private val cursorSurface: WlCursorSurface? = null,
@@ -57,6 +59,10 @@ internal class PointerInput(
         private set
 
     private var enterSerial = 0
+
+    // Whether the pointer is on ownSurface, from an enter on it until the leave that follows.
+    private var entered = false
+
     private var shownCursor: KortexCursor? = null
 
     // The newest stamp this pointer has been handed: enter and leave carry none of their own, and a
@@ -64,6 +70,8 @@ internal class PointerInput(
     private var latestTimeMillis = 0L
 
     fun onEnter(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment, x: Int, y: Int) {
+        entered = surface.address() == ownSurface.address()
+        if (!entered) return
         // wl_pointer.set_cursor is only valid against the serial of the most recent enter.
         enterSerial = serial
         position = scenePixels(x, y, scale)
@@ -71,17 +79,21 @@ internal class PointerInput(
     }
 
     fun onLeave(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment) {
+        if (!entered) return
+        entered = false
         scene.sendPointerEvent(PointerEventType.Exit, position, timeMillis = latestTimeMillis, buttons = buttons)
         // Without this the composition keeps a phantom hover after the pointer is gone.
         scene.cancelPointerInput()
     }
 
     fun onMotion(data: MemorySegment, proxy: MemorySegment, time: Int, x: Int, y: Int) {
+        if (!entered) return
         position = scenePixels(x, y, scale)
         scene.sendPointerEvent(PointerEventType.Move, position, timeMillis = sceneTime(time), buttons = buttons)
     }
 
     fun onButton(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, button: Int, state: Int) {
+        if (!entered) return
         onInputSerial(serial)
         val pressed = state == BUTTON_PRESSED
         val which = button.toPointerButton() ?: return
@@ -98,6 +110,7 @@ internal class PointerInput(
     }
 
     fun onAxis(data: MemorySegment, proxy: MemorySegment, time: Int, axis: Int, value: Int) {
+        if (!entered) return
         val pending = scrollOn(axis)
         // Summed rather than replaced: the XML makes a frame's several axis events on one axis one motion.
         pending.value = (pending.value ?: 0) + value
@@ -105,9 +118,12 @@ internal class PointerInput(
         if (!framesEvents) deliverScroll()
     }
 
-    fun onFrame(data: MemorySegment, proxy: MemorySegment) = deliverScroll()
+    fun onFrame(data: MemorySegment, proxy: MemorySegment) {
+        if (entered) deliverScroll()
+    }
 
     fun onAxisSource(data: MemorySegment, proxy: MemorySegment, axisSource: Int) {
+        if (!entered) return
         scrollsByDistance = axisSource == AXIS_SOURCE_FINGER || axisSource == AXIS_SOURCE_CONTINUOUS
     }
 
@@ -120,6 +136,7 @@ internal class PointerInput(
     fun onAxisDiscrete(data: MemorySegment, proxy: MemorySegment, axis: Int, discrete: Int) = Unit
 
     fun onAxisValue120(data: MemorySegment, proxy: MemorySegment, axis: Int, value120: Int) {
+        if (!entered) return
         val pending = scrollOn(axis)
         pending.value120 = (pending.value120 ?: 0) + value120
     }
@@ -333,6 +350,7 @@ internal class Seat private constructor(
     fun attachPointer(
         scene: KortexScene,
         scale: Float,
+        surface: MemorySegment,
         cursorTheme: WlCursorTheme? = null,
         cursorSurface: WlCursorSurface? = null,
         onInputSerial: (Int) -> Unit = {},
@@ -343,12 +361,13 @@ internal class Seat private constructor(
             proxy, WL_SEAT_GET_POINTER, LibWayland.pointerInterface,
             LibWayland.proxyGetVersion(proxy), listOf(WlArg.Ptr(MemorySegment.NULL)),
         )
-        return PointerInput(scene, scale, cursorTheme, cursorSurface, onInputSerial, onPointerGrab)
+        return PointerInput(scene, scale, surface, cursorTheme, cursorSurface, onInputSerial, onPointerGrab)
             .also { it.install(pointer) }
     }
 
     fun attachKeyboard(
         scene: KortexScene,
+        surface: MemorySegment,
         textInput: () -> KortexTextInput? = { null },
         onInputSerial: (Int) -> Unit = {},
         onKeyboardFocus: (keyboard: KeyboardInput, focused: Boolean) -> Unit = { _, _ -> },
@@ -358,7 +377,7 @@ internal class Seat private constructor(
             proxy, WL_SEAT_GET_KEYBOARD, LibWayland.keyboardInterface,
             LibWayland.proxyGetVersion(proxy), listOf(WlArg.Ptr(MemorySegment.NULL)),
         )
-        return KeyboardInput(scene, textInput, onInputSerial, onKeyboardFocus).also { it.install(keyboard) }
+        return KeyboardInput(scene, surface, textInput, onInputSerial, onKeyboardFocus).also { it.install(keyboard) }
     }
 
     /** Gives the seat back; every device taken from it must already have been released. */

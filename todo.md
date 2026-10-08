@@ -938,6 +938,31 @@ where on the monitor the compositor put it.
       through `createApplication`, which passes `clipboard::startDrag`, and `:compose` uses its own fake.
       Proved by mutation, twice: the first attempt put the refusal in both the factory and the harness, and
       mutating the factory's copy changed nothing, which is exactly the drift the single definition removes.
+- [x] **Input reaches only the surface it is on.** Each surface binds its own `wl_seat` and takes its own
+      `wl_pointer` and `wl_keyboard`, and the compositor sends an event to every one of them that the client
+      holds, whichever of its surfaces the pointer or the focus is on. Nothing checked the surface an enter
+      named, so every surface's content took every click, motion, scroll and key at the same local position.
+      The laptop run found it, with a click on one monitor's bar also clicking the other bar. On a single
+      monitor it hid behind the bar, since a click in the tray menu reached the bar where only the workspace
+      pills are, which do nothing when clicked. `PointerInput` and `KeyboardInput` now know their own
+      `wl_surface` and take only the events between an enter on it and the leave that follows. The keymap,
+      repeat info and modifiers are not filtered, since they are state rather than input on one surface.
+      (`InputRoutingTest` against the compositor, which failed before the fix, and `InputDeliveryTest` at the
+      listeners, where accepting every surface fails both new tests.)
+- [ ] **The live tests assume one monitor at a whole-number scale.** The laptop run (`laptop-test-plan.md`)
+      failed 25 of 928 for reasons in the tests, not in kortex:
+      - 9 size tests expect `mode / wl_output.scale`, which is 2 at a scale of 1.333 where the output is
+        really 2880 wide. `bindFirstOutput` binds a bare `wl_output` with no `zxdg_output_v1`, so it cannot
+        know the true logical size.
+      - 13 pointer tests never reach their surface. `VirtualPointer.moveTo` normalises global layout
+        coordinates against one monitor's size, and `VirtualPointerClickTest` says it only works for a single
+        output at the origin. Some also aim at hyprctl's first monitor while the surface opens on the focused
+        one.
+      - `MonitorTest` and the hotplug `KortexShellTest` count on one monitor.
+      - `TrayLiveTest` races Steam registering again with the watcher the test claims for itself.
+- [x] **The bar draws nothing on Hyprland's `FALLBACK` output**, the headless one Hyprland adds while no real
+      monitor is on. kortex lists it like any other output; the bar leaves it out by name. The laptop run showed
+      `monitors [FALLBACK]` with the panel turned off and no other monitor.
 
 ## Housekeeping
 

@@ -168,7 +168,8 @@ internal class KortexSurface private constructor(
         scene.drawOn(this)
         pointerInput =
             seat.attachPointer(
-                scene.composition, bufferScale.toFloat(), cursorTheme, cursorSurface, onInputSerial, ::recordGrab,
+                scene.composition, bufferScale.toFloat(), role.surface, cursorTheme, cursorSurface, onInputSerial,
+                ::recordGrab,
             )
         if (role.wantsKeyboard) keyboardInput = takeKeyboard()
         display.roundtrip()
@@ -264,7 +265,7 @@ internal class KortexSurface private constructor(
 
     private fun takeKeyboard(): KeyboardInput? {
         val scene = scene ?: return null
-        return seat.attachKeyboard(scene.composition, scene::textInput, onInputSerial, onKeyboardFocus)
+        return seat.attachKeyboard(scene.composition, role.surface, scene::textInput, onInputSerial, onKeyboardFocus)
     }
 
     /** Takes or gives back the keyboard to match what [role] asks for. The loop thread only, once that changes. */

@@ -39,9 +39,9 @@ class InputDeliveryTest {
             }
             scene.render(surface.canvas.asComposeCanvas(), 0L)
 
-            val pointer = PointerInput(scene, scale = 1f)
+            val pointer = PointerInput(scene, scale = 1f, LISTENER_SURFACE)
             val centre = fixed(SIDE / 2)
-            pointer.onEnter(NULL, NULL, 1, NULL, centre, centre)
+            pointer.onEnter(NULL, NULL, 1, LISTENER_SURFACE, centre, centre)
             pointer.onMotion(NULL, NULL, 10, centre, centre)
             pointer.onButton(NULL, NULL, 2, 20, BTN_LEFT, PRESSED)
             pointer.onButton(NULL, NULL, 3, 30, BTN_LEFT, RELEASED)
@@ -63,9 +63,9 @@ class InputDeliveryTest {
             }
             scene.render(surface.canvas.asComposeCanvas(), 0L)
 
-            val pointer = PointerInput(scene, scale = 1f)
+            val pointer = PointerInput(scene, scale = 1f, LISTENER_SURFACE)
             val far = fixed(SIDE - 4)
-            pointer.onEnter(NULL, NULL, 1, NULL, far, far)
+            pointer.onEnter(NULL, NULL, 1, LISTENER_SURFACE, far, far)
             pointer.onButton(NULL, NULL, 2, 20, BTN_LEFT, PRESSED)
             pointer.onButton(NULL, NULL, 3, 30, BTN_LEFT, RELEASED)
             scene.render(surface.canvas.asComposeCanvas(), 1L)
@@ -84,11 +84,11 @@ class InputDeliveryTest {
             scene.setContent { Box(Modifier.size(TARGET_DP.dp).clickable { clicks.incrementAndGet() }) }
             scene.render(surface.canvas.asComposeCanvas(), 0L)
 
-            val pointer = PointerInput(scene, scale = SCALE)
+            val pointer = PointerInput(scene, scale = SCALE, LISTENER_SURFACE)
 
             // Surface-local 24 is scene pixel 48 once scaled up, which is outside the target. Dividing
             // instead would give 12, land inside, and click it, which is the whole bug.
-            pointer.onEnter(NULL, NULL, 1, NULL, fixed(OUTSIDE_LOGICAL), fixed(OUTSIDE_LOGICAL))
+            pointer.onEnter(NULL, NULL, 1, LISTENER_SURFACE, fixed(OUTSIDE_LOGICAL), fixed(OUTSIDE_LOGICAL))
             pointer.onButton(NULL, NULL, 2, 20, BTN_LEFT, PRESSED)
             pointer.onButton(NULL, NULL, 3, 30, BTN_LEFT, RELEASED)
             scene.render(surface.canvas.asComposeCanvas(), 1L)
@@ -108,8 +108,9 @@ class InputDeliveryTest {
     fun `a pointer button hands its serial to the clipboard`() {
         val serials = CopyOnWriteArrayList<Int>()
         withScene { scene, _ ->
-            PointerInput(scene, scale = 1f, onInputSerial = { serials += it })
-                .onButton(NULL, NULL, BUTTON_SERIAL, 20, BTN_LEFT, PRESSED)
+            val pointer = PointerInput(scene, scale = 1f, LISTENER_SURFACE, onInputSerial = { serials += it })
+            pointer.onEnter(NULL, NULL, 1, LISTENER_SURFACE, 0, 0)
+            pointer.onButton(NULL, NULL, BUTTON_SERIAL, 20, BTN_LEFT, PRESSED)
         }
         assertEquals(listOf(BUTTON_SERIAL), serials.toList(), "a button did not hand the clipboard its serial")
     }
@@ -118,7 +119,7 @@ class InputDeliveryTest {
     fun `a keyboard enter hands its serial to the clipboard`() {
         val serials = CopyOnWriteArrayList<Int>()
         withScene { scene, _ ->
-            KeyboardInput(scene, onInputSerial = { serials += it }).onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
+            KeyboardInput(scene, LISTENER_SURFACE, onInputSerial = { serials += it }).enter(serial = ENTER_SERIAL)
         }
         assertEquals(listOf(ENTER_SERIAL), serials.toList(), "a keyboard enter did not hand the clipboard its serial")
     }
@@ -127,9 +128,11 @@ class InputDeliveryTest {
     fun `a key hands its serial to the clipboard`() {
         val serials = CopyOnWriteArrayList<Int>()
         withScene { scene, _ ->
-            KeyboardInput(scene, onInputSerial = { serials += it }).onKey(NULL, NULL, KEY_SERIAL, 0, KEY_A, PRESSED)
+            val keyboard = KeyboardInput(scene, LISTENER_SURFACE, onInputSerial = { serials += it })
+            keyboard.enter(serial = ENTER_SERIAL)
+            keyboard.onKey(NULL, NULL, KEY_SERIAL, 0, KEY_A, PRESSED)
         }
-        assertEquals(listOf(KEY_SERIAL), serials.toList(), "a key did not hand the clipboard its serial")
+        assertEquals(KEY_SERIAL, serials.last(), "a key did not hand the clipboard its serial")
     }
 
     @Test
@@ -138,9 +141,10 @@ class InputDeliveryTest {
         withScene { scene, _ ->
             val keyboard = KeyboardInput(
                 scene,
+                LISTENER_SURFACE,
                 onKeyboardFocus = { reported, focused -> reports += reported to focused },
             )
-            keyboard.onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
+            keyboard.enter(serial = ENTER_SERIAL)
             keyboard.onLeave(NULL, NULL, LEAVE_SERIAL, NULL)
             assertEquals(
                 listOf(keyboard to true, keyboard to false), reports.toList(),
@@ -155,11 +159,54 @@ class InputDeliveryTest {
         withScene { scene, _ ->
             val keyboard = KeyboardInput(
                 scene,
+                LISTENER_SURFACE,
                 onKeyboardFocus = { reported, focused -> reports += reported to focused },
             )
-            keyboard.onEnter(NULL, NULL, ENTER_SERIAL, NULL, NULL)
+            keyboard.enter(serial = ENTER_SERIAL)
             keyboard.release()
             assertEquals(keyboard to false, reports.last(), "a released keyboard left the clipboard counting its focus")
+        }
+    }
+
+    @Test
+    fun `a pointer on another surface of this client clicks nothing here`() {
+        val clicks = AtomicInteger()
+
+        withScene { scene, surface ->
+            scene.setContent { Box(Modifier.fillMaxSize().clickable { clicks.incrementAndGet() }) }
+            scene.render(surface.canvas.asComposeCanvas(), 0L)
+
+            val pointer = PointerInput(scene, scale = 1f, LISTENER_SURFACE)
+            val centre = fixed(SIDE / 2)
+            pointer.onEnter(NULL, NULL, 1, OTHER_SURFACE, centre, centre)
+            pointer.onMotion(NULL, NULL, 10, centre, centre)
+            pointer.onButton(NULL, NULL, 2, 20, BTN_LEFT, PRESSED)
+            pointer.onButton(NULL, NULL, 3, 30, BTN_LEFT, RELEASED)
+            pointer.onLeave(NULL, NULL, 4, OTHER_SURFACE)
+            scene.render(surface.canvas.asComposeCanvas(), 1L)
+            Thread.sleep(SETTLE_MILLIS)
+
+            assertEquals(0, clicks.get(), "a click on another surface reached this one")
+        }
+    }
+
+    @Test
+    fun `a keyboard focused on another surface of this client takes neither the focus nor its keys`() {
+        val serials = CopyOnWriteArrayList<Int>()
+        val reports = CopyOnWriteArrayList<Boolean>()
+        withScene { scene, _ ->
+            val keyboard = KeyboardInput(
+                scene,
+                LISTENER_SURFACE,
+                onInputSerial = { serials += it },
+                onKeyboardFocus = { _, focused -> reports += focused },
+            )
+            keyboard.enter(OTHER_SURFACE, ENTER_SERIAL)
+            keyboard.onKey(NULL, NULL, KEY_SERIAL, 0, KEY_A, PRESSED)
+            keyboard.onLeave(NULL, NULL, LEAVE_SERIAL, OTHER_SURFACE)
+
+            assertEquals(emptyList(), reports.toList(), "focus on another surface was reported as this one's")
+            assertEquals(emptyList(), serials.toList(), "an enter or a key on another surface reached this one")
         }
     }
 

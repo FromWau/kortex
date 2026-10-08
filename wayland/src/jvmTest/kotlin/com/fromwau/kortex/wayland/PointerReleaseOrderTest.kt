@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.getOrElse
+import java.lang.foreign.MemorySegment
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -40,7 +41,7 @@ class PointerReleaseOrderTest {
                 val targetX = placed.x + placed.logicalWidth / 2
                 val targetY = placed.y + placed.logicalHeight / 2
 
-                onOwnPointer(wayland) { pointer, buttons ->
+                onOwnPointer(wayland, osd) { pointer, buttons ->
                     manager.createVirtualPointer().use { virtual ->
                         try {
                             // Off the surface first: the compositor re-evaluates pointer focus on motion, so a
@@ -79,11 +80,12 @@ class PointerReleaseOrderTest {
     }
 
     /**
-     * Runs [block] on a pointer taken from a seat of this test's own, which stays bound around it, and on the
-     * serial of every button that pointer is handed.
+     * Runs [block] on a pointer for [on] taken from a seat of this test's own, which stays bound around it, and on
+     * the serial of every button that pointer is handed.
      */
     private fun onOwnPointer(
         display: WaylandDisplay,
+        on: KortexSurface,
         block: (pointer: PointerInput, buttons: List<Int>) -> Unit,
     ) {
         val buttons = CopyOnWriteArrayList<Int>()
@@ -93,7 +95,12 @@ class PointerReleaseOrderTest {
                 scene.setContent { Box(Modifier.fillMaxSize()) }
                 tick(0L)
                 val pointer = assertNotNull(
-                    seat.attachPointer(scene, scale = 1f, onInputSerial = { buttons += it }),
+                    seat.attachPointer(
+                        scene,
+                        scale = 1f,
+                        MemorySegment.ofAddress(on.surfaceAddress),
+                        onInputSerial = { buttons += it },
+                    ),
                     "the seat announced no pointer",
                 )
                 try {

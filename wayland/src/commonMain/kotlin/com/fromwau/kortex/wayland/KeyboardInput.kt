@@ -18,6 +18,8 @@ import java.lang.foreign.ValueLayout.JAVA_INT
  */
 internal class KeyboardInput(
     private val scene: KortexScene,
+    // The compositor sends every wl_keyboard of this client each event, whichever of its surfaces has focus.
+    private val ownSurface: MemorySegment,
     private val textInput: () -> KortexTextInput? = { null },
     // Handed the serial of every enter and key, which the clipboard quotes to set the selection.
     private val onInputSerial: (Int) -> Unit = {},
@@ -27,6 +29,9 @@ internal class KeyboardInput(
     private val arena: Arena = Arena.ofShared()
 
     private var state: XkbState? = null
+
+    // Whether ownSurface has the keyboard focus, from an enter on it until the leave that follows.
+    private var entered = false
 
     /** The bound `wl_keyboard`, kept only so a test can read the version it negotiated. */
     var keyboardProxy: MemorySegment = MemorySegment.NULL
@@ -72,6 +77,8 @@ internal class KeyboardInput(
     fun onEnter(
         data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment, keys: MemorySegment,
     ) {
+        entered = surface.address() == ownSurface.address()
+        if (!entered) return
         onInputSerial(serial)
         onKeyboardFocus(this, true)
         scene.windowFocused = true
@@ -80,12 +87,15 @@ internal class KeyboardInput(
     // Without this the composition keeps a text field focused, and its blinking caret commits a frame
     // often enough that the compositor hands the keyboard straight back to this surface.
     fun onLeave(data: MemorySegment, proxy: MemorySegment, serial: Int, surface: MemorySegment) {
+        if (!entered) return
+        entered = false
         onKeyboardFocus(this, false)
         scene.windowFocused = false
         repeatingKey = null
     }
 
     fun onKey(data: MemorySegment, proxy: MemorySegment, serial: Int, time: Int, key: Int, keyState: Int) {
+        if (!entered) return
         onInputSerial(serial)
         val state = state ?: return
         if (keyState == KEY_PRESSED) {

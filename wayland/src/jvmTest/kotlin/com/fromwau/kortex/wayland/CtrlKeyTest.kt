@@ -124,7 +124,8 @@ class CtrlKeyTest {
                 Thread.sleep(FRAME_MILLIS)
             }
 
-            block(Typist(KeyboardInput(scene, textInput = { open.get() }), scene, tick, typed))
+            val keyboard = KeyboardInput(scene, LISTENER_SURFACE, textInput = { open.get() }).apply { enter() }
+            block(Typist(keyboard, scene, tick, typed))
         }
     }
 

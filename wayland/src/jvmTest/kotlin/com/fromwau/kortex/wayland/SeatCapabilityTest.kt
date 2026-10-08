@@ -35,11 +35,11 @@ class SeatCapabilityTest {
             val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
             // No surface behind the scene: this test only exercises which devices the seat announces.
             onScene(IntSize(SIDE, SIDE)) { scene, _, _ ->
-                if (!seat.hasPointer) assertNull(seat.attachPointer(scene, scale = 1f))
-                if (!seat.hasKeyboard) assertNull(seat.attachKeyboard(scene))
+                if (!seat.hasPointer) assertNull(seat.attachPointer(scene, scale = 1f, LISTENER_SURFACE))
+                if (!seat.hasKeyboard) assertNull(seat.attachKeyboard(scene, LISTENER_SURFACE))
                 // Whatever this machine announces, the guard has to agree with it.
-                assertTrue((seat.attachPointer(scene, 1f) != null) == seat.hasPointer)
-                assertTrue((seat.attachKeyboard(scene) != null) == seat.hasKeyboard)
+                assertTrue((seat.attachPointer(scene, 1f, LISTENER_SURFACE) != null) == seat.hasPointer)
+                assertTrue((seat.attachKeyboard(scene, LISTENER_SURFACE) != null) == seat.hasKeyboard)
             }
         }
     }

@@ -95,7 +95,7 @@ class KeymapFailureTest {
                 Thread.sleep(FRAME_MILLIS)
             }
 
-            block(Keyboard(KeyboardInput(scene), received))
+            block(Keyboard(KeyboardInput(scene, LISTENER_SURFACE).apply { enter() }, received))
         }
     }
 

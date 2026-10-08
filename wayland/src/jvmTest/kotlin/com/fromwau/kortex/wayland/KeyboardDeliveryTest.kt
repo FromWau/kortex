@@ -362,7 +362,7 @@ class KeyboardDeliveryTest {
 
                 val seat = Seat.bind(wayland).getOrElse { error -> fail("seat bind failed: $error") }
                 val keyboard = assertNotNull(
-                    seat.attachKeyboard(scene, textInput = { open.get() }),
+                    seat.attachKeyboard(scene, LISTENER_SURFACE, textInput = { open.get() })?.apply { enter() },
                     "the seat announced no keyboard",
                 )
                 // The compositor sends the keymap as soon as the keyboard exists.
