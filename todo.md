@@ -2216,15 +2216,15 @@ survives on its own.
   were stripped from the 565 unpushed commits, bounded at `origin/master` so nothing published moved.
   The pre-rewrite tips are kept under `refs/backup/pre-trailer-strip/` and `refs/original/`, which also
   keeps the old objects alive, so `git gc` reclaims nothing until those refs go.
-- **911 tests on `master`, all green in one run on 2026-10-08:** 397 in `:wayland`, 105 in `:bar`, 103 in `:dbus`,
-  60 in `:tray`, 37 in `:hyprland`, 32 in `:notification`, 27 in `:compose`, 24 in `:polkit`, 20 in `:theme`, 18
-  in `:mpris`, 16 each in `:watch` and `:powerprofiles`, 14 in `:icons`, 13 in `:upower`, 11 in `:shell`, 10 in
-  `:socket` and 8 in `:polkit-agent`. `./gradlew check --continue --rerun-tasks` with the session free, so none of
-  it came from the cache and nothing was measured while the desktop was in use: no failures, no errors, nothing
-  skipped, and no compiler or Gradle warnings.
+- **927 tests on `master`, all green in one run on 2026-10-08:** 408 in `:wayland`, 105 in `:bar`, 103 in `:dbus`,
+  60 in `:tray`, 37 in `:hyprland`, 32 each in `:notification` and `:compose`, 24 in `:polkit`, 20 in `:theme`,
+  18 in `:mpris`, 16 each in `:watch` and `:powerprofiles`, 14 in `:icons`, 13 in `:upower`, 11 in `:shell`, 10
+  in `:socket` and 8 in `:polkit-agent`. `./gradlew check --continue --rerun-tasks` with the session free, so none
+  of it came from the cache and nothing was measured while the desktop was in use: no failures, no errors,
+  nothing skipped, and no compiler or Gradle warnings.
   Nothing on the desktop has to be stopped first any more. `:tray`, `:notification` and `:polkit` test against a
   private bus rather than the session's or the system's, so ags, dunst and the polkit agent can stay up.
-  The `@Hotplug` tests are not among the 911. They hotplug the live desktop, so a plain `check` leaves them out by
+  The `@Hotplug` tests are not among the 927. They hotplug the live desktop, so a plain `check` leaves them out by
   tag and `-Pkortex.hotplugTests=true` opts in; `HotplugCoverageTest` lists them. The run that first did it on
   this machine is written up under its own entry above.
   **The suite empties the clipboard.** `ClipboardFocusTest` ends with `wl-copy --clear`, which clears rather
