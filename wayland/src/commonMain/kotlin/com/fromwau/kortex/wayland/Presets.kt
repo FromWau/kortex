@@ -304,8 +304,7 @@ public fun ContextMenu(
 ) {
     PopupCall(
         at = at,
-        width = menuSize.width.dp,
-        height = menuSize.height.dp,
+        size = PopupSize.Fixed(menuSize.width.dp, menuSize.height.dp),
         grab = true,
         state = state,
         content = content,

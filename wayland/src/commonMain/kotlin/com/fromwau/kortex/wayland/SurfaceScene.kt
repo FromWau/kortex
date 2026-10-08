@@ -5,11 +5,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
+import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.fold
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.ContentFailure
@@ -21,6 +25,8 @@ import com.fromwau.kortex.compose.KortexSurfaceHandle
 import com.fromwau.kortex.compose.KortexTextInput
 import com.fromwau.kortex.compose.LocalKortexSurface
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /**
  * The Compose side of one surface call: its composition, the work that composition runs, the size its content reads
@@ -145,6 +151,20 @@ internal class SurfaceScene(
         return crash?.let { Err(it) } ?: Ok(Unit)
     }
 
+    /**
+     * Measures content within [maxSize] at the scale it is drawn at, in logical pixels and at least one on each side.
+     *
+     * @return what content threw while measured, as [KortexError.SurfaceCrashed].
+     */
+    fun measureContent(maxSize: DpSize): Result<IntSize, KortexError> {
+        val scale = composition.density.density
+        val constraints = Constraints(maxWidth = maxSize.width.inPx(scale), maxHeight = maxSize.height.inPx(scale))
+        return composition.measureContent(constraints).fold(
+            onSuccess = { measured -> Ok(IntSize(measured.width.inLogical(scale), measured.height.inLogical(scale))) },
+            onError = { failure -> Err(crash ?: KortexError.SurfaceCrashed(namespace, failure)) },
+        )
+    }
+
     /** Draws this scene on [surface] from now on. */
     fun drawOn(surface: KortexSurface) {
         check(this.surface == null) { "a scene is drawn on one surface; detach() gives back the one holding it" }
@@ -170,3 +190,8 @@ internal class SurfaceScene(
         work.close()
     }
 }
+
+private fun Dp.inPx(scale: Float): Int = if (this == Dp.Infinity) Constraints.Infinity else (value * scale).roundToInt()
+
+// Rounded up, so a popup is never a pixel short of what its content measured at.
+private fun Int.inLogical(scale: Float): Int = ceil(this / scale).toInt().coerceAtLeast(1)

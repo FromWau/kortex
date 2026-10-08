@@ -39,9 +39,11 @@ import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -49,6 +51,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.errorOrNull
+import com.fromwau.kern.result.getOrNull
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
@@ -225,6 +228,79 @@ class KortexSceneTest {
             tick(1L)
 
             assertEquals(Color.Red.toArgb(), surface.pixelAt(probe, probe), "box did not grow with density")
+        }
+    }
+
+    @Test
+    fun `content measures at the size it asks for, in pixels at the scene's density`() {
+        withScene {
+            scene.density = Density(2f)
+            scene.setContent { Box(Modifier.size(width = BOX_DP.dp, height = (BOX_DP / 2).dp)) }
+
+            assertEquals(
+                IntSize(BOX_DP * 2, BOX_DP),
+                scene.measureContent(Constraints()).getOrNull(),
+                "content measured at a size other than the one it asks for",
+            )
+        }
+    }
+
+    @Test
+    fun `content that fills its room measures at the most the constraints allow`() {
+        withScene {
+            scene.setContent { Box(Modifier.fillMaxSize()) }
+
+            assertEquals(
+                IntSize(SHORT, SHORT),
+                scene.measureContent(Constraints(maxWidth = SHORT, maxHeight = SHORT)).getOrNull(),
+                "content filling its room measured past the constraints",
+            )
+        }
+    }
+
+    @Test
+    fun `content that fills its room measures at nothing where the room is unbounded`() {
+        withScene {
+            scene.setContent { Box(Modifier.fillMaxSize()) }
+
+            assertEquals(
+                IntSize.Zero,
+                scene.measureContent(Constraints()).getOrNull(),
+                "content filling unbounded room measured at a size of its own",
+            )
+        }
+    }
+
+    @Test
+    fun `measuring content leaves it drawn at the scene's own size`() {
+        withScene {
+            scene.setContent { Box(Modifier.fillMaxSize().background(Color.Red)) }
+            tick(0L)
+
+            scene.measureContent(Constraints(maxWidth = SHORT, maxHeight = SHORT))
+            surface.canvas.clear(TRANSPARENT)
+            tick(1L)
+
+            assertEquals(
+                Color.Red.toArgb(), surface.pixelAt(SIDE - 8, SIDE - 8),
+                "content shrank to what it measured at",
+            )
+        }
+    }
+
+    @Test
+    fun `content that throws while measured is a composition failure`() {
+        withScene {
+            scene.setContent {
+                Layout(content = {}) { _, constraints ->
+                    if (constraints.hasBoundedWidth) layout(SIDE, SIDE) {} else error("measured unbounded")
+                }
+            }
+
+            assertIs<ContentFailure.Composition>(
+                scene.measureContent(Constraints()).errorOrNull(),
+                "a throw while measuring was not the scene's failure",
+            )
         }
     }
 

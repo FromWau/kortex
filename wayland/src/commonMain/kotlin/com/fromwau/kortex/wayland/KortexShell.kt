@@ -4,12 +4,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.EmptyResult
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
 import com.fromwau.kern.result.Result
 import com.fromwau.kern.result.flatMap
 import com.fromwau.kern.result.getOrElse
+import com.fromwau.kern.result.map
 import com.fromwau.kern.result.onError
 import com.fromwau.kern.result.onSuccess
 import com.fromwau.kortex.compose.KortexPlatform
@@ -63,6 +65,19 @@ private fun SurfaceSettings.reportedAs(slot: SurfaceSlot): String = when (this) 
     is ToplevelSettings -> title
     // Nothing in the protocol names a popup, so it takes the name of the surface it opened over.
     is PopupSettings -> "${checkNotNull(slot.parentName) { POPUP_WITHOUT_PARENT }}/popup"
+}
+
+/** How these settings size a popup by its content; null for any other surface. */
+private val SurfaceSettings.fitContent: PopupSize.FitContent?
+    get() = (this as? PopupSettings)?.size as? PopupSize.FitContent
+
+/**
+ * These settings with [contentSize] as what a popup sized by its content measured at, so they compare equal to the
+ * settings it was placed with until its content measures differently.
+ */
+private fun SurfaceSettings.measuredAs(contentSize: IntSize?): SurfaceSettings {
+    val size = fitContent ?: return this
+    return (this as PopupSettings).copy(size = size.copy(measured = contentSize))
 }
 
 /** [clipboard] without its close, which is the shell's alone: what content reaches as [LocalKortexClipboard]. */
@@ -220,7 +235,27 @@ internal class KortexShell private constructor(
         placed.forEach { slot ->
             slot.surface?.serviceTick()?.onError { reason -> slot.requestEnd(Err(reason)) }
         }
+        placed.forEach(::followContentSize)
         return runResult()
+    }
+
+    /**
+     * Measures again a popup sized by its content once it has drawn another frame, which is when its content can
+     * have come to measure differently, and has the next pass open it again at the new size.
+     */
+    private fun followContentSize(slot: SurfaceSlot) {
+        val size = slot.placedWith?.fitContent ?: return
+        val surface = slot.surface ?: return
+        val scene = slot.scene ?: return
+        if (slot.measuredOn === surface && slot.measuredAtFrame == surface.renders) return
+        slot.measuredOn = surface
+        slot.measuredAtFrame = surface.renders
+        // A throw while measuring is the scene's crash, which the next pass ends the surface with.
+        scene.measureContent(size.maxSize).onSuccess { measured ->
+            if (measured == slot.contentSize) return@onSuccess
+            slot.contentSize = measured
+            wake()
+        }
     }
 
     private fun addOutput(global: WaylandGlobal) {
@@ -298,7 +333,7 @@ internal class KortexShell private constructor(
         if (applicationCrash.get() != null) return end(slot, endingOnLeave)
         val ownEnding = slot.ownEnding()
         // Not left to the call's own dispose, which Compose skips once an earlier cleanup in that content throws.
-        val wanted = slot.wanted.takeUnless { slot.parentGone }
+        val wanted = slot.wanted?.measuredAs(slot.contentSize).takeUnless { slot.parentGone }
         when {
             // First: a surface that ended by itself before its call left reports how it ended.
             ownEnding is OwnEnding.Ended -> end(slot, ownEnding.ending)
@@ -363,8 +398,9 @@ internal class KortexShell private constructor(
         }
         // Detaching runs content, which can throw there: a surface for it would reserve its zone, then be destroyed.
         scene.crash?.let { return end(slot, Err(it)) }
-        build(slot, settings, scene, output)
-            .onSuccess { settle(slot, settings, scene) }
+        fitToContent(slot, settings, scene)
+            .flatMap { fitted -> build(slot, fitted, scene, output).map { fitted } }
+            .onSuccess { fitted -> settle(slot, fitted, scene) }
             .onError { reason -> end(slot, Err(reason)) }
     }
 
@@ -383,11 +419,35 @@ internal class KortexShell private constructor(
         // Only a wake on a crash: the next pass reads the scene's first failure, which this one may not be.
         val scene = SurfaceScene(settings.reportedAs(slot), loopQueue, platform, onCrash = { wake() })
         slot.scene = scene
-        build(slot, settings, scene, output)
-            // After the attach, so the first composition already reads the size the surface was configured at.
-            .flatMap { scene.setContent { ShownContent(slot) } }
-            .onSuccess { settle(slot, settings, scene) }
+        val placing = if (settings.fitContent != null) {
+            // Composed before the popup exists, since its size is the one thing a positioner fixes for good, and
+            // measured at its parent's scale, which is the scale it will most likely be drawn at.
+            slot.parentDensity?.let { scene.composition.density = it }
+            scene.setContent { ShownContent(slot) }
+                .flatMap { fitToContent(slot, settings, scene) }
+                .flatMap { fitted -> build(slot, fitted, scene, output).map { fitted } }
+        } else {
+            build(slot, settings, scene, output)
+                // After the attach, so the first composition already reads the size the surface was configured at.
+                .flatMap { scene.setContent { ShownContent(slot) } }
+                .map { settings }
+        }
+        placing
+            .onSuccess { placedWith -> settle(slot, placedWith, scene) }
             .onError { reason -> end(slot, Err(reason)) }
+    }
+
+    /** [settings] with the size [scene]'s content measures at filled in, where they size a popup by its content. */
+    private fun fitToContent(
+        slot: SurfaceSlot,
+        settings: SurfaceSettings,
+        scene: SurfaceScene,
+    ): Result<SurfaceSettings, KortexError> {
+        val size = settings.fitContent ?: return Ok(settings)
+        return scene.measureContent(size.maxSize).map { measured ->
+            slot.contentSize = measured
+            settings.measuredAs(measured)
+        }
     }
 
     /**

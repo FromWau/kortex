@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.hasInvalidations
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
@@ -140,6 +141,24 @@ public class KortexScene(
             }
             // Ask again for whatever invalidated while postponingSceneInvalidations was suppressing it.
             if (scene.hasInvalidations()) onInvalidate()
+        }
+
+    /**
+     * Measures content as it would lay out within [constraints], and leaves it laid out at [size] again.
+     *
+     * Use it to size a surface by what it draws. Content that fills whatever room it is given, such as
+     * `Modifier.fillMaxSize()`, takes the most [constraints] allow, and under an unbounded constraint the least.
+     *
+     * @return the size content measures at, in pixels.
+     */
+    public fun measureContent(constraints: Constraints): Result<IntSize, ContentFailure> =
+        runContent(ContentFailure::Composition) {
+            postponeSceneInvalidations {
+                val measured = scene.measureContent(constraints)
+                // Measuring at other constraints leaves the layout measured for those; the next input lands on it.
+                scene.measureAndLayout()
+                measured
+            }
         }
 
     /**
@@ -350,9 +369,9 @@ public class KortexScene(
         if (!postponingSceneInvalidations) onInvalidate()
     }
 
-    private inline fun postponeSceneInvalidations(block: () -> Unit) {
+    private inline fun <T> postponeSceneInvalidations(block: () -> T): T {
         postponingSceneInvalidations = true
-        try {
+        return try {
             block()
         } finally {
             postponingSceneInvalidations = false

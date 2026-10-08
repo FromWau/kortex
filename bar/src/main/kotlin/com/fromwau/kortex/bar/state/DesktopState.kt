@@ -13,6 +13,8 @@ data class TrayEntry(
     val address: ItemAddress,
     /** The item's own id, which is what tells two items of one application apart. */
     val id: String,
+    /** What the item calls itself, which its tooltip shows. */
+    val label: String,
     /**
      * The icon as the item described it, resolved where it is drawn rather than here.
      *

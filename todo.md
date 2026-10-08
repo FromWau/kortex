@@ -246,27 +246,34 @@ drag and drop, Ctrl and the keymap, a monitor's logical size, and the test harne
 
 ## Surface presets
 
-- [ ] **A tooltip on hover, which turns out to be a question about sizing rather than a missing preset.**
-      Asked for by the first bar built on kortex from the outside, where it wants one for the CPU and memory
-      widgets. The tray used to fake one by drawing its hovered item's text inside the bar, and that is gone:
-      the text widened the widget, which moved the icon out from under the pointer, which took the text away
-      again, so the whole tray jumped back and forth while hovered. A bar is only as tall as the bar, so a tooltip cannot be drawn on the
-      surface that triggers it.
-      **`Popup` is already the primitive.** `Popup(at, width, height)` is `PopupCall(grab = false)`: a
-      surface placed at a point that takes no grab, which is exactly what a tooltip is, and a tooltip that
-      took a grab would steal the pointer it is reacting to. Hover tracking and the offset are the caller's,
-      and the demo app already computes an offset that way for `ContextMenu`.
-      **What is missing is a surface sized by its content.** Every preset here demands a `width` and a
-      `height` up front, and a tooltip's size is whatever its text comes out as: a percentage, a memory
-      figure and a tray item's tooltip are three different widths, and a caller cannot know any of them
-      before Compose has measured them. A layer surface has to declare its size before its content is
-      measured, which is the chicken and the egg, and nothing in kortex resolves it today, so the honest
-      shape of this entry is "can a surface be sized by what it draws, and at what cost in frames" rather
-      than "add a `Tooltip`".
-      Worth settling first, because it is not only tooltips: a notification popup and an OSD whose text is a
-      track title want it too, and both currently guess a size and clip. The bar's tray menu does without:
-      it measures its labels with a `TextMeasurer` on the bar before opening, which works for anything whose
-      every line is known up front, and not for content that wraps or loads.
+- [x] **A tooltip on hover, which turned out to be a question about sizing rather than a missing preset.** Done,
+      2026-10-08. Asked for by the first bar built on kortex from the outside, for its CPU and memory widgets. A
+      bar is only as tall as the bar, so a tooltip cannot be drawn on the surface that triggers it, and `Popup`
+      already was the primitive: a surface placed at a point that takes no grab. What was missing was a surface
+      sized by what it draws, since a layer or popup surface declares its size before Compose has measured
+      anything.
+      **A popup sized by its content.** `Popup(at, maxSize)` composes its content before the popup exists,
+      measures it with `KortexScene.measureContent` at the parent's scale, and opens the popup at that size. After
+      every frame it draws it is measured again, and a new size opens it again in its place, as a change of `at`
+      does, with its state kept. (`ContentSizedPopupTest`, `KortexSceneTest`)
+      **`HoverTooltip(tooltip, delay, maxWidth)`** on top of it, like a browser's. It is named apart from
+      Compose's own `TooltipArea`, which draws through Compose's `Popup` and so would be clipped to the surface it
+      is on. It shows after the pointer has rested for the delay, stays put while the pointer moves, and goes on
+      leaving or on a press, after which it waits for the pointer to leave and come back. It opens `XCURSOR_SIZE`
+      below the pointer so it never covers it. Where there is no room below, it opens above the pointer: the
+      positioner hangs it off a rectangle as tall as that clearance, which a flip mirrors. (`HoverTooltipTest`)
+      The bar uses it on its tray icons, showing each item's label, and on the focused window's title, which the
+      bar cuts short.
+      **Left open.**
+      - A resize makes a new popup where `xdg_popup.reposition` (version 3) could resize the one on screen. It
+        only matters for content that changes size while shown, which no caller has yet.
+      - Scale is untested live. The test monitor runs at scale 1, so the measure at the parent's scale and the
+        rounding up to logical pixels are covered only by `KortexSceneTest` at density 2.
+      - The tooltip is its own composition, so the caller's composition locals, `MaterialTheme` among them, do not
+        reach it. The KDoc says so and the bar passes its colours in. Composing it from the caller's
+        `CompositionContext` would carry them over, but across two scenes with a recomposer each that is a real
+        question.
+      - `ContextMenu` could be sized by its content too, which would let the tray menu drop its `TextMeasurer` pass.
 
 - [x] **The presets are composables a host calls.** `Bar`, `Panel`, `Dock`, `DesktopBackground`, `LockScreen`,
       `Osd`, `AppMenu` and `ContextMenu` (`Presets.kt`) are composable functions, each taking the parameters

@@ -73,6 +73,9 @@ and `ContextMenu`, the `LayerSurface` they are all presets of, and `Window`, `Di
 xdg-shell. Each takes its content with the surface itself as the receiver, so content can read the size the
 compositor gave it and close it.
 
+A `Popup` can also be sized by its content instead of a size given up front, and `HoverTooltip` is built on that: it
+shows a tooltip below the pointer once the pointer rests over whatever it wraps.
+
 ## The desktop's own state
 
 A provider gives data and no UI. A widget is where a toolkit starts having opinions about what a bar should

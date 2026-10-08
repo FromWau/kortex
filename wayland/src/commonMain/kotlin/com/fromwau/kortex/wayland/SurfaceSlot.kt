@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import com.fromwau.kern.result.Err
 import com.fromwau.kern.result.Ok
@@ -58,6 +59,9 @@ internal class SurfaceSlot(
     /** What the surface whose content this call is in is built on, which a popup here is parented to. */
     val parentRole: SurfaceRole? get() = parent?.surface?.role
 
+    /** The scale the surface whose content this call is in draws at; null for a call in the application's own. */
+    val parentDensity: Density? get() = parent?.scene?.composition?.density
+
     /** What names the surface whose content this call is in; null for a call in the application's own content. */
     val parentName: String? get() = parent?.scene?.namespace
 
@@ -76,6 +80,12 @@ internal class SurfaceSlot(
 
     // What surface was placed with, which a change of settings replaces it over. Loop thread only.
     var placedWith: SurfaceSettings? = null
+
+    // What a popup sized by its content last measured at, in logical pixels, and on which surface after which of its
+    // frames, so it is measured again once per frame drawn. Loop thread only.
+    var contentSize: IntSize? = null
+    var measuredOn: KortexSurface? = null
+    var measuredAtFrame = 0
 
     // Set as its ending is published: whatever the shell sees of this slot afterwards reports nothing. Loop thread
     // only, and not the state's own status, which the call can swap under it.

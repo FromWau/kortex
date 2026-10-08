@@ -457,6 +457,7 @@ private fun entry(
 ): TrayEntry = TrayEntry(
     address = address,
     id = id,
+    label = id,
     icon = TrayIcon(name = id),
     needsAttention = false,
     hasMenu = hasMenu,

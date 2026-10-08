@@ -1079,8 +1079,8 @@ internal class XdgPopupSurface private constructor(
             display: WaylandDisplay,
             parent: PopupParent,
             at: IntOffset,
-            width: Int,
-            height: Int,
+            size: IntSize,
+            clearance: Int,
             grabs: Boolean,
         ): Result<XdgPopupSurface, KortexError> {
             val compositor = display
@@ -1116,7 +1116,7 @@ internal class XdgPopupSurface private constructor(
             val xdgSurfaceListener = XdgSurfaceListener(xdgSurface)
             xdgSurfaceListener.install(arena)
 
-            val positioner = createPositioner(wmBase, at, width, height)
+            val positioner = createPositioner(wmBase, at, size, clearance)
             val popup = LibWayland.marshal(
                 xdgSurface, XdgShellProtocol.GET_POPUP, XdgShellProtocol.xdgPopupInterface,
                 LibWayland.proxyGetVersion(xdgSurface),
@@ -1130,7 +1130,7 @@ internal class XdgPopupSurface private constructor(
             LibWayland.marshal(positioner, XdgShellProtocol.POSITIONER_DESTROY)
             LibWayland.proxyDestroy(positioner)
 
-            val popupListener = XdgPopupListener(width, height)
+            val popupListener = XdgPopupListener(size.width, size.height)
             popupListener.install(arena, popup)
 
             // Before the commit below, which is the point by which the protocol requires a popup to have a
@@ -1153,15 +1153,15 @@ internal class XdgPopupSurface private constructor(
             }
 
         /**
-         * A positioner asking for a [width] by [height] popup whose top-left corner sits at [at] in its
-         * parent, opening down and to the right and flipping to the other side of [at] on whichever axis
-         * would otherwise run off the screen.
+         * A positioner asking for a popup of [size] whose top-left corner sits at [at] in its parent, or [clearance]
+         * below it, opening down and to the right and flipping to the other side of [at] and the room below it on
+         * whichever axis would otherwise run off the screen.
          */
         private fun createPositioner(
             wmBase: MemorySegment,
             at: IntOffset,
-            width: Int,
-            height: Int,
+            size: IntSize,
+            clearance: Int,
         ): MemorySegment {
             val positioner = LibWayland.marshal(
                 wmBase, XdgShellProtocol.CREATE_POSITIONER, XdgShellProtocol.xdgPositionerInterface,
@@ -1169,13 +1169,23 @@ internal class XdgPopupSurface private constructor(
             )
             LibWayland.marshal(
                 positioner, XdgShellProtocol.SET_POSITIONER_SIZE,
-                args = listOf(WlArg.Num(width), WlArg.Num(height)),
+                args = listOf(WlArg.Num(size.width), WlArg.Num(size.height)),
             )
+            // Hung off the bottom of a rectangle as tall as the clearance, so a flip mirrors it above the rectangle.
+            val below = clearance > 0
             LibWayland.marshal(
                 positioner, XdgShellProtocol.SET_ANCHOR_RECT,
-                args = listOf(WlArg.Num(at.x), WlArg.Num(at.y), WlArg.Num(ANCHOR_SPAN), WlArg.Num(ANCHOR_SPAN)),
+                args = listOf(
+                    WlArg.Num(at.x),
+                    WlArg.Num(at.y),
+                    WlArg.Num(ANCHOR_SPAN),
+                    WlArg.Num(if (below) clearance else ANCHOR_SPAN),
+                ),
             )
-            LibWayland.marshal(positioner, XdgShellProtocol.SET_ANCHOR, args = listOf(WlArg.Num(ANCHOR_TOP_LEFT)))
+            LibWayland.marshal(
+                positioner, XdgShellProtocol.SET_ANCHOR,
+                args = listOf(WlArg.Num(if (below) ANCHOR_BOTTOM_LEFT else ANCHOR_TOP_LEFT)),
+            )
             LibWayland.marshal(
                 positioner, XdgShellProtocol.SET_GRAVITY, args = listOf(WlArg.Num(GRAVITY_BOTTOM_RIGHT)),
             )
@@ -1190,6 +1200,9 @@ internal class XdgPopupSurface private constructor(
 
         /** `xdg_positioner.anchor`'s `top_left`: the popup hangs off the anchor rectangle's top-left corner. */
         private const val ANCHOR_TOP_LEFT = 5
+
+        /** `xdg_positioner.anchor`'s `bottom_left`: the popup hangs off the anchor rectangle's bottom-left corner. */
+        private const val ANCHOR_BOTTOM_LEFT = 6
 
         /** `xdg_positioner.gravity`'s `bottom_right`: the popup opens down and to the right of that corner. */
         private const val GRAVITY_BOTTOM_RIGHT = 8
@@ -1228,8 +1241,8 @@ internal fun KortexSurface.Companion.createOnPopup(
         display,
         parent = parent,
         at = settings.at,
-        width = settings.width.toLogicalPx(),
-        height = settings.height.toLogicalPx(),
+        size = settings.logicalSize,
+        clearance = settings.clearance,
         grabs = settings.grab,
     )
 }

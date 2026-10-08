@@ -198,11 +198,8 @@ internal class WlCursorTheme private constructor(
         fun load(display: WaylandDisplay, scale: Int): Result<WlCursorTheme, KortexError> =
             display.require(WaylandInterface.Shm, LibWayland.shmInterface, WlVersion.SHM).map { shm ->
                 val themeName = System.getenv("XCURSOR_THEME")
-                val baseSize = System.getenv("XCURSOR_SIZE")?.toIntOrNull() ?: DEFAULT_SIZE
-                WlCursorTheme(shm, themeName, baseSize).also { it.rescale(scale) }
+                WlCursorTheme(shm, themeName, cursorSize).also { it.rescale(scale) }
             }
-
-        private const val DEFAULT_SIZE = 24
     }
 }
 
@@ -258,3 +255,6 @@ internal class WlCursorSurface private constructor(
             }
     }
 }
+
+/** How big the pointer is drawn, in logical pixels: `XCURSOR_SIZE`, else 24. */
+internal val cursorSize: Int = System.getenv("XCURSOR_SIZE")?.toIntOrNull() ?: 24

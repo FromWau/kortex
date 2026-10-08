@@ -49,6 +49,7 @@ import com.fromwau.kortex.icons.rememberIconPainter
 import com.fromwau.kortex.bar.system.MemoryUse
 import com.fromwau.kortex.bar.system.NetworkRate
 import com.fromwau.kortex.bar.system.Temperature
+import com.fromwau.kortex.wayland.HoverTooltip
 import java.time.LocalDateTime
 
 /**
@@ -264,13 +265,15 @@ private fun TrayIcons(
     onPress: (ItemAddress, TrayButton, Int) -> Unit,
 ) {
     for (item in items) {
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(item.attentionTint())
-                .presses { button, x -> button.asTrayButton()?.let { onPress(item.address, it, x) } },
-        ) {
-            Artwork(painter = rememberIconPainter(item.icon, TRAY_ICON), label = item.id, side = TRAY_ICON)
+        Tipped(item.label) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(item.attentionTint())
+                    .presses { button, x -> button.asTrayButton()?.let { onPress(item.address, it, x) } },
+            ) {
+                Artwork(painter = rememberIconPainter(item.icon, TRAY_ICON), label = item.id, side = TRAY_ICON)
+            }
         }
     }
 }
@@ -457,7 +460,7 @@ private fun WindowWidget(window: Reading<FocusedWindow?>) {
 
                 else -> {
                     Label(focused.appId.substringAfterLast('.').uppercase())
-                    Readout(focused.title)
+                    Tipped(focused.title) { Readout(focused.title) }
                 }
             }
         }
@@ -561,6 +564,33 @@ private fun ProfileWidget(profile: Reading<ProfileEntry?>, onClick: (next: Power
 private fun TrayEntry.attentionTint(): Color = when {
     needsAttention -> MaterialTheme.colorScheme.errorContainer
     else -> Color.Transparent
+}
+
+/** [content], with [text] shown below the pointer once it rests there. */
+@Composable
+private fun Tipped(
+    text: String,
+    content: @Composable () -> Unit,
+) {
+    // Read here: the tooltip is composed on a surface of its own, which this theme does not reach.
+    val colors = MaterialTheme.colorScheme
+    HoverTooltip(
+        tooltip = {
+            MaterialTheme(colorScheme = colors) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.inverseOnSurface,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(colors.inverseSurface)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
+        },
+    ) {
+        content()
+    }
 }
 
 /** A horizontal bar whose filled part is [fraction] of its width. */
