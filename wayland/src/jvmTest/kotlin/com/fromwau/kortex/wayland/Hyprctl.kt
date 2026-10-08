@@ -182,6 +182,11 @@ internal object Hyprctl {
         .flatMap { it.levels.values.flatten() }
         .map { it.namespace }
 
+    /** Every monitor `hyprctl layers -j` reports [namespace] under. */
+    fun monitorsShowing(namespace: String): Set<String> = layers()
+        .filterValues { layers -> layers.levels.values.flatten().any { it.namespace == namespace } }
+        .keys
+
     /**
      * Runs one of the compositor's window dispatchers against the window at [address], never the active window,
      * which during a test run is whatever the user is working in.

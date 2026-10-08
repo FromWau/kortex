@@ -9,6 +9,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -45,14 +46,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.delay
+import org.junit.jupiter.api.Assumptions.assumeTrue
 
 /**
  * `get_layer_surface` fixes a surface's monitor and namespace, so a call that changes either gets new Wayland
  * objects. The Compose scene is not one of them: content keeps its state, keeps its effects running, never reads a
  * zero size in between.
  *
- * Only the namespace is changed here. The desktop this runs on has one monitor, and a changed monitor takes the
- * identical path.
+ * Most tests change the namespace, which any desktop can. A changed monitor takes the identical path, and the one
+ * test that moves a surface between monitors is skipped where there is only one.
  */
 class SurfaceRebuildTest {
     @Test
@@ -79,6 +81,39 @@ class SurfaceRebuildTest {
                 "the call kept the surface it was placed on, which cannot carry another namespace",
             )
             assertFalse(watch.state.hasEnded, "the rebuild ended the surface instead of remaking it")
+        }
+    }
+
+    @Test
+    fun `a changed monitor puts the call on that monitor's output, and its content carries on`() {
+        val names = Hyprctl.monitors().map(HyprMonitor::name)
+        assumeTrue(names.size >= 2, "moving a surface between monitors needs two, and this desktop has $names")
+        val (first, second) = names
+        val asked = Asked().apply { monitor.value = first }
+        val watch = Watch()
+
+        onWatchedSurface(asked, watch) { shell, placed ->
+            val before = geometryOf(FIRST_NAMESPACE)
+            assertEquals(first, before.monitor, "the surface asked for on $first was placed on ${before.monitor}")
+
+            asked.monitor.value = second
+
+            assertTrue(
+                shell.pumpOrFail(PUMP_MILLIS) { Hyprctl.monitorsShowing(FIRST_NAMESPACE) == setOf(second) },
+                "hyprctl layers never reported $FIRST_NAMESPACE on $second alone, " +
+                    "only on ${Hyprctl.monitorsShowing(FIRST_NAMESPACE)}",
+            )
+            assertNotEquals(
+                before.address, geometryOf(FIRST_NAMESPACE).address,
+                "the compositor kept the same layer surface, so the monitor never reached get_layer_surface",
+            )
+            assertNotSame(
+                placed, shell.shownSurfaces.single(),
+                "the call kept the surface it was placed on, which cannot move to another output",
+            )
+            assertFalse(watch.state.hasEnded, "the move ended the surface instead of remaking it")
+            assertEquals(1, watch.compositions.get(), "the content was composed again from scratch")
+            assertEquals(1, watch.effects.get(), "the content's effect was started a second time")
         }
     }
 
@@ -413,8 +448,12 @@ class SurfaceRebuildTest {
         }
     }
 
-    /** The surface one call asks for: namespace, anchor and width are states a test can change while it is placed. */
+    /**
+     * The surface one call asks for: monitor, namespace, anchor and width are states a test can change while it is
+     * placed. The monitor is a name, since [Monitor]s only exist inside the composition.
+     */
     private class Asked {
+        val monitor: MutableState<String?> = mutableStateOf(null)
         val namespace: MutableState<String> = mutableStateOf(FIRST_NAMESPACE)
         val anchor: MutableState<Set<Edge>> = mutableStateOf(BOTTOM_RIGHT_SPECK)
         val width: MutableState<Length> = mutableStateOf(Length.Of(SPECK.dp))
@@ -434,8 +473,10 @@ class SurfaceRebuildTest {
     /** One surface driven by [asked], whose content reports itself to [watch] from an effect a rebuild outlives. */
     @Composable
     private fun WatchedSurface(asked: Asked, watch: Watch) {
+        val monitors by rememberMonitors()
         TestSurface(
             namespace = asked.namespace.value,
+            monitor = asked.monitor.value?.let { name -> monitors.firstOrNull { it.name == name } },
             anchor = asked.anchor.value,
             width = asked.width.value,
             height = Length.Of(asked.height.dp),

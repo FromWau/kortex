@@ -35,7 +35,7 @@ class NamedOutputTest {
                     assertTrue(appeared, "hyprctl layers never reported $NAMED_NAMESPACE")
 
                     assertEquals(
-                        setOf(outputName), monitorsShowing(NAMED_NAMESPACE),
+                        setOf(outputName), Hyprctl.monitorsShowing(NAMED_NAMESPACE),
                         "the surface is not under exactly the monitor it was shown on",
                     )
                 }
@@ -106,11 +106,6 @@ class NamedOutputTest {
             ) {}
         }
     }
-
-    /** Every monitor `hyprctl layers -j` reports [namespace] under. */
-    private fun monitorsShowing(namespace: String): Set<String> = Hyprctl.layers()
-        .filterValues { layers -> layers.levels.values.flatten().any { it.namespace == namespace } }
-        .keys
 
     private fun panelNamespaces(): Set<String> =
         Hyprctl.namespaces().filterTo(mutableSetOf()) { it.startsWith("$PANEL_NAMESPACE-") }
