@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -73,32 +74,16 @@ fun BarContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        TimerWidget(
-            face = state.timer,
-            onClick = { onAction(BarAction.TimerClicked) },
-            onReset = { onAction(BarAction.TimerReset) },
-        )
         WorkspacesWidget(
             workspaces = state.workspaces,
             onClick = { id -> onAction(BarAction.WorkspaceClicked(id)) },
         )
-        SubmapWidget(state.submap)
-        // All the free room, so the right side sits at the edge and a long title is cut at the box rather than
-        // pushing it off. Weighting the widget itself with fill = false leaves its unused share at the far end.
-        Box(
-            modifier = Modifier.weight(1f),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            WindowWidget(state.focusedWindow)
-        }
+
+        Spacer(Modifier.weight(1f))
 
         MediaWidget(
             media = state.media,
             onClick = { player -> onAction(BarAction.MediaClicked(player)) },
-        )
-        SchemeWidget(
-            scheme = state.scheme,
-            onClick = { onAction(BarAction.SchemeCycled) },
         )
         TrayWidget(
             tray = state.tray,
@@ -106,7 +91,6 @@ fun BarContent(
         )
         NotificationWidget(state.notifications)
         NetworkWidget(state.network)
-        TemperatureWidget(state.temperature)
         BatteryWidget(state.batteries)
         ProfileWidget(
             profile = state.powerProfile,
@@ -114,10 +98,9 @@ fun BarContent(
         )
         GaugeWidget(label = "CPU", fraction = state.cpuLoad, readout = ::percent)
         MemoryWidget(state.memory)
-        KeyboardWidget(state.keyboardLayout)
         ClockWidget(
             clock = state.clock,
-            showDetail = state.showDetail,
+            showDetail = true,
             onClick = { onAction(BarAction.ClockClicked) },
         )
     }

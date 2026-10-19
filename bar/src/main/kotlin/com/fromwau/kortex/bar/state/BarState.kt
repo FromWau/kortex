@@ -81,7 +81,7 @@ data class BarState(
         /** The bar before any source has answered. */
         val Pending: BarState = BarState(
             clock = Reading.Pending,
-            showDetail = false,
+            showDetail = true,
             cpuLoad = Reading.Pending,
             memory = Reading.Pending,
             network = Reading.Pending,
